@@ -26,9 +26,9 @@
     mod
   ));
 
-  // ../remotion_runtime/node_modules/react/cjs/react.development.js
+  // node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
+    "node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/index.js
+  // node_modules/react/index.js
   var require_react = __commonJS({
-    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
+    "node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
+  // node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/index.js
+  // node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
+    "node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
+  // node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/index.js
+  // node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
+    "node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
+  // node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/client.js
+  // node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
+    "node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
+  // node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/jsx-runtime.js
+  // node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
+    "node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -23881,23 +23881,24 @@
       const snapCandidate = candidate && Math.abs(targetAt - candidate.at) < 1e-3 ? candidate : null;
       return { targetAt, deltaSeconds, snapCandidate };
     },
-    resolveTrimStart(originalAt, originalEnd, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled, frameRate) {
+    resolveTrimStart(originalAt, originalEnd, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled, frameRate, minimumStart) {
       const start = finiteOr(originalAt, 0);
       const end = finiteOr(originalEnd, start + 0.08);
       const rawTarget = start + finiteOr(rawDeltaSeconds, 0);
       const candidate = snapEnabled ? filmTimelineMath.resolveSnapCandidate(rawTarget, candidates, pixelsPerSecond, thresholdPixels, frameRate) : null;
       const proposed = candidate ? candidate.at : rawTarget;
-      const target = Math.max(start + 0.04, Math.min(end - 0.04, proposed));
+      const lowerBound = Number.isFinite(minimumStart) ? Math.max(0, Number(minimumStart)) : start + 0.04;
+      const target = Math.max(lowerBound, Math.min(end - 0.04, proposed));
       const snapCandidate = candidate && Math.abs(target - candidate.at) < 1e-3 ? candidate : null;
       return { target, deltaSeconds: target - start, snapCandidate };
     },
-    resolveTrimEnd(originalAt, originalEnd, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled, frameRate) {
+    resolveTrimEnd(originalAt, originalEnd, rawDeltaSeconds, candidates, pixelsPerSecond, thresholdPixels, snapEnabled, frameRate, allowExtension = false) {
       const start = finiteOr(originalAt, 0);
       const end = finiteOr(originalEnd, start + 0.08);
       const rawTarget = end + finiteOr(rawDeltaSeconds, 0);
       const candidate = snapEnabled ? filmTimelineMath.resolveSnapCandidate(rawTarget, candidates, pixelsPerSecond, thresholdPixels, frameRate) : null;
       const proposed = candidate ? candidate.at : rawTarget;
-      const target = Math.max(start + 0.04, Math.min(end - 0.04, proposed));
+      const target = allowExtension ? Math.max(start + 0.04, proposed) : Math.max(start + 0.04, Math.min(end - 0.04, proposed));
       const snapCandidate = candidate && Math.abs(target - candidate.at) < 1e-3 ? candidate : null;
       return { target, deltaSeconds: target - end, snapCandidate };
     },
@@ -24194,8 +24195,56 @@
     }
     return operations.length === members.length ? operations : null;
   };
+  var resolveTrimGesture = (input) => {
+    const clipId = String(input.clipId || "").trim();
+    const originalAt = input.originalAt;
+    const originalEnd = input.originalEnd;
+    if (!clipId || input.edge !== "start" && input.edge !== "end" || !Number.isFinite(originalAt) || !Number.isFinite(originalEnd) || originalAt < 0 || originalEnd <= originalAt || !Number.isFinite(input.rawDeltaSeconds) || !Number.isFinite(input.pixelsPerSecond) || input.pixelsPerSecond <= 0) return null;
+    const supportsExtension = ["video", "audio", "img"].includes(input.clipTag);
+    const sourceIn = Number.isFinite(input.sourceIn) ? Math.max(0, input.sourceIn) : 0;
+    const playbackSpeed = Number.isFinite(input.playbackSpeed) && input.playbackSpeed > 0 ? input.playbackSpeed : 1;
+    const minimumStart = !supportsExtension ? originalAt + 0.04 : input.clipTag === "video" || input.clipTag === "audio" ? Math.max(0, originalAt - sourceIn / playbackSpeed) : 0;
+    const resolution = input.edge === "start" ? filmTimelineMath.resolveTrimStart(
+      originalAt,
+      originalEnd,
+      input.rawDeltaSeconds,
+      input.candidates,
+      input.pixelsPerSecond,
+      input.thresholdPixels,
+      input.snapEnabled,
+      input.frameRate,
+      minimumStart
+    ) : filmTimelineMath.resolveTrimEnd(
+      originalAt,
+      originalEnd,
+      input.rawDeltaSeconds,
+      input.candidates,
+      input.pixelsPerSecond,
+      input.thresholdPixels,
+      input.snapEnabled,
+      input.frameRate,
+      supportsExtension
+    );
+    if (!Number.isFinite(resolution.target)) return null;
+    const previewStart = input.edge === "start" ? resolution.target : originalAt;
+    const previewEnd = input.edge === "end" ? resolution.target : originalEnd;
+    const frameRate = Number.isFinite(input.frameRate) ? input.frameRate : 0;
+    const frameAligned = frameRate > 0 && Math.abs(resolution.target * frameRate - Math.round(resolution.target * frameRate)) < 2e-5;
+    const preserveFramePrecision = resolution.snapCandidate?.kind === "\u5E27" || frameAligned;
+    const target = Number(resolution.target.toFixed(preserveFramePrecision ? 6 : 3));
+    const operation = input.edge === "start" ? { op: "trim", clip: clipId, edge: "start", at: target } : { op: "trim", clip: clipId, edge: "end", end: target };
+    return {
+      resolution,
+      preview: {
+        left: filmTimelineMath.clipLeft(previewStart, input.pixelsPerSecond),
+        width: Math.max(3, filmTimelineMath.secondsToPixels(previewEnd - previewStart, input.pixelsPerSecond))
+      },
+      operation
+    };
+  };
   var filmTimelineGestureController = {
     resolveMoveGesture: resolveMove,
+    resolveTrimGesture,
     validateMoveTarget,
     buildMovePreview,
     buildMoveOperations
@@ -24290,6 +24339,8 @@
       "originalAt",
       "originalEnd",
       "originalTrackIndex",
+      "originalSourceIn",
+      "originalSpeed",
       "rightAt",
       "centerAt",
       "leftDuration",
@@ -24301,6 +24352,9 @@
     }
     const originalAt = optionalNumber("originalAt");
     const originalEnd = optionalNumber("originalEnd");
+    const clipTag = optionalString("clipTag");
+    const originalSourceIn = optionalNumber("originalSourceIn");
+    const originalSpeed = optionalNumber("originalSpeed");
     const trackId = optionalString("trackId");
     const originalTrackIndex = optionalNumber("originalTrackIndex");
     const targetTrackId = optionalString("targetTrackId");
@@ -24312,7 +24366,7 @@
     const leftDuration = optionalNumber("leftDuration");
     const centerDuration = optionalNumber("centerDuration");
     const rightDuration = optionalNumber("rightDuration");
-    if (originalAt === void 0 !== (originalEnd === void 0) || originalAt !== void 0 && originalEnd !== void 0 && originalEnd < originalAt || trackId === void 0 !== (originalTrackIndex === void 0) || trackId && !trackOrder.includes(trackId) || targetTrackId && !trackOrder.includes(targetTrackId) || originalTrackIndex !== void 0 && (!Number.isInteger(originalTrackIndex) || originalTrackIndex < 0 || trackOrder[originalTrackIndex] !== trackId)) return null;
+    if (originalSourceIn !== void 0 && originalSourceIn < 0 || originalSpeed !== void 0 && originalSpeed <= 0 || clipTag !== void 0 && !["video", "audio", "img", "iframe"].includes(clipTag) || originalAt === void 0 !== (originalEnd === void 0) || originalAt !== void 0 && originalEnd !== void 0 && originalEnd < originalAt || trackId === void 0 !== (originalTrackIndex === void 0) || trackId && !trackOrder.includes(trackId) || targetTrackId && !trackOrder.includes(targetTrackId) || originalTrackIndex !== void 0 && (!Number.isInteger(originalTrackIndex) || originalTrackIndex < 0 || trackOrder[originalTrackIndex] !== trackId)) return null;
     const primaryMember = members.find((member) => member.id === id);
     if (!primaryMember || originalAt !== void 0 && primaryMember.originalAt !== originalAt || originalEnd !== void 0 && primaryMember.originalEnd !== originalEnd || trackId !== void 0 && primaryMember.trackId !== trackId || originalTrackIndex !== void 0 && primaryMember.trackIndex !== originalTrackIndex || mode !== "move" && members.length !== 1) return null;
     const hasClipBaseline = originalAt !== void 0 && originalEnd !== void 0 && !!trackId && originalTrackIndex !== void 0 && !!targetTrackId;
@@ -24333,6 +24387,9 @@
       originalEnd,
       trackId,
       originalTrackIndex,
+      clipTag,
+      originalSourceIn,
+      originalSpeed,
       targetTrackId,
       invalidTargetMessage: optionalString("invalidTargetMessage"),
       leftClipId,
