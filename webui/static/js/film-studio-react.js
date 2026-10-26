@@ -26,9 +26,9 @@
     mod
   ));
 
-  // ../remotion_runtime/node_modules/react/cjs/react.development.js
+  // node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
+    "node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/index.js
+  // node_modules/react/index.js
   var require_react = __commonJS({
-    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
+    "node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
+  // node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/index.js
+  // node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
+    "node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
+  // node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/index.js
+  // node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
+    "node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
+  // node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/client.js
+  // node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
+    "node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
+  // node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/jsx-runtime.js
+  // node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
+    "node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -25131,54 +25131,7 @@
     const gesture = state.timelineGestureContext;
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     const film = timelineRecord(state.film);
-    const rawTracks = Array.isArray(film.tracks) ? film.tracks : [];
-    const tracks = rawTracks.map((rawTrack) => {
-      const track = timelineRecord(rawTrack);
-      const rawClips = Array.isArray(track.clips) ? track.clips : [];
-      return {
-        id: String(track.id ?? ""),
-        attrs: timelineRecord(track.attrs),
-        clips: rawClips.map((rawClip) => {
-          const clip = timelineRecord(rawClip);
-          return {
-            id: String(clip.id ?? ""),
-            at: clip.at,
-            end: clip.end,
-            attrs: timelineRecord(clip.attrs)
-          };
-        })
-      };
-    });
-    let excludedIds = [gesture.id];
-    if (gesture.mode === "move") excludedIds = gesture.members.map((member) => member.id);
-    else if (gesture.mode === "roll") excludedIds = [gesture.leftClipId, gesture.rightClipId].filter((id) => !!id);
-    else if (gesture.mode === "slide") {
-      excludedIds = [gesture.leftClipId, gesture.centerClipId, gesture.rightClipId].filter((id) => !!id);
-    }
-    const selectedIds = new Set(excludedIds);
-    const selectedClipStartIsPlayhead = excludedIds.some((id) => {
-      for (const track of tracks) {
-        const clip = (track.clips || []).find((item) => item.id === id);
-        if (!clip) continue;
-        const at = Number(clip.at);
-        return Number.isFinite(at) && Math.abs(filmTimelineMath.secondsToPixels(
-          at - state.playhead,
-          state.pixelsPerSecond
-        )) <= 0.5;
-      }
-      return false;
-    });
-    const candidates = [{ at: 0, kind: "\u7247\u5934" }];
-    if (!selectedClipStartIsPlayhead) candidates.push({ at: state.playhead, kind: "\u64AD\u653E\u5934" });
-    for (const track of tracks) {
-      for (const clip of track.clips || []) {
-        if (selectedIds.has(clip.id)) continue;
-        const at = Number(clip.at);
-        if (Number.isFinite(at)) candidates.push({ at, kind: "\u7247\u6BB5\u5165\u70B9" });
-        const end = Number(clip.end);
-        if (Number.isFinite(end)) candidates.push({ at: end, kind: "\u7247\u6BB5\u51FA\u70B9" });
-      }
-    }
+    const { tracks, candidates } = reactMoveGestureSnapshot(event, state, gesture);
     const rawFps = Number(film.fps);
     const frameRate = Number.isFinite(rawFps) && rawFps > 0 ? Math.max(1, Math.min(120, rawFps)) : 30;
     const rawDeltaSeconds = filmTimelineMath.dragDeltaSeconds(
@@ -25317,6 +25270,68 @@
     return void 0;
   };
   var timelineRecord = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  var reactMoveGestureSnapshots = /* @__PURE__ */ new WeakMap();
+  var reactMoveGestureSnapshot = (event, state, gesture) => {
+    const excludedIds = gesture.mode === "move" ? gesture.members.map((member) => member.id) : gesture.mode === "roll" ? [gesture.leftClipId, gesture.rightClipId].filter((id) => !!id) : gesture.mode === "slide" ? [gesture.leftClipId, gesture.centerClipId, gesture.rightClipId].filter((id) => !!id) : [gesture.id];
+    const signature = gesture.mode + "" + gesture.id + "" + excludedIds.join("");
+    const cached = reactMoveGestureSnapshots.get(event);
+    if (cached && cached.film === state.film && cached.playhead === state.playhead && cached.pixelsPerSecond === state.pixelsPerSecond && cached.signature === signature) {
+      return cached;
+    }
+    const film = timelineRecord(state.film);
+    const rawTracks = Array.isArray(film.tracks) ? film.tracks : [];
+    const tracks = rawTracks.map((rawTrack) => {
+      const track = timelineRecord(rawTrack);
+      const rawClips = Array.isArray(track.clips) ? track.clips : [];
+      return {
+        id: String(track.id ?? ""),
+        attrs: timelineRecord(track.attrs),
+        clips: rawClips.map((rawClip) => {
+          const clip = timelineRecord(rawClip);
+          return {
+            id: String(clip.id ?? ""),
+            at: clip.at,
+            end: clip.end,
+            attrs: timelineRecord(clip.attrs)
+          };
+        })
+      };
+    });
+    const selectedIds = new Set(excludedIds);
+    const selectedClipStartIsPlayhead = excludedIds.some((id) => {
+      for (const track of tracks) {
+        const clip = (track.clips || []).find((item) => item.id === id);
+        if (!clip) continue;
+        const at = Number(clip.at);
+        return Number.isFinite(at) && Math.abs(filmTimelineMath.secondsToPixels(
+          at - state.playhead,
+          state.pixelsPerSecond
+        )) <= 0.5;
+      }
+      return false;
+    });
+    const candidates = [{ at: 0, kind: "\u7247\u5934" }];
+    if (!selectedClipStartIsPlayhead) candidates.push({ at: state.playhead, kind: "\u64AD\u653E\u5934" });
+    for (const track of tracks) {
+      for (const clip of track.clips || []) {
+        if (selectedIds.has(clip.id)) continue;
+        const at = Number(clip.at);
+        if (Number.isFinite(at)) candidates.push({ at, kind: "\u7247\u6BB5\u5165\u70B9" });
+        const end = Number(clip.end);
+        if (Number.isFinite(end)) candidates.push({ at: end, kind: "\u7247\u6BB5\u51FA\u70B9" });
+      }
+    }
+    const snapshot = {
+      film: state.film,
+      playhead: state.playhead,
+      pixelsPerSecond: state.pixelsPerSecond,
+      signature,
+      tracks,
+      candidates
+    };
+    reactMoveGestureSnapshots.set(event, snapshot);
+    return snapshot;
+  };
   var timelineKeyframeMarks = (tag, attrs, duration) => {
     const raw = attrs["data-film-keyframes"];
     if (tag === "audio" || typeof raw !== "string" || !raw.trim() || duration == null || !Number.isFinite(duration) || duration <= 0) return [];
@@ -27009,25 +27024,7 @@
       if (!gesture.active && Math.hypot(deltaX, deltaY) < 5) return;
       const scroll = document.getElementById("fs-timeline-scroll");
       if (!scroll) return;
-      const film = timelineRecord(state.film);
-      const rawTracks = Array.isArray(film.tracks) ? film.tracks : [];
-      const tracks = rawTracks.map((rawTrack) => {
-        const track = timelineRecord(rawTrack);
-        const rawClips = Array.isArray(track.clips) ? track.clips : [];
-        return {
-          id: String(track.id ?? ""),
-          attrs: timelineRecord(track.attrs),
-          clips: rawClips.map((rawClip) => {
-            const clip = timelineRecord(rawClip);
-            return {
-              id: String(clip.id ?? ""),
-              at: clip.at,
-              end: clip.end,
-              attrs: timelineRecord(clip.attrs)
-            };
-          })
-        };
-      });
+      const { tracks, candidates } = reactMoveGestureSnapshot(event, state, gesture);
       const element = document.elementFromPoint(event.clientX, event.clientY);
       const row = element instanceof Element ? element.closest(".fs-track") : null;
       const rowTrackId = row?.getAttribute("data-track") || "";
@@ -27035,25 +27032,7 @@
       const targetTrackId = hasTargetTrack ? rowTrackId : String(gesture.trackId || gesture.members[0]?.trackId || "");
       let invalidTargetMessage;
       if (hasTargetTrack) {
-        const selectedIds2 = new Set(gesture.members.map((member) => member.id));
-        const selectedClipStartIsPlayhead = gesture.members.some(
-          (member) => Math.abs(filmTimelineMath.secondsToPixels(
-            member.originalAt - state.playhead,
-            state.pixelsPerSecond
-          )) <= 0.5
-        );
-        const candidates = [{ at: 0, kind: "\u7247\u5934" }];
-        if (!selectedClipStartIsPlayhead) candidates.push({ at: state.playhead, kind: "\u64AD\u653E\u5934" });
-        for (const track of tracks) {
-          for (const clip of track.clips || []) {
-            if (selectedIds2.has(clip.id)) continue;
-            const at = Number(clip.at);
-            if (Number.isFinite(at)) candidates.push({ at, kind: "\u7247\u6BB5\u5165\u70B9" });
-            const end = Number(clip.end);
-            if (Number.isFinite(end)) candidates.push({ at: end, kind: "\u7247\u6BB5\u51FA\u70B9" });
-          }
-        }
-        const rawFps = Number(film.fps);
+        const rawFps = Number(timelineRecord(state.film).fps);
         const frameRate = Number.isFinite(rawFps) && rawFps > 0 ? Math.max(1, Math.min(120, rawFps)) : 30;
         const minimumStart = gesture.members.reduce(
           (minimum, member) => Math.min(minimum, member.originalAt),
