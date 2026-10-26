@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 import os
 import subprocess
+import shutil
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import threading
@@ -45,6 +46,8 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
         capture_output=True, text=True, timeout=60,
     )
     assert generated.returncode == 0, generated.stderr
+    # Clip-b starts with a 5-second selected source window; the file has more frames.
+    shutil.copyfile(asset_root / "a.mp4", asset_root / "b.mp4")
 
     project_id = "film-studio-roll-browser"
     project_root = storage_root / project_id

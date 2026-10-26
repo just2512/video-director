@@ -1317,8 +1317,12 @@
           if(mode!=='move')members=members.filter(function(m){return m.id===clip.id;});
           gestureDomRefs=reactOwnsGestureSurface?null:{clipElement:el,memberElements:memberDomElements,
             slideElements:null,rollElements:null,targetRow:null};
+          var trimSourceMatch=String((clip.attrs||{}).src||'').match(/#t=([0-9]+(?:\.[0-9]+)?)(?:,|$)/);
           S.drag={id:clip.id,mode:mode,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,
             originalAt:clip.at,originalEnd:clip.end==null?clip.at+num(clip.duration,2):clip.end,trackId:clip.track_id,
+            originalSourceIn:trimSourceMatch?Number(trimSourceMatch[1]):0,
+            originalSpeed:(clip.tag==='video'||clip.tag==='audio')?num((clip.attrs||{}).speed,1):1,
+            clipTag:clip.tag,
             originalTrackIndex:trackOrder.indexOf(clip.track_id),trackOrder:trackOrder,
             startScrollLeft:$('fs-timeline-scroll').scrollLeft,active:false,members:members,
             targetTrackId:clip.track_id};
@@ -2348,6 +2352,7 @@
       var startTrimPreviewResult=startTrimPreviewController&&typeof startTrimPreviewController.resolveTrimGesture==='function'
         ?startTrimPreviewController.resolveTrimGesture({
           clipId:d.id,edge:'start',originalAt:d.originalAt,originalEnd:d.originalEnd,
+          clipTag:d.clipTag,sourceIn:d.originalSourceIn,playbackSpeed:d.originalSpeed,
           rawDeltaSeconds:deltaSeconds,candidates:timelineSnapCandidates([d.id]),
           pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
         })
@@ -2380,6 +2385,7 @@
       var endTrimPreviewResult=endTrimPreviewController&&typeof endTrimPreviewController.resolveTrimGesture==='function'
         ?endTrimPreviewController.resolveTrimGesture({
           clipId:d.id,edge:'end',originalAt:d.originalAt,originalEnd:d.originalEnd,
+          clipTag:d.clipTag,sourceIn:d.originalSourceIn,playbackSpeed:d.originalSpeed,
           rawDeltaSeconds:deltaSeconds,candidates:timelineSnapCandidates([d.id]),
           pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
         })
@@ -2549,6 +2555,7 @@
       var startTrimCommitResult=startTrimCommitController&&typeof startTrimCommitController.resolveTrimGesture==='function'
         ?startTrimCommitController.resolveTrimGesture({
           clipId:d.id,edge:'start',originalAt:d.originalAt,originalEnd:d.originalEnd,
+          clipTag:d.clipTag,sourceIn:d.originalSourceIn,playbackSpeed:d.originalSpeed,
           rawDeltaSeconds:deltaSeconds,candidates:timelineSnapCandidates([d.id]),
           pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
         })
@@ -2562,6 +2569,7 @@
       var endTrimCommitResult=endTrimCommitController&&typeof endTrimCommitController.resolveTrimGesture==='function'
         ?endTrimCommitController.resolveTrimGesture({
           clipId:d.id,edge:'end',originalAt:d.originalAt,originalEnd:d.originalEnd,
+          clipTag:d.clipTag,sourceIn:d.originalSourceIn,playbackSpeed:d.originalSpeed,
           rawDeltaSeconds:deltaSeconds,candidates:timelineSnapCandidates([d.id]),
           pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
         })

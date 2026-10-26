@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 from pathlib import Path
 
 import pytest
 
-from video_director import film_document as fd
+from video_director import film_document as fd, renderer
 
 
 SAMPLE = '''<!doctype html>
@@ -1016,6 +1017,82 @@ def test_trim_start_and_end_preserve_source_time_and_speed():
     assert clip["attrs"]["src"].endswith("#t=4,8")
     assert fd.clip_duration(clip) == 2
     assert [item["op"] for item in ops] == ["trim", "trim"]
+
+
+def test_trim_edge_extension_is_bounded_by_real_media_duration(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    media_root = storage / "assets"
+    media_root.mkdir(parents=True)
+    media_path = media_root / "b.mp4"
+    generated = subprocess.run(
+        [
+            renderer._ffmpeg(), "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "color=c=black:s=64x64:r=10:d=8",
+            "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-t", "8",
+            "-y", str(media_path),
+        ],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert generated.returncode == 0, generated.stderr
+
+    project_id = "film-trim-source-end"
+    project_root = storage / project_id
+    project_root.mkdir(parents=True)
+    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    before = fd.read_project_film(project_id)
+
+    extended = fd.edit_project_film(
+        project_id, before["rev"],
+        [{"op": "trim", "clip": "clip-b", "edge": "end", "end": 10.5}],
+        source="test",
+    )
+    clip = next(
+        clip for track in extended["document"]["tracks"] for clip in track["clips"]
+        if clip["id"] == "clip-b"
+    )
+    assert clip["attrs"]["src"].endswith("#t=0,5.5")
+    assert fd.clip_end(clip) == pytest.approx(10.5)
+
+    stable = fd.read_project_film(project_id)
+    with pytest.raises(fd.FilmError, match="超出素材时长"):
+        fd.edit_project_film(
+            project_id, stable["rev"],
+            [{"op": "trim", "clip": "clip-b", "edge": "end", "end": 13.5}],
+            source="test",
+        )
+    after = fd.read_project_film(project_id)
+    assert after["rev"] == stable["rev"], "rejected source extension must not mutate film.html"
+    assert after["text"] == stable["text"]
+
+    # A left extension can reveal the preselected source interval down to t=0, not before.
+    start_project = "film-trim-source-start"
+    start_root = storage / start_project
+    start_root.mkdir(parents=True)
+    start_markup = SAMPLE.replace("../assets/b.mp4#t=0,5", "../assets/b.mp4#t=2,7")
+    (start_root / fd.FILM_NAME).write_text(start_markup, encoding="utf-8")
+    start_before = fd.read_project_film(start_project)
+    start_extended = fd.edit_project_film(
+        start_project, start_before["rev"],
+        [{"op": "trim", "clip": "clip-b", "edge": "start", "at": 3}],
+        source="test",
+    )
+    start_clip = next(
+        clip for track in start_extended["document"]["tracks"] for clip in track["clips"]
+        if clip["id"] == "clip-b"
+    )
+    assert start_clip["attrs"]["src"].endswith("#t=0,7")
+    assert float(start_clip["attrs"]["at"]) == pytest.approx(3)
+    stable_start = fd.read_project_film(start_project)
+    with pytest.raises(fd.FilmError, match="不能小于"):
+        fd.edit_project_film(
+            start_project, stable_start["rev"],
+            [{"op": "trim", "clip": "clip-b", "edge": "start", "at": 2}],
+            source="test",
+        )
+    after_start = fd.read_project_film(start_project)
+    assert after_start["rev"] == stable_start["rev"]
+    assert after_start["text"] == stable_start["text"]
 
 
 def test_still_trim_keeps_zero_source_in_and_changes_visible_duration():

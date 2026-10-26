@@ -150,6 +150,10 @@ def _trim_fade(value: Any, duration: float, offset: float, edge: str) -> str | N
     fade_in, fade_out = _parse_fade(value)
     if fade_in <= 0 and fade_out <= 0:
         return None
+    # A trim extension moves the outer edge while preserving the original fade.
+    if ((edge == "start" and offset < -0.001)
+            or (edge == "end" and offset > duration + 0.001)):
+        return f"{_fmt(fade_in)},{_fmt(fade_out)}"
     if not math.isfinite(duration) or not math.isfinite(offset) or offset <= 0 or offset >= duration:
         raise FilmError("FADE_EDIT_BOUNDARY", "淡化修剪点必须位于片段内部", 422)
     if edge == "start":
@@ -2039,7 +2043,9 @@ def _apply_element_set(doc: dict, op: dict) -> dict:
     return normalized
 
 
-def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
+def apply_ops(
+    doc: dict, ops: list[dict], *, allow_source_extension: bool = False,
+) -> tuple[dict, list[dict]]:
     if not isinstance(ops, list) or not ops or len(ops) > MAX_OPERATIONS:
         raise FilmError("INVALID_OPERATIONS", f"ops 必须是 1–{MAX_OPERATIONS} 项的数组")
     out = copy.deepcopy(doc)
@@ -2253,7 +2259,12 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
             src_in, src_out = _source_range(attrs["src"])
             speed = _number(attrs.get("speed", 1), "speed", 0.25, 4) if clip["tag"] in {"video", "audio"} else 1.0
             if edge == "start":
-                new_start = _number(op.get("at"), "trim start", start + 0.001, old_end - 0.001)
+                minimum_start = start + 0.001
+                if allow_source_extension and clip["tag"] in {"video", "audio"}:
+                    minimum_start = max(0.0, start - src_in / speed)
+                elif allow_source_extension and clip["tag"] == "img":
+                    minimum_start = 0.0
+                new_start = _number(op.get("at"), "trim start", minimum_start, old_end - 0.001)
                 delta = new_start - start
                 trimmed_fade = _trim_fade(attrs.get("fade"), duration, delta, "start")
                 if clip["tag"] in {"img", "iframe"}:
@@ -2269,12 +2280,19 @@ def apply_ops(doc: dict, ops: list[dict]) -> tuple[dict, list[dict]]:
                 _store_fade(attrs, trimmed_fade)
                 normalized.append({"op": "trim", "clip": clip["id"], "edge": "start", "at": _fmt(new_start)})
             elif edge == "end":
-                new_end = _number(op.get("end"), "trim end", start + 0.001, old_end - 0.001)
+                can_extend_source = allow_source_extension and clip["tag"] in {"video", "audio", "img"}
+                new_end = (
+                    _number(op.get("end"), "trim end", start + 0.001)
+                    if can_extend_source
+                    else _number(op.get("end"), "trim end", start + 0.001, old_end - 0.001)
+                )
                 trimmed_fade = _trim_fade(attrs.get("fade"), duration, new_end - start, "end")
                 new_src_out = src_in + (new_end - start) * speed
                 if new_src_out <= src_in + 0.001:
                     raise FilmError("TRIM_EMPTY_CLIP", "修剪后片段时长不能为零")
-                attrs["src"] = _with_source_range(attrs["src"], src_in, min(src_out, new_src_out))
+                attrs["src"] = _with_source_range(
+                    attrs["src"], src_in, new_src_out if can_extend_source else min(src_out, new_src_out)
+                )
                 _slice_volume_envelope(attrs, 0.0, new_end - start)
                 _slice_film_keyframes(attrs, 0.0, new_end - start)
                 _store_fade(attrs, trimmed_fade)
@@ -3059,6 +3077,68 @@ def _validate_slip_source_bounds(project_id: str, doc: dict, normalized_ops: lis
             )
 
 
+def _validate_trim_source_bounds(
+    project_id: str, before_doc: dict, after_doc: dict, normalized_ops: list[dict],
+) -> None:
+    """Permit source extension only when the real media duration proves it is safe."""
+    trim_ids = {
+        str(op.get("clip") or "")
+        for op in normalized_ops
+        if isinstance(op, dict) and op.get("op") == "trim"
+    }
+    if not trim_ids:
+        return
+    from video_director import prober
+
+    def clips_by_id(doc: dict) -> dict[str, dict]:
+        return {
+            clip["id"]: clip
+            for track in doc.get("tracks", [])
+            for clip in track.get("clips", [])
+        }
+
+    old_clips, new_clips = clips_by_id(before_doc), clips_by_id(after_doc)
+    for clip_id in sorted(trim_ids):
+        clip = new_clips.get(clip_id)
+        if clip is None or clip.get("tag") not in {"video", "audio"}:
+            continue
+        src = str((clip.get("attrs") or {}).get("src") or "")
+        source_in, source_out = _source_range(src)
+        old = old_clips.get(clip_id)
+        if old is not None:
+            old_src = str((old.get("attrs") or {}).get("src") or "")
+            old_in, old_out = _source_range(old_src)
+            expanded = source_in < old_in - 0.001 or (
+                source_out is not None and (old_out is None or source_out > old_out + 0.001)
+            )
+            if not expanded:
+                continue
+        path = media_path_for_src(project_id, src)
+        try:
+            probe = prober.probe_media(str(path))
+        except Exception as exc:
+            raise FilmError(
+                "SOURCE_PROBE_FAILED",
+                f"无法验证片段 {clip_id} 的真实素材时长，已拒绝扩展源区间：{str(exc)[:240]}",
+                422,
+            ) from None
+        if clip["tag"] == "video" and not probe.has_video_stream:
+            raise FilmError("VIDEO_STREAM_MISSING", f"视频片段 {clip_id} 指向的素材没有视频流", 422)
+        if clip["tag"] == "audio" and not probe.has_audio_stream:
+            raise FilmError("AUDIO_STREAM_MISSING", f"音频片段 {clip_id} 指向的素材没有音频流", 422)
+        if probe.duration is None or not math.isfinite(float(probe.duration)) or float(probe.duration) <= 0:
+            raise FilmError(
+                "SOURCE_DURATION_UNKNOWN", f"无法确认片段 {clip_id} 的真实素材时长，已拒绝扩展源区间", 422
+            )
+        if source_out is None or source_in < -0.001 or source_out > float(probe.duration) + 0.05:
+            raise FilmError(
+                "SOURCE_RANGE_OUT_OF_BOUNDS",
+                f"片段 {clip_id} 的源区间 {source_in:.3f}–"
+                f"{source_out if source_out is not None else '未知'}s 超出素材时长 {float(probe.duration):.3f}s",
+                422,
+            )
+
+
 def edit_project_film(
     project_id: str, base: str | None, ops: list[dict], *,
     require_base: bool = False, source: str = "api",
@@ -3072,8 +3152,9 @@ def edit_project_film(
         if require_base and base != current["rev"]:
             raise FilmError("REVISION_CONFLICT", "影片文档已变化；该 AI 提案已过期，请重新生成提案。", 409)
         original_doc = current["doc"]
-        doc, normalized = apply_ops(original_doc, ops)
+        doc, normalized = apply_ops(original_doc, ops, allow_source_extension=True)
         _validate_slip_source_bounds(pid, doc, normalized)
+        _validate_trim_source_bounds(pid, original_doc, doc, normalized)
         updated = _preserve_film_text(current["text"], original_doc, doc)
         if updated is None:
             updated = serialize_film(doc)

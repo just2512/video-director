@@ -64,6 +64,9 @@ export interface FilmTimelineTrimGestureInput {
   edge: "start" | "end";
   originalAt: number;
   originalEnd: number;
+  clipTag: string;
+  sourceIn: number;
+  playbackSpeed: number;
   rawDeltaSeconds: number;
   candidates: readonly FilmTimelineSnapCandidate[];
   pixelsPerSecond: number;
@@ -246,15 +249,27 @@ const resolveTrimGesture = (input: FilmTimelineTrimGestureInput): FilmTimelineTr
       !Number.isFinite(input.rawDeltaSeconds) ||
       !Number.isFinite(input.pixelsPerSecond) || input.pixelsPerSecond <= 0) return null;
 
-  // Preview and pointer-up commit share this exact snap and boundary resolution.
+  // A trim may reveal source frames outside the current selected range, but
+  // never before source time zero. FilmDocument validates actual media duration.
+  const supportsExtension = ["video", "audio", "img"].includes(input.clipTag);
+  const sourceIn = Number.isFinite(input.sourceIn) ? Math.max(0, input.sourceIn) : 0;
+  const playbackSpeed = Number.isFinite(input.playbackSpeed) && input.playbackSpeed > 0
+    ? input.playbackSpeed : 1;
+  const minimumStart = !supportsExtension
+    ? originalAt + 0.04
+    : (input.clipTag === "video" || input.clipTag === "audio")
+      ? Math.max(0, originalAt - sourceIn / playbackSpeed)
+      : 0;
   const resolution = input.edge === "start"
     ? filmTimelineMath.resolveTrimStart(
       originalAt, originalEnd, input.rawDeltaSeconds, input.candidates,
       input.pixelsPerSecond, input.thresholdPixels, input.snapEnabled, input.frameRate,
+      minimumStart,
     )
     : filmTimelineMath.resolveTrimEnd(
       originalAt, originalEnd, input.rawDeltaSeconds, input.candidates,
       input.pixelsPerSecond, input.thresholdPixels, input.snapEnabled, input.frameRate,
+      supportsExtension,
     );
   if (!Number.isFinite(resolution.target)) return null;
 
