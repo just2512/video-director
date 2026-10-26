@@ -192,6 +192,12 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "rollCommitResolution.operation||" in studio
     assert "slideCommitResolution.operation||" in studio
     assert "slipResolution.operation||" in studio
+    assert "FilmTimelineControllerPreview" in controller_source
+    assert "preview: FilmTimelineControllerPreview;" in controller_source
+    assert "rollResolution.preview||null" in studio
+    assert "slideResolution.preview||null" in studio
+    assert "slipResolution.preview||{}" in studio
+    assert 'mode: "roll"' in controller_source and 'mode: "slide"' in controller_source and 'mode: "slip"' in controller_source
     gesture_start = studio[studio.index("function beginClipGesture"):studio.index("window.filmStudioBeginClipGesture")]
     assert "if(mode==='move'){S.playhead=clip.at;setPlayheadVisual();previewCurrent();}" in gesture_start
     assert "S.playhead=clip.at;setPlayheadVisual();previewCurrent();\n        var mode=" not in gesture_start

@@ -1135,12 +1135,12 @@
     var controller=window.filmStudioTimelineController;
     if(controller&&typeof controller.resolveRollGesture==='function'){
       var managed=controller.resolveRollGesture({
-        leftClipId:d.leftClipId,rightClipId:d.rightClipId,rightAt:d.rightAt,
+        leftClipId:d.leftClipId,rightClipId:d.rightClipId,activeClipId:d.id,rightAt:d.rightAt,
         leftDuration:d.leftDuration,rightDuration:d.rightDuration,rawDeltaSeconds:deltaSeconds,
         candidates:candidates,pixelsPerSecond:S.pxPerSec,thresholdPixels:thresholdPx,
         snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
       });
-      if(managed)return Object.assign({},managed.resolution,{operation:managed.operation});
+      if(managed)return Object.assign({},managed.resolution,{operation:managed.operation,preview:managed.preview});
     }
     if(math&&typeof math.resolveRollGesture==='function')
       return math.resolveRollGesture(d.rightAt,deltaSeconds,d.leftDuration,d.rightDuration,candidates,S.pxPerSec,thresholdPx,S.snapEnabled,timelineFrameRate());
@@ -1156,11 +1156,11 @@
     if(controller&&typeof controller.resolveSlideGesture==='function'){
       var managed=controller.resolveSlideGesture({
         leftClipId:d.leftClipId,centerClipId:d.centerClipId,rightClipId:d.rightClipId,
-        centerAt:d.centerAt,leftDuration:d.leftDuration,centerDuration:d.centerDuration,rightDuration:d.rightDuration,
+        centerAt:d.centerAt,rightAt:d.rightAt,leftDuration:d.leftDuration,centerDuration:d.centerDuration,rightDuration:d.rightDuration,
         rawDeltaSeconds:deltaSeconds,candidates:candidates,pixelsPerSecond:S.pxPerSec,
         thresholdPixels:thresholdPx,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
       });
-      if(managed)return Object.assign({},managed.resolution,{operation:managed.operation});
+      if(managed)return Object.assign({},managed.resolution,{operation:managed.operation,preview:managed.preview});
     }
     if(math&&typeof math.resolveSlideGesture==='function')
       return math.resolveSlideGesture(d.centerAt,deltaSeconds,d.leftDuration,d.centerDuration,d.rightDuration,candidates,S.pxPerSec,thresholdPx,S.snapEnabled,timelineFrameRate());
@@ -1178,7 +1178,7 @@
         clipId:clipId,rawDeltaSeconds:rawDeltaSeconds,playbackSpeed:playbackSpeed,
         snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
       });
-      if(managed)return Object.assign({},managed.resolution,{operation:managed.operation});
+      if(managed)return Object.assign({},managed.resolution,{operation:managed.operation,preview:managed.preview});
     }
     if(math&&typeof math.resolveSlipGesture==='function')
       return math.resolveSlipGesture(rawDeltaSeconds,playbackSpeed,S.snapEnabled,timelineFrameRate());
@@ -2329,11 +2329,14 @@
       var slideResolution=resolveTimelineSlide(d,deltaSeconds,8);
       var deltaSlide=slideResolution.deltaSeconds,slideSnapUsed=slideResolution.snapCandidate;
       showTimelineSnapGuide(slideSnapUsed?slideSnapUsed.at:null,slideSnapUsed&&slideSnapUsed.kind);
-      var slideLabel='滑移 '+(deltaSlide>=0?'+':'')+deltaSlide.toFixed(2)+'s';
-      var slidePreview={};
-      slidePreview[d.leftClipId]={width:Math.max(3,timelineSecondsToPixels(d.leftDuration+deltaSlide,S.pxPerSec))};
-      slidePreview[d.centerClipId]={left:Math.max(0,timelineSecondsToPixels(d.centerAt+deltaSlide,S.pxPerSec)),mode:'slide',deltaLabel:slideLabel};
-      slidePreview[d.rightClipId]={left:Math.max(0,timelineSecondsToPixels(d.rightAt+deltaSlide,S.pxPerSec)),width:Math.max(3,timelineSecondsToPixels(d.rightDuration-deltaSlide,S.pxPerSec))};
+      var slidePreview=slideResolution.preview||null;
+      if(!slidePreview){
+        slidePreview={};
+        slidePreview[d.leftClipId]={width:Math.max(3,timelineSecondsToPixels(d.leftDuration+deltaSlide,S.pxPerSec))};
+        slidePreview[d.centerClipId]={left:Math.max(0,timelineSecondsToPixels(d.centerAt+deltaSlide,S.pxPerSec)),mode:'slide',deltaLabel:'滑移 '+(deltaSlide>=0?'+':'')+deltaSlide.toFixed(2)+'s'};
+        slidePreview[d.rightClipId]={left:Math.max(0,timelineSecondsToPixels(d.rightAt+deltaSlide,S.pxPerSec)),width:Math.max(3,timelineSecondsToPixels(d.rightDuration-deltaSlide,S.pxPerSec))};
+      }
+      var slideLabel=slidePreview[d.centerClipId]&&slidePreview[d.centerClipId].deltaLabel||('滑移 '+(deltaSlide>=0?'+':'')+deltaSlide.toFixed(2)+'s');
       if(!setTimelineGesturePreview(slidePreview)){
         var slideElements=gestureDomRefs&&gestureDomRefs.slideElements,clipElement=gestureDomRefs&&gestureDomRefs.clipElement;
         if(!slideElements||!clipElement)return;
@@ -2348,12 +2351,18 @@
       var rollResolution=resolveTimelineRoll(d,deltaSeconds,8);
       var deltaRoll=rollResolution.deltaSeconds,rollSnapUsed=rollResolution.snapCandidate;
       showTimelineSnapGuide(rollSnapUsed?rollSnapUsed.at:null,rollSnapUsed&&rollSnapUsed.kind);
-      var rollLabel='切口 '+(deltaRoll>=0?'+':'')+deltaRoll.toFixed(2)+'s';
-      var rollPreview={};
-      rollPreview[d.leftClipId]={width:Math.max(3,timelineSecondsToPixels(d.leftDuration+deltaRoll,S.pxPerSec))};
-      rollPreview[d.rightClipId]={left:Math.max(0,timelineSecondsToPixels(d.rightAt+deltaRoll,S.pxPerSec)),width:Math.max(3,timelineSecondsToPixels(d.rightDuration-deltaRoll,S.pxPerSec))};
+      var rollPreview=rollResolution.preview||null;
+      if(!rollPreview){
+        rollPreview={};
+        rollPreview[d.leftClipId]={width:Math.max(3,timelineSecondsToPixels(d.leftDuration+deltaRoll,S.pxPerSec))};
+        rollPreview[d.rightClipId]={left:Math.max(0,timelineSecondsToPixels(d.rightAt+deltaRoll,S.pxPerSec)),width:Math.max(3,timelineSecondsToPixels(d.rightDuration-deltaRoll,S.pxPerSec))};
+        var fallbackRollTarget=rollPreview[d.id]||{};
+        fallbackRollTarget.mode='roll';
+        fallbackRollTarget.deltaLabel='切口 '+(deltaRoll>=0?'+':'')+deltaRoll.toFixed(2)+'s';
+        rollPreview[d.id]=fallbackRollTarget;
+      }
       var rollTarget=rollPreview[d.id]||{};
-      rollTarget.mode='roll';rollTarget.deltaLabel=rollLabel;rollPreview[d.id]=rollTarget;
+      var rollLabel=rollTarget.deltaLabel||('切口 '+(deltaRoll>=0?'+':'')+deltaRoll.toFixed(2)+'s');
       if(!setTimelineGesturePreview(rollPreview)){
         var rollElements=gestureDomRefs&&gestureDomRefs.rollElements,clipElement=gestureDomRefs&&gestureDomRefs.clipElement;
         if(!rollElements||!clipElement)return;
@@ -2365,9 +2374,10 @@
       }
     }else if(d.mode==='slip'){
       var slipClip=findClip(d.id),slipSpeed=slipClip?num(slipClip.attrs.speed,1):1;
-      var sourceDelta=resolveTimelineSlip(deltaSeconds,slipSpeed,d.id).sourceDeltaSeconds;
-      var slipPreview={};
-      slipPreview[d.id]={mode:'slip',deltaLabel:'源偏移 '+(sourceDelta>=0?'+':'')+sourceDelta.toFixed(2)+'s'};
+      var slipResolution=resolveTimelineSlip(deltaSeconds,slipSpeed,d.id);
+      var sourceDelta=slipResolution.sourceDeltaSeconds;
+      var slipPreview=slipResolution.preview||{};
+      if(!slipResolution.preview)slipPreview[d.id]={mode:'slip',deltaLabel:'源偏移 '+(sourceDelta>=0?'+':'')+sourceDelta.toFixed(2)+'s'};
       if(!setTimelineGesturePreview(slipPreview)){
         var clipElement=gestureDomRefs&&gestureDomRefs.clipElement;
         if(!clipElement)return;
