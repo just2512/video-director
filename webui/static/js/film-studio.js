@@ -2612,6 +2612,14 @@
   window.filmStudioMoveClipGesture = function(e){
     if(!e||!window.filmStudioOwnsClipGesturePointer||
        !window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
+    var snapshot=window.filmStudioStore&&window.filmStudioStore.getSnapshot
+      ?window.filmStudioStore.getSnapshot():null;
+    var reactTimeline=window.filmStudioReactTimeline;
+    if(snapshot&&snapshot.timelineGestureContext&&snapshot.timelineGestureContext.mode==='move'&&
+       reactTimeline&&typeof reactTimeline.moveClipGesture==='function'){
+      reactTimeline.moveClipGesture(e);
+      return;
+    }
     onMove(e);
   };
   window.filmStudioEndClipGesture = function(e){

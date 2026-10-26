@@ -127,3 +127,17 @@ def test_react_timeline_owns_move_target_hit_testing_and_legacy_fallback_is_gate
     assert "updateReactGestureTarget(pointerEvent)" in component
     assert "if(d.mode==='move'&&gestureDomRefs){" in legacy
 
+def test_react_timeline_owns_move_preview_and_legacy_move_dispatch_delegates():
+    """Normal React drags calculate snapping/ghost positions in React, not legacy onMove."""
+    root = Path(__file__).resolve().parents[1]
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    legacy = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+
+    assert "moveClipGesture(event:FilmStudioGesturePointerInput): void;" in component
+    assert "const resolveReactMoveGesturePreview = (event:FilmStudioGesturePointerInput): void =>" in component
+    assert "filmTimelineGestureController.buildMovePreview(input)" in component
+    assert 'filmStore.setField("timelineGesturePreview",result.preview)' in component
+    assert 'filmStore.setField("timelineSnapGuide"' in component
+    assert "reactTimeline.moveClipGesture(e)" in legacy
+    assert "if(snapshot&&snapshot.timelineGestureContext&&snapshot.timelineGestureContext.mode==='move'&&" in legacy
+\n
