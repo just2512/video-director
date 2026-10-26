@@ -26,9 +26,9 @@
     mod
   ));
 
-  // ../remotion_runtime/node_modules/react/cjs/react.development.js
+  // node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
+    "node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/index.js
+  // node_modules/react/index.js
   var require_react = __commonJS({
-    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
+    "node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
+  // node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/index.js
+  // node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
+    "node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
+  // node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/index.js
+  // node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
+    "node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
+  // node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/client.js
+  // node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
+    "node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
+  // node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/jsx-runtime.js
+  // node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
+    "node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -24078,7 +24078,7 @@
     }
     return void 0;
   };
-  var validateMoveTarget = (input) => {
+  var validateMoveTarget = (input, resolved) => {
     const gesture = input.gesture;
     const order = gesture.trackOrder || [];
     const targetTrackId = String(input.targetTrackId || gesture.targetTrackId || "");
@@ -24088,7 +24088,7 @@
     if (originIndex < 0) return "\u65E0\u6CD5\u786E\u8BA4\u539F\u8F68\u9053\u4F4D\u7F6E\uFF0C\u591A\u9009\u79FB\u52A8\u5DF2\u53D6\u6D88\u3002";
     const members = gesture.members || [];
     const selectedIds = new Set(members.map((member) => member.id));
-    const resolution = resolveMove({
+    const resolution = resolved || resolveMove({
       minimumStart: minimumSelectedStart(gesture),
       rawDeltaSeconds: Number(input.rawDeltaSeconds) || 0,
       candidates: input.candidates,
@@ -24129,6 +24129,7 @@
   };
   var buildMoveOperationsForResolution = (input, resolution) => {
     const gesture = input.gesture;
+    if (gesture.invalidTargetMessage || validateMoveTarget(input, resolution)) return null;
     const members = gesture.members || [];
     let targetIndex = (gesture.trackOrder || []).indexOf(
       String(input.targetTrackId || gesture.targetTrackId || gesture.trackId || "")
