@@ -179,6 +179,57 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
 
 
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]').click()
+
+                # Playback updates must move the small keyframe playhead marker without
+                # reinitializing the heavyweight inspector or losing its unsaved field draft.
+                keyframe_marker = page.locator(
+                    '#fs-inspector .fs-keyframe-graph .fs-keyframe-playhead'
+                )
+                keyframe_marker.wait_for(state="attached")
+                keyframe_x_before = float(keyframe_marker.get_attribute("x1"))
+                title_input = page.locator('#fs-inspector #fs-field-title')
+                title_before = title_input.input_value()
+                title_input.fill("temporary unsaved title")
+                revision_before_inspector_seek = page.evaluate(
+                    "window.filmStudioStore.getSnapshot().revision"
+                )
+                edits_before_inspector_seek = len(film_edit_requests)
+
+                page.evaluate("window.filmStudioSeek(1)")
+                page.wait_for_function(
+                    """args => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      const line=document.querySelector(
+                        '#fs-inspector .fs-keyframe-graph .fs-keyframe-playhead'
+                      );
+                      return !!state && Math.abs(Number(state.playhead)-1)<0.001 &&
+                        !!line && Math.abs(Number(line.getAttribute('x1'))-args.x)>0.5;
+                    }""",
+                    arg={"x": keyframe_x_before},
+                    timeout=5000,
+                )
+                assert title_input.input_value() == "temporary unsaved title"
+                keyframe_x_at_one = float(keyframe_marker.get_attribute("x1"))
+                assert keyframe_x_at_one != keyframe_x_before
+
+                page.evaluate("window.filmStudioSeek(0)")
+                page.wait_for_function(
+                    """args => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      const line=document.querySelector(
+                        '#fs-inspector .fs-keyframe-graph .fs-keyframe-playhead'
+                      );
+                      return !!state && Math.abs(Number(state.playhead))<0.001 &&
+                        !!line && Math.abs(Number(line.getAttribute('x1'))-args.x)<0.001;
+                    }""",
+                    arg={"x": keyframe_x_before},
+                    timeout=5000,
+                )
+                title_input.fill(title_before)
+                assert page.evaluate(
+                    "window.filmStudioStore.getSnapshot().revision"
+                ) == revision_before_inspector_seek
+                assert len(film_edit_requests) == edits_before_inspector_seek
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').click(
                     modifiers=["Control"]
                 )
