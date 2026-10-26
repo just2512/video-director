@@ -26,9 +26,9 @@
     mod
   ));
 
-  // ../remotion_runtime/node_modules/react/cjs/react.development.js
+  // node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
+    "node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/index.js
+  // node_modules/react/index.js
   var require_react = __commonJS({
-    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
+    "node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
+  // node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/index.js
+  // node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
+    "node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
+  // node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/index.js
+  // node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
+    "node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
+  // node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/client.js
+  // node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
+    "node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
+  // node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/jsx-runtime.js
+  // node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
+    "node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -25113,6 +25113,194 @@
     const minutes = Math.floor(time / 60);
     const seconds = time - minutes * 60;
     return String(minutes).padStart(2, "0") + ":" + seconds.toFixed(3).padStart(6, "0");
+  };
+  var resolveReactClipGesturePreview = (event) => {
+    const before = filmStore.getSnapshot();
+    const firstGesture = before.timelineGestureContext;
+    if (!firstGesture || firstGesture.pointerId !== event.pointerId) return;
+    const scroll = document.getElementById("fs-timeline-scroll");
+    if (!scroll) return;
+    const scrollDelta = scroll.scrollLeft - firstGesture.startScrollLeft;
+    const pointerDelta = event.clientX - firstGesture.startX;
+    if (!firstGesture.active && Math.hypot(pointerDelta + scrollDelta, event.clientY - firstGesture.startY) < 5) return;
+    if (!firstGesture.active) {
+      filmStore.setField("timelineGestureContext", { ...firstGesture, active: true });
+    }
+    const state = filmStore.getSnapshot();
+    const gesture = state.timelineGestureContext;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const film = timelineRecord(state.film);
+    const rawTracks = Array.isArray(film.tracks) ? film.tracks : [];
+    const tracks = rawTracks.map((rawTrack) => {
+      const track = timelineRecord(rawTrack);
+      const rawClips = Array.isArray(track.clips) ? track.clips : [];
+      return {
+        id: String(track.id ?? ""),
+        attrs: timelineRecord(track.attrs),
+        clips: rawClips.map((rawClip) => {
+          const clip = timelineRecord(rawClip);
+          return {
+            id: String(clip.id ?? ""),
+            at: clip.at,
+            end: clip.end,
+            attrs: timelineRecord(clip.attrs)
+          };
+        })
+      };
+    });
+    let excludedIds = [gesture.id];
+    if (gesture.mode === "move") excludedIds = gesture.members.map((member) => member.id);
+    else if (gesture.mode === "roll") excludedIds = [gesture.leftClipId, gesture.rightClipId].filter((id) => !!id);
+    else if (gesture.mode === "slide") {
+      excludedIds = [gesture.leftClipId, gesture.centerClipId, gesture.rightClipId].filter((id) => !!id);
+    }
+    const selectedIds = new Set(excludedIds);
+    const selectedClipStartIsPlayhead = excludedIds.some((id) => {
+      for (const track of tracks) {
+        const clip = (track.clips || []).find((item) => item.id === id);
+        if (!clip) continue;
+        const at = Number(clip.at);
+        return Number.isFinite(at) && Math.abs(filmTimelineMath.secondsToPixels(
+          at - state.playhead,
+          state.pixelsPerSecond
+        )) <= 0.5;
+      }
+      return false;
+    });
+    const candidates = [{ at: 0, kind: "\u7247\u5934" }];
+    if (!selectedClipStartIsPlayhead) candidates.push({ at: state.playhead, kind: "\u64AD\u653E\u5934" });
+    for (const track of tracks) {
+      for (const clip of track.clips || []) {
+        if (selectedIds.has(clip.id)) continue;
+        const at = Number(clip.at);
+        if (Number.isFinite(at)) candidates.push({ at, kind: "\u7247\u6BB5\u5165\u70B9" });
+        const end = Number(clip.end);
+        if (Number.isFinite(end)) candidates.push({ at: end, kind: "\u7247\u6BB5\u51FA\u70B9" });
+      }
+    }
+    const rawFps = Number(film.fps);
+    const frameRate = Number.isFinite(rawFps) && rawFps > 0 ? Math.max(1, Math.min(120, rawFps)) : 30;
+    const rawDeltaSeconds = filmTimelineMath.dragDeltaSeconds(
+      pointerDelta,
+      scrollDelta,
+      state.pixelsPerSecond
+    );
+    const publish = (preview, snap) => {
+      filmStore.setField("timelineGesturePreview", preview);
+      filmStore.setField("timelineSnapGuide", snap ? {
+        at: Math.max(0, snap.at),
+        kind: String(snap.kind || "\u65F6\u95F4\u70B9"),
+        title: "\u5438\u9644\u5230 " + String(snap.kind || "\u65F6\u95F4\u70B9") + " \xB7 " + formatFilmTime(snap.at)
+      } : null);
+    };
+    if (gesture.mode === "move") {
+      const minimumStart = gesture.members.reduce(
+        (minimum, member) => Math.min(minimum, member.originalAt),
+        Number.POSITIVE_INFINITY
+      );
+      const targetTrackId = gesture.targetTrackId || gesture.trackId;
+      const input = {
+        gesture: {
+          members: gesture.members,
+          trackId: gesture.trackId,
+          originalTrackIndex: gesture.originalTrackIndex,
+          trackOrder: gesture.trackOrder,
+          targetTrackId,
+          invalidTargetMessage: gesture.invalidTargetMessage
+        },
+        tracks,
+        targetTrackId,
+        minimumStart,
+        rawDeltaSeconds,
+        candidates,
+        pixelsPerSecond: state.pixelsPerSecond,
+        thresholdPixels: 8,
+        snapEnabled: state.snapEnabled,
+        frameRate
+      };
+      const result2 = filmTimelineGestureController.buildMovePreview(input);
+      publish(result2.preview, result2.resolution.snapCandidate);
+      return;
+    }
+    if (gesture.mode === "trim-start" || gesture.mode === "trim-end") {
+      if (gesture.originalAt === void 0 || gesture.originalEnd === void 0) {
+        publish(null, null);
+        return;
+      }
+      const result2 = filmTimelineGestureController.resolveTrimGesture({
+        clipId: gesture.id,
+        edge: gesture.mode === "trim-start" ? "start" : "end",
+        originalAt: gesture.originalAt,
+        originalEnd: gesture.originalEnd,
+        clipTag: gesture.clipTag || "video",
+        sourceIn: gesture.originalSourceIn ?? 0,
+        playbackSpeed: gesture.originalSpeed ?? 1,
+        rawDeltaSeconds,
+        candidates,
+        pixelsPerSecond: state.pixelsPerSecond,
+        thresholdPixels: 8,
+        snapEnabled: state.snapEnabled,
+        frameRate
+      });
+      publish(result2 ? { [gesture.id]: result2.preview } : null, result2?.resolution.snapCandidate ?? null);
+      return;
+    }
+    if (gesture.mode === "roll") {
+      const { leftClipId, rightClipId, rightAt, leftDuration, rightDuration } = gesture;
+      if (!leftClipId || !rightClipId || rightAt === void 0 || leftDuration === void 0 || rightDuration === void 0) {
+        publish(null, null);
+        return;
+      }
+      const result2 = filmTimelineGestureController.resolveRollGesture({
+        leftClipId,
+        rightClipId,
+        activeClipId: gesture.id,
+        rightAt,
+        leftDuration,
+        rightDuration,
+        rawDeltaSeconds,
+        candidates,
+        pixelsPerSecond: state.pixelsPerSecond,
+        thresholdPixels: 8,
+        snapEnabled: state.snapEnabled,
+        frameRate
+      });
+      publish(result2?.preview ?? null, result2?.resolution.snapCandidate ?? null);
+      return;
+    }
+    if (gesture.mode === "slide") {
+      const { leftClipId, centerClipId, rightClipId, centerAt, rightAt, leftDuration, centerDuration, rightDuration } = gesture;
+      if (!leftClipId || !centerClipId || !rightClipId || centerAt === void 0 || rightAt === void 0 || leftDuration === void 0 || centerDuration === void 0 || rightDuration === void 0) {
+        publish(null, null);
+        return;
+      }
+      const result2 = filmTimelineGestureController.resolveSlideGesture({
+        leftClipId,
+        centerClipId,
+        rightClipId,
+        centerAt,
+        rightAt,
+        leftDuration,
+        centerDuration,
+        rightDuration,
+        rawDeltaSeconds,
+        candidates,
+        pixelsPerSecond: state.pixelsPerSecond,
+        thresholdPixels: 8,
+        snapEnabled: state.snapEnabled,
+        frameRate
+      });
+      publish(result2?.preview ?? null, result2?.resolution.snapCandidate ?? null);
+      return;
+    }
+    const result = filmTimelineGestureController.resolveSlipGesture({
+      clipId: gesture.id,
+      rawDeltaSeconds,
+      playbackSpeed: gesture.originalSpeed ?? 1,
+      snapEnabled: state.snapEnabled,
+      frameRate
+    });
+    publish(result?.preview ?? null, null);
   };
   var timelineRecord = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
   var timelineKeyframeMarks = (tag, attrs, duration) => {
@@ -26723,6 +26911,193 @@
     };
     const activePointerId = (0, import_react.useRef)(null);
     const activeEnvelopePointerId = (0, import_react.useRef)(null);
+    const dragPointerSample = (0, import_react.useRef)(null);
+    const dragAutoScrollFrame = (0, import_react.useRef)(null);
+    const dragAutoScrollLastFrameTime = (0, import_react.useRef)(null);
+    const stopReactDragAutoScroll = (0, import_react.useCallback)(() => {
+      if (dragAutoScrollFrame.current !== null) {
+        window.cancelAnimationFrame(dragAutoScrollFrame.current);
+        dragAutoScrollFrame.current = null;
+      }
+      dragAutoScrollLastFrameTime.current = null;
+    }, []);
+    const startReactDragAutoScroll = (0, import_react.useCallback)(() => {
+      if (dragAutoScrollFrame.current !== null) return;
+      const tick = (timestamp) => {
+        dragAutoScrollFrame.current = null;
+        const sample = dragPointerSample.current;
+        if (!sample || activePointerId.current !== sample.pointerId) {
+          dragAutoScrollLastFrameTime.current = null;
+          return;
+        }
+        const scroll = document.getElementById("fs-timeline-scroll");
+        if (!scroll) {
+          dragAutoScrollLastFrameTime.current = null;
+          return;
+        }
+        const rect = scroll.getBoundingClientRect();
+        const direction = sample.clientX < rect.left + 28 ? -1 : sample.clientX > rect.right - 28 ? 1 : 0;
+        if (!direction) {
+          dragAutoScrollLastFrameTime.current = null;
+          return;
+        }
+        const maxScroll = Math.max(0, scroll.scrollWidth - scroll.clientWidth);
+        const before = scroll.scrollLeft;
+        const previous = dragAutoScrollLastFrameTime.current;
+        const elapsed = previous === null ? 16 : Math.max(0, Math.min(32, timestamp - previous));
+        dragAutoScrollLastFrameTime.current = timestamp;
+        const delta = Math.max(1, elapsed * 0.65);
+        scroll.scrollLeft = Math.max(0, Math.min(maxScroll, before + direction * delta));
+        const moved = Math.abs(scroll.scrollLeft - before) >= 0.5;
+        const atBoundary = direction < 0 ? scroll.scrollLeft <= 0 : scroll.scrollLeft >= maxScroll;
+        if (moved) {
+          const current = dragPointerSample.current;
+          if (current && current.pointerId === sample.pointerId) {
+            window.filmStudioMoveClipGesture?.({
+              pointerId: current.pointerId,
+              clientX: current.clientX,
+              clientY: current.clientY,
+              skipAutoScroll: true,
+              preventDefault: () => {
+              }
+            });
+          }
+        } else if (atBoundary) {
+          dragAutoScrollLastFrameTime.current = null;
+          return;
+        }
+        dragAutoScrollFrame.current = window.requestAnimationFrame(tick);
+      };
+      dragAutoScrollFrame.current = window.requestAnimationFrame(tick);
+    }, []);
+    const updateReactDragAutoScroll = (0, import_react.useCallback)((event) => {
+      dragPointerSample.current = {
+        pointerId: event.pointerId,
+        clientX: event.clientX,
+        clientY: event.clientY
+      };
+      const scroll = document.getElementById("fs-timeline-scroll");
+      if (!scroll) {
+        stopReactDragAutoScroll();
+        return;
+      }
+      const rect = scroll.getBoundingClientRect();
+      const atEdge = event.clientX < rect.left + 28 || event.clientX > rect.right - 28;
+      if (atEdge) startReactDragAutoScroll();
+      else stopReactDragAutoScroll();
+    }, [startReactDragAutoScroll, stopReactDragAutoScroll]);
+    const updateReactGestureTarget = (0, import_react.useCallback)((event) => {
+      const state = filmStore.getSnapshot();
+      const gesture = state.timelineGestureContext;
+      if (!gesture || gesture.mode !== "move" || gesture.pointerId !== event.pointerId) return;
+      const deltaX = event.clientX - gesture.startX;
+      const deltaY = event.clientY - gesture.startY;
+      if (!gesture.active && Math.hypot(deltaX, deltaY) < 5) return;
+      const scroll = document.getElementById("fs-timeline-scroll");
+      if (!scroll) return;
+      const film = timelineRecord(state.film);
+      const rawTracks = Array.isArray(film.tracks) ? film.tracks : [];
+      const tracks = rawTracks.map((rawTrack) => {
+        const track = timelineRecord(rawTrack);
+        const rawClips = Array.isArray(track.clips) ? track.clips : [];
+        return {
+          id: String(track.id ?? ""),
+          attrs: timelineRecord(track.attrs),
+          clips: rawClips.map((rawClip) => {
+            const clip = timelineRecord(rawClip);
+            return {
+              id: String(clip.id ?? ""),
+              at: clip.at,
+              end: clip.end,
+              attrs: timelineRecord(clip.attrs)
+            };
+          })
+        };
+      });
+      const element = document.elementFromPoint(event.clientX, event.clientY);
+      const row = element instanceof Element ? element.closest(".fs-track") : null;
+      const rowTrackId = row?.getAttribute("data-track") || "";
+      const hasTargetTrack = !!row && !!rowTrackId && gesture.trackOrder.includes(rowTrackId);
+      const targetTrackId = hasTargetTrack ? rowTrackId : String(gesture.trackId || gesture.members[0]?.trackId || "");
+      let invalidTargetMessage;
+      if (hasTargetTrack) {
+        const selectedIds2 = new Set(gesture.members.map((member) => member.id));
+        const selectedClipStartIsPlayhead = gesture.members.some(
+          (member) => Math.abs(filmTimelineMath.secondsToPixels(
+            member.originalAt - state.playhead,
+            state.pixelsPerSecond
+          )) <= 0.5
+        );
+        const candidates = [{ at: 0, kind: "\u7247\u5934" }];
+        if (!selectedClipStartIsPlayhead) candidates.push({ at: state.playhead, kind: "\u64AD\u653E\u5934" });
+        for (const track of tracks) {
+          for (const clip of track.clips || []) {
+            if (selectedIds2.has(clip.id)) continue;
+            const at = Number(clip.at);
+            if (Number.isFinite(at)) candidates.push({ at, kind: "\u7247\u6BB5\u5165\u70B9" });
+            const end = Number(clip.end);
+            if (Number.isFinite(end)) candidates.push({ at: end, kind: "\u7247\u6BB5\u51FA\u70B9" });
+          }
+        }
+        const rawFps = Number(film.fps);
+        const frameRate = Number.isFinite(rawFps) && rawFps > 0 ? Math.max(1, Math.min(120, rawFps)) : 30;
+        const minimumStart = gesture.members.reduce(
+          (minimum, member) => Math.min(minimum, member.originalAt),
+          Number.POSITIVE_INFINITY
+        );
+        const rawDeltaSeconds = filmTimelineMath.dragDeltaSeconds(
+          event.clientX - gesture.startX,
+          scroll.scrollLeft - gesture.startScrollLeft,
+          state.pixelsPerSecond
+        );
+        const moveGesture = {
+          members: gesture.members,
+          trackId: gesture.trackId,
+          originalTrackIndex: gesture.originalTrackIndex,
+          trackOrder: gesture.trackOrder,
+          targetTrackId,
+          invalidTargetMessage: gesture.invalidTargetMessage
+        };
+        const input = {
+          gesture: moveGesture,
+          tracks,
+          targetTrackId,
+          minimumStart,
+          rawDeltaSeconds,
+          candidates,
+          pixelsPerSecond: state.pixelsPerSecond,
+          thresholdPixels: 8,
+          snapEnabled: state.snapEnabled,
+          frameRate
+        };
+        invalidTargetMessage = filmTimelineGestureController.validateMoveTarget(input) || void 0;
+      } else {
+        invalidTargetMessage = row ? "\u76EE\u6807\u8F68\u9053\u4E0D\u5B58\u5728\uFF0C\u591A\u9009\u79FB\u52A8\u5DF2\u53D6\u6D88\u3002" : "\u8BF7\u5C06\u7247\u6BB5\u653E\u7F6E\u5230\u6709\u6548\u8F68\u9053\u4E0A\uFF0C\u591A\u9009\u79FB\u52A8\u5DF2\u53D6\u6D88\u3002";
+      }
+      const normalizedError = invalidTargetMessage || void 0;
+      const contextChanged = gesture.targetTrackId !== targetTrackId || gesture.invalidTargetMessage !== normalizedError;
+      if (contextChanged) {
+        filmStore.setField("timelineGestureContext", {
+          ...gesture,
+          targetTrackId,
+          invalidTargetMessage: normalizedError
+        });
+      }
+      const shouldHighlight = hasTargetTrack && (targetTrackId !== gesture.trackId || !!normalizedError || contextChanged);
+      const nextDropTarget = shouldHighlight ? { trackId: targetTrackId, invalid: !!normalizedError } : null;
+      const currentDropTarget = state.timelineDropTarget;
+      if (currentDropTarget?.trackId !== nextDropTarget?.trackId || currentDropTarget?.invalid !== nextDropTarget?.invalid) {
+        filmStore.setField("timelineDropTarget", nextDropTarget);
+      }
+    }, []);
+    const finishReactDragAutoScroll = (0, import_react.useCallback)((pointerId) => {
+      if (dragPointerSample.current?.pointerId === pointerId) dragPointerSample.current = null;
+      stopReactDragAutoScroll();
+    }, [stopReactDragAutoScroll]);
+    (0, import_react.useEffect)(() => () => {
+      dragPointerSample.current = null;
+      stopReactDragAutoScroll();
+    }, [stopReactDragAutoScroll]);
     const activeScrubPointerId = (0, import_react.useRef)(null);
     const pendingScrubPointer = (0, import_react.useRef)(null);
     const seekFromRulerPointer = (clientX, body) => {
@@ -26755,7 +27130,13 @@
       const onWheel = (event) => {
         if (!(event.ctrlKey || event.metaKey)) return;
         event.preventDefault();
-        window.filmStudioZoom?.(event.deltaY < 0 ? 1 : -1, event.clientX);
+        const direction = event.deltaY < 0 ? 1 : -1;
+        const timeline = window.filmStudioReactTimeline;
+        if (timeline && typeof timeline.zoom === "function") {
+          timeline.zoom(direction, event.clientX);
+        } else {
+          window.filmStudioZoom?.(direction, event.clientX);
+        }
       };
       scroll.addEventListener("wheel", onWheel, { passive: false });
       scroll.dataset.reactZoomReady = "true";
@@ -26944,11 +27325,16 @@
                           }
                         },
                         onPointerMove: (event) => {
-                          if (activePointerId.current === event.nativeEvent.pointerId) window.filmStudioMoveClipGesture?.(event.nativeEvent);
+                          const pointerEvent = event.nativeEvent;
+                          if (activePointerId.current !== pointerEvent.pointerId) return;
+                          updateReactGestureTarget(pointerEvent);
+                          window.filmStudioMoveClipGesture?.(pointerEvent);
+                          updateReactDragAutoScroll(pointerEvent);
                         },
                         onPointerUp: (event) => {
                           const pointerId = event.nativeEvent.pointerId;
                           if (activePointerId.current !== pointerId) return;
+                          finishReactDragAutoScroll(pointerId);
                           const pending = window.filmStudioEndClipGesture?.(event.nativeEvent);
                           const clear = () => {
                             if (activePointerId.current === pointerId) activePointerId.current = null;
@@ -26958,6 +27344,7 @@
                         onPointerCancel: (event) => {
                           const pointerId = event.nativeEvent.pointerId;
                           if (activePointerId.current !== pointerId) return;
+                          finishReactDragAutoScroll(pointerId);
                           window.filmStudioCancelClipGesture?.(event.nativeEvent);
                           Promise.resolve().then(() => {
                             if (activePointerId.current === pointerId) activePointerId.current = null;
@@ -27610,6 +27997,33 @@
     }
   };
   window.filmStudioReactTimeline = {
+    previewClipGesture(event) {
+      resolveReactClipGesturePreview(event);
+    },
+    zoom(direction, anchorClientX) {
+      const scroll = document.getElementById("fs-timeline-scroll");
+      const rect = scroll?.getBoundingClientRect() ?? null;
+      const snapshot = filmStore.getSnapshot();
+      const localX = rect ? Number.isFinite(anchorClientX) ? Number(anchorClientX) - rect.left : rect.width / 2 : 0;
+      const anchorTime = scroll && rect ? Math.max(0, filmTimelineMath.zoomAnchorTime(
+        scroll.scrollLeft,
+        localX,
+        snapshot.pixelsPerSecond,
+        132
+      )) : snapshot.playhead;
+      const nextScale = filmTimelineMath.zoomScale(snapshot.pixelsPerSecond, direction, 12, 120);
+      (0, import_react_dom.flushSync)(() => {
+        filmStore.setField("pixelsPerSecond", nextScale);
+      });
+      if (scroll && rect) {
+        scroll.scrollLeft = filmTimelineMath.zoomScrollLeft(
+          anchorTime,
+          localX,
+          filmStore.getField("pixelsPerSecond"),
+          132
+        );
+      }
+    },
     renderSurface() {
       const mount = document.getElementById("fs-react-root");
       if (mount && (!studioRoot || studioRootMount !== mount)) {
