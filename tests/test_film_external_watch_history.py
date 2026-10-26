@@ -17,7 +17,14 @@ FILM = '''<!doctype html>
 
 
 def _poll_changed_file(watcher: FilmRevisionWatcher) -> None:
+    # Tests inject monotonic times rather than sleep; keep them ahead of prior
+    # injected polls even when the helper is called repeatedly in one test.
     now = time.monotonic() + 1
+    for state in watcher._projects.values():
+        for key in ("changed_at", "scene_last_scan_at", "scene_changed_at", "last_access"):
+            value = state.get(key)
+            if isinstance(value, (int, float)):
+                now = max(now, float(value) + 1)
     watcher.poll_once(now=now)
     watcher.poll_once(now=now + 1)
 
