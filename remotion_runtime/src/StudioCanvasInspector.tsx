@@ -2627,11 +2627,26 @@ const FilmStoreDiagnostics: React.FC = () => {
   );
 };
 
+const StudioClipInspectorPanel: React.FC = () => {
+  const timelineFilm = useFilmStoreField("film");
+  const timelineRevision = useFilmStoreField("revision");
+  const clipInspectorEmptyMessage = useFilmStoreField("clipInspectorEmptyMessage");
+  const clipInspectorSelectedId = useFilmStoreField("selectedId");
+  const clipInspectorPlayhead = useFilmStoreField("playhead");
+  const clip = useMemo(
+    () => buildClipInspectorModel(timelineFilm,clipInspectorSelectedId,clipInspectorPlayhead),
+    [timelineFilm,timelineRevision,clipInspectorSelectedId,clipInspectorPlayhead],
+  );
+  const clipKey = clip
+    ? clip.id + ":" + JSON.stringify(clip.attrs || {})
+    : "empty:" + (clipInspectorEmptyMessage || "");
+  return <ClipInspector key={clipKey} clip={clip} emptyMessage={clipInspectorEmptyMessage ?? undefined} />;
+};
+
 const StudioReactOwner: React.FC = () => {
   const assetsModel = useFilmStoreField("assetsModel") as FilmStudioAssetsModel | null;
   const assetMode = useFilmStoreField("assetMode");
   const aiModel = useFilmStoreField("aiDirectorModel") as FilmStudioAiDirectorModel | null;
-  const clipInspectorEmptyMessage = useFilmStoreField("clipInspectorEmptyMessage");
   const toolbarVisible = useFilmStoreField("toolbarVisible");
   const timelineToolbarVisible = useFilmStoreField("timelineToolbarVisible");
   const scrubVisible = useFilmStoreField("scrubVisible");
@@ -2644,12 +2659,6 @@ const StudioReactOwner: React.FC = () => {
   const timelineDuration = useFilmStoreField("duration");
   const timelinePixelsPerSecond = useFilmStoreField("pixelsPerSecond");
   const timelineSelectedIdsVersion = useFilmStoreField("selectedIdsVersion");
-  const clipInspectorSelectedId = useFilmStoreField("selectedId");
-  const clipInspectorPlayhead = useFilmStoreField("playhead");
-  const clip = useMemo(
-    () => buildClipInspectorModel(timelineFilm,clipInspectorSelectedId,clipInspectorPlayhead),
-    [timelineFilm,timelineRevision,clipInspectorSelectedId,clipInspectorPlayhead],
-  );
   const timelineSurface = useMemo(
     () => timelineVisible
       ? buildTimelineSurfaceModel(
@@ -2664,9 +2673,6 @@ const StudioReactOwner: React.FC = () => {
   );
   const timelineContextMenu = useFilmStoreField("timelineContextMenu");
   const canvasElement = useFilmStoreField("canvasElementSelection");
-  const clipKey = clip
-    ? clip.id + ":" + JSON.stringify(clip.attrs || {})
-    : "empty:" + (clipInspectorEmptyMessage || "");
   const element = canvasElement;
   return (
     <>
@@ -2677,10 +2683,7 @@ const StudioReactOwner: React.FC = () => {
       {timelineToolbarVisible ? studioPortal("fs-react-timeline-toolbar", <StudioTimelineToolbar />) : null}
       {scrubVisible ? studioPortal("fs-react-scrub-row", <StudioScrubRow />) : null}
       {aiModel ? studioPortal("fs-react-ai-director", <StudioAiDirector key="ai-director" model={aiModel} />) : null}
-      {clipInspectorVisible ? studioPortal(
-        "fs-inspector",
-        <ClipInspector key={clipKey} clip={clip} emptyMessage={clipInspectorEmptyMessage ?? undefined} />
-      ) : null}
+      {clipInspectorVisible ? studioPortal("fs-inspector", <StudioClipInspectorPanel />) : null}
       {canvasInspectorVisible ? studioPortal(
         "fs-react-canvas-inspector",
         element ? <CanvasInspector key={element.clipId + "::" + element.selector} element={element} /> : null

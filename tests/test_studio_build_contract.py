@@ -127,6 +127,21 @@ def test_react_timeline_owns_move_target_hit_testing_and_legacy_fallback_is_gate
     assert "updateReactGestureTarget(pointerEvent)" in component
     assert "if(d.mode==='move'&&gestureDomRefs){" in legacy
 
+def test_react_owner_does_not_subscribe_to_playhead_for_clip_inspector():
+    """Playhead ticks should update only the inspector and focused timeline leaves, not the React owner."""
+    root = Path(__file__).resolve().parents[1]
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    inspector_panel = component.split("const StudioClipInspectorPanel: React.FC", 1)[1].split("const StudioReactOwner: React.FC", 1)[0]
+    owner = component.split("const StudioReactOwner: React.FC = () => {", 1)[1].split("function renderStudioReactOwner", 1)[0]
+
+    assert 'useFilmStoreField("playhead")' in inspector_panel
+    assert 'useFilmStoreField("selectedId")' in inspector_panel
+    assert "buildClipInspectorModel(timelineFilm,clipInspectorSelectedId,clipInspectorPlayhead)" in inspector_panel
+    assert 'useFilmStoreField("playhead")' not in owner
+    assert 'useFilmStoreField("selectedId")' not in owner
+    assert '<StudioClipInspectorPanel />' in owner
+
+
 def test_react_playhead_updates_are_isolated_from_track_tree_rendering():
     """High-frequency scrub/playback updates only rerender the ruler and playhead leaf nodes."""
     root = Path(__file__).resolve().parents[1]
