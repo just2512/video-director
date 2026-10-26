@@ -26,9 +26,9 @@
     mod
   ));
 
-  // node_modules/react/cjs/react.development.js
+  // ../remotion_runtime/node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "node_modules/react/cjs/react.development.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // node_modules/react/index.js
+  // ../remotion_runtime/node_modules/react/index.js
   var require_react = __commonJS({
-    "node_modules/react/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // node_modules/react-dom/cjs/react-dom.development.js
+  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // node_modules/react-dom/index.js
+  // ../remotion_runtime/node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "node_modules/react-dom/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // node_modules/scheduler/cjs/scheduler.development.js
+  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // node_modules/scheduler/index.js
+  // ../remotion_runtime/node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "node_modules/scheduler/index.js"(exports, module) {
+    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // node_modules/react-dom/cjs/react-dom-client.development.js
+  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // node_modules/react-dom/client.js
+  // ../remotion_runtime/node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "node_modules/react-dom/client.js"(exports, module) {
+    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // node_modules/react/cjs/react-jsx-runtime.development.js
+  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // node_modules/react/jsx-runtime.js
+  // ../remotion_runtime/node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "node_modules/react/jsx-runtime.js"(exports, module) {
+    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -25564,7 +25564,7 @@
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : fallback;
   };
-  var buildClipInspectorModel = (filmValue, selectedId, playheadValue) => {
+  var buildClipInspectorModel = (filmValue, selectedId) => {
     const film = timelineRecord(filmValue);
     if (film.exists !== true || !selectedId || !Array.isArray(film.tracks)) return null;
     const fps = Math.max(1, Math.min(60, asNumber(film.fps, 30)));
@@ -25585,7 +25585,6 @@
           duration,
           attrs,
           fps,
-          playhead: asNumber(playheadValue, 0),
           trackLocked: Object.prototype.hasOwnProperty.call(trackAttrs, "locked")
         };
       }
@@ -25808,6 +25807,12 @@
     const match = String(styles.rotate || "").match(/-?\d+(?:\.\d+)?/);
     return match ? Number(match[0]) : 0;
   };
+  var FilmKeyframePlayheadLine = ({ clipAt, clipDuration }) => {
+    const playhead = useFilmStoreField("playhead");
+    const ratio = clipDuration > 0 ? clampKeyframe((playhead - clipAt) / clipDuration, 0, 1) : 0;
+    const x = 8 + ratio * 344;
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", { x1: x, x2: x, y1: "4", y2: "84", className: "fs-keyframe-playhead" });
+  };
   var ClipInspector = ({ clip, emptyMessage }) => {
     const [feedback, setFeedback] = (0, import_react.useState)("");
     const keyframesAttribute = clip?.attrs?.["data-film-keyframes"] || "";
@@ -25845,7 +25850,8 @@
       setDraggingKeyframe(null);
       setKeyframeFeedback("");
       const duration = clip?.duration;
-      const relative = clip && typeof clip.playhead === "number" ? clip.playhead - clip.at : 0;
+      const livePlayhead = asNumber(filmStore.getField("playhead"), 0);
+      const relative = clip ? livePlayhead - clip.at : 0;
       setNewKeyframeAt((duration != null && duration > 0 ? clampKeyframe(relative, 0, duration) : 0).toFixed(3));
       setNewKeyframeValue(String(keyframeInfo(animationProperty).initial));
       setNewKeyframeEasing("linear");
@@ -26162,7 +26168,7 @@
               children: [
                 [0, 0.25, 0.5, 0.75, 1].map((ratio) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", { x1: "8", x2: "352", y1: 8 + ratio * 72, y2: 8 + ratio * 72, className: "fs-keyframe-grid" }, "h" + ratio)),
                 [0, 0.25, 0.5, 0.75, 1].map((ratio) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", { x1: 8 + ratio * 344, x2: 8 + ratio * 344, y1: "8", y2: "80", className: "fs-keyframe-grid" }, "v" + ratio)),
-                typeof clip.playhead === "number" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("line", { x1: 8 + clampKeyframe((clip.playhead - clip.at) / clip.duration, 0, 1) * 344, x2: 8 + clampKeyframe((clip.playhead - clip.at) / clip.duration, 0, 1) * 344, y1: "4", y2: "84", className: "fs-keyframe-playhead" }),
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FilmKeyframePlayheadLine, { clipAt: clip.at, clipDuration: clip.duration }),
                 activeChannel && activeChannel.keyframes.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", { d: keyframePath(activeChannel, clip.duration, animationInfo.min, animationInfo.max), className: "fs-keyframe-curve", fill: "none" }),
                 activeChannel?.keyframes.map((point, index) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
                   "circle",
@@ -27927,10 +27933,9 @@
     const timelineRevision = useFilmStoreField("revision");
     const clipInspectorEmptyMessage = useFilmStoreField("clipInspectorEmptyMessage");
     const clipInspectorSelectedId = useFilmStoreField("selectedId");
-    const clipInspectorPlayhead = useFilmStoreField("playhead");
     const clip = (0, import_react.useMemo)(
-      () => buildClipInspectorModel(timelineFilm, clipInspectorSelectedId, clipInspectorPlayhead),
-      [timelineFilm, timelineRevision, clipInspectorSelectedId, clipInspectorPlayhead]
+      () => buildClipInspectorModel(timelineFilm, clipInspectorSelectedId),
+      [timelineFilm, timelineRevision, clipInspectorSelectedId]
     );
     const clipKey = clip ? clip.id + ":" + JSON.stringify(clip.attrs || {}) : "empty:" + (clipInspectorEmptyMessage || "");
     return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ClipInspector, { clip, emptyMessage: clipInspectorEmptyMessage ?? void 0 }, clipKey);
