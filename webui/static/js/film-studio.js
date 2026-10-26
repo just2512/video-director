@@ -2617,13 +2617,15 @@
       await filmStudioCommit([{op:'trim',clip:d.id,edge:'end',end:timelineOperationNumber(trimEndCommit.target,(trimEndCommit.snapCandidate&&trimEndCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimEndCommit.target))}]);return;
     }
     var moveController=window.filmStudioTimelineController;
-    if(moveController&&typeof moveController.buildMoveOperations==='function'){
-      var moveControllerOperations=moveController.buildMoveOperations({
+    if(moveController&&typeof moveController.buildMovePreview==='function'){
+      // Resolve preview geometry and the authoritative move operations in one result.
+      var moveControllerResult=moveController.buildMovePreview({
         gesture:d,tracks:S.data&&S.data.tracks||[],targetTrackId:d.targetTrackId||d.trackId,
         minimumStart:(d.members||[]).reduce(function(value,member){return Math.min(value,member.originalAt);},Infinity),
         rawDeltaSeconds:deltaSeconds,candidates:timelineSnapCandidates((d.members||[]).map(function(member){return member.id;})),
         pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
       });
+      var moveControllerOperations=moveControllerResult&&moveControllerResult.operations;
       if(!moveControllerOperations||(d.members||[]).length!==moveControllerOperations.length){
         clearTimelineGesturePreview();renderTimeline();return;
       }
