@@ -406,3 +406,17 @@ def test_film_render_marks_old_revision_when_document_changes_during_export(tmp_
     assert report["current_revision_match"] is False
     assert any("rendered_revision" in warning or "导出期间影片文档已变化" in warning
                for warning in report["warnings"])
+
+@pytest.mark.parametrize("expected_revision", ["", "   ", None])
+def test_film_render_rejects_missing_or_blank_expected_revision_before_side_effects(
+    tmp_path, monkeypatch, expected_revision,
+):
+    from video_director import config, film_render
+
+    project_id, _revision = _write_html_film_project(tmp_path, monkeypatch)
+    project = config.project_dir(project_id)
+    with pytest.raises(film_render.FilmRenderError) as raised:
+        film_render.render_project_film(project_id, expected_revision, fps=2)
+    assert raised.value.code == "INVALID_REVISION"
+    assert not (project / "render").exists(), "invalid revision must fail before creating export artifacts"
+

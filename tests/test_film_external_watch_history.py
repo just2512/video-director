@@ -254,3 +254,64 @@ def test_external_scene_file_change_publishes_separate_refresh_event_without_fil
         {"path": "scenes/titles/opening.html", "kind": "modified"}
     ]
 
+def test_scene_watcher_ignores_scenes_root_symlink_to_external_directory(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "scene-root-symlink-boundary"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True, exist_ok=True)
+    film_path = fd._film_path(project_id)
+    film_path.write_text(FILM, encoding="utf-8")
+
+    outside = tmp_path / "outside-scenes"
+    outside.mkdir()
+    outside_file = outside / "private-scene.html"
+    outside_file.write_text("<html>outside version one</html>", encoding="utf-8")
+    (project / "scenes").symlink_to(outside, target_is_directory=True)
+
+    initial = fd.read_project_film(project_id)
+    events = []
+    watcher = FilmRevisionWatcher(lambda topic, payload: events.append((topic, payload)))
+    watcher.watch(project_id, initial_revision=initial["rev"], initial_text=initial["text"])
+    assert watcher._projects[project_id]["scene_files"] == {}
+
+    outside_file.write_text("<html>outside version two is longer</html>", encoding="utf-8")
+    _poll_changed_file(watcher)
+
+    assert events == [], events
+    assert fd.read_project_film(project_id)["rev"] == initial["rev"]
+
+
+def test_scene_watcher_does_not_follow_nested_symlink_directories(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "nested-scene-symlink-boundary"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True, exist_ok=True)
+    film_path = fd._film_path(project_id)
+    film_path.write_text(FILM, encoding="utf-8")
+
+    scenes = project / "scenes"
+    scenes.mkdir()
+    local_scene = scenes / "opening.html"
+    local_scene.write_text("<html>local version one</html>", encoding="utf-8")
+    outside = tmp_path / "outside-nested-scenes"
+    outside.mkdir()
+    outside_file = outside / "private-scene.html"
+    outside_file.write_text("<html>outside version one</html>", encoding="utf-8")
+    (scenes / "linked").symlink_to(outside, target_is_directory=True)
+
+    initial = fd.read_project_film(project_id)
+    events = []
+    watcher = FilmRevisionWatcher(lambda topic, payload: events.append((topic, payload)))
+    watcher.watch(project_id, initial_revision=initial["rev"], initial_text=initial["text"])
+    assert sorted(watcher._projects[project_id]["scene_files"]) == ["opening.html"]
+
+    outside_file.write_text("<html>outside version two is longer</html>", encoding="utf-8")
+    _poll_changed_file(watcher)
+    assert events == [], events
+
+    local_scene.write_text("<html>local version two is longer</html>", encoding="utf-8")
+    _poll_changed_file(watcher)
+    assert len(events) == 1, events
+    assert events[0][1]["phase"] == "scene_changed"
+    assert events[0][1]["paths"] == ["scenes/opening.html"]
+

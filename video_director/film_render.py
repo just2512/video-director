@@ -731,7 +731,14 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
     if not state.get("exists"):
         raise FilmRenderError("FILM_NOT_INITIALIZED", "当前项目尚未初始化 film.html。", 409)
     revision = state["rev"]
-    if expected_revision and revision != expected_revision:
+    if not isinstance(expected_revision, str) or not expected_revision.strip():
+        raise FilmRenderError(
+            "INVALID_REVISION",
+            "导出必须指定从 film.status 获取的非空 expected_revision。",
+            400,
+        )
+    expected_revision = expected_revision.strip()
+    if revision != expected_revision:
         raise FilmRenderError(
             "REVISION_CONFLICT",
             f"影片文档已变化：提交版本 {expected_revision}，当前版本 {revision}；请重新载入后导出。",

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -44,35 +45,54 @@ class FilmRevisionWatcher:
             return None
 
     @staticmethod
-    def _scan_scene_files(root: Path) -> dict[str, tuple[int, int, int, int]]:
-        """Snapshot regular files under scenes/ without following symlinks outside the project."""
+    def _scan_scene_files(
+        root: Path, *, project_root: Path | None = None,
+    ) -> dict[str, tuple[int, int, int, int]]:
+        """Snapshot project-local regular files, never following symlinks."""
         try:
-            resolved_root = root.resolve()
-            if not resolved_root.is_dir():
+            # Check before resolve(): a scenes/ symlink to an external directory
+            # must not become indistinguishable from an ordinary real directory.
+            if root.is_symlink():
                 return {}
-        except OSError:
+            resolved_root = root.resolve()
+            resolved_project = project_root.resolve() if project_root is not None else resolved_root.parent
+            resolved_root.relative_to(resolved_project)
+            if resolved_root == resolved_project or not resolved_root.is_dir():
+                return {}
+        except (OSError, ValueError):
             return {}
 
         snapshot: dict[str, tuple[int, int, int, int]] = {}
         try:
-            candidates = resolved_root.rglob("*")
-            for candidate in candidates:
-                try:
-                    if candidate.is_symlink() or not candidate.is_file():
+            # Path.rglob can traverse symlinked directory entries on some Python
+            # versions. os.walk with followlinks=False plus pruning makes the
+            # boundary explicit for both file and directory symlinks.
+            for directory, dir_names, file_names in os.walk(
+                resolved_root, topdown=True, followlinks=False
+            ):
+                parent = Path(directory)
+                dir_names[:] = sorted(
+                    name for name in dir_names
+                    if not name.startswith(".") and not (parent / name).is_symlink()
+                )
+                for name in sorted(file_names):
+                    candidate = parent / name
+                    try:
+                        if candidate.is_symlink() or not candidate.is_file():
+                            continue
+                        resolved = candidate.resolve()
+                        relative = resolved.relative_to(resolved_root)
+                        if any(part.startswith(".") for part in relative.parts):
+                            continue
+                        lowered = relative.name.lower()
+                        if lowered.endswith(("~", ".tmp", ".temp", ".swp", ".swo", ".bak", ".part")):
+                            continue
+                        stat = resolved.stat()
+                        snapshot[relative.as_posix()] = (
+                            int(stat.st_dev), int(stat.st_ino), int(stat.st_size), int(stat.st_mtime_ns)
+                        )
+                    except (OSError, ValueError):
                         continue
-                    resolved = candidate.resolve()
-                    relative = resolved.relative_to(resolved_root)
-                    if any(part.startswith(".") for part in relative.parts):
-                        continue
-                    name = relative.name.lower()
-                    if name.endswith(("~", ".tmp", ".temp", ".swp", ".swo", ".bak", ".part")):
-                        continue
-                    stat = resolved.stat()
-                    snapshot[relative.as_posix()] = (
-                        int(stat.st_dev), int(stat.st_ino), int(stat.st_size), int(stat.st_mtime_ns)
-                    )
-                except (OSError, ValueError):
-                    continue
         except OSError:
             return snapshot
         return snapshot
@@ -121,12 +141,12 @@ class FilmRevisionWatcher:
             watched_path = str(path.resolve())
         except OSError:
             watched_path = str(path.absolute())
-        scene_root = path.parent / "scenes"
-        try:
-            watched_scene_root = str(scene_root.resolve())
-        except OSError:
-            watched_scene_root = str(scene_root.absolute())
-        scene_files = self._scan_scene_files(scene_root)
+        project_root = path.parent
+        scene_root = project_root / "scenes"
+        # Store the absolute lexical path, not resolve(), so polling can still
+        # detect and reject scenes/ if it is replaced with a symlink afterwards.
+        watched_scene_root = str(scene_root.absolute())
+        scene_files = self._scan_scene_files(scene_root, project_root=project_root)
         scene_signature = self._scene_tree_signature(scene_files)
         with self._lock:
             state = self._projects.get(pid)
@@ -296,7 +316,7 @@ class FilmRevisionWatcher:
                 continue
 
             root = Path(root_value)
-            current_files = self._scan_scene_files(root)
+            current_files = self._scan_scene_files(root, project_root=root.parent)
             signature = self._scene_tree_signature(current_files)
             with self._lock:
                 live = self._projects.get(pid)
@@ -314,7 +334,7 @@ class FilmRevisionWatcher:
 
             # Read a second stable snapshot after the debounce. If an editor is still
             # replacing files, restart the debounce rather than announcing a partial save.
-            settled_files = self._scan_scene_files(root)
+            settled_files = self._scan_scene_files(root, project_root=root.parent)
             settled_signature = self._scene_tree_signature(settled_files)
             with self._lock:
                 live = self._projects.get(pid)
