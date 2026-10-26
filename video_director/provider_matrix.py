@@ -163,29 +163,14 @@ DEFINITIONS: tuple[ProviderDefinition, ...] = (
         note="当前系统唯一真正接通的 TTS provider；公开端点",
     ),
     ProviderDefinition(
-        "azure", "tts", "Azure Speech", ("tts.speak", "tts.word_boundary", "tts.preview"),
-        requires_key=True, implemented=False,
-        note="已登记，具体 SDK/voice 路由未接通",
+        "azure", "tts", "Azure Speech", ("tts.speak", "tts.preview"),
+        requires_key=True, implemented=True,
+        note="SSML+REST 真实执行器（voice.synth_preview）；region 默认 eastasia（tts_azure_region 或 AZURE_REGION）",
     ),
     ProviderDefinition(
-        "gemini", "tts", "Google Gemini TTS", ("tts.speak",),
-        requires_key=True, implemented=False,
-        note="已登记，具体 voice 路由未接通",
-    ),
-    ProviderDefinition(
-        "elevenlabs", "tts", "ElevenLabs", ("tts.speak",),
-        requires_key=True, implemented=False,
-        note="已登记，具体 voice 路由未接通",
-    ),
-    ProviderDefinition(
-        "siliconflow", "tts", "SiliconFlow TTS", ("tts.speak",),
-        requires_key=True, implemented=False,
-        note="已登记，具体 voice 路由未接通",
-    ),
-    ProviderDefinition(
-        "kokoro", "tts", "Kokoro 本地", ("tts.speak",),
-        requires_key=False, implemented=False,
-        note="已登记，当前未接本地推理执行器",
+        "elevenlabs", "tts", "ElevenLabs", ("tts.speak", "tts.preview"),
+        requires_key=True, implemented=True,
+        note="REST /v1/text-to-speech 真实执行器（voice.synth_preview）",
     ),
     ProviderDefinition(
         "pexels", "stock", "Pexels",
@@ -448,7 +433,7 @@ def matrix_for_frontend() -> list[dict]:
 
     # TTS 与 Stock 使用自己的 provider registry，不要求 API key 全局角色。
     for role, provider_ids in (
-        ("tts", ("edge-tts", "azure", "gemini", "elevenlabs", "siliconflow", "kokoro")),
+        ("tts", ("edge-tts", "azure", "elevenlabs")),
         ("stock", ("pexels", "pixabay", "coverr")),
     ):
         for provider_id in provider_ids:

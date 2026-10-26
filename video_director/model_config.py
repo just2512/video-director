@@ -98,6 +98,24 @@ ROLE_DEFS = {
         "key_env": "COVERR_API_KEY",
         "kind": "stock",
     },
+    # 2026-10-26 用户裁决：TTS 供应商可自主配置。kind="tts" 进设置页
+    # 「配音」分组（模型字段填 region/无模型概念时留空）。
+    "tts_azure": {
+        "label": "Azure Speech 配音",
+        "hint": "微软 Azure Speech API Key；model 字段填 region（如 eastasia）",
+        "default_base_url": "",
+        "default_model": "eastasia",
+        "key_env": "AZURE_API_KEY",
+        "kind": "tts",
+    },
+    "tts_elevenlabs": {
+        "label": "ElevenLabs 配音（付费）",
+        "hint": "ElevenLabs API Key（xi-api-key）；配置后音色库出现 ElevenLabs 音色",
+        "default_base_url": "https://api.elevenlabs.io",
+        "default_model": "eleven_multilingual_v2",
+        "key_env": "ELEVENLABS_API_KEY",
+        "kind": "tts",
+    },
 }
 
 _lock = threading.Lock()

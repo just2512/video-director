@@ -33,8 +33,9 @@ function _markTrying(btnEl){
   setTimeout(() => { btnEl.textContent = old; btnEl.disabled = false; }, 1500);
 }
 
-function edVoiceTry(voiceId, btnEl){
-  try { _playPreviewSync('/api/voice_preview?voice=' + encodeURIComponent(voiceId)); _markTrying(btnEl); }
+function edVoiceTry(voiceId, provider, btnEl){
+  const prov = provider || 'edge-tts';
+  try { _playPreviewSync('/api/voice_preview?voice=' + encodeURIComponent(voiceId) + '&provider=' + encodeURIComponent(prov)); _markTrying(btnEl); }
   catch (e) { editorToast('试听失败：' + e, true); }
 }
 function edLibAudioTry(assetId, btnEl){

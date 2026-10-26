@@ -1,104 +1,104 @@
-AI Video Director ¡ú http://127.0.0.1:7962
+AI Video Director ¡ú http://127.0.0.1:1869
 [web] 127.0.0.1 "GET /api/health HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET / HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/css/tokens.css HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/css/layout.css HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/css/workspace.css HTTP/1.1" 200 -[web] 127.0.0.1 "GET /static/css/timeline.css HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/css/timeline.css HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/css/template-gallery.css HTTP/1.1" 200 -[web] 127.0.0.1 "GET /static/css/components.css HTTP/1.1" 200 -
 
-[web] 127.0.0.1 "GET /static/css/components.css HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/css/template-gallery.css HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/css/style-gallery.css HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/css/shotbook-storyboard.css HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/js/state.js HTTP/1.1" 200 -[web] 127.0.0.1 "GET /static/css/editor-enhanced.css HTTP/1.1" 200 -
-
-[web] 127.0.0.1 "GET /static/css/creative-plan.css HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/css/workspace.css HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/css/shotbook-sfx.css HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/js/action-dispatcher.js HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/js/api.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/css/editor-enhanced.css HTTP/1.1" 200 -[web] 127.0.0.1 "GET /static/css/creative-plan.css HTTP/1.1" 200 -
+
+[web] 127.0.0.1 "GET /static/css/style-gallery.css HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/state.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/css/shotbook-storyboard.css HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/commands.js HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/js/selection.js HTTP/1.1" 200 -[web] 127.0.0.1 "GET /static/js/editor-live-audio.js HTTP/1.1" 200 -
-
+[web] 127.0.0.1 "GET /static/js/api.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/preview.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/selection.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/action-dispatcher.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/editor-live-audio.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/workspace.js HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/js/timeline.js HTTP/1.1" 200 -[web] 127.0.0.1 "GET /static/js/visual-overlay-editor.js HTTP/1.1" 200 -
-
+[web] 127.0.0.1 "GET /static/js/timeline.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/timeline-edit-math.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/visual-overlay-editor.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/source-monitor.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/editor-session.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/creative-plan.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/inspector.js HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/js/asset-picker.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/library.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/generation.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/asset-picker.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/voice-picker.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/review.js HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/js/voice-picker.js HTTP/1.1" 200 -[web] 127.0.0.1 "GET /static/js/generation.js HTTP/1.1" 200 -
-
-[web] 127.0.0.1 "GET /static/js/create.js HTTP/1.1" 200 -[web] 127.0.0.1 "GET /static/js/shotbook.js HTTP/1.1" 200 -
-
+[web] 127.0.0.1 "GET /static/js/shotbook.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/graphics.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/storyboard.js HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/js/graphics.js HTTP/1.1" 200 -[web] 127.0.0.1 "GET /static/js/project.js HTTP/1.1" 200 -
-
 [web] 127.0.0.1 "GET /static/js/workflow.js HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/js/style-gallery.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/project.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/template-gallery.js HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /static/js/mask-editor.js HTTP/1.1" 200 -[web] 127.0.0.1 "GET /static/js/editor-enhanced.js HTTP/1.1" 200 -
-
-[web] 127.0.0.1 "GET /static/js/app.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/create.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/style-gallery.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/mask-editor.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/developer.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/app.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/clip-clipboard.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /static/js/audio-track-asset-picker.js HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /static/js/editor-enhanced.js HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/llm_status HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/assets_library HTTP/1.1" 200 -
-[32m2026-10-26 00:27:15.788[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:30:56.476[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
 [web] 127.0.0.1 "GET /api/registry/motions HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /api/model_config HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /api/projects?filter=all HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/series HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /api/projects?filter=all HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/inbox HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /api/model_config HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/voices HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/bgm HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/sfx HTTP/1.1" 200 -
-[32m2026-10-26 00:27:16.111[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry style: 4 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:30:56.981[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry style: 4 items loaded (layers: ['system'])[0m
 [web] 127.0.0.1 "GET /api/registry/styles HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/voices HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/bgm HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/sfx HTTP/1.1" 200 -
-[32m2026-10-26 00:27:16.509[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry style: 4 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:02.742[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry style: 4 items loaded (layers: ['system'])[0m
 [web] 127.0.0.1 "GET /api/registry/styles HTTP/1.1" 200 -
-[32m2026-10-26 00:27:16.703[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry template: 3 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:16.753[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:16.756[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:16.759[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:16.763[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:16.765[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:16.767[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:02.856[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry template: 3 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:02.879[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:02.883[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:02.892[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:02.895[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:02.900[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:02.904[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
 [web] 127.0.0.1 "GET /api/registry/templates HTTP/1.1" 200 -
-[32m2026-10-26 00:27:17.321[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry template: 3 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:17.323[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:17.327[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:17.495[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry template: 3 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:17.497[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:17.499[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:17.502[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:17.508[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:17.510[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:17.519[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:17.522[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:17.535[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:17.535[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -loop 1 -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-860\test_chromium_loads_unified_ed0\storage\template-samples\28982725cc0f460da8c0b9a736d3536f.work\inputs\hero_image-template-sample-input.png -filter_complex [0:v]scale=3840:2160,scale=1920:1080,format=yuva420p,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='255*(if(lt(T,0.000),0.0000,if(lt(T,0.550),(0.0000+(1.0000)*((1-pow((1-((T-0.000)/max(0.550,0.001))),5)))),1.0000)))'[fg];color=c=black:s=1920x1080:r=30[bg];[bg][fg]overlay=shortest=1,format=yuv420p[v] -map [v] ...[0m
-[32m2026-10-26 00:27:29.280[0m | [1mINFO    [0m | [36mvideo_director.renderer[0m:[36mrender_composition[0m:[36m1481[0m - [1msegment 0001 [sample-28982-scene-title/image] 4.00s[0m
-[32m2026-10-26 00:27:29.282[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -f concat -safe 0 -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-860\test_chromium_loads_unified_ed0\storage\template-samples\28982725cc0f460da8c0b9a736d3536f.work\render\segments\scene_sample-28982-scene-title.mp4.concat.txt -c copy ...[0m
-[32m2026-10-26 00:27:29.383[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
-[32m2026-10-26 00:27:29.383[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -loop 1 -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-860\test_chromium_loads_unified_ed0\storage\template-samples\28982725cc0f460da8c0b9a736d3536f.work\inputs\hero_image-template-sample-input.png -filter_complex [0:v]scale=3840:2160,scale=1920:1080,format=yuva420p,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='255*(if(lt(T,0.000),0.0000,if(lt(T,0.800),(0.0000+(1.0000)*((1-pow((1-((T-0.000)/max(0.800,0.001))),3)))),1.0000)))'[fg];color=c=black:s=1920x1080:r=30[bg];[bg][fg]overlay=shortest=1,format=yuv420p[v] -map [v] ...[0m
-[32m2026-10-26 00:27:56.808[0m | [1mINFO    [0m | [36mvideo_director.renderer[0m:[36mrender_composition[0m:[36m1481[0m - [1msegment 0002 [sample-28982-scene-body/image] 10.00s[0m
-[32m2026-10-26 00:27:56.810[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -f concat -safe 0 -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-860\test_chromium_loads_unified_ed0\storage\template-samples\28982725cc0f460da8c0b9a736d3536f.work\render\segments\scene_sample-28982-scene-body.mp4.concat.txt -c copy ...[0m
-[32m2026-10-26 00:27:57.016[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-860\test_chromium_loads_unified_ed0\storage\template-samples\28982725cc0f460da8c0b9a736d3536f.work\render\segments\scene_sample-28982-scene-title.mp4 -vf fade=t=out:st=3.600:d=0.4 -c:v libx264 -preset veryfast ...[0m
-[32m2026-10-26 00:27:57.866[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-860\test_chromium_loads_unified_ed0\storage\template-samples\28982725cc0f460da8c0b9a736d3536f.work\render\segments\scene_sample-28982-scene-body.mp4 -vf fade=t=in:st=0:d=0.4 -c:v libx264 -preset veryfast ...[0m
-[32m2026-10-26 00:27:59.487[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -f concat -safe 0 -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-860\test_chromium_loads_unified_ed0\storage\template-samples\28982725cc0f460da8c0b9a736d3536f.work\render\visual.mp4.concat.txt -c copy ...[0m
-[32m2026-10-26 00:28:02.042[0m | [1mINFO    [0m | [36mvideo_director.title_engine[0m:[36mrender_watermark_layer[0m:[36m400[0m - [1mwatermark: ¡¸Browser smoke ti¡¹¡ú center (opacity=0.95, scale=1.55)[0m
-[32m2026-10-26 00:28:04.431[0m | [1mINFO    [0m | [36mvideo_director.title_engine[0m:[36mrender_watermark_layer[0m:[36m400[0m - [1mwatermark: ¡¸Real template re¡¹¡ú bottom_left (opacity=0.95, scale=1.15)[0m
+[32m2026-10-26 14:31:03.874[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry template: 3 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:03.878[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:03.885[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:04.183[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry template: 3 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:04.197[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:04.200[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:04.205[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:04.223[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:04.227[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry shot_recipe: 10 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:04.231[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:04.238[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:04.258[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:04.259[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -loop 1 -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-864\test_chromium_loads_unified_ed0\storage\template-samples\952be3b4a2f24aec9b7f3aec2a94523b.work\inputs\hero_image-template-sample-input.png -filter_complex [0:v]scale=3840:2160,scale=1920:1080,format=yuva420p,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='255*(if(lt(T,0.000),0.0000,if(lt(T,0.550),(0.0000+(1.0000)*((1-pow((1-((T-0.000)/max(0.550,0.001))),5)))),1.0000)))'[fg];color=c=black:s=1920x1080:r=30[bg];[bg][fg]overlay=shortest=1,format=yuv420p[v] -map [v] ...[0m
+[32m2026-10-26 14:31:20.707[0m | [1mINFO    [0m | [36mvideo_director.renderer[0m:[36mrender_composition[0m:[36m1481[0m - [1msegment 0001 [sample-952be-scene-title/image] 4.00s[0m
+[32m2026-10-26 14:31:20.711[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -f concat -safe 0 -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-864\test_chromium_loads_unified_ed0\storage\template-samples\952be3b4a2f24aec9b7f3aec2a94523b.work\render\segments\scene_sample-952be-scene-title.mp4.concat.txt -c copy ...[0m
+[32m2026-10-26 14:31:20.904[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry motion_recipe: 19 items loaded (layers: ['system'])[0m
+[32m2026-10-26 14:31:20.904[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -loop 1 -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-864\test_chromium_loads_unified_ed0\storage\template-samples\952be3b4a2f24aec9b7f3aec2a94523b.work\inputs\hero_image-template-sample-input.png -filter_complex [0:v]scale=3840:2160,scale=1920:1080,format=yuva420p,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='255*(if(lt(T,0.000),0.0000,if(lt(T,0.800),(0.0000+(1.0000)*((1-pow((1-((T-0.000)/max(0.800,0.001))),3)))),1.0000)))'[fg];color=c=black:s=1920x1080:r=30[bg];[bg][fg]overlay=shortest=1,format=yuv420p[v] -map [v] ...[0m
+[32m2026-10-26 14:31:57.261[0m | [1mINFO    [0m | [36mvideo_director.renderer[0m:[36mrender_composition[0m:[36m1481[0m - [1msegment 0002 [sample-952be-scene-body/image] 10.00s[0m
+[32m2026-10-26 14:31:57.264[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -f concat -safe 0 -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-864\test_chromium_loads_unified_ed0\storage\template-samples\952be3b4a2f24aec9b7f3aec2a94523b.work\render\segments\scene_sample-952be-scene-body.mp4.concat.txt -c copy ...[0m
+[32m2026-10-26 14:31:57.633[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-864\test_chromium_loads_unified_ed0\storage\template-samples\952be3b4a2f24aec9b7f3aec2a94523b.work\render\segments\scene_sample-952be-scene-title.mp4 -vf fade=t=out:st=3.600:d=0.4 -c:v libx264 -preset veryfast ...[0m
+[32m2026-10-26 14:31:58.691[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-864\test_chromium_loads_unified_ed0\storage\template-samples\952be3b4a2f24aec9b7f3aec2a94523b.work\render\segments\scene_sample-952be-scene-body.mp4 -vf fade=t=in:st=0:d=0.4 -c:v libx264 -preset veryfast ...[0m
+[32m2026-10-26 14:32:00.773[0m | [34m[1mDEBUG   [0m | [36mvideo_director.renderer[0m:[36m_run[0m:[36m58[0m - [34m[1mexec: D:/autocut/video-director/release/bin/ffmpeg.exe -y -loglevel error -f concat -safe 0 -i C:\Users\Jerry\AppData\Local\Temp\pytest-of-Jerry\pytest-864\test_chromium_loads_unified_ed0\storage\template-samples\952be3b4a2f24aec9b7f3aec2a94523b.work\render\visual.mp4.concat.txt -c copy ...[0m
+[32m2026-10-26 14:32:04.305[0m | [1mINFO    [0m | [36mvideo_director.title_engine[0m:[36mrender_watermark_layer[0m:[36m400[0m - [1mwatermark: ¡¸Browser smoke ti¡¹¡ú center (opacity=0.95, scale=1.55)[0m
+[32m2026-10-26 14:32:08.007[0m | [1mINFO    [0m | [36mvideo_director.title_engine[0m:[36mrender_watermark_layer[0m:[36m400[0m - [1mwatermark: ¡¸Real template re¡¹¡ú bottom_left (opacity=0.95, scale=1.15)[0m
 [web] 127.0.0.1 "POST /api/templates/sample_render HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /api/template_sample/download?id=28982725cc0f460da8c0b9a736d3536f HTTP/1.1" 200 -
-[32m2026-10-26 00:28:05.349[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry style: 4 items loaded (layers: ['system'])[0m
+[web] 127.0.0.1 "GET /api/template_sample/download?id=952be3b4a2f24aec9b7f3aec2a94523b HTTP/1.1" 200 -
+[32m2026-10-26 14:32:09.626[0m | [34m[1mDEBUG   [0m | [36mvideo_director.registries.core[0m:[36m_ensure_loaded[0m:[36m279[0m - [34m[1mregistry style: 4 items loaded (layers: ['system'])[0m
 [web] 127.0.0.1 "GET /api/registry/styles HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/sfx HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/sfx HTTP/1.1" 200 -
@@ -106,8 +106,8 @@ AI Video Director ¡ú http://127.0.0.1:7962
 [web] 127.0.0.1 "GET /api/asset_detail?asset_id=video-source&project_id=browser-audio-test HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/asset_detail?asset_id=video-source&project_id=browser-audio-test HTTP/1.1" 200 -
 [web] 127.0.0.1 "GET /api/asset_thumbnail?asset_id=video-source&project_id=browser-audio-test HTTP/1.1" 404 -
-[web] 127.0.0.1 "POST /api/director/context HTTP/1.1" 200 -
-[web] 127.0.0.1 "GET /api/asset_detail?asset_id=video-source&project_id=browser-audio-test HTTP/1.1" 200 -
+[web] 127.0.0.1 "GET /api/asset_detail?asset_id=video-source&project_id=browser-audio-test HTTP/1.1" 200 -[web] 127.0.0.1 "POST /api/director/context HTTP/1.1" 200 -
+
 [web] 127.0.0.1 "GET /api/asset_thumbnail?asset_id=video-source&project_id=browser-audio-test HTTP/1.1" 404 -
 [web] 127.0.0.1 "GET /api/asset_thumbnail?asset_id=video-source&project_id=browser-audio-test HTTP/1.1" 404 -
 [web] 127.0.0.1 "GET /api/asset_thumbnail?asset_id=img&project_id=browser-audio-test HTTP/1.1" 404 -

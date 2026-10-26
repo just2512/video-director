@@ -1076,12 +1076,37 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_bytes(data, "audio/mpeg")
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/voice/voices":
+            # 2026-10-26：多 provider 音色目录（按 provider 拉；缺 key 返回空）
+            qs = parse_qs(parsed.query)
+            provider = (qs.get("provider", [""]) or [""])[0] or "edge-tts"
+            try:
+                from video_director import voice as vd_voice
+                self._send_json({"voices": vd_voice.list_voices(provider)})
+            except Exception as exc:
+                self._send_json({"error": str(exc)[:200]}, 500)
         elif route == "/api/voice_preview":
-            # 配音试听：?voice=zh-CN-XiaoxiaoNeural → edge-tts 合成固定短句（缓存）
+            # 配音试听：?voice=…&provider=edge-tts|azure|elevenlabs
+            # 2026-10-26 用户裁决：多 provider 可配可试听。edge-tts 走原缓存链；
+            # azure/elevenlabs 走 voice.synth_preview 真实 REST 执行器。
             qs = parse_qs(parsed.query)
             voice = qs.get("voice", [""])[0]
+            provider = (qs.get("provider", [""]) or [""])[0] or "edge-tts"
             if not voice:
                 self._send_json({"error": "缺少 voice"}, 400)
+                return
+            if provider not in ("edge-tts", "azure", "elevenlabs"):
+                self._send_json({"error": f"未知配音供应商 {provider}"}, 400)
+                return
+            if provider != "edge-tts":
+                try:
+                    from video_director import voice as vd_voice
+                    data = vd_voice.synth_preview(provider, voice, "这是一段配音试听，检查音色是否合适。")
+                    if not data:
+                        raise RuntimeError("合成产物为空")
+                    self._send_bytes(data, "audio/mpeg")
+                except Exception as exc:
+                    self._send_json({"error": f"试听失败: {str(exc)[:200]}"}, 502)
                 return
             cache_dir = COMPOSER_ROOT / "voice_previews"
             cache_dir.mkdir(parents=True, exist_ok=True)

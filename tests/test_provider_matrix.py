@@ -61,13 +61,19 @@ def test_custom_openai_compatible_endpoint_is_declared_supported():
     assert st2.status == provider_matrix.READY
 
 
-def test_tts_unimplemented_providers_never_report_ready():
+def test_tts_implemented_providers_and_honest_registry():
+    """2026-10-26 用户裁决契约翻转：azure/elevenlabs 已实现（真实 REST 执行器
+    voice.synth_preview）——配了 key 即 READY；gemini/siliconflow/kokoro 无
+    真实执行器，从 Registry 删除（挂着假名字比没有更糟）。"""
     defs = {d.provider_id: d for d in provider_matrix.DEFINITIONS if d.role == "tts"}
-    assert defs["kokoro"].implemented is False
+    assert defs["azure"].implemented is True
+    assert defs["elevenlabs"].implemented is True
+    assert "gemini" not in defs and "siliconflow" not in defs and "kokoro" not in defs
     providers = {p["id"]: p for p in voice.list_providers()}
     assert providers["edge-tts"]["status"] == provider_matrix.READY
-    assert providers["kokoro"]["available"] is False
-    assert providers["kokoro"]["status"] == provider_matrix.UNSUPPORTED
+    # azure/elevenlabs 未配 key → MISSING（诚实，非 UNSUPPORTED）
+    assert providers["azure"]["available"] is False
+    assert providers["elevenlabs"]["available"] is False
 
 
 def test_stock_coverr_is_unsupported_even_when_key_exists(monkeypatch):
@@ -109,12 +115,13 @@ def test_matrix_frontend_never_contains_secret():
         assert "secret" not in str(row).lower()
 
 
-def test_matrix_frontend_reports_unimplemented_tts_as_unsupported(monkeypatch):
-    monkeypatch.delenv("COVERR_API_KEY", raising=False)
+def test_matrix_frontend_tts_three_real_providers(monkeypatch):
+    """2026-10-26 契约翻转：TTS 前端矩阵只有三个真实 provider——
+    edge-tts READY、azure/elevenlabs 配 key 才 READY、假 provider 已删。"""
     rows = provider_matrix.matrix_for_frontend()
     tts = {r["provider"]: r for r in rows if r["role"] == "tts"}
     assert tts["edge-tts"]["operations"]["tts.speak"] == provider_matrix.READY
-    assert tts["kokoro"]["operations"]["tts.speak"] == provider_matrix.UNSUPPORTED
+    assert set(tts.keys()) == {"edge-tts", "azure", "elevenlabs"}
 
 
 def test_matrix_frontend_reports_stock_states(monkeypatch, tmp_path):

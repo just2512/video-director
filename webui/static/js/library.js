@@ -168,25 +168,38 @@ async function edLibSaveSemantics(assetId){
  * 音色试听走 /api/voice_preview 全局合成；配音设置（音色/语速/音量入轨）
  * 在项目 Inspector，无项目时如实提示。 */
 async function _edLibLoadVoice(box){
-  const r = await apiGet('/api/voice/providers');
-  const provs = (r && r.providers) || [];
-  const voices = (r && r.voices) || [];
-  // 2026-10-26 用户报障：6 个引擎 5 个「未接通」铺开纯噪音。只展示可用的，
-  // 未接通的折叠成一句（诚实但不刷屏）——系统仅 Edge TTS 有执行器，其余
-  // provider_matrix 显式 UNSUPPORTED，配置界面也没有意义（填 key 也不生效）。
-  const avail = provs.filter(p => p.available);
-  const unavail = provs.filter(p => !p.available);
+  // 2026-10-26 用户裁决：多 provider 可配可试听——按已配置 provider 分组展示
+  // 音色（azure/elevenlabs 配了 key 才出现，缺 key 不显示）；设置页可配 key。
+  const groups = [];
+  for (const prov of ['edge-tts', 'azure', 'elevenlabs']) {
+    try {
+      const r = await apiGet('/api/voice/providers');
+      const avail = ((r && r.providers) || []).find(p => p.id === prov && p.available);
+      if (!avail) continue;
+      // 各 provider 音色目录
+      const vr = await apiGet('/api/voice/providers');  // 一次拿全；voices 按 provider 拉
+      let voices = [];
+      if (prov === 'edge-tts') voices = (vr && vr.voices) || [];
+      else {
+        const pr = await apiGet('/api/voice/voices?provider=' + encodeURIComponent(prov));
+        voices = (pr && pr.voices) || (Array.isArray(pr) ? pr : []);
+      }
+      if (voices.length) groups.push({prov: prov, label: avail.label, voices: voices});
+    } catch (e) { /* provider 拉取失败跳过 */ }
+  }
   const engineLine = '<div class="hint">配音引擎：' +
-    (avail.length ? avail.map(p => esc(p.label || p.id)).join('、') : '无可用引擎') +
-    (unavail.length ? '<span class="hint">（另有 ' + unavail.length + ' 个引擎未接通，当前不可选）</span>' : '') +
+    (groups.length ? groups.map(g => esc(g.label)).join('、') : '无可用引擎（设置 → 模型 可配置 Azure / ElevenLabs）') +
     '</div>';
   box.innerHTML = engineLine +
     (ED.pid
       ? '<div class="hint">配音在项目 Inspector「声音策略 → 配音设置」；此处试听。</div>'
       : '<div class="hint">当前未打开项目：可试听音色；配音入轨请先打开项目。</div>')+
-    voices.slice(0, 12).map(v =>
-      `<div class="proj-row"><span><b>${esc(v.name || v.voice_id || v)}</b></span>`+
-      `<button class="btn-secondary btn-sm" onclick="edVoiceTry('${esc(v.voice_id || v.id || v)}', this)">试听</button></div>`).join('');
+    groups.map(g =>
+      (g.prov !== 'edge-tts' ? '<div class="hint" style="margin-top:8px"><b>' + esc(g.label) + '</b></div>' : '') +
+      g.voices.slice(0, 12).map(v =>
+        `<div class="proj-row"><span><b>${esc(v.name || v.voiceId || v.voice_id || v)}</b></span>`+
+        `<button class="btn-secondary btn-sm" onclick="edVoiceTry('${esc(v.voiceId || v.voice_id || v)}', '${esc(g.prov)}', this)">试听</button></div>`).join('')
+    ).join('') || '<div class="hint">无可用音色</div>';
 }
 
 async function edLibLoad(){

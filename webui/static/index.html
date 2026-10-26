@@ -364,9 +364,12 @@
       </div>
     </div>
     <div class="panel" style="margin-top:12px">
-      <b>配音</b> <span class="hint">引擎：Edge TTS（免费，无需配置）。音色试听与选择在库面板「声音 → 配音」或项目 Inspector 的配音设置。</span>
+      <b>配音</b> <span class="hint">引擎：Edge TTS（免费）默认可用；Azure / ElevenLabs 在下方配置 Key 后音色库即出现其音色并可试听。</span>
+      <div id="tts-roles" style="margin-top:8px"></div>
       <div class="btn-row" style="margin-top:6px">
+        <button class="btn-secondary btn-sm" onclick="saveModelConfig()">保存配音配置</button>
         <button class="btn-secondary btn-sm" onclick="switchTab('editor'); edLibDomain('sound','voice')">去音色库试听</button>
+        <span class="hint" id="tts-save-status"></span>
       </div>
     </div>
     <div class="panel" style="margin-top:12px">

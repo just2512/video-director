@@ -15,6 +15,7 @@ const PM_STATUS_CN = {
   CREATED: '待处理', TTS: '生成中', ALIGNMENT: '生成中', MATCHING: '生成中',
   PLANNING: '生成中', AWAITING_CONFIRM: '待确认', RENDERING: '生成中', QC: '生成中',
   DONE: '已完成', FAILED: '失败', UNKNOWN: '旧版',
+  CANCELLED: '已停止',  // 2026-10-26：用户主动停止 ≠ 失败
 };
 
 function pmStatusCn(p){
