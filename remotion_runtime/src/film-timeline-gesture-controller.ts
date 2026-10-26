@@ -232,6 +232,10 @@ const buildMoveOperationsForResolution = (
   resolution: FilmTimelineMoveResolution,
 ): FilmTimelineMoveOperation[] | null => {
   const gesture = input.gesture;
+  // The public operation builders are an authority boundary, not just geometry
+  // helpers. Revalidate here so callers cannot persist locked, out-of-range, or
+  // overlapping cross-track moves by bypassing the UI's pointer-target guard.
+  if (gesture.invalidTargetMessage || validateMoveTarget(input)) return null;
   const members = gesture.members || [];
   let targetIndex = (gesture.trackOrder || []).indexOf(
     String(input.targetTrackId || gesture.targetTrackId || gesture.trackId || ""),

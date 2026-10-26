@@ -589,6 +589,43 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 target_y = target_box["y"] + target_box["height"] / 2
                 before_revision = original["rev"]
 
+                # The shared controller must reject the same unsafe move even when
+                # called without the UI's pointer-target guard.
+                invalid_move = page.evaluate("""pixelsPerSecond => {
+                  const controller=window.filmStudioTimelineController;
+                  const input={
+                    gesture:{
+                      members:[{id:'clip-a',originalAt:0,originalEnd:2,
+                        trackId:'video-main',trackIndex:0}],
+                      trackId:'video-main',originalTrackIndex:0,
+                      trackOrder:['video-main','video-secondary'],
+                      targetTrackId:'video-secondary'
+                    },
+                    tracks:[
+                      {id:'video-main',attrs:{},clips:[
+                        {id:'clip-a',at:0,end:2,attrs:{}},
+                        {id:'clip-b',at:6,end:8,attrs:{}}
+                      ]},
+                      {id:'video-secondary',attrs:{},clips:[
+                        {id:'clip-target',at:8,end:10,attrs:{}}
+                      ]}
+                    ],
+                    targetTrackId:'video-secondary',minimumStart:0,
+                    rawDeltaSeconds:7,candidates:[],pixelsPerSecond,
+                    thresholdPixels:8,snapEnabled:false,frameRate:30
+                  };
+                  const preview=controller.buildMovePreview(input);
+                  const operations=controller.buildMoveOperations(input);
+                  return {
+                    validation:controller.validateMoveTarget(input),
+                    previewOperations:preview.operations,
+                    operations
+                  };
+                }""", pixels_per_second)
+                assert "时间重叠" in invalid_move["validation"], invalid_move
+                assert invalid_move["previewOperations"] is None, invalid_move
+                assert invalid_move["operations"] is None, invalid_move
+
                 # A cross-track drop that would overlap an existing clip must be
                 # rejected before persistence. The clip starts at 0 and is 2s long;
                 # moving its start to 7s would overlap clip-target at 8s.
