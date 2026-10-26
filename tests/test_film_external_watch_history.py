@@ -215,3 +215,42 @@ def test_external_edit_that_restores_a_historical_revision_is_still_recorded(tmp
     assert history["past"][0]["after"] == restored
     assert history["past"][1]["before"] == restored
     assert history["past"][1]["after"] == initial
+
+
+def test_external_scene_file_change_publishes_separate_refresh_event_without_film_revision_change(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "external-scene-resource-watch"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True, exist_ok=True)
+    film_path = fd._film_path(project_id)
+    film_path.write_text(FILM, encoding="utf-8")
+    scene_root = project / "scenes" / "titles"
+    scene_root.mkdir(parents=True)
+    scene_path = scene_root / "opening.html"
+    scene_path.write_text("<html><body>Version one</body></html>", encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    events = []
+
+    watcher = FilmRevisionWatcher(lambda topic, payload: events.append((topic, payload)))
+    watcher.watch(project_id, initial_revision=initial["rev"], initial_text=initial["text"])
+    scene_path.write_text("<html><body>Version two has changed</body></html>", encoding="utf-8")
+    _poll_changed_file(watcher)
+
+    current = fd.read_project_film(project_id)
+    assert current["rev"] == initial["rev"]
+    assert current["text"] == initial["text"]
+    history = fd._history_read(project_id)
+    assert history["past"] == []
+    assert len(events) == 1, events
+    topic, event = events[0]
+    assert topic == "film"
+    assert event["phase"] == "scene_changed"
+    assert event["project_id"] == project_id
+    assert event["source"] == "external_file"
+    assert event["scene_revision"] != ""
+    assert len(event["scene_revision"]) == 64
+    assert event["paths"] == ["scenes/titles/opening.html"]
+    assert event["changes"] == [
+        {"path": "scenes/titles/opening.html", "kind": "modified"}
+    ]
+

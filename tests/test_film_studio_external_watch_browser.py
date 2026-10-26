@@ -3782,4 +3782,109 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
         server.shutdown()
         server_thread.join(timeout=5)
 
+def test_external_scene_file_write_hot_reloads_preview_without_changing_film_revision(tmp_path, monkeypatch):
+    import time
+
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-scene-hot-reload-browser"
+    project_root = storage_root / project_id
+    scene_root = project_root / "scenes"
+    scene_root.mkdir(parents=True)
+    scene_path = scene_root / "opening.html"
+
+    def scene_document(label):
+        return f'''<!doctype html><html><head><meta charset="utf-8">
+<style>html,body{{margin:0;width:100%;height:100%;background:#123;color:#fff;font:48px sans-serif}}</style>
+</head><body><div id="scene-value">{label}</div><script>
+window.film={{ready:Promise.resolve(),frame:function(t){{document.body.dataset.frameTime=String(t);}}}};
+</script></body></html>'''
+
+    scene_path.write_text(scene_document("Scene version one"), encoding="utf-8")
+    film_html = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden}</style></head>
+<body><section id="video-main" data-label="主画面">
+<iframe id="opening-scene" src="scenes/opening.html#t=0,1" at="0"></iframe>
+</section></body></html>'''
+    project_root.mkdir(parents=True, exist_ok=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(film_html, encoding="utf-8")
+    before = fd.read_project_film(project_id)
+    assert before["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            edit_requests: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", lambda request: edit_requests.append(request.url)
+                    if request.url.endswith("/api/editor/film/edit") else None)
+            base_url = f"http://127.0.0.1:{server.server_port}"
+            try:
+                with page.expect_request("**/api/events", timeout=10000) as event_request:
+                    response = page.goto(base_url + "/", wait_until="domcontentloaded")
+                assert response and response.status == 200
+                assert event_request.value.url.endswith("/api/events")
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); return !!select && select.options.length>0; }"
+                )
+                page.evaluate("""(pid) => {
+                  const select=document.querySelector('#editor-project');
+                  let option=[...select.options].find(item=>item.value===pid);
+                  if(!option){option=new Option(pid,pid);select.add(option);}
+                  select.value=pid;
+                  select.dispatchEvent(new Event('change',{bubbles:true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                scene_value=page.frame_locator("#fs-preview-composition").frame_locator("#opening-scene").locator("#scene-value")
+                scene_value.wait_for(state="visible", timeout=15000)
+                assert scene_value.inner_text() == "Scene version one"
+
+                # Agent modifies only the scene file; film.html and its revision remain untouched.
+                scene_path.write_text(scene_document("Scene version two"), encoding="utf-8")
+                deadline = time.monotonic() + 15
+                observed = ""
+                while time.monotonic() < deadline:
+                    try:
+                        observed = scene_value.inner_text(timeout=500)
+                    except Exception:
+                        observed = ""
+                    if observed == "Scene version two":
+                        break
+                    time.sleep(0.1)
+                assert observed == "Scene version two", {
+                    "observed": observed, "page_errors": page_errors,
+                }
+
+                current_response = page.request.get(
+                    base_url + "/api/editor/film?project_id=" + quote_for_test(project_id, safe="")
+                )
+                assert current_response.status == 200
+                current_payload = current_response.json()
+                assert current_payload["rev"] == before["rev"]
+                assert fd.read_project_film(project_id)["rev"] == before["rev"]
+                assert fd._history_read(project_id)["past"] == []
+                assert edit_requests == []
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 

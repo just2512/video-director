@@ -2876,6 +2876,7 @@
           S.runtimeRev='';
           syncRuntime(S.runtimeCommand||(window.filmStudioPlaying?'play':'seek'));
         }
+        flushPendingSceneRefresh();
         return;
       }
       if(message.rev&&hasRuntimeData&&message.rev!==expectedRuntimeRev){
@@ -2884,6 +2885,17 @@
       }else if(message.rev&&hasRuntimeData&&message.rev===expectedRuntimeRev){
         S.runtimeRev=expectedRuntimeRev;
         if(S.elementInspect)frame.contentWindow.postMessage({type:'film-runtime:inspect',enabled:true},window.location.origin);
+      }
+      flushPendingSceneRefresh();
+    }else if(message.type==='film-runtime:scenes-refreshed'&&message.project_id===S.projectId){
+      var refreshedCount=Math.max(0,num(message.count,0));
+      var failedCount=Math.max(0,num(message.failed,0));
+      if(failedCount){
+        showStatus('检测到 scenes/ 文件已变化，已尝试刷新 '+refreshedCount+' 个 HTML 镜头；'+failedCount+' 个镜头加载失败，请检查场景文件及其资源。','error');
+      }else if(refreshedCount){
+        showStatus('检测到外部场景文件变更，已刷新 '+refreshedCount+' 个 HTML 镜头预览；film.html revision 未变化。','success');
+      }else{
+        showStatus('检测到 scenes/ 文件变更，但当前影片没有引用 scenes/ 下的 HTML 镜头。','');
       }
     }else if(message.type==='film-runtime:inspect-ready'){
       // A late ready acknowledgement must not overwrite the more specific
@@ -3857,6 +3869,26 @@ window.filmStudioCopyClips=function(){
       e.preventDefault();window.filmStudioSeek(S.duration);
     }
   });
+  function flushPendingSceneRefresh(){
+    var pending=S.pendingSceneRefresh;
+    if(!pending||!S.open)return;
+    if(!S.projectId||pending.project_id!==S.projectId)return;
+    var frame=$('fs-preview-composition');
+    var runtimeData=S.previewProposalActive&&S.proposal?S.proposal.candidate:
+      ((!S.data||!S.data.exists)?migrationPreviewPayload():S.data);
+    if(!S.runtimeReady||!frame||!frame.contentWindow||!runtimeData||!runtimeData.exists)return;
+    var expectedRuntimeRev=S.previewProposalActive&&S.proposal?'proposal:'+S.proposal.id:
+      (migrationPreviewPayload()&&(!S.data||!S.data.exists)?migrationPreviewRevision():S.rev);
+    if(S.runtimeRev!==expectedRuntimeRev){
+      syncRuntime(S.runtimeCommand||(window.filmStudioPlaying?'play':'seek'));
+    }
+    S.pendingSceneRefresh=null;
+    frame.contentWindow.postMessage({
+      type:'film-runtime:refresh-scenes',
+      scene_revision:pending.scene_revision,
+      paths:pending.paths
+    },window.location.origin);
+  }
   function connectFilmStudioEvents(){
     if(S.events||typeof EventSource==='undefined')return;
     try{
@@ -3865,7 +3897,14 @@ window.filmStudioCopyClips=function(){
         var packet;try{packet=JSON.parse(event.data||'{}');}catch(_){return;}
         var data=packet.data||{};
         if(data.project_id&&S.projectId&&data.project_id!==S.projectId)return;
-        if(packet.event==='film'&&data.phase==='document_broken'&&S.open){
+        if(packet.event==='film'&&data.phase==='scene_changed'&&S.open){
+          S.pendingSceneRefresh={
+            project_id:String(data.project_id||S.projectId||''),
+            scene_revision:String(data.scene_revision||''),
+            paths:Array.isArray(data.paths)?data.paths.slice(0,200):[]
+          };
+          flushPendingSceneRefresh();
+        }else if(packet.event==='film'&&data.phase==='document_broken'&&S.open){
           // Preserve the last valid view while the agent is in the middle of
           // writing a broken/partial file. Only a later valid revision may reload.
           S.broken=true;

@@ -872,6 +872,68 @@
       }
     }
   }
+  function isAuthoredSceneEntry(entry){
+    if(!entry||!entry.clip||entry.clip.tag!=='iframe')return false;
+    var source=String(entry.clip.attrs&&entry.clip.attrs.src||'').split('#',1)[0]
+      .replace(/\\/g,'/').replace(/^\.\//,'');
+    try{
+      var mediaUrl=new URL(String(entry.clip.media_url||''),window.location.href);
+      source=mediaUrl.searchParams.get('src')||source;
+    }catch(_){}
+    source=String(source||'').replace(/\\/g,'/').replace(/^\.\//,'');
+    return source.indexOf('scenes/')===0;
+  }
+  function versionedSceneUrl(entry,revision){
+    var raw=sourceBase(entry.clip.media_url||entry.el.getAttribute('src')||entry.el.src||'');
+    var url=new URL(raw,window.location.href);
+    url.searchParams.set('scene_revision',String(revision||Date.now()));
+    return url.toString();
+  }
+  function reloadAuthoredScene(entry,revision){
+    return new Promise(function(resolve){
+      var el=entry.el,done=false,timer=0;
+      function finish(ok){
+        if(done)return;done=true;
+        if(timer)clearTimeout(timer);
+        el.removeEventListener('load',loaded);
+        el.removeEventListener('error',failed);
+        entry.iframeLoaded=!!ok;
+        entry.iframeLoadError=!ok;
+        resolve(!!ok);
+      }
+      function loaded(){finish(true);}
+      function failed(){finish(false);}
+      entry.iframeLoaded=false;entry.iframeLoadError=false;
+      el.addEventListener('load',loaded);
+      el.addEventListener('error',failed);
+      timer=setTimeout(function(){finish(false);},15000);
+      try{el.src=versionedSceneUrl(entry,revision);}
+      catch(_){finish(false);}
+    });
+  }
+  function refreshAuthoredScenes(message){
+    var revision=String(message&&message.scene_revision||'');
+    if(!state.data){
+      post({type:'film-runtime:scenes-refreshed',project_id:'',scene_revision:revision,count:0,failed:0});
+      return;
+    }
+    var targets=[];
+    state.tracks.forEach(function(track){
+      track.clips.forEach(function(entry){
+        if(isAuthoredSceneEntry(entry))targets.push(entry);
+      });
+    });
+    Promise.all(targets.map(function(entry){return reloadAuthoredScene(entry,revision);})).then(function(results){
+      if(state.data)renderTime(state.time,true);
+      post({
+        type:'film-runtime:scenes-refreshed',
+        project_id:String(state.data&&state.data.project_id||''),
+        scene_revision:revision,
+        count:targets.length,
+        failed:results.filter(function(ok){return !ok;}).length
+      });
+    });
+  }
   async function renderFrame(message){
     state.renderMode=true;state.playing=false;
     if(state.raf)cancelAnimationFrame(state.raf);state.raf=0;
@@ -955,6 +1017,7 @@
     if(event.origin!==window.location.origin)return;
     var message=event.data||{};
     if(message.type==='film-runtime:load'){loadDocument(message.data,message.rev);post({type:'film-runtime:ready',rev:state.rev});}
+    else if(message.type==='film-runtime:refresh-scenes')refreshAuthoredScenes(message);
     else if(message.type==='film-runtime:seek'){
       if(Number.isFinite(Number(message.time))){
         state.time=clamp(Number(message.time),0,state.duration);
