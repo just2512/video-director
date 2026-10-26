@@ -48,7 +48,10 @@ const formatFilmTime = (value: number): string => {
   return String(minutes).padStart(2, "0") + ":" + seconds.toFixed(3).padStart(6, "0");
 };
 
-const resolveReactClipGesturePreview = (event:FilmStudioGesturePointerInput): void => {
+const resolveReactClipGesturePreview = (
+  event:FilmStudioGesturePointerInput,
+  forCommit = false,
+): FilmOperation[] | undefined => {
   const before = filmStore.getSnapshot();
   const firstGesture = before.timelineGestureContext;
   if (!firstGesture || firstGesture.pointerId !== event.pointerId) return;
@@ -122,6 +125,7 @@ const resolveReactClipGesturePreview = (event:FilmStudioGesturePointerInput): vo
     preview:FilmStudioTimelineGesturePreview,
     snap:FilmTimelineSnapCandidate | null,
   ) => {
+    if (forCommit) return;
     filmStore.setField("timelineGesturePreview",preview);
     filmStore.setField("timelineSnapGuide",snap ? {
       at:Math.max(0,snap.at),
@@ -155,14 +159,15 @@ const resolveReactClipGesturePreview = (event:FilmStudioGesturePointerInput): vo
       frameRate,
     };
     const result = filmTimelineGestureController.buildMovePreview(input);
+    if (forCommit) return result.operations ?? [];
     publish(result.preview,result.resolution.snapCandidate);
-    return;
+    return undefined;
   }
 
   if (gesture.mode === "trim-start" || gesture.mode === "trim-end") {
     if (gesture.originalAt === undefined || gesture.originalEnd === undefined) {
       publish(null,null);
-      return;
+      return forCommit ? [] : undefined;
     }
     const result = filmTimelineGestureController.resolveTrimGesture({
       clipId:gesture.id,
@@ -179,8 +184,9 @@ const resolveReactClipGesturePreview = (event:FilmStudioGesturePointerInput): vo
       snapEnabled:state.snapEnabled,
       frameRate,
     });
+    if (forCommit) return result ? [result.operation] : [];
     publish(result ? {[gesture.id]:result.preview} : null,result?.resolution.snapCandidate ?? null);
-    return;
+    return undefined;
   }
 
   if (gesture.mode === "roll") {
@@ -188,7 +194,7 @@ const resolveReactClipGesturePreview = (event:FilmStudioGesturePointerInput): vo
     if (!leftClipId || !rightClipId || rightAt === undefined ||
         leftDuration === undefined || rightDuration === undefined) {
       publish(null,null);
-      return;
+      return forCommit ? [] : undefined;
     }
     const result = filmTimelineGestureController.resolveRollGesture({
       leftClipId,
@@ -204,8 +210,12 @@ const resolveReactClipGesturePreview = (event:FilmStudioGesturePointerInput): vo
       snapEnabled:state.snapEnabled,
       frameRate,
     });
+    if (forCommit) {
+      return result && Math.abs(result.resolution.deltaSeconds) >= 0.001
+        ? [result.operation] : [];
+    }
     publish(result?.preview ?? null,result?.resolution.snapCandidate ?? null);
-    return;
+    return undefined;
   }
 
   if (gesture.mode === "slide") {
@@ -213,7 +223,7 @@ const resolveReactClipGesturePreview = (event:FilmStudioGesturePointerInput): vo
     if (!leftClipId || !centerClipId || !rightClipId || centerAt === undefined || rightAt === undefined ||
         leftDuration === undefined || centerDuration === undefined || rightDuration === undefined) {
       publish(null,null);
-      return;
+      return forCommit ? [] : undefined;
     }
     const result = filmTimelineGestureController.resolveSlideGesture({
       leftClipId,
@@ -231,8 +241,12 @@ const resolveReactClipGesturePreview = (event:FilmStudioGesturePointerInput): vo
       snapEnabled:state.snapEnabled,
       frameRate,
     });
+    if (forCommit) {
+      return result && Math.abs(result.resolution.deltaSeconds) >= 0.001
+        ? [result.operation] : [];
+    }
     publish(result?.preview ?? null,result?.resolution.snapCandidate ?? null);
-    return;
+    return undefined;
   }
 
   const result = filmTimelineGestureController.resolveSlipGesture({
@@ -242,7 +256,12 @@ const resolveReactClipGesturePreview = (event:FilmStudioGesturePointerInput): vo
     snapEnabled:state.snapEnabled,
     frameRate,
   });
+  if (forCommit) {
+    return result && Math.abs(result.resolution.sourceDeltaSeconds) >= 0.001
+      ? [result.operation] : [];
+  }
   publish(result?.preview ?? null,null);
+  return undefined;
 };
 type TimelineRecord = Record<string, unknown>;
 
@@ -570,6 +589,7 @@ type FilmTimelineActiveDragIds = FilmStudioTimelineActiveDragIds;
 interface FilmStudioReactTimelineBridge {
   renderSurface(): void;
   previewClipGesture(event:FilmStudioGesturePointerInput): void;
+  prepareClipGestureCommit(event:FilmStudioGesturePointerInput): FilmOperation[] | undefined;
   setGesturePreview(preview: FilmTimelineGesturePreview): void;
   setSnapGuide(guide: FilmTimelineSnapGuide): void;
   setTrackDropTarget(target: FilmTimelineDropTarget): void;
@@ -2112,6 +2132,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = ({model}) =
               onPointerUp={event => {
                 const pointerId=event.nativeEvent.pointerId;
                 if(activePointerId.current!==pointerId)return;
+                updateReactGestureTarget(event.nativeEvent);
                 finishReactDragAutoScroll(pointerId);
                 const pending=window.filmStudioEndClipGesture?.(event.nativeEvent);
                 const clear=()=>{if(activePointerId.current===pointerId)activePointerId.current=null;};
@@ -2680,6 +2701,9 @@ window.filmStudioReactAssets = {
 window.filmStudioReactTimeline = {
   previewClipGesture(event) {
     resolveReactClipGesturePreview(event);
+  },
+  prepareClipGestureCommit(event) {
+    return resolveReactClipGesturePreview(event,true);
   },
   zoom(direction,anchorClientX) {
     const scroll = document.getElementById("fs-timeline-scroll");

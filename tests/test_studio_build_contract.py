@@ -146,3 +146,21 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     assert "reactTimeline.previewClipGesture(e)" in legacy
     assert "if(snapshot&&snapshot.timelineGestureContext&&" in legacy
 
+
+def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
+    """React uses the shared gesture controller for final ops; the legacy shell only submits the transaction."""
+    root = Path(__file__).resolve().parents[1]
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    legacy = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+
+    assert "prepareClipGestureCommit(event:FilmStudioGesturePointerInput): FilmOperation[] | undefined;" in component
+    assert "return resolveReactClipGesturePreview(event,true);" in component
+    assert "if (forCommit) return result.operations ?? [];" in component
+    assert "return result ? [result.operation] : [];" in component
+    assert "return result && Math.abs(result.resolution.deltaSeconds) >= 0.001" in component
+    assert "return result && Math.abs(result.resolution.sourceDeltaSeconds) >= 0.001" in component
+    assert "typeof timeline.prepareClipGestureCommit==='function'" in legacy
+    assert "return onUp(e,prepared);" in legacy
+    assert "async function onUp(e, reactPreparedOperations)" in legacy
+    assert "await filmStudioCommit(reactPreparedOperations);return;" in legacy
+

@@ -2456,7 +2456,7 @@
       }
     }
   }
-  async function onUp(e) {
+  async function onUp(e, reactPreparedOperations) {
     if(S.envelopeDrag){
       var envelopeEdit=S.envelopeDrag;
       if(!e||e.pointerId!==envelopeEdit.pointerId)return;
@@ -2517,6 +2517,12 @@
     }
     if(d.invalidTargetMessage){
       renderTimeline();clearTimelineGesturePreview();showStatus(d.invalidTargetMessage,'error');flushPendingExternalRevision();return;
+    }
+    if(Array.isArray(reactPreparedOperations)){
+      if(!reactPreparedOperations.length){
+        clearTimelineGesturePreview();renderTimeline();flushPendingExternalRevision();return;
+      }
+      await filmStudioCommit(reactPreparedOperations);return;
     }
     var pointerDelta=e.clientX-d.startX,scrollDelta=$('fs-timeline-scroll').scrollLeft-d.startScrollLeft;
     var deltaSeconds=timelineDragDeltaSeconds(pointerDelta,scrollDelta,S.pxPerSec);
@@ -2625,7 +2631,13 @@
   window.filmStudioEndClipGesture = function(e){
     if(!e||!window.filmStudioOwnsClipGesturePointer||
        !window.filmStudioOwnsClipGesturePointer(e.pointerId))return;
-    return onUp(e);
+    var snapshot=window.filmStudioStore&&window.filmStudioStore.getSnapshot
+      ?window.filmStudioStore.getSnapshot():null;
+    var timeline=window.filmStudioReactTimeline;
+    var prepared=snapshot&&snapshot.timelineGestureContext&&timeline&&
+      typeof timeline.prepareClipGestureCommit==='function'
+      ?timeline.prepareClipGestureCommit(e):undefined;
+    return onUp(e,prepared);
   };
   window.filmStudioMoveEnvelopeGesture=function(e,rect){
     var active=S.envelopeDrag;
