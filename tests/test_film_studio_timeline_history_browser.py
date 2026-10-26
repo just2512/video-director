@@ -155,8 +155,14 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
                 ruler.focus()
                 page.keyboard.press("ArrowRight")
                 wait_for_ruler_seek(1.0)
+                assert page.evaluate(
+                    "document.activeElement === document.querySelector('#fs-timeline #fs-ruler-body')"
+                ), "React time ruler must retain keyboard focus after seeking"
                 page.keyboard.press("ArrowLeft")
                 wait_for_ruler_seek(0.0)
+                assert page.evaluate(
+                    "document.activeElement === document.querySelector('#fs-timeline #fs-ruler-body')"
+                ), "React time ruler must retain keyboard focus for successive keyboard seeks"
                 ruler.locator('.fs-ruler-mark[data-at="5"]').click()
                 wait_for_ruler_seek(5.0)
 

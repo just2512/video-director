@@ -1625,8 +1625,13 @@ const TimelineScrubRuler: React.FC<{model:FilmTimelineSurfaceModel}> = ({model})
           if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
           event.preventDefault();
           event.stopPropagation();
+          const ruler = event.currentTarget;
           const step = event.shiftKey ? 0.1 : 1;
-          window.filmStudioSeek?.(playhead + (event.key === "ArrowRight" ? step : -step));
+          const currentPlayhead = asNumber(filmStore.getField("playhead"),playhead);
+          window.filmStudioSeek?.(currentPlayhead + (event.key === "ArrowRight" ? step : -step));
+          // Legacy seek/runtime synchronization may touch other editor surfaces. Keep
+          // successive keyboard nudges anchored to the accessible React ruler.
+          if (document.activeElement !== ruler) ruler.focus({preventScroll:true});
         }}
         onPointerDown={event => {
           if (event.button !== 0) return;
