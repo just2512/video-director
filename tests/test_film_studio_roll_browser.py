@@ -113,6 +113,90 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                     assert not page.locator("#fs-static-timeline-toolbar").is_visible()
                     page.locator('#fs-react-timeline-toolbar [data-film-action="split"]').wait_for(state="visible")
 
+
+                # The TypeScript gesture controller must return the exact geometry
+                # and authoritative operation from one shared resolution for each
+                # linked edit; pointer-up must not need to reconstruct a second op.
+                page.wait_for_function("""() => {
+                  const controller = window.filmStudioTimelineController;
+                  return typeof controller?.resolveTrimGesture === 'function'
+                    && typeof controller?.resolveRollGesture === 'function'
+                    && typeof controller?.resolveSlideGesture === 'function'
+                    && typeof controller?.resolveSlipGesture === 'function'
+                    && typeof controller?.buildMovePreview === 'function';
+                }""")
+                gesture_contract = page.evaluate("""() => {
+                  const controller = window.filmStudioTimelineController;
+                  const common = {
+                    candidates: [], pixelsPerSecond: 36, thresholdPixels: 8,
+                    snapEnabled: false, frameRate: 30
+                  };
+                  const trim = controller.resolveTrimGesture({
+                    clipId: 'clip-trim', edge: 'start', originalAt: 5, originalEnd: 10,
+                    clipTag: 'video', sourceIn: 2, playbackSpeed: 2,
+                    rawDeltaSeconds: -0.5, ...common
+                  });
+                  const roll = controller.resolveRollGesture({
+                    leftClipId: 'clip-a', rightClipId: 'clip-b', activeClipId: 'clip-a',
+                    rightAt: 5, leftDuration: 5, rightDuration: 5, rawDeltaSeconds: 0.5,
+                    ...common
+                  });
+                  const slide = controller.resolveSlideGesture({
+                    leftClipId: 'clip-left', centerClipId: 'clip-center', rightClipId: 'clip-right',
+                    centerAt: 5, rightAt: 10, leftDuration: 5, centerDuration: 5, rightDuration: 5,
+                    rawDeltaSeconds: 0.5, ...common
+                  });
+                  const slip = controller.resolveSlipGesture({
+                    clipId: 'clip-slip', rawDeltaSeconds: 0.5, playbackSpeed: 2,
+                    snapEnabled: false, frameRate: 30
+                  });
+                  const move = controller.buildMovePreview({
+                    gesture: {
+                      id: 'clip-move', trackId: 'track-a', originalTrackIndex: 0,
+                      trackOrder: ['track-a', 'track-b'], targetTrackId: 'track-b',
+                      members: [{id: 'clip-move', originalAt: 2, originalEnd: 4,
+                        trackId: 'track-a', trackIndex: 0}]
+                    },
+                    targetTrackId: 'track-b',
+                    tracks: [
+                      {id: 'track-a', attrs: {}, clips: [{id: 'clip-move', at: 2, end: 4, attrs: {}}]},
+                      {id: 'track-b', attrs: {}, clips: []}
+                    ],
+                    minimumStart: 2, rawDeltaSeconds: 0.5, ...common
+                  });
+                  return {
+                    trim: trim && {operation: trim.operation, preview: trim.preview},
+                    roll: roll && {operation: roll.operation, preview: roll.preview},
+                    slide: slide && {operation: slide.operation, preview: slide.preview},
+                    slip: slip && {operation: slip.operation, preview: slip.preview},
+                    move: move && {operations: move.operations, preview: move.preview}
+                  };
+                }""")
+                assert gesture_contract["trim"]["operation"] == {
+                    "op": "trim", "clip": "clip-trim", "edge": "start", "at": 4.5
+                }, gesture_contract
+                assert gesture_contract["trim"]["preview"] == {"left": 162, "width": 198}, gesture_contract
+                assert gesture_contract["roll"]["operation"] == {
+                    "op": "roll", "clip": "clip-a", "other_clip": "clip-b", "delta": 0.5
+                }, gesture_contract
+                assert gesture_contract["roll"]["preview"]["clip-a"]["width"] == 198, gesture_contract
+                assert gesture_contract["roll"]["preview"]["clip-b"] == {"left": 198, "width": 162}, gesture_contract
+                assert gesture_contract["slide"]["operation"] == {
+                    "op": "slide", "clip": "clip-center", "delta": 0.5
+                }, gesture_contract
+                assert gesture_contract["slide"]["preview"]["clip-center"]["left"] == 198, gesture_contract
+                assert gesture_contract["slide"]["preview"]["clip-right"] == {"left": 378, "width": 162}, gesture_contract
+                assert gesture_contract["slip"]["operation"] == {
+                    "op": "slip", "clip": "clip-slip", "delta_source": 1
+                }, gesture_contract
+                assert gesture_contract["slip"]["preview"]["clip-slip"]["mode"] == "slip", gesture_contract
+                assert gesture_contract["move"]["operations"] == [{
+                    "op": "move", "clip": "clip-move", "track_id": "track-b", "at": 2.5
+                }], gesture_contract
+                assert gesture_contract["move"]["preview"]["clip-move"] == {
+                    "left": 90, "targetTrackId": "track-b"
+                }, gesture_contract
+
                 # Attribute inspection and AI direction must be visible at the same
                 # time; resizing their divider must persist the user-selected split.
                 inspector = page.locator("#fs-side-inspector")
