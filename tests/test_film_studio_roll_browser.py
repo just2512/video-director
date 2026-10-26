@@ -721,8 +721,10 @@ CROSS_TRACK_SAMPLE = """<!doctype html>
 </body></html>"""
 
 
-@pytest.mark.parametrize("target_locked", [False, True], ids=["valid-target", "locked-target"])
-def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track(tmp_path, monkeypatch, target_locked):
+@pytest.mark.parametrize(
+    "target_scenario", ["valid-target", "locked-target", "overlap-target"]
+)
+def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track(tmp_path, monkeypatch, target_scenario):
     storage_root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
     import webui.server as web_server
@@ -741,7 +743,8 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
     )
     assert generated.returncode == 0, generated.stderr
 
-    project_id = "film-studio-cross-track-browser" + ("-locked" if target_locked else "")
+    target_locked = target_scenario == "locked-target"
+    project_id = "film-studio-cross-track-browser" + ("" if target_scenario == "valid-target" else "-" + target_scenario)
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_source = CROSS_TRACK_SAMPLE
@@ -816,31 +819,33 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                 start_x = source_box["x"] + source_box["width"] * 0.55
                 start_y = source_box["y"] + source_box["height"] / 2
                 target_y = target_box["y"] + target_box["height"] / 2
-                # clip-c occupies [0,5); snapping clip-a's start to 5s makes
-                # the destination intervals contiguous rather than overlapping.
-                target_x = start_x + 5 * scale
+                # A valid move lands at 5s (touching clip-c's end); the overlap case
+                # deliberately lands at 2s inside clip-c's [0,5) interval.
+                target_delta_seconds = 2 if target_scenario == "overlap-target" else 5
+                target_x = start_x + target_delta_seconds * scale
                 request_count = len(film_edit_requests)
                 page.mouse.move(start_x, start_y)
                 page.mouse.down()
                 page.mouse.move(target_x, target_y, steps=12)
 
-                if target_locked:
-                    page.wait_for_function("""() => {
+                if target_scenario != "valid-target":
+                    expected_invalid_reason = "已锁定" if target_locked else "时间重叠"
+                    page.wait_for_function("""(expectedReason) => {
                       const state = window.filmStudioStore?.getSnapshot();
                       const drop = state?.timelineDropTarget;
                       const row = document.querySelector('#fs-timeline .fs-track[data-track="video-alt"]');
                       const message = state?.timelineGestureContext?.invalidTargetMessage || '';
                       return drop?.trackId === 'video-alt' && drop.invalid === true
                         && row?.classList.contains('fs-track-drop-invalid')
-                        && message.includes('已锁定');
-                    }""", timeout=8000)
+                        && message.includes(expectedReason);
+                    }""", arg=expected_invalid_reason, timeout=8000)
                     invalid_state = page.evaluate("""() => ({
                       message:window.filmStudioStore?.getSnapshot()?.timelineGestureContext?.invalidTargetMessage || '',
                       drop:window.filmStudioStore?.getSnapshot()?.timelineDropTarget,
                       ghosts:[...document.querySelectorAll('#fs-timeline [data-gesture-ghost-for="clip-a"]')]
                         .map(node => node.getAttribute('data-gesture-target-track')),
                     })""")
-                    assert '已锁定' in invalid_state['message'], invalid_state
+                    assert expected_invalid_reason in invalid_state['message'], invalid_state
                     assert invalid_state['drop'] == {"trackId": "video-alt", "invalid": True}, invalid_state
                     assert 'video-alt' not in invalid_state['ghosts'], invalid_state
                     assert fd.read_project_film(project_id)['rev'] == before['rev'], "invalid preview must not write FilmDocument"
