@@ -3870,9 +3870,11 @@ window.filmStudioCopyClips=function(){
       var item=await reader.read();
       if(item.done)break;
       buffer+=decoder.decode(item.value,{stream:true});
-      var boundary;
-      while((boundary=buffer.indexOf('\n\n'))>=0){
-        var one=buffer.slice(0,boundary);buffer=buffer.slice(boundary+2);
+      var boundary,separator;
+      while((boundary=buffer.search(/\r?\n\r?\n/))>=0){
+        separator=buffer.slice(boundary).match(/^\r?\n\r?\n/);
+        if(!separator)break;
+        var one=buffer.slice(0,boundary);buffer=buffer.slice(boundary+separator[0].length);
         processBlock(one);
         if(result){try{await reader.cancel();}catch(_){}return result;}
       }

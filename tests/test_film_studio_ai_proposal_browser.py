@@ -440,8 +440,8 @@ def test_ai_director_renders_streamed_tokens_before_final_proposal_without_writi
                       start(controller) {
                         window.__filmAiStreamPush = (eventName, data) => {
                           controller.enqueue(encoder.encode(
-                            "event: " + eventName + "\\ndata: " +
-                            JSON.stringify(data) + "\\n\\n"
+                            "event: " + eventName + "\\r\\ndata: " +
+                            JSON.stringify(data) + "\\r\\n\\r\\n"
                           ));
                         };
                         // Intentionally withhold the final result. The test must
