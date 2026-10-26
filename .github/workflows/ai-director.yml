@@ -211,13 +211,8 @@ jobs:
             printf 'VD_LLM_MODEL=%s\n' "$VD_LLM_MODEL" >> "$GITHUB_ENV"
           fi
           if [ -z "${VD_LLM_API_KEY:-}" ] || [ -z "${VD_LLM_BASE_URL:-}" ] || [ -z "${VD_LLM_MODEL:-}" ]; then
-            if [ "${GITHUB_EVENT_NAME:-}" = "push" ]; then
-              echo "::warning::Real-model token-stream smoke was not run: configure secret VD_LLM_API_KEY and variables VD_LLM_BASE_URL / VD_LLM_MODEL. Other regression tests continue normally."
-              exit 0
-            fi
-            : "${VD_LLM_API_KEY:?Set secret VD_LLM_API_KEY or configure the runner environment}"
-            : "${VD_LLM_BASE_URL:?Set variable VD_LLM_BASE_URL or configure the runner environment}"
-            : "${VD_LLM_MODEL:?Set variable VD_LLM_MODEL or configure the runner environment}"
+            echo "::error::Real-model token-stream smoke was explicitly requested but configuration is incomplete. Set secret VD_LLM_API_KEY and variables VD_LLM_BASE_URL / VD_LLM_MODEL, or configure all three values in the self-hosted runner environment."
+            exit 1
           fi
           printf 'VD_LLM_LIVE_STREAM_TEST=1\n' >> "$GITHUB_ENV"
 

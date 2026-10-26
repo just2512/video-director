@@ -82,3 +82,20 @@ def test_studio_components_share_one_react_root_and_keep_portal_slots():
         "fs-react-ai-director", "fs-inspector", "fs-react-canvas-inspector",
     ):
         assert f'"{surface}"' in component
+
+def test_explicit_live_model_stream_gate_fails_closed_when_configuration_is_missing():
+    """An opt-in live request must not silently pass when the provider is unconfigured."""
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
+    step = workflow.split("      - name: Configure opt-in live model token-stream smoke", 1)[1].split(
+        "      - name: Install Remotion rendering runtime dependencies", 1
+    )[0]
+
+    assert "contains(github.event.head_commit.message, '[live-stream-smoke]')" in workflow
+    assert "VD_LLM_API_KEY_SECRET" in step
+    assert "VD_LLM_BASE_URL_CONFIG" in step
+    assert "VD_LLM_MODEL_CONFIG" in step
+    assert 'echo "::error::Real-model token-stream smoke was explicitly requested but configuration is incomplete.' in step
+    assert "exit 1" in step
+    assert "Real-model token-stream smoke was not run" not in step
+    assert "VD_LLM_LIVE_STREAM_TEST=1" in step
