@@ -367,3 +367,185 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 context.close();browser.close()
     finally:
         server.shutdown();server.server_close();thread.join(timeout=5)
+
+
+def test_ai_director_renders_streamed_tokens_before_final_proposal_without_writing_film(
+    tmp_path, monkeypatch
+):
+    """Real Chromium verifies partial SSE text reaches React before the final proposal."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-ai-live-token-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    original_bytes = film_path.read_bytes()
+    before = fd.read_project_film(project_id)
+    assert before["exists"]
+
+    operations = [
+        {"op": "move", "clip": "clip-b", "track_id": "video-main", "at": 6.0}
+    ]
+    candidate_doc, normalized = fd.apply_ops(before["doc"], operations)
+    candidate_text = fd.serialize_film(candidate_doc)
+    candidate_state = {
+        "exists": True,
+        "project_id": project_id,
+        "text": candidate_text,
+        "rev": fd.revision_of(candidate_text),
+        "doc": candidate_doc,
+    }
+    candidate = fd.film_payload(project_id, candidate_state)
+    proposal = {
+        "id": "browser-live-stream-proposal",
+        "project_id": project_id,
+        "base_revision": before["rev"],
+        "operations": normalized,
+        "summary": "这是一条实时生成的提案摘要",
+        "candidate": candidate,
+        "affected_clip_ids": ["clip-b"],
+    }
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            apply_requests: list[dict] = []
+
+            page.add_init_script(
+                """(() => {
+                  const realFetch = window.fetch.bind(window);
+                  window.__filmAiStreamPush = null;
+                  window.__filmAiStreamRequest = null;
+                  window.fetch = async (input, init = {}) => {
+                    const rawUrl = typeof input === "string" ? input : input.url;
+                    const pathname = new URL(rawUrl, window.location.href).pathname;
+                    if (pathname !== "/api/editor/film/command") {
+                      return realFetch(input, init);
+                    }
+                    window.__filmAiStreamRequest = JSON.parse(init.body || "{}");
+                    const encoder = new TextEncoder();
+                    const stream = new ReadableStream({
+                      start(controller) {
+                        window.__filmAiStreamPush = (eventName, data) => {
+                          controller.enqueue(encoder.encode(
+                            "event: " + eventName + "\\ndata: " +
+                            JSON.stringify(data) + "\\n\\n"
+                          ));
+                        };
+                        // Intentionally withhold the final result. The test must
+                        // observe this partial summary in the live React chat first.
+                        window.__filmAiStreamPush("token", {
+                          fragment: '{"summary":"这是一条实时生成的提案摘要"'
+                        });
+                      }
+                    });
+                    return new Response(stream, {
+                      status: 200,
+                      headers: {"Content-Type": "text/event-stream; charset=utf-8"}
+                    });
+                  };
+                })();"""
+            )
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on(
+                "request",
+                lambda request: apply_requests.append(
+                    json.loads(request.post_data or "{}")
+                )
+                if request.method == "POST"
+                and request.url.endswith("/api/editor/film/apply-proposal")
+                else None,
+            )
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioAsk === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => !!document.querySelector('#editor-project')?.options.length"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select = document.querySelector('#editor-project');
+                      let option = [...select.options].find(item => item.value === pid);
+                      if (!option) { option = new Option(pid, pid); select.add(option); }
+                      select.value = pid;
+                      select.dispatchEvent(new Event('change', {bubbles:true}));
+                    }""",
+                    project_id,
+                )
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => !!document.querySelector('.fs-react-timeline-surface')",
+                    timeout=10000,
+                )
+                page.evaluate("window.filmStudioSetSideMode('ai')")
+                page.locator("#fs-chat-input").wait_for(state="visible")
+                page.locator("#fs-chat-input").fill("把第二个片段后移一秒")
+                page.locator('[data-film-action="ask"]:visible').click()
+
+                # No final/result event has been delivered yet. This proves the
+                # visible React chat updates from an actual ReadableStream token.
+                page.wait_for_function(
+                    """() => document.querySelector('#fs-chat-log')?.innerText
+                      .includes('这是一条实时生成的提案摘要 …')""",
+                    timeout=5000,
+                )
+                request = page.evaluate("window.__filmAiStreamRequest")
+                assert request["stream"] is True, request
+                assert request["project_id"] == project_id, request
+                assert request["base"] == before["rev"], request
+                during = fd.read_project_film(project_id)
+                assert during["rev"] == before["rev"]
+                assert film_path.read_bytes() == original_bytes
+                assert apply_requests == []
+
+                # Deliver the remainder of the model text and then the validated
+                # proposal event, keeping proposal generation separate from apply.
+                page.evaluate(
+                    """() => {
+                      window.__filmAiStreamPush('token', {
+                        fragment: ',"operations":[{"op":"move","clip":"clip-b","track_id":"video-main","at":6}]}'
+                      });
+                    }"""
+                )
+                page.evaluate(
+                    """proposal => window.__filmAiStreamPush('result', {
+                      ok: true,
+                      proposal,
+                      message: '已生成并验证候选修改；尚未写入正式影片文档。'
+                    })""",
+                    proposal,
+                )
+                page.locator(
+                    '#fs-proposal-panel[data-react-ai-proposal="true"]'
+                ).wait_for(state="visible", timeout=10000)
+                assert page.locator("#fs-proposal-summary").inner_text() == proposal["summary"]
+                assert fd.read_project_film(project_id)["rev"] == before["rev"]
+                assert film_path.read_bytes() == original_bytes
+                assert apply_requests == []
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
