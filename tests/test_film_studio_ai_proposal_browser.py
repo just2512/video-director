@@ -25,8 +25,8 @@ SAMPLE = '''<!doctype html>
 </body></html>'''
 
 
-def test_ai_proposal_diff_is_readable_and_stale_revision_blocks_preview_apply(tmp_path, monkeypatch):
-    """Proposal review shows concrete IDs/diff; later edits invalidate, but do not write the proposal."""
+def test_ai_proposal_diff_is_readable_and_deleted_target_blocks_preview_apply(tmp_path, monkeypatch):
+    """An Agent deleting the target clip invalidates its outstanding revision-bound proposal."""
     storage_root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
     import webui.server as web_server
@@ -138,8 +138,8 @@ def test_ai_proposal_diff_is_readable_and_stale_revision_blocks_preview_apply(tm
                 assert fd.read_project_film(project_id)["rev"] == before["rev"], "proposal generation must not write FilmDocument"
                 assert apply_requests == [], apply_requests
 
-                # Make a legitimate edit through the production endpoint while the proposal is open.
-                # This emits a revision_changed event and exercises the same stale guard as an external editor.
+                # Simulate a concurrent Agent/CLI film.edit deleting the proposal target.
+                # The production endpoint advances revision and broadcasts revision_changed.
                 edit_response = page.evaluate("""async ({projectId,base}) => {
                   const response = await fetch('/api/editor/film/edit', {
                     method:'POST',
@@ -147,7 +147,7 @@ def test_ai_proposal_diff_is_readable_and_stale_revision_blocks_preview_apply(tm
                     body:JSON.stringify({
                       project_id:projectId,
                       base,
-                      ops:[{op:'set',clip:'clip-a',field:'volume',value:'0.75'}]
+                      ops:[{op:'remove',clip:'clip-b'}]
                     })
                   });
                   return {status:response.status,body:await response.json()};
@@ -164,16 +164,16 @@ def test_ai_proposal_diff_is_readable_and_stale_revision_blocks_preview_apply(tm
                 assert page.locator('[data-film-action="preview-proposal"]:visible').is_disabled()
                 assert page.locator('[data-film-action="apply-proposal"]:visible').is_disabled()
                 assert page.locator('[data-film-action="reject-proposal"]:visible').is_enabled()
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').wait_for(state="detached", timeout=10_000)
                 assert apply_requests == [], apply_requests
 
                 # Rejected/stale proposals remain read-only; only the manual edit changes revision.
                 final = fd.read_project_film(project_id)
                 assert final["rev"] == changed_revision, final
-                final_clip = next(
-                    clip for track in final["doc"]["tracks"]
-                    for clip in track["clips"] if clip["id"] == "clip-b"
-                )
-                assert abs(float(final_clip["attrs"]["at"]) - 5.0) < 0.001, final_clip
+                final_clip_ids = {
+                    clip["id"] for track in final["doc"]["tracks"] for clip in track["clips"]
+                }
+                assert "clip-b" not in final_clip_ids, final_clip_ids
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 context.close()
