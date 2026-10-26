@@ -25114,7 +25114,7 @@
     const seconds = time - minutes * 60;
     return String(minutes).padStart(2, "0") + ":" + seconds.toFixed(3).padStart(6, "0");
   };
-  var resolveReactClipGesturePreview = (event) => {
+  var resolveReactClipGesturePreview = (event, forCommit = false) => {
     const before = filmStore.getSnapshot();
     const firstGesture = before.timelineGestureContext;
     if (!firstGesture || firstGesture.pointerId !== event.pointerId) return;
@@ -25186,6 +25186,7 @@
       state.pixelsPerSecond
     );
     const publish = (preview, snap) => {
+      if (forCommit) return;
       filmStore.setField("timelineGesturePreview", preview);
       filmStore.setField("timelineSnapGuide", snap ? {
         at: Math.max(0, snap.at),
@@ -25219,13 +25220,14 @@
         frameRate
       };
       const result2 = filmTimelineGestureController.buildMovePreview(input);
+      if (forCommit) return result2.operations ?? [];
       publish(result2.preview, result2.resolution.snapCandidate);
-      return;
+      return void 0;
     }
     if (gesture.mode === "trim-start" || gesture.mode === "trim-end") {
       if (gesture.originalAt === void 0 || gesture.originalEnd === void 0) {
         publish(null, null);
-        return;
+        return forCommit ? [] : void 0;
       }
       const result2 = filmTimelineGestureController.resolveTrimGesture({
         clipId: gesture.id,
@@ -25242,14 +25244,15 @@
         snapEnabled: state.snapEnabled,
         frameRate
       });
+      if (forCommit) return result2 ? [result2.operation] : [];
       publish(result2 ? { [gesture.id]: result2.preview } : null, result2?.resolution.snapCandidate ?? null);
-      return;
+      return void 0;
     }
     if (gesture.mode === "roll") {
       const { leftClipId, rightClipId, rightAt, leftDuration, rightDuration } = gesture;
       if (!leftClipId || !rightClipId || rightAt === void 0 || leftDuration === void 0 || rightDuration === void 0) {
         publish(null, null);
-        return;
+        return forCommit ? [] : void 0;
       }
       const result2 = filmTimelineGestureController.resolveRollGesture({
         leftClipId,
@@ -25265,14 +25268,17 @@
         snapEnabled: state.snapEnabled,
         frameRate
       });
+      if (forCommit) {
+        return result2 && Math.abs(result2.resolution.deltaSeconds) >= 1e-3 ? [result2.operation] : [];
+      }
       publish(result2?.preview ?? null, result2?.resolution.snapCandidate ?? null);
-      return;
+      return void 0;
     }
     if (gesture.mode === "slide") {
       const { leftClipId, centerClipId, rightClipId, centerAt, rightAt, leftDuration, centerDuration, rightDuration } = gesture;
       if (!leftClipId || !centerClipId || !rightClipId || centerAt === void 0 || rightAt === void 0 || leftDuration === void 0 || centerDuration === void 0 || rightDuration === void 0) {
         publish(null, null);
-        return;
+        return forCommit ? [] : void 0;
       }
       const result2 = filmTimelineGestureController.resolveSlideGesture({
         leftClipId,
@@ -25290,8 +25296,11 @@
         snapEnabled: state.snapEnabled,
         frameRate
       });
+      if (forCommit) {
+        return result2 && Math.abs(result2.resolution.deltaSeconds) >= 1e-3 ? [result2.operation] : [];
+      }
       publish(result2?.preview ?? null, result2?.resolution.snapCandidate ?? null);
-      return;
+      return void 0;
     }
     const result = filmTimelineGestureController.resolveSlipGesture({
       clipId: gesture.id,
@@ -25300,7 +25309,11 @@
       snapEnabled: state.snapEnabled,
       frameRate
     });
+    if (forCommit) {
+      return result && Math.abs(result.resolution.sourceDeltaSeconds) >= 1e-3 ? [result.operation] : [];
+    }
     publish(result?.preview ?? null, null);
+    return void 0;
   };
   var timelineRecord = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
   var timelineKeyframeMarks = (tag, attrs, duration) => {
@@ -27334,6 +27347,7 @@
                         onPointerUp: (event) => {
                           const pointerId = event.nativeEvent.pointerId;
                           if (activePointerId.current !== pointerId) return;
+                          updateReactGestureTarget(event.nativeEvent);
                           finishReactDragAutoScroll(pointerId);
                           const pending = window.filmStudioEndClipGesture?.(event.nativeEvent);
                           const clear = () => {
@@ -27999,6 +28013,9 @@
   window.filmStudioReactTimeline = {
     previewClipGesture(event) {
       resolveReactClipGesturePreview(event);
+    },
+    prepareClipGestureCommit(event) {
+      return resolveReactClipGesturePreview(event, true);
     },
     zoom(direction, anchorClientX) {
       const scroll = document.getElementById("fs-timeline-scroll");
