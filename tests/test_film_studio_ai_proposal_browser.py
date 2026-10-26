@@ -549,3 +549,169 @@ def test_ai_director_renders_streamed_tokens_before_final_proposal_without_writi
         server.server_close()
         thread.join(timeout=5)
 
+def test_ai_director_steering_cancels_upstream_and_replans_without_writing(tmp_path, monkeypatch):
+    """A new instruction must cancel the active upstream model stream, then replan."""
+    import time
+
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+    project_id = "film-studio-ai-steer-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    original_bytes = film_path.read_bytes()
+    before = fd.read_project_film(project_id)
+    assert before["exists"]
+
+    first_stream_started = threading.Event()
+    upstream_cancelled = threading.Event()
+    upstream_closed = threading.Event()
+    seen_prompts: list[str] = []
+    prompt_lock = threading.Lock()
+
+    class FakeUpstreamStream:
+        def close(self):
+            upstream_closed.set()
+
+    class SteeringAwareLLM:
+        supports_stream_cancellation = True
+
+        def generate_stream(self, prompt, *, on_delta=None, on_stream_open=None, cancel_event=None):
+            with prompt_lock:
+                request_index = len(seen_prompts)
+                seen_prompts.append(prompt)
+            stream = FakeUpstreamStream()
+            assert callable(on_stream_open)
+            on_stream_open(stream)
+            if request_index == 0:
+                assert callable(on_delta)
+                on_delta('{"summary":"第一轮生成中"')
+                first_stream_started.set()
+                if cancel_event is None or not cancel_event.wait(timeout=8):
+                    return json.dumps({"summary": "首轮未收到取消", "operations": []}, ensure_ascii=False)
+                upstream_cancelled.set()
+                raise RuntimeError("upstream generation cancelled by steering request")
+
+            output = json.dumps({
+                "summary": "已按新方向生成提案",
+                "operations": [
+                    {"op": "move", "clip": "clip-b", "track_id": "video-main", "at": 6.0}
+                ],
+            }, ensure_ascii=False)
+            # Stream the second response in multiple deltas before returning its JSON.
+            for fragment in (output[:18], output[18:]):
+                on_delta(fragment)
+                time.sleep(0.03)
+            return output
+
+    monkeypatch.setattr(web_server.vd_llm, "get_llm", lambda: SteeringAwareLLM())
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            command_requests: list[dict] = []
+            cancel_requests: list[dict] = []
+            edit_requests: list[dict] = []
+            apply_requests: list[dict] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+
+            def capture_request(request):
+                if request.method != "POST":
+                    return
+                try:
+                    payload = json.loads(request.post_data or "{}")
+                except json.JSONDecodeError:
+                    payload = {"_invalid_json": True}
+                if request.url.endswith("/api/editor/film/command"):
+                    command_requests.append(payload)
+                elif request.url.endswith("/api/editor/film/command/cancel"):
+                    cancel_requests.append(payload)
+                elif request.url.endswith("/api/editor/film/edit"):
+                    edit_requests.append(payload)
+                elif request.url.endswith("/api/editor/film/apply-proposal"):
+                    apply_requests.append(payload)
+
+            page.on("request", capture_request)
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioAsk === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => !!document.querySelector('#editor-project')?.options.length"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select = document.querySelector('#editor-project');
+                      let option = [...select.options].find(item => item.value === pid);
+                      if (!option) { option = new Option(pid, pid); select.add(option); }
+                      select.value = pid;
+                      select.dispatchEvent(new Event('change', {bubbles:true}));
+                    }""",
+                    project_id,
+                )
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => !!document.querySelector('.fs-react-timeline-surface')",
+                    timeout=10000,
+                )
+                page.evaluate("window.filmStudioSetSideMode('ai')")
+                page.locator("#fs-chat-input").wait_for(state="visible")
+                page.locator("#fs-chat-input").fill("把第二个片段移到备用轨道")
+                page.locator('[data-film-action="ask"]:visible').click()
+                page.wait_for_function(
+                    "() => document.querySelector('#fs-chat-log')?.innerText.includes('第一轮生成中 …')",
+                    timeout=10000,
+                )
+                assert first_stream_started.wait(timeout=2)
+                assert len(command_requests) == 1, command_requests
+                first_request_id = command_requests[0]["request_id"]
+
+                # Sending a new instruction while busy must not start a competing
+                # model request: it steers by cancelling this stream, then replans.
+                page.locator("#fs-chat-input").fill("改为仅将第二个片段后移一秒")
+                page.locator('[data-film-action="ask"]:visible').click()
+                page.locator(
+                    '#fs-proposal-panel[data-react-ai-proposal="true"]'
+                ).wait_for(state="visible", timeout=10000)
+
+                assert upstream_cancelled.wait(timeout=3), "the model stream did not observe cancellation"
+                assert upstream_closed.wait(timeout=3), "the upstream stream object was not closed"
+                assert len(command_requests) == 2, command_requests
+                assert command_requests[0]["request_id"] == first_request_id
+                assert command_requests[1]["request_id"] != first_request_id
+                assert "把第二个片段移到备用轨道" in command_requests[0]["message"]
+                assert "原指令：把第二个片段移到备用轨道" in command_requests[1]["message"]
+                assert "执行中转向/补充要求：改为仅将第二个片段后移一秒" in command_requests[1]["message"]
+                assert any(item.get("request_id") == first_request_id for item in cancel_requests), cancel_requests
+                assert page.locator("#fs-proposal-summary").count() >= 1
+                assert "已按新方向生成提案" in page.locator(
+                    '#fs-proposal-panel[data-react-ai-proposal="true"]'
+                ).inner_text()
+                assert fd.read_project_film(project_id)["rev"] == before["rev"]
+                assert film_path.read_bytes() == original_bytes
+                assert edit_requests == []
+                assert apply_requests == []
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
