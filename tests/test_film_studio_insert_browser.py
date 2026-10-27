@@ -137,8 +137,10 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
                   if (!response.ok) return false;
                   const doc = await response.json();
                   const state = window.filmStudioStore?.getSnapshot();
+                  if (!state || state.busy || state.pendingTransaction !== null ||
+                      doc.rev !== state.revision) return false;
                   const clips = (doc.tracks || []).flatMap(track => track.clips || []);
-                  return !!doc.rev && doc.rev === state?.revision &&
+                  return !!doc.rev &&
                     !clips.some(clip => clip.id === 'inserted-asset') &&
                     clips.some(clip => clip.id === 'video-before' &&
                       String(clip.attrs.src).endsWith('#t=0,4') && Number(clip.attrs.at) === 0) &&
