@@ -114,6 +114,9 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "steps.live_stream_config.outcome" in ai_workflow
     assert "steps.live_stream_acceptance.outcome == 'success'" in ai_workflow
     assert "steps.timeline_regression_gate.outcome == 'success'" in ai_workflow
+    assert '"BLOCKED_PROVIDER":' in ai_workflow
+    assert '"insufficient balance" in evidence' in ai_workflow
+    assert 'if config_outcome != "skipped" and status != "PASS":' in ai_workflow
 
 
 
