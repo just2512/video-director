@@ -1201,14 +1201,18 @@ def test_react_dock_dividers_persist_layout_and_keep_inspector_and_ai_visible(tm
                 both = page.evaluate("""() => {
                   const workbench=document.querySelector('#fs-side-workbench').getBoundingClientRect();
                   const inspector=document.querySelector('#fs-side-inspector').getBoundingClientRect();
+                  const divider=document.querySelector('#fs-side-divider').getBoundingClientRect();
                   const ai=document.querySelector('#fs-side-ai').getBoundingClientRect();
                   return {workbench:{left:workbench.left,right:workbench.right},
-                    inspector:{left:inspector.left,right:inspector.right,height:inspector.height},
-                    ai:{left:ai.left,right:ai.right,height:ai.height}};
+                    inspector:{left:inspector.left,right:inspector.right,top:inspector.top,bottom:inspector.bottom,height:inspector.height},
+                    divider:{top:divider.top,bottom:divider.bottom},
+                    ai:{left:ai.left,right:ai.right,top:ai.top,bottom:ai.bottom,height:ai.height}};
                 }""")
                 assert both["inspector"]["height"] > 80 and both["ai"]["height"] > 90, both
                 assert both["inspector"]["left"] >= both["workbench"]["left"], both
                 assert both["ai"]["right"] <= both["workbench"]["right"] + 1, both
+                assert both["inspector"]["bottom"] <= both["divider"]["top"] + 8, both
+                assert both["divider"]["bottom"] <= both["ai"]["top"] + 8, both
 
                 drag(".fs-pane-divider[data-divider='left']", dx=56)
                 drag(".fs-pane-divider[data-divider='right']", dx=-52)
@@ -1247,6 +1251,11 @@ def test_react_dock_dividers_persist_layout_and_keep_inspector_and_ai_visible(tm
                   cssRight:parseFloat(getComputedStyle(document.querySelector('#fs-workspace-dock')).getPropertyValue('--fs-right')),
                   cssShare:parseFloat(getComputedStyle(document.querySelector('#fs-side-workbench')).getPropertyValue('--fs-inspector-share')),
                   cssHeight:parseFloat(getComputedStyle(document.querySelector('#film-studio-panel')).getPropertyValue('--fs-timeline-height')),
+                  inspectorTop:document.querySelector('#fs-side-inspector').getBoundingClientRect().top,
+                  inspectorBottom:document.querySelector('#fs-side-inspector').getBoundingClientRect().bottom,
+                  dividerTop:document.querySelector('#fs-side-divider').getBoundingClientRect().top,
+                  dividerBottom:document.querySelector('#fs-side-divider').getBoundingClientRect().bottom,
+                  aiTop:document.querySelector('#fs-side-ai').getBoundingClientRect().top,
                   inspectorHeight:document.querySelector('#fs-side-inspector').getBoundingClientRect().height,
                   aiHeight:document.querySelector('#fs-side-ai').getBoundingClientRect().height
                 })""")
@@ -1260,6 +1269,8 @@ def test_react_dock_dividers_persist_layout_and_keep_inspector_and_ai_visible(tm
                 assert abs(after["share"]-after["cssShare"]) < 0.1, after
                 assert abs(after["height"]-after["cssHeight"]) <= 1.1, after
                 assert after["inspectorHeight"] > 80 and after["aiHeight"] > 90, after
+                assert after["inspectorBottom"] <= after["dividerTop"] + 8, after
+                assert after["dividerBottom"] <= after["aiTop"] + 8, after
                 assert fd.read_project_film(project_id)["rev"] == initial_revision
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
