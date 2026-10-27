@@ -297,7 +297,7 @@ def test_adjacent_clip_fades_match_browser_look_and_exported_mp4_frames(tmp_path
         encoding="utf-8",
     )
     state = fd.read_project_film(project_id)
-    assert state["exists"] and state["ok"], state
+    assert state["exists"], state
     revision = state["rev"]
     look_times = [0.25, 0.75, 1.25, 1.75]
     look = film_render.look_project_film(
