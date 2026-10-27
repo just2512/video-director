@@ -491,12 +491,11 @@ def test_visual_crossfade_fades_out_unmuted_video_audio_in_real_mp4(tmp_path, mo
         )
         assert completed.returncode == 0, completed.stderr[-2000:]
 
-    # WebM/VP8 + Opus keeps the fixture broadly decodable by headless Chromium.
-    # Both videos contain a constant tone; the incoming clip is muted so the
-    # measured fade can only come from the outgoing video's volume envelope.
+    # WebM/VP8 + Opus keeps the outgoing source broadly decodable by Chromium.
+    # The incoming visual clip is a still image, so no second audio source or
+    # independently-seeking video element can mask the outgoing audio envelope.
     for name, color, frequency in (
         ("video-a.webm", "red", 440),
-        ("video-b.webm", "blue", 880),
     ):
         generate(
             "-f", "lavfi", "-i", f"color=c={color}:s=160x90:r=10:d=2",
@@ -515,8 +514,8 @@ def test_visual_crossfade_fades_out_unmuted_video_audio_in_real_mp4(tmp_path, mo
   <video id="outgoing" src="assets/video-a.webm#t=0,2" at="0"
     volume_envelope='[{"t":0,"v":1},{"t":1.5,"v":1},{"t":2,"v":0}]'
     style="left:0px;top:0px;width:160px;height:90px;object-fit:cover"></video>
-  <video id="incoming" src="assets/video-b.webm#t=0,2" at="1.5" fade="0.5,0" muted
-    style="left:0px;top:0px;width:160px;height:90px;object-fit:cover"></video>
+  <img id="incoming" src="assets/moving-blue.png#t=0,2" at="1.5" fade="0.5,0"
+    style="left:0px;top:0px;width:160px;height:90px;object-fit:cover" />
 </section></body></html>""",
         encoding="utf-8",
     )
