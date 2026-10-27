@@ -214,7 +214,9 @@ def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
     assert "return result && Math.abs(result.resolution.deltaSeconds) >= 0.001" in component
     assert "return result && Math.abs(result.resolution.sourceDeltaSeconds) >= 0.001" in component
     assert "typeof timeline.prepareClipGestureCommit==='function'" in legacy
-    assert "return onUp(e,prepared);" in legacy
-    assert "async function onUp(e, reactPreparedOperations)" in legacy
-    assert "await filmStudioCommit(reactPreparedOperations);return;" in legacy
+    assert "if(Array.isArray(prepared))return finishReactClipGesture(e,prepared);" in legacy
+    assert "function finishReactClipGesture(e, preparedOperations)" in legacy
+    assert "await filmStudioCommit(preparedOperations);" in legacy
+    assert "if(!Array.isArray(preparedOperations))return onUp(e);" in legacy
+    assert "async function onUp(e)" in legacy
 
