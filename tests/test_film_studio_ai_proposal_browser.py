@@ -715,3 +715,185 @@ def test_ai_director_steering_cancels_upstream_and_replans_without_writing(tmp_p
         server.server_close()
         thread.join(timeout=5)
 
+
+def test_ai_proposal_returned_after_external_revision_during_generation_is_never_previewed_or_applied(
+    tmp_path, monkeypatch
+):
+    """A delayed AI response must not preview/apply against a revision changed while it was pending."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-ai-generation-stale-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    before = fd.read_project_film(project_id)
+    assert before["exists"]
+
+    operations = [{"op": "move", "clip": "clip-b", "track_id": "video-main", "at": 6.0}]
+    candidate_doc, normalized = fd.apply_ops(before["doc"], operations)
+    candidate_text = fd.serialize_film(candidate_doc)
+    candidate_state = {
+        "exists": True,
+        "project_id": project_id,
+        "text": candidate_text,
+        "rev": fd.revision_of(candidate_text),
+        "doc": candidate_doc,
+    }
+    proposal = {
+        "id": "browser-delayed-stale-proposal",
+        "project_id": project_id,
+        "base_revision": before["rev"],
+        "operations": normalized,
+        "summary": "把第二个片段后移一秒",
+        "candidate": fd.film_payload(project_id, candidate_state),
+        "affected_clip_ids": ["clip-b"],
+    }
+
+    command_requests: list[dict] = []
+    command_routes = []
+    apply_requests: list[dict] = []
+
+    def hold_command(route):
+        command_requests.append(json.loads(route.request.post_data or "{}"))
+        command_routes.append(route)
+        # Keep the browser request pending until the concurrent edit has advanced
+        # the authoritative revision. This is a deterministic API-level delay;
+        # no live model credentials or mocked "real token stream" are involved.
+
+    def handle_apply(route):
+        apply_requests.append(json.loads(route.request.post_data or "{}"))
+        route.fulfill(
+            status=409,
+            content_type="application/json",
+            body=json.dumps({
+                "ok": False,
+                "code": "REVISION_CONFLICT",
+                "error": "stale proposal must not be submitted",
+            }, ensure_ascii=False),
+        )
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.route("**/api/editor/film/command", hold_command)
+            page.route("**/api/editor/film/apply-proposal", handle_apply)
+            try:
+                page.set_default_navigation_timeout(10_000)
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioAsk === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length>0; }"
+                )
+                page.evaluate("""pid => {
+                  const select=document.querySelector('#editor-project');
+                  let option=[...select.options].find(item=>item.value===pid);
+                  if(!option){option=new Option(pid,pid);select.add(option);}
+                  select.value=pid;
+                  select.dispatchEvent(new Event('change',{bubbles:true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').wait_for(state="visible")
+                page.evaluate("window.filmStudioSetSideMode('ai')")
+                chat_input = page.locator("#fs-chat-input")
+                chat_input.wait_for(state="visible")
+                chat_input.fill("把第二个片段后移一秒")
+                page.locator('[data-film-action="ask"]:visible').click()
+
+                page.wait_for_function(
+                    "() => document.querySelector('#fs-chat-log')?.innerText.includes('正在读取影片上下文')",
+                    timeout=5000,
+                )
+                for _ in range(100):
+                    if command_routes:
+                        break
+                    page.wait_for_timeout(20)
+                assert len(command_requests) == 1, command_requests
+                assert command_requests[0].get("base") == before["rev"], command_requests
+                assert fd.read_project_film(project_id)["rev"] == before["rev"]
+
+                # An external Agent moves the same target while AI generation is pending.
+                external = page.evaluate("""async ({projectId,base}) => {
+                  const response = await fetch('/api/editor/film/edit', {
+                    method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({
+                      project_id:projectId,
+                      base,
+                      ops:[{op:'move',clip:'clip-b',track_id:'video-main',at:7}]
+                    })
+                  });
+                  return {status:response.status,body:await response.json()};
+                }""", {"projectId": project_id, "base": before["rev"]})
+                assert external["status"] == 200, external
+                changed_revision = external["body"].get("rev")
+                assert changed_revision and changed_revision != before["rev"], external
+
+                page.wait_for_function(
+                    "revision => window.filmStudioStore?.getSnapshot()?.pendingExternalRevision === revision",
+                    arg=changed_revision,
+                    timeout=5000,
+                )
+                pending = page.evaluate("""() => {
+                  const s=window.filmStudioStore.getSnapshot();
+                  return {revision:s.revision,pendingExternalRevision:s.pendingExternalRevision};
+                }""")
+                assert pending == {
+                    "revision": before["rev"],
+                    "pendingExternalRevision": changed_revision,
+                }, pending
+                assert fd.read_project_film(project_id)["rev"] == changed_revision
+
+                # Only now return the candidate calculated from the old revision.
+                command_routes[0].fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "ok": True,
+                        "proposal": proposal,
+                        "message": "候选修改已生成，尚未写入正式影片。",
+                    }, ensure_ascii=False),
+                )
+
+                stale_warning = page.locator("#fs-proposal-stale-warning")
+                stale_warning.wait_for(state="visible", timeout=10_000)
+                warning_text = stale_warning.inner_text()
+                assert before["rev"] in warning_text, warning_text
+                assert changed_revision in warning_text, warning_text
+                page.locator('[data-film-action="preview-proposal"]:visible').wait_for(state="visible")
+                page.locator('[data-film-action="apply-proposal"]:visible').wait_for(state="visible")
+                assert page.locator('[data-film-action="preview-proposal"]:visible').is_disabled()
+                assert page.locator('[data-film-action="apply-proposal"]:visible').is_disabled()
+                assert page.locator('[data-film-action="reject-proposal"]:visible').is_enabled()
+
+                final = fd.read_project_film(project_id)
+                assert final["rev"] == changed_revision, final
+                assert final["doc"]["tracks"][0]["clips"][1]["attrs"]["at"] == "7"
+                assert apply_requests == [], apply_requests
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
