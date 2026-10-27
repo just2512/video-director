@@ -885,7 +885,8 @@ def test_ai_proposal_returned_after_external_revision_during_generation_is_never
 
                 final = fd.read_project_film(project_id)
                 assert final["rev"] == changed_revision, final
-                assert final["doc"]["tracks"][0]["clips"][1]["attrs"]["at"] == "7"
+                final_clips = {clip["id"]: clip for track in final["doc"]["tracks"] for clip in track["clips"]}
+                assert abs(float(final_clips["clip-b"]["attrs"]["at"]) - 7.0) < 0.001
                 assert apply_requests == [], apply_requests
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
