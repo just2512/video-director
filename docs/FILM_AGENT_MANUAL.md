@@ -189,3 +189,9 @@ Film markers are persistent timeline metadata in the film.html head, not clip ke
 ```
 
 Marker IDs are stable and unique; names are 1–120 characters and times are non-negative seconds. A failed or stale edit must be re-planned against the current revision. Each operation batch is one undoable transaction.
+
+### 后续复核（2026-10-27，主线 `ccce54a`）
+
+- 最新显式 live 运行 [`40522824180`](https://github.com/just2512/video-director/actions/runs/40522824180) 再次收到 ModelScope 对 `deepseek-ai/DeepSeek-V4-Pro-0813` 的 HTTP 429 `insufficient balance`，没有 token 或提案；常规回归为 `1358 passed, 1 skipped`，JavaScript 语法检查通过。
+- 已调整验收报告，将这类上游额度错误单独归类为 `BLOCKED_PROVIDER`，但它仍不是 PASS，并继续阻止本次显式 live 运行的时间线发布与 bundle 发布。没有把模型余额问题改成软件通过，也没有把凭据写入日志或全局环境。
+
