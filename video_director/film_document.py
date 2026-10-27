@@ -899,6 +899,35 @@ def _film_runtime_metadata_issues(clip: dict) -> list[str]:
     return issues
 
 
+def _normalize_film_markers(value: Any) -> list[dict[str, Any]]:
+    """Validate and canonically order persistent timeline markers."""
+    if value is None:
+        value = []
+    if not isinstance(value, list):
+        raise FilmError("INVALID_FILM_MARKERS", "film-markers 必须是数组", 422)
+    if len(value) > 500:
+        raise FilmError("TOO_MANY_FILM_MARKERS", "影片标记最多允许 500 个", 422)
+    markers: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(value):
+        if not isinstance(raw, dict):
+            raise FilmError("INVALID_FILM_MARKER", f"第 {index + 1} 个影片标记必须是对象", 422)
+        marker_id = raw.get("id")
+        if not isinstance(marker_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", marker_id):
+            raise FilmError("INVALID_FILM_MARKER_ID", "影片标记 ID 只允许 1–80 位 ASCII 字母、数字、下划线和连字符", 422)
+        if marker_id in seen:
+            raise FilmError("DUPLICATE_FILM_MARKER_ID", f"影片标记 ID 重复：{marker_id}", 422)
+        seen.add(marker_id)
+        at = raw.get("at")
+        if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(float(at)) or float(at) < 0:
+            raise FilmError("INVALID_FILM_MARKER_TIME", f"影片标记 {marker_id} 的 at 必须是非负有限秒数", 422)
+        label = raw.get("label")
+        if not isinstance(label, str) or not label.strip() or len(label.strip()) > 120:
+            raise FilmError("INVALID_FILM_MARKER_LABEL", f"影片标记 {marker_id} 的名称必须是 1–120 个字符", 422)
+        markers.append({"id": marker_id, "at": round(float(at), 3), "label": label.strip()})
+    return sorted(markers, key=lambda item: (item["at"], item["id"]))
+
+
 class _FilmParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -916,6 +945,7 @@ class _FilmParser(HTMLParser):
         self.clip_stack = []
         self.body_comments = []
         self.outer_comments = []
+        self.timeline_marker_metadata = []
 
     def handle_starttag(self, tag, attrs):
         line_number = self.getpos()[0]
@@ -969,6 +999,8 @@ class _FilmParser(HTMLParser):
                     f"第 {line_number} 行：{tag} 不允许未知属性 {key!r}"
                     for key in attr_map if key not in _FILM_HEAD_ATTRIBUTES[tag]
                 )
+                if tag == "meta" and str(attr_map.get("name") or "").strip().lower() == "film-markers":
+                    self.timeline_marker_metadata.append((line_number, attr_map.get("content", "")))
                 if tag not in VOID_TAGS:
                     self.stack.append(tag)
                 return
@@ -1241,6 +1273,15 @@ def parse_film(text: str) -> dict:
             last_id = clip["id"]
     if problems:
         raise FilmError("INVALID_FILM", "film.html 校验失败：\n- " + "\n- ".join(problems), 422)
+    markers: list[dict[str, Any]] = []
+    if len(parser.timeline_marker_metadata) > 1:
+        raise FilmError("DUPLICATE_FILM_MARKERS_META", "film.html 只能包含一个 film-markers 元数据标签", 422)
+    if parser.timeline_marker_metadata:
+        marker_line, marker_content = parser.timeline_marker_metadata[0]
+        try:
+            markers = _normalize_film_markers(json.loads(marker_content))
+        except json.JSONDecodeError as exc:
+            raise FilmError("INVALID_FILM_MARKERS", f"第 {marker_line} 行：film-markers 不是合法 JSON", 422) from exc
     viewport = re.search(r'<meta\b[^>]*\bname\s*=\s*["\']?viewport["\']?[^>]*\bcontent\s*=\s*["\']width\s*=\s*(\d+)\s*,?\s*height\s*=\s*(\d+)', head, re.I)
     stage = {"width": int(viewport.group(1)), "height": int(viewport.group(2))} if viewport else {"width": 1920, "height": 1080}
     fps_tag = re.search(r'<meta\b(?=[^>]*\bname\s*=\s*["\']?film-fps["\']?)[^>]*>', head, re.I)
@@ -1276,6 +1317,7 @@ def parse_film(text: str) -> dict:
                 )
     return {
         "stage": stage, "fps": fps, "head_html": head, "tracks": parser.tracks,
+        "markers": markers,
         "body_comments": parser.body_comments, "outer_comments": parser.outer_comments,
         "warnings": runtime_warnings,
     }
@@ -1307,8 +1349,22 @@ def serialize_film(doc: dict) -> str:
         head = re.sub(fps_pattern, fps_meta, head, count=1, flags=re.I)
     else:
         head = head.replace("</head>", fps_meta + "</head>", 1)
+    marker_pattern = r"""<meta\b(?=[^>]*\bname\s*=\s*(?:"film-markers"|'film-markers'|film-markers(?=\s|/?>)))[^>]*>"""
+    head = re.sub(marker_pattern, "", head, flags=re.I)
+    markers = _normalize_film_markers(doc.get("markers", []))
+    if markers:
+        marker_content = html.escape(
+            json.dumps(markers, ensure_ascii=False, separators=(",", ":")), quote=True
+        )
+        marker_meta = f'<meta name="film-markers" content="{marker_content}">'
+        head, marker_insertions = re.subn(
+            r"</head\s*>", lambda match: marker_meta + match.group(0),
+            head, count=1, flags=re.I
+        )
+        if marker_insertions != 1:
+            raise FilmError("INVALID_FILM", "film.html 缺少完整 head，不能持久化影片标记", 422)
 
-    def comment_html(item: Any) -> str:
+    def comment_html(item: Any):
         if isinstance(item, str):
             return item if item.startswith("<!--") and item.endswith("-->") else ""
         if not isinstance(item, dict):
@@ -1413,6 +1469,7 @@ def _validate_doc(doc: dict):
     fps = doc.get("fps", config.DEFAULT_FPS)
     if isinstance(fps, bool) or not isinstance(fps, int) or not 1 <= fps <= 60:
         raise FilmError("INVALID_FPS", "影片帧率必须是 1–60 的整数。", 422)
+    _normalize_film_markers(doc.get("markers", []))
     track_ids = [t["id"] for t in doc["tracks"]]
     clip_ids = [c["id"] for t in doc["tracks"] for c in t["clips"]]
     if len(track_ids) != len(set(track_ids)) or len(clip_ids) != len(set(clip_ids)):
@@ -2087,11 +2144,43 @@ def apply_ops(
         raise FilmError("INVALID_OPERATIONS", f"ops 必须是 1–{MAX_OPERATIONS} 项的数组")
     out = copy.deepcopy(doc)
     normalized = []
+    out.setdefault("markers", [])
     for index, op in enumerate(ops):
         if not isinstance(op, dict):
             raise FilmError("INVALID_OPERATION", f"第 {index + 1} 项操作不是对象")
         kind = op.get("op")
-        if kind == "clip_lock":
+        if kind == "marker_add":
+            marker = _normalize_film_markers([{
+                "id": op.get("id"), "at": op.get("at"), "label": op.get("label")
+            }])[0]
+            if any(existing["id"] == marker["id"] for existing in out["markers"]):
+                raise FilmError("DUPLICATE_FILM_MARKER_ID", f"影片标记 ID 已存在：{marker['id']}", 409)
+            out["markers"] = _normalize_film_markers([*out["markers"], marker])
+            normalized.append({"op": "marker_add", **marker})
+        elif kind == "marker_set":
+            marker_id = str(op.get("id") or "")
+            marker_index = next((i for i, item in enumerate(out["markers"]) if item["id"] == marker_id), None)
+            if marker_index is None:
+                raise FilmError("FILM_MARKER_NOT_FOUND", f"影片标记不存在或已被删除：{marker_id}", 409)
+            if "at" not in op and "label" not in op:
+                raise FilmError("INVALID_FILM_MARKER_EDIT", "marker_set 必须至少修改 at 或 label", 422)
+            changed = dict(out["markers"][marker_index])
+            if "at" in op:
+                changed["at"] = op["at"]
+            if "label" in op:
+                changed["label"] = op["label"]
+            replacement = _normalize_film_markers([changed])[0]
+            out["markers"][marker_index] = replacement
+            out["markers"] = _normalize_film_markers(out["markers"])
+            normalized.append({"op": "marker_set", **replacement})
+        elif kind == "marker_remove":
+            marker_id = str(op.get("id") or "")
+            marker_index = next((i for i, item in enumerate(out["markers"]) if item["id"] == marker_id), None)
+            if marker_index is None:
+                raise FilmError("FILM_MARKER_NOT_FOUND", f"影片标记不存在或已被删除：{marker_id}", 409)
+            out["markers"].pop(marker_index)
+            normalized.append({"op": "marker_remove", "id": marker_id})
+        elif kind == "clip_lock":
             track, clip = _find_clip(out, str(op.get("clip") or ""))
             _ensure_unlocked(track)
             locked = op.get("locked")
@@ -2899,6 +2988,8 @@ def _preserve_film_text(original_text: str, old_doc: dict, new_doc: dict) -> str
     new nodes. Any ambiguous/unlocatable span returns None so the caller can fail
     closed or use the serializer fallback.
     """
+    if _normalize_film_markers(old_doc.get("markers", [])) != _normalize_film_markers(new_doc.get("markers", [])):
+        return None
     old_tracks = old_doc.get("tracks") or []
     new_tracks = new_doc.get("tracks") or []
     locator = _FilmSourceLocator(original_text)
@@ -5748,11 +5839,15 @@ def film_payload(project_id: str, state: dict) -> dict:
     render_css = "\n".join(style_blocks)
     if re.search(r"@import\b|@keyframes\b|\banimation(?:-name)?\s*:|\btransition\s*:|url\s*\(|https?://|file:|javascript:|expression\s*\(|-moz-binding", render_css, re.I):
         raise FilmError("UNSAFE_FILM_STYLE", "film.html head CSS 含外部资源、动画或可执行 CSS；请先移除后再载入。", 422)
+    markers = list(doc.get("markers") or [])
+    timeline_end = max(
+        [c.get("end") or 0 for track in tracks for c in track["clips"]]
+        + [float(marker["at"]) for marker in markers] + [0]
+    )
     return {"ok": True, "exists": True, "project_id": project_id, "rev": state["rev"], "stage": doc["stage"],
             "fps": doc.get("fps", config.DEFAULT_FPS),
-            "head_html": head_html, "render_css": render_css, "tracks": tracks,
-            "warnings": list(doc.get("warnings") or []),
-            "duration": max([c.get("end") or 0 for t in tracks for c in t["clips"]] or [0]), "migration": migration}
+            "head_html": head_html, "render_css": render_css, "tracks": tracks, "markers": markers,
+            "warnings": list(doc.get("warnings") or []), "duration": timeline_end, "migration": migration}
 
 
 def plan_film_command(llm, state: dict, message: str, selected_clip_id: str = "",

@@ -378,6 +378,15 @@ const buildTimelineSurfaceModel = (
     const at = Math.min(safeDuration,index*5);
     return {at,label:formatFilmTime(at),left:filmTimelineMath.secondsToPixels(at,scale)};
   });
+  const rawMarkers = Array.isArray(film.markers) ? film.markers : [];
+  const markers = rawMarkers.map(rawMarker => {
+    const marker = timelineRecord(rawMarker);
+    const id = String(marker.id ?? "");
+    const at = Number(marker.at);
+    const label = String(marker.label ?? "").trim();
+    if (!id || !label || !Number.isFinite(at) || at < 0) return null;
+    return {id,at,label,left:filmTimelineMath.secondsToPixels(at,scale)};
+  }).filter((marker): marker is {id:string;at:number;label:string;left:number} => marker !== null);
   const tracks: FilmTimelineSurfaceTrack[] = film.tracks.map(rawTrack => {
     const track = timelineRecord(rawTrack);
     const attrs = timelineRecord(track.attrs);
@@ -436,7 +445,7 @@ const buildTimelineSurfaceModel = (
       clips,
     };
   });
-  return {laneWidth,totalWidth:132+laneWidth,pixelsPerSecond:scale,ticks,tracks};
+  return {laneWidth,totalWidth:132+laneWidth,pixelsPerSecond:scale,ticks,tracks,markers};
 };
 
 
@@ -665,6 +674,8 @@ declare global {
     filmStudioSetClipLock?: (clipId: string, locked: boolean) => Promise<void> | void;
     filmStudioSeek?: (value: string | number) => void;
     filmStudioJumpToKeyframe?: (clipId: string, at: number) => void;
+    filmStudioAddTimelineMarker?: () => Promise<unknown> | unknown;
+    filmStudioEditTimelineMarker?: (markerId: string) => Promise<unknown> | unknown;
     filmStudioTimelineMath?: FilmTimelineMathBridge;
     filmStudioTimelineController?: typeof filmTimelineGestureController;
     filmStudioZoom?: (direction: number, anchorClientX?: number) => void;
@@ -1608,7 +1619,12 @@ const TimelineScrubRuler: React.FC<{model:FilmTimelineSurfaceModel}> = ({model})
   };
   return (
     <div className="fs-ruler" style={{width:model.totalWidth}}>
-      <div className="fs-ruler-head">时码</div>
+      <div className="fs-ruler-head">
+        <span>时码</span>
+        <button type="button" className="fs-ruler-add-marker" data-film-add-marker="true"
+          title="在当前播放头位置添加影片标记" aria-label="添加影片标记"
+          onClick={() => { void window.filmStudioAddTimelineMarker?.(); }}>＋标记</button>
+      </div>
       <div
         className="fs-ruler-body"
         id="fs-ruler-body"
@@ -1686,6 +1702,23 @@ const TimelineScrubRuler: React.FC<{model:FilmTimelineSurfaceModel}> = ({model})
         {model.ticks.map((tick) => (
           <div className="fs-ruler-mark" data-at={tick.at} style={{left:tick.left}} key={tick.at}>{tick.label}</div>
         ))}
+      </div>
+      <div className="fs-ruler-film-markers-layer" style={{width:model.laneWidth}} role="group" aria-label="影片标记">
+        {model.markers.map(marker => (
+          <button type="button" key={marker.id} className="fs-ruler-film-marker"
+            data-film-timeline-marker-id={marker.id} data-at={marker.at}
+            style={{left:marker.left}} title={marker.label + " · " + formatFilmTime(marker.at) + "；左键跳转，右键编辑/删除"}
+            aria-label={"跳转到影片标记 " + marker.label + "，" + formatFilmTime(marker.at)}
+            onClick={event => {
+              event.preventDefault(); event.stopPropagation();
+              window.filmStudioSeek?.(marker.at);
+            }}
+            onContextMenu={event => {
+              event.preventDefault(); event.stopPropagation();
+              void window.filmStudioEditTimelineMarker?.(marker.id);
+            }}>◆</button>
+        ))}
+      </div>
       </div>
     </div>
   );

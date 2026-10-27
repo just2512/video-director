@@ -20,6 +20,7 @@ export interface FilmStage {
   width: number;
   height: number;
 }
+export interface FilmTimelineMarker { id: string; at: number; label: string }
 export interface FilmDocumentPayload {
   ok: boolean;
   exists: boolean;
@@ -28,6 +29,7 @@ export interface FilmDocumentPayload {
   stage?: FilmStage;
   duration?: number;
   tracks?: FilmTrack[];
+  markers?: FilmTimelineMarker[];
   warnings?: string[];
   migration?: {
     source_composition_version?: number;
@@ -39,6 +41,9 @@ export type FilmStringField =
   | "src" | "title" | "fade" | "class" | "alt" | "lang" | "dir" | "size"
   | "style" | "overrides" | "volume_envelope" | "data-film-keyframes";
 export type FilmOperation =
+  | { op: "marker_add"; id: string; at: number; label: string }
+  | { op: "marker_set"; id: string; at?: number; label?: string }
+  | { op: "marker_remove"; id: string }
   | { op: "set"; clip: string; field: "at" | "speed" | "volume"; value: number }
   | { op: "set"; clip: string; field: "muted"; value: boolean }
   | { op: "set"; clip: string; field: FilmStringField; value: string | null }

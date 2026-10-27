@@ -1268,3 +1268,161 @@ def test_react_dock_dividers_persist_layout_and_keep_inspector_and_ai_visible(tm
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_react_timeline_markers_persist_and_share_revisioned_undo_redo(tmp_path, monkeypatch):
+    """The real React timeline adds, seeks, renames, undoes and redoes persistent markers."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-markers-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(FILM, encoding="utf-8")
+    original_text = film_path.read_text(encoding="utf-8")
+    before = fd.read_project_film(project_id)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            edit_requests: list[dict] = []
+
+            def capture_edit(request):
+                if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        edit_requests.append(json.loads(request.post_data or "{}"))
+                    except json.JSONDecodeError:
+                        edit_requests.append({"_invalid_json": True})
+
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", capture_edit)
+            try:
+                response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select=document.querySelector('#editor-project');
+                      let option=[...select.options].find(item=>item.value===pid);
+                      if(!option){option=new Option(pid,pid);select.add(option);}
+                      select.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => typeof window.filmStudioReactTimeline?.renderSurface === 'function' "
+                    "&& !!document.querySelector('.fs-react-timeline-surface')",
+                    timeout=10000,
+                )
+                page.locator("[data-film-add-marker='true']").wait_for(state="visible")
+                page.locator("#fs-timeline #fs-ruler-body .fs-ruler-mark[data-at='5']").click()
+                page.wait_for_function(
+                    "() => Math.abs(Number(window.filmStudioStore.getSnapshot().playhead)-5)<0.001"
+                )
+
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/edit")
+                ) as add_response:
+                    page.once("dialog", lambda dialog: dialog.accept("序章"))
+                    page.locator("[data-film-add-marker='true']").click()
+                add_request = json.loads(add_response.value.request.post_data or "{}")
+                assert add_request.get("base") == before["rev"], add_request
+                assert len(add_request.get("ops") or []) == 1, add_request
+                add_operation = add_request["ops"][0]
+                assert add_operation.get("op") == "marker_add", add_request
+                assert add_operation.get("at") == 5, add_request
+                assert add_operation.get("label") == "序章", add_request
+                marker_id = add_operation["id"]
+
+                marker_locator = page.locator(
+                    f".fs-ruler-film-marker[data-film-timeline-marker-id='{marker_id}']"
+                )
+                marker_locator.wait_for(state="visible")
+                persisted_add = fd.read_project_film(project_id)
+                assert persisted_add["doc"]["markers"] == [
+                    {"id": marker_id, "at": 5.0, "label": "序章"}
+                ]
+                assert len(edit_requests) == 1
+
+                page.evaluate("window.filmStudioSeek(0)")
+                page.wait_for_function(
+                    "() => Math.abs(Number(window.filmStudioStore.getSnapshot().playhead))<0.001"
+                )
+                marker_locator.click()
+                page.wait_for_function(
+                    "() => Math.abs(Number(window.filmStudioStore.getSnapshot().playhead)-5)<0.001"
+                )
+
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/edit")
+                ) as rename_response:
+                    page.once("dialog", lambda dialog: dialog.accept("片头结束"))
+                    marker_locator.click(button="right")
+                rename_request = json.loads(rename_response.value.request.post_data or "{}")
+                assert rename_request.get("base") == persisted_add["rev"], rename_request
+                assert rename_request.get("ops") == [
+                    {"op": "marker_set", "id": marker_id, "label": "片头结束"}
+                ], rename_request
+                renamed_text = fd.read_project_film(project_id)["text"]
+                assert fd.read_project_film(project_id)["doc"]["markers"] == [
+                    {"id": marker_id, "at": 5.0, "label": "片头结束"}
+                ]
+                assert len(edit_requests) == 2
+                assert not page_errors, page_errors
+
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function(
+                    "() => document.querySelector('.fs-ruler-film-marker')?.title.includes('序章')"
+                )
+                assert fd.read_project_film(project_id)["doc"]["markers"] == [
+                    {"id": marker_id, "at": 5.0, "label": "序章"}
+                ]
+
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function(
+                    "() => !document.querySelector('.fs-ruler-film-marker') "
+                    "&& window.filmStudioStore.getSnapshot().revision === " + json.dumps(before["rev"])
+                )
+                assert film_path.read_text(encoding="utf-8") == original_text
+
+                page.evaluate("window.filmStudioRedo()")
+                page.wait_for_function(
+                    "() => document.querySelector('.fs-ruler-film-marker')?.title.includes('序章')"
+                )
+                page.evaluate("window.filmStudioRedo()")
+                page.wait_for_function(
+                    "() => document.querySelector('.fs-ruler-film-marker')?.title.includes('片头结束')"
+                )
+                assert fd.read_project_film(project_id)["text"] == renamed_text
+                assert fd.read_project_film(project_id)["doc"]["markers"] == [
+                    {"id": marker_id, "at": 5.0, "label": "片头结束"}
+                ]
+                assert len(edit_requests) == 2
+                assert not page_errors, page_errors
+            finally:
+                page.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

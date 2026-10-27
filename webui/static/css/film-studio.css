@@ -373,3 +373,13 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-director-planning-note p{font-size:11px;line-height:1.5;color:#a8b8b6;margin:5px 0 0}
 #fs-director-planning-host #director-control-grid{background:transparent;border:0}
 #fs-director-planning-host #director-control-grid>*{max-width:100%;box-sizing:border-box}
+
+
+/* Persistent FilmDocument timeline markers */
+.fs-ruler-head{display:flex;align-items:center;justify-content:space-between;gap:4px}
+.fs-ruler-add-marker{border:1px solid #66552e;border-radius:3px;background:#2a261d;color:#f5d07c;font:inherit;font-size:10px;line-height:1.5;padding:2px 5px;white-space:nowrap;cursor:pointer}
+.fs-ruler-add-marker:hover{background:#3a3220;color:#fff0bf}
+.fs-ruler-film-markers-layer{position:absolute;left:132px;top:0;height:26px;pointer-events:none;z-index:5}
+.fs-ruler-film-marker{position:absolute;top:0;bottom:0;z-index:5;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;width:16px;border:0;padding:0;background:transparent;color:#f4c96b;font-size:12px;line-height:1;cursor:pointer;pointer-events:auto}
+.fs-ruler-film-marker:hover{color:#fff2b8;text-shadow:0 0 4px rgba(244,201,107,.8)}
+.fs-ruler-film-marker:focus-visible,.fs-ruler-add-marker:focus-visible{outline:2px solid #f4c96b;outline-offset:1px}

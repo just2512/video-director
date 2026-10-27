@@ -103,6 +103,7 @@ export type FilmStudioTimelineSurfaceTrack = {
 export type FilmStudioTimelineSurfaceModel = {
   laneWidth: number; totalWidth: number; pixelsPerSecond: number;
   ticks: Array<{at: number; label: string; left: number}>;
+  markers: Array<{id: string; at: number; label: string; left: number}>;
   tracks: FilmStudioTimelineSurfaceTrack[];
 };
 

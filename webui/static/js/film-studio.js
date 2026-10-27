@@ -3264,6 +3264,33 @@
     }
     return true;
   };
+  window.filmStudioAddTimelineMarker=async function(){
+    if(!S.data||!S.data.exists||!S.projectId){showStatus('请先打开一个有效的 film.html 项目。','error');return false;}
+    var at=Math.max(0,Number(S.playhead)||0);
+    at=Math.round(at*1000)/1000;
+    var label=window.prompt('影片标记名称（位置：'+fmtTime(at)+'）','标记 '+fmtTime(at));
+    if(label===null)return false;
+    label=String(label).trim();
+    if(!label){showStatus('影片标记名称不能为空。','error');return false;}
+    var id='marker-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
+    try{return await filmStudioCommit([{op:'marker_add',id:id,at:at,label:label}]);}
+    catch(error){showStatus(String(error&&error.message||error),'error');return false;}
+  };
+  window.filmStudioEditTimelineMarker=async function(markerId){
+    var marker=(S.data&&Array.isArray(S.data.markers)?S.data.markers:[]).find(function(item){return item&&item.id===markerId;});
+    if(!marker){showStatus('影片标记已不存在；请刷新后重试。','error');return false;}
+    var label=window.prompt('修改标记名称；留空后确认可删除。',String(marker.label||''));
+    if(label===null)return false;
+    label=String(label).trim();
+    try{
+      if(!label){
+        if(!window.confirm('删除影片标记“'+String(marker.label||marker.id)+'”？此操作可撤销。'))return false;
+        return await filmStudioCommit([{op:'marker_remove',id:marker.id}]);
+      }
+      if(label===marker.label)return true;
+      return await filmStudioCommit([{op:'marker_set',id:marker.id,label:label}]);
+    }catch(error){showStatus(String(error&&error.message||error),'error');return false;}
+  };
   window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommit([{op:'split',clip:clip.id,at:S.playhead}]);};
   window.filmStudioRemove=async function(){var ids=(S.selectedIds||[]).filter(function(id){return !!findClip(id);});if(!ids.length&&S.selectedId)ids=[S.selectedId];if(!ids.length){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除选中的 '+ids.length+' 个片段并保留时间线空隙？此操作可撤销。'))return;var committed=await filmStudioCommit(ids.map(function(id){return {op:'remove',clip:id};}));if(!committed)return;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';render();};
 window.filmStudioCopyClips=function(){

@@ -163,3 +163,17 @@ The selector-based `overrides` subset supports text and bounded style properties
 ## Failure policy
 
 Return a concrete `MISSING`, `UNSUPPORTED`, or error explanation when a resource or rendering behavior cannot be verified. Do not silently skip broken clips, convert unknown durations to guessed values, bypass revision conflicts, or label an unrendered candidate as a completed video.
+
+## Timeline markers
+
+Film markers are persistent timeline metadata in the film.html head, not clip keyframes and not rendered pixels. Edit them with the same revision-checked film edit operation batch as clips:
+
+```json
+[
+  {"op": "marker_add", "id": "marker-intro", "at": 0.0, "label": "片头"},
+  {"op": "marker_set", "id": "marker-intro", "at": 2.5, "label": "开场结束"},
+  {"op": "marker_remove", "id": "marker-intro"}
+]
+```
+
+Marker IDs are stable and unique; names are 1–120 characters and times are non-negative seconds. A failed or stale edit must be re-planned against the current revision. Each operation batch is one undoable transaction.
