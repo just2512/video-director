@@ -21,6 +21,18 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert "working-directory: studio_ui" in workflow
     assert "bash tools/bootstrap_python_socks.sh" in workflow
     assert "bash tools/bootstrap_python_socks.sh" in ai_workflow
+    # The real-provider credential must exist only in the isolated live-test child
+    # process; broad regressions must not inherit the runner's paid model config.
+    assert "VD_PRESERVED_MODEL_CONFIG_FILE" in ai_workflow
+    assert "VD_LLM_LIVE_CONFIG_FILE" in ai_workflow
+    assert "id: live_stream_smoke" in ai_workflow
+    assert "live-stream-junit.xml" in ai_workflow
+    assert "env -u VD_LLM_API_KEY" in ai_workflow
+    assert "VIDEO_DIRECTOR_STORAGE_ROOT=%s" not in ai_workflow
+    assert not any(
+        "VD_LLM_API_KEY=%s" in line and "GITHUB_ENV" in line
+        for line in ai_workflow.splitlines()
+    )
     assert 'download_and_install_wheel "PySocks" "1.7.1"' in proxy_bootstrap
     assert 'download_and_install_wheel "socksio" "1.0.0"' in proxy_bootstrap
     assert 'if ! "$python_bin" -c "import socksio"' in proxy_bootstrap
