@@ -932,6 +932,180 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
         thread.join(timeout=5)
 
 
+def test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture(tmp_path, monkeypatch):
+    """A concurrent FilmDocument edit invalidates an active pointer drag without clobbering it."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-stale-drag-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    source_text = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#182030}</style></head>
+<body>
+<section id="video-main" data-label="主画面">
+  <video id="clip-a" src="../assets/a.mp4#t=0,2" at="0"></video>
+  <video id="clip-b" src="../assets/b.mp4#t=0,2" at="6"></video>
+</section>
+</body></html>'''
+    film_path.write_text(source_text, encoding="utf-8")
+    original_bytes = film_path.read_bytes()
+    original = fd.read_project_film(project_id)
+    assert original["exists"]
+    assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 6.0}
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            edit_requests: list[dict] = []
+
+            def capture_edit(request):
+                if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        edit_requests.append(json.loads(request.post_data or "{}"))
+                    except json.JSONDecodeError:
+                        edit_requests.append({"_invalid_json": True})
+
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", capture_edit)
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select=document.querySelector('#editor-project');
+                      let option=[...select.options].find(item=>item.value===pid);
+                      if(!option){option=new Option(pid,pid);select.add(option);}
+                      select.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => typeof window.filmStudioReactTimeline?.renderSurface === 'function' "
+                    "&& !!document.querySelector('.fs-react-timeline-surface')",
+                    timeout=10000,
+                )
+
+                clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
+                clip.wait_for(state="visible")
+                scale = float(page.evaluate("window.filmStudioStore.getSnapshot().pixelsPerSecond"))
+                box = clip.bounding_box()
+                assert box and scale > 0
+                start_x = box["x"] + box["width"] / 2
+                start_y = box["y"] + box["height"] / 2
+                start_revision = original["rev"]
+
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.mouse.move(start_x + 2 * scale, start_y, steps=8)
+                page.wait_for_function(
+                    """revision => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state && state.revision===revision &&
+                        !!state.timelineGestureContext?.active &&
+                        !!state.timelineGesturePreview?.['clip-a'];
+                    }""",
+                    arg=start_revision,
+                    timeout=5000,
+                )
+                assert edit_requests == [], edit_requests
+                assert film_path.read_bytes() == original_bytes
+
+                # Simulate another editor/Agent committing while this pointer is still down.
+                external = page.evaluate(
+                    """async args => {
+                      const response=await fetch('/api/editor/film/edit',{
+                        method:'POST',headers:{'Content-Type':'application/json'},
+                        body:JSON.stringify({
+                          project_id:args.projectId,base:args.revision,
+                          ops:[{op:'move',clip:'clip-b',track_id:'video-main',at:7}]
+                        })
+                      });
+                      return {status:response.status,body:await response.json()};
+                    }""",
+                    {"projectId": project_id, "revision": start_revision},
+                )
+                assert external["status"] == 200, external
+                changed_revision = external["body"].get("rev")
+                assert changed_revision and changed_revision != start_revision, external
+                external_bytes = film_path.read_bytes()
+                assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 7.0}
+
+                page.wait_for_function(
+                    """revision => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state && state.revision!==revision &&
+                        (state.pendingExternalRevision===revision ||
+                         !!state.pendingExternalRevision);
+                    }""",
+                    arg=start_revision,
+                    timeout=5000,
+                )
+                pending = page.evaluate("""() => {
+                  const s=window.filmStudioStore.getSnapshot();
+                  return {revision:s.revision,pendingExternalRevision:s.pendingExternalRevision,
+                    gesture:!!s.timelineGestureContext,preview:!!s.timelineGesturePreview};
+                }""")
+                assert pending["revision"] == start_revision, pending
+                assert pending["gesture"] and pending["preview"], pending
+
+                page.mouse.up()
+                page.wait_for_function(
+                    """args => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state && !state.busy && state.pendingTransaction===null &&
+                        state.revision===args.changedRevision &&
+                        state.timelineGestureContext===null &&
+                        state.timelineGesturePreview===null &&
+                        !state.pendingExternalRevision;
+                    }""",
+                    arg={"changedRevision": changed_revision},
+                    timeout=10000,
+                )
+
+                final = fd.read_project_film(project_id)
+                assert final["rev"] == changed_revision, final
+                assert film_path.read_bytes() == external_bytes
+                assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 7.0}
+                # Only the concurrent external edit may have reached the edit endpoint.
+                assert len(edit_requests) == 1, edit_requests
+                assert edit_requests[0].get("base") == start_revision, edit_requests
+                operations = edit_requests[0].get("ops") or []
+                assert len(operations) == 1 and operations[0].get("op") == "move", operations
+                assert operations[0].get("clip") == "clip-b", operations
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                page.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_react_zoom_stays_anchored_and_drag_autoscroll_keeps_preview_synced(
     tmp_path, monkeypatch
 ):
