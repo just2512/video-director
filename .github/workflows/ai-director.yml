@@ -214,6 +214,41 @@ jobs:
             export VD_LLM_MODEL="$VD_LLM_MODEL_CONFIG"
             printf 'VD_LLM_MODEL=%s\n' "$VD_LLM_MODEL" >> "$GITHUB_ENV"
           fi
+
+          # The product persists its configured LLM role in model_config.json.
+          # On a self-hosted runner, VIDEO_DIRECTOR_STORAGE_ROOT may point outside
+          # the cleaned checkout; reuse that private config without ever printing
+          # the key. Repository secrets/variables still take precedence.
+          if [ -z "${VD_LLM_API_KEY:-}" ] || [ -z "${VD_LLM_BASE_URL:-}" ] || [ -z "${VD_LLM_MODEL:-}" ]; then
+            mapfile -t stored_llm_config < <("$PY311_BIN/python3.11" - <<'PY'
+          import os
+          try:
+              from video_director import model_config
+              cfg = model_config.get_role_config("llm")
+              defaults = model_config.ROLE_DEFS["llm"]
+              print((cfg.get("api_key") or "").strip())
+              print((cfg.get("base_url") or defaults.get("default_base_url") or "").strip())
+              print((cfg.get("model") or defaults.get("default_model") or "").strip())
+          except Exception:
+              print("")
+              print("")
+              print("")
+          PY
+            )
+            if [ -z "${VD_LLM_API_KEY:-}" ] && [ -n "${stored_llm_config[0]:-}" ]; then
+              export VD_LLM_API_KEY="${stored_llm_config[0]}"
+              printf 'VD_LLM_API_KEY=%s\n' "$VD_LLM_API_KEY" >> "$GITHUB_ENV"
+            fi
+            if [ -z "${VD_LLM_BASE_URL:-}" ] && [ -n "${stored_llm_config[1]:-}" ]; then
+              export VD_LLM_BASE_URL="${stored_llm_config[1]}"
+              printf 'VD_LLM_BASE_URL=%s\n' "$VD_LLM_BASE_URL" >> "$GITHUB_ENV"
+            fi
+            if [ -z "${VD_LLM_MODEL:-}" ] && [ -n "${stored_llm_config[2]:-}" ]; then
+              export VD_LLM_MODEL="${stored_llm_config[2]}"
+              printf 'VD_LLM_MODEL=%s\n' "$VD_LLM_MODEL" >> "$GITHUB_ENV"
+            fi
+          fi
+
           if [ -z "${VD_LLM_API_KEY:-}" ] || [ -z "${VD_LLM_BASE_URL:-}" ] || [ -z "${VD_LLM_MODEL:-}" ]; then
             echo "::error::Real-model token-stream smoke was explicitly requested but configuration is incomplete. Set secret VD_LLM_API_KEY and variables VD_LLM_BASE_URL / VD_LLM_MODEL, or configure all three values in the self-hosted runner environment."
             exit 1
