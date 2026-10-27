@@ -284,3 +284,83 @@ def test_stream_cancel_stops_cancellable_provider_without_creating_proposal(
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_stream_cancel_before_registration_blocks_provider_start(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A cancel racing ahead of stream registration must be consumed before model work."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-cancel-race-" + uuid.uuid4().hex[:12]
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(FILM_HTML, encoding="utf-8")
+    original_bytes = film_path.read_bytes()
+    before = fd.read_project_film(project_id)
+    request_id = "cancel-before-register-" + uuid.uuid4().hex
+
+    class NeverStartedLLM:
+        def generate_stream(self, *_args, **_kwargs):
+            raise AssertionError("cancelled request must not start model generation")
+
+        def generate(self, *_args, **_kwargs):
+            raise AssertionError("cancelled request must not fall back to non-streaming generation")
+
+    monkeypatch.setattr(web_server.vd_llm, "get_llm", lambda: NeverStartedLLM())
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        cancel_request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/editor/film/command/cancel",
+            data=json.dumps({
+                "project_id": project_id, "request_id": request_id,
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(cancel_request, timeout=5) as response:
+            cancel_result = json.loads(response.read().decode("utf-8"))
+        assert cancel_result == {
+            "ok": True, "cancel_requested": True, "stream_found": False,
+        }, cancel_result
+
+        command_request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/editor/film/command",
+            data=json.dumps({
+                "project_id": project_id,
+                "base": before["rev"],
+                "message": "只移动 clip-b 到 8.5 秒。",
+                "stream": True,
+                "request_id": request_id,
+            }, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(command_request, timeout=5)
+        except urllib.error.HTTPError as error:
+            body = json.loads(error.read().decode("utf-8"))
+            assert error.code == 409, (error.code, body)
+            assert body.get("code") == "AI_REQUEST_CANCELLED", body
+        else:
+            raise AssertionError("a pre-cancelled AI request must return HTTP 409")
+
+        key = (project_id, request_id)
+        assert key not in web_server._FILM_AI_ACTIVE_STREAMS
+        assert key not in web_server._FILM_AI_CANCELLED_REQUESTS
+        after = fd.read_project_film(project_id)
+        assert after["rev"] == before["rev"]
+        assert film_path.read_bytes() == original_bytes
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
