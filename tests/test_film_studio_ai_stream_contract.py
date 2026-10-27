@@ -7,6 +7,7 @@ import threading
 import urllib.error
 import time
 import urllib.request
+import os
 import uuid
 import socket
 import struct
@@ -268,7 +269,7 @@ def test_stream_disconnect_after_last_token_discards_undelivered_proposal(
             current = next_value
         sock = next((item for item in candidates if callable(getattr(item, "setsockopt", None))), None)
         assert sock is not None, "could not access the test response socket to force client disconnect"
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("hh" if os.name == "nt" else "ii", 1, 0))
         response.close()
         response = None
         allow_provider_return.set()
@@ -291,6 +292,66 @@ def test_stream_disconnect_after_last_token_discards_undelivered_proposal(
         if response is not None:
             response.close()
         allow_provider_return.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+
+def test_cancel_during_finalization_is_too_late_and_does_not_create_tombstone(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The cancellation endpoint must not race a request after atomic finalization begins."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+    project_id = "film-finalizing-cancel-" + uuid.uuid4().hex[:12]
+    request_id = "finalizing-cancel-" + uuid.uuid4().hex
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    (project_root / fd.FILM_NAME).write_text(FILM_HTML, encoding="utf-8")
+
+    key = (project_id, request_id)
+    cancel_event = threading.Event()
+    active_stream = {
+        "project_id": project_id,
+        "request_id": request_id,
+        "cancel_event": cancel_event,
+        "stream": None,
+        "state": "finalizing",
+    }
+    with web_server._FILM_AI_STREAM_LOCK:
+        web_server._FILM_AI_ACTIVE_STREAMS[key] = active_stream
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/editor/film/command/cancel",
+            data=json.dumps({
+                "project_id": project_id, "request_id": request_id,
+            }).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        assert result == {
+            "ok": True, "cancel_requested": False, "stream_found": True,
+        }, result
+        assert not cancel_event.is_set()
+        with web_server._FILM_AI_STREAM_LOCK:
+            assert web_server._FILM_AI_ACTIVE_STREAMS.get(key) is active_stream
+            assert key not in web_server._FILM_AI_CANCELLED_REQUESTS
+    finally:
+        with web_server._FILM_AI_STREAM_LOCK:
+            web_server._FILM_AI_ACTIVE_STREAMS.pop(key, None)
+            web_server._FILM_AI_CANCELLED_REQUESTS.pop(key, None)
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)

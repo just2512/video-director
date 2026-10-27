@@ -1160,10 +1160,11 @@ class Handler(BaseHTTPRequestHandler):
                         if now - cancelled_at > 300:
                             _FILM_AI_CANCELLED_REQUESTS.pop(cancelled_key, None)
                     active = _FILM_AI_ACTIVE_STREAMS.get(key)
-                    if active:
+                    finalizing = bool(active and active.get("state") == "finalizing")
+                    if active and not finalizing:
                         active["cancel_event"].set()
                         stream = active.get("stream")
-                    else:
+                    elif not active:
                         _FILM_AI_CANCELLED_REQUESTS[key] = now
                         # A cancel can arrive before the generation request is registered.
                         # Keep short-lived tombstones for that race, but cap memory even if
@@ -1177,7 +1178,7 @@ class Handler(BaseHTTPRequestHandler):
                         stream.close()
                     except Exception:
                         pass
-                self._send_json({"ok": True, "cancel_requested": True, "stream_found": bool(active)}, 200)
+                self._send_json({"ok": True, "cancel_requested": not finalizing, "stream_found": bool(active)}, 200)
                 return True
             if route == "/api/editor/film/initialize":
                 from video_director import editor as vd_editor
@@ -1375,7 +1376,8 @@ class Handler(BaseHTTPRequestHandler):
                     key = (pid, request_id)
                     cancel_event = threading.Event()
                     active_stream = {"project_id": pid, "request_id": request_id,
-                                     "cancel_event": cancel_event, "stream": None}
+                                     "cancel_event": cancel_event, "stream": None,
+                                     "state": "streaming"}
                     with _FILM_AI_STREAM_LOCK:
                         now = time.time()
                         for cancelled_key, cancelled_at in list(_FILM_AI_CANCELLED_REQUESTS.items()):
@@ -1436,6 +1438,7 @@ class Handler(BaseHTTPRequestHandler):
 
                     stored_proposal_id = ""
                     phase_after_result = None
+                    pending_proposal = None
                     try:
                         operations = fd.plan_film_command(
                             llm, state, str(payload.get("message") or ""),
@@ -1468,15 +1471,23 @@ class Handler(BaseHTTPRequestHandler):
                                 "candidate": candidate,
                                 "affected_clip_ids": sorted({str(op.get("clip")) for op in normalized if op.get("clip")}),
                             }
-                            _FILM_PROPOSALS.put(proposal["id"], pid, state["rev"], normalized)
-                            stored_proposal_id = proposal["id"]
+                            pending_proposal = proposal
                             phase_after_result = {"phase": "proposed", "project_id": pid,
                                                   "base_revision": state["rev"], "proposal_id": proposal["id"],
                                                   "operation_count": len(normalized)}
                             response = {"ok": True, "proposal": proposal,
                                         "message": "已生成并验证候选修改；尚未写入正式影片文档。"}
-                        if disconnected["value"] or cancel_event.is_set():
-                            raise ConnectionAbortedError("AI 请求已取消或客户端已断开")
+                        # Seal the cancellation window and register the proposal atomically.
+                        # A cancel that wins this lock prevents proposal creation; a cancel
+                        # arriving after finalization starts is too late and must not tombstone
+                        # a request whose result is already being delivered.
+                        with _FILM_AI_STREAM_LOCK:
+                            if disconnected["value"] or cancel_event.is_set():
+                                raise ConnectionAbortedError("AI 请求已取消或客户端已断开")
+                            active_stream["state"] = "finalizing"
+                            if pending_proposal is not None:
+                                stored_proposal_id = pending_proposal["id"]
+                                _FILM_PROPOSALS.put(stored_proposal_id, pid, state["rev"], normalized)
                         delivered = emit("result", response)
                         if delivered:
                             if phase_after_result is not None:
@@ -1496,7 +1507,9 @@ class Handler(BaseHTTPRequestHandler):
                             code = getattr(exc, "code", "LLM_PLAN_FAILED")
                             emit("error", {"ok": False, "code": str(code),
                                            "error": str(exc) or "AI 流式规划失败"})
-                        sse_publish("film_ai", {"phase": "cancelled" if cancelled else "failed",
+                        failure_phase = "cancelled" if cancelled else (
+                            "disconnected" if disconnected["value"] else "failed")
+                        sse_publish("film_ai", {"phase": failure_phase,
                                                 "project_id": pid, "base_revision": state["rev"]})
                     finally:
                         with _FILM_AI_STREAM_LOCK:
