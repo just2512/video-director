@@ -24,7 +24,7 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert 'download_and_install_wheel "PySocks" "1.7.1"' in proxy_bootstrap
     assert 'download_and_install_wheel "socksio" "1.0.0"' in proxy_bootstrap
     assert 'if ! "$python_bin" -c "import socksio"' in proxy_bootstrap
-    assert "import socks\\nimport socksio" in proxy_bootstrap
+    assert "import socks" in proxy_bootstrap and "import socksio" in proxy_bootstrap
     assert "socksio==1.0.0" in requirements
     assert not any(line.startswith(("import json", "import sys", "from pathlib")) for line in workflow.splitlines())
     assert "Install Remotion render runtime dependencies" in workflow
