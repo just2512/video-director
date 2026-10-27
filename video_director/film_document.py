@@ -101,6 +101,13 @@ def clip_end(clip: dict) -> float | None:
     return None if duration is None else _number(clip["attrs"].get("at", 0), "at", 0) + duration
 
 
+def _film_document_duration(doc: dict) -> float:
+    return max(
+        (clip_end(clip) or 0.0 for track in doc.get("tracks", []) for clip in track.get("clips", [])),
+        default=0.0,
+    )
+
+
 def _parse_fade(value: Any) -> tuple[float, float]:
     """Parse the optional clip-relative visual/audio fade durations (in,out) in seconds."""
     if value is None or value == "":
@@ -899,7 +906,7 @@ def _film_runtime_metadata_issues(clip: dict) -> list[str]:
     return issues
 
 
-def _normalize_film_markers(value: Any) -> list[dict[str, Any]]:
+def _normalize_film_markers(value: Any, *, max_time: float | None = None) -> list[dict[str, Any]]:
     """Validate and canonically order persistent timeline markers."""
     if value is None:
         value = []
@@ -924,7 +931,14 @@ def _normalize_film_markers(value: Any) -> list[dict[str, Any]]:
         label = raw.get("label")
         if not isinstance(label, str) or not label.strip() or len(label.strip()) > 120:
             raise FilmError("INVALID_FILM_MARKER_LABEL", f"影片标记 {marker_id} 的名称必须是 1–120 个字符", 422)
-        markers.append({"id": marker_id, "at": round(float(at), 3), "label": label.strip()})
+        normalized_at = round(float(at), 3)
+        if max_time is not None and normalized_at > round(float(max_time), 3):
+            raise FilmError(
+                "FILM_MARKER_OUT_OF_BOUNDS",
+                f"影片标记 {marker_id} 位于 {normalized_at:.3f}s，超出最后一个片段的结束时间 {float(max_time):.3f}s。",
+                422,
+            )
+        markers.append({"id": marker_id, "at": normalized_at, "label": label.strip()})
     return sorted(markers, key=lambda item: (item["at"], item["id"]))
 
 
@@ -1279,7 +1293,9 @@ def parse_film(text: str) -> dict:
     if parser.timeline_marker_metadata:
         marker_line, marker_content = parser.timeline_marker_metadata[0]
         try:
-            markers = _normalize_film_markers(json.loads(marker_content))
+            markers = _normalize_film_markers(
+                json.loads(marker_content), max_time=_film_document_duration({"tracks": parser.tracks})
+            )
         except json.JSONDecodeError as exc:
             raise FilmError("INVALID_FILM_MARKERS", f"第 {marker_line} 行：film-markers 不是合法 JSON", 422) from exc
     viewport = re.search(r'<meta\b[^>]*\bname\s*=\s*["\']?viewport["\']?[^>]*\bcontent\s*=\s*["\']width\s*=\s*(\d+)\s*,?\s*height\s*=\s*(\d+)', head, re.I)
@@ -1351,7 +1367,7 @@ def serialize_film(doc: dict) -> str:
         head = head.replace("</head>", fps_meta + "</head>", 1)
     marker_pattern = r"""<meta\b(?=[^>]*\bname\s*=\s*(?:"film-markers"|'film-markers'|film-markers(?=\s|/?>)))[^>]*>"""
     head = re.sub(marker_pattern, "", head, flags=re.I)
-    markers = _normalize_film_markers(doc.get("markers", []))
+    markers = _normalize_film_markers(doc.get("markers", []), max_time=_film_document_duration(doc))
     if markers:
         marker_content = html.escape(
             json.dumps(markers, ensure_ascii=False, separators=(",", ":")), quote=True
@@ -1497,6 +1513,7 @@ def _validate_doc(doc: dict):
             if end is not None and end_seen is not None and at < end_seen - 0.001:
                 raise FilmError("TRACK_OVERLAP", f"轨道 {track['id']} 片段 {clip['id']} 与前一片段重叠")
             end_seen = end if end is not None else None
+    _normalize_film_markers(doc.get("markers", []), max_time=_film_document_duration(doc))
 
 
 def _apply_ripple_delete(doc: dict, clip_id: str, requested_split_ids: Any = None) -> dict:
@@ -5841,8 +5858,7 @@ def film_payload(project_id: str, state: dict) -> dict:
         raise FilmError("UNSAFE_FILM_STYLE", "film.html head CSS 含外部资源、动画或可执行 CSS；请先移除后再载入。", 422)
     markers = list(doc.get("markers") or [])
     timeline_end = max(
-        [c.get("end") or 0 for track in tracks for c in track["clips"]]
-        + [float(marker["at"]) for marker in markers] + [0]
+        [c.get("end") or 0 for track in tracks for c in track["clips"]] or [0]
     )
     return {"ok": True, "exists": True, "project_id": project_id, "rev": state["rev"], "stage": doc["stage"],
             "fps": doc.get("fps", config.DEFAULT_FPS),

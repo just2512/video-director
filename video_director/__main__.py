@@ -214,10 +214,7 @@ def main(argv=None):
                 doc = state["doc"]
                 clips = [clip for track in doc["tracks"] for clip in track["clips"]]
                 markers = list(doc.get("markers") or [])
-                duration = max(
-                    [fd.clip_end(clip) or 0.0 for clip in clips]
-                    + [float(marker["at"]) for marker in markers] + [0.0]
-                )
+                duration = max((fd.clip_end(clip) or 0.0 for clip in clips), default=0.0)
                 emit({
                     "ok": True, "exists": True, "project_id": pid,
                     "revision": state["rev"], "stage": doc["stage"],

@@ -75,6 +75,10 @@ def test_film_marker_operations_reject_invalid_or_stale_targets():
         fd.apply_ops(doc_with_marker, [{"op": "marker_remove", "id": "deleted-marker"}])
     assert caught.value.code == "FILM_MARKER_NOT_FOUND"
 
+    with pytest.raises(fd.FilmError) as caught:
+        fd.apply_ops(doc, [{"op": "marker_add", "id": "after-end", "at": 12, "label": "超出片尾"}])
+    assert caught.value.code == "FILM_MARKER_OUT_OF_BOUNDS"
+
 
 def test_film_marker_metadata_is_strict_and_rejects_duplicate_tags():
     malformed = FILM.replace(
@@ -84,6 +88,14 @@ def test_film_marker_metadata_is_strict_and_rejects_duplicate_tags():
     with pytest.raises(fd.FilmError) as caught:
         fd.parse_film(malformed)
     assert caught.value.code == "INVALID_FILM_MARKERS"
+
+    out_of_bounds = FILM.replace(
+        "</head>",
+        '<meta name="film-markers" content="[{&quot;id&quot;:&quot;after-end&quot;,&quot;at&quot;:12,&quot;label&quot;:&quot;超出片尾&quot;}]"></head>',
+    )
+    with pytest.raises(fd.FilmError) as caught:
+        fd.parse_film(out_of_bounds)
+    assert caught.value.code == "FILM_MARKER_OUT_OF_BOUNDS"
 
     duplicate = FILM.replace(
         "</head>",

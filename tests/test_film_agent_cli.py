@@ -165,7 +165,7 @@ def test_agent_cli_status_includes_persistent_timeline_markers_and_duration(tmp_
     env["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(storage_root)
     ops_path = tmp_path / "film-ops.json"
     ops_path.write_text(json.dumps([
-        {"op": "marker_add", "id": "marker-outro", "at": 8.0, "label": "片尾"}
+        {"op": "marker_add", "id": "marker-outro", "at": 4.0, "label": "片尾"}
     ]), encoding="utf-8")
 
     edited = _cli(
@@ -178,6 +178,6 @@ def test_agent_cli_status_includes_persistent_timeline_markers_and_duration(tmp_
     status = _cli(repo_root, env, "film", "status", "--project-id", project_id)
     assert status.returncode == 0, status.stdout + status.stderr
     result = json.loads(status.stdout)
-    assert result["markers"] == [{"id": "marker-outro", "at": 8.0, "label": "片尾"}]
-    assert result["duration"] == 8.0
+    assert result["markers"] == [{"id": "marker-outro", "at": 4.0, "label": "片尾"}]
+    assert result["duration"] == 5.0
     assert result["revision"] == fd.read_project_film(project_id)["rev"]
