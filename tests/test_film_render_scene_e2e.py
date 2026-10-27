@@ -265,6 +265,103 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
             }
 
 
+
+
+def test_adjacent_clip_fades_match_browser_look_and_exported_mp4_frames(tmp_path, monkeypatch):
+    """Fade-out/fade-in opacity is identical in browser preview and actual MP4 frames."""
+    pytest.importorskip("playwright.sync_api")
+    from video_director import config, film_document as fd, film_render, prober, renderer
+
+    try:
+        renderer._ffmpeg()
+    except Exception as exc:  # pragma: no cover - environment-dependent binary
+        pytest.skip(f"FFmpeg is unavailable in this environment: {exc}")
+
+    project_id, _ = _write_html_film_project(tmp_path, monkeypatch)
+    project = config.project_dir(project_id)
+    (project / "assets").mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (160, 90), (255, 0, 0)).save(project / "assets" / "fade-red.png")
+    Image.new("RGB", (160, 90), (0, 0, 255)).save(project / "assets" / "fade-blue.png")
+
+    film_path = project / fd.FILM_NAME
+    film_path.write_text(
+        """<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=160,height=90">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050505}</style></head>
+<body><section id="video-main" data-label="淡化衔接">
+  <img id="fade-red" src="assets/fade-red.png#t=0,1" at="0" fade="0,0.5"
+       style="left:0px;top:0px;width:160px;height:90px;object-fit:fill"/>
+  <img id="fade-blue" src="assets/fade-blue.png#t=0,1" at="1" fade="0.5,0"
+       style="left:0px;top:0px;width:160px;height:90px;object-fit:fill"/>
+</section></body></html>""",
+        encoding="utf-8",
+    )
+    state = fd.read_project_film(project_id)
+    assert state["exists"] and state["ok"], state
+    revision = state["rev"]
+    look_times = [0.25, 0.75, 1.25, 1.75]
+    look = film_render.look_project_film(
+        project_id, expected_revision=revision, times=look_times
+    )
+    assert look["ok"] is True, look
+    assert look["revision"] == revision
+    assert look["determinism_status"] == "PASS"
+    with Image.open(look["image_path"]) as contact_sheet:
+        sheet = contact_sheet.convert("RGB")
+        tiles = [
+            sheet.crop((0, 0, 640, 360)),
+            sheet.crop((640, 0, 1280, 360)),
+            sheet.crop((1280, 0, 1920, 360)),
+            sheet.crop((0, 388, 640, 748)),
+        ]
+        look_pixels = [tile.getpixel((320, 180)) for tile in tiles]
+
+    full_red, half_red, half_blue, full_blue = look_pixels
+    assert full_red[0] > 220 and full_red[1] < 35 and full_red[2] < 35, full_red
+    assert 70 < half_red[0] < full_red[0] - 45, half_red
+    assert half_red[2] < 35, half_red
+    assert full_blue[2] > 220 and full_blue[0] < 35 and full_blue[1] < 35, full_blue
+    assert 70 < half_blue[2] < full_blue[2] - 45, half_blue
+    assert half_blue[0] < 35, half_blue
+
+    result = film_render.render_project_film(project_id, revision, fps=4)
+    output = Path(result["mp4_path"])
+    assert result["ok"] is True, result
+    assert result["rendered_revision"] == revision
+    assert result["current"] is True
+    assert output.is_file() and output.stat().st_size > 0
+    probe = prober.probe_media(str(output))
+    assert probe.has_video_stream is True
+    assert probe.duration is not None and abs(float(probe.duration) - 2.0) <= 0.15
+
+    # Frames n=1,3,5,7 correspond to the exact preview times 0.25,0.75,1.25,1.75.
+    pattern = tmp_path / "fade-export-%02d.png"
+    extracted = subprocess.run(
+        [
+            renderer._ffmpeg(), "-y", "-loglevel", "error", "-i", str(output),
+            "-vf", r"select=eq(n\,1)+eq(n\,3)+eq(n\,5)+eq(n\,7)",
+            "-vsync", "0", "-frames:v", "4", str(pattern),
+        ],
+        capture_output=True, text=True, timeout=45,
+    )
+    assert extracted.returncode == 0, extracted.stderr[-2000:]
+
+    for index, (timestamp, look_pixel) in enumerate(zip(look_times, look_pixels), start=1):
+        frame_path = tmp_path / f"fade-export-{index:02d}.png"
+        assert frame_path.is_file() and frame_path.stat().st_size > 0, {
+            "timestamp": timestamp,
+            "files": sorted(path.name for path in tmp_path.glob("fade-export-*.png")),
+        }
+        with Image.open(frame_path) as frame:
+            exported = frame.convert("RGB")
+            assert exported.size == (160, 90), exported.size
+            exported_pixel = exported.getpixel((80, 45))
+            assert max(abs(int(a) - int(b)) for a, b in zip(look_pixel, exported_pixel)) <= 20, {
+                "timestamp": timestamp,
+                "browser_look_pixel": look_pixel,
+                "exported_mp4_pixel": exported_pixel,
+            }
+
 def test_offline_render_guard_blocks_external_scene_network_requests():
     from video_director.film_render import (
         FilmRenderError,
