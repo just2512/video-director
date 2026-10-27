@@ -2456,7 +2456,63 @@
       }
     }
   }
-  async function onUp(e, reactPreparedOperations) {
+  async function finishReactClipGesture(e, preparedOperations) {
+    var store=window.filmStudioStore;
+    var snapshot=store&&typeof store.getSnapshot==='function'?store.getSnapshot():null;
+    var d=snapshot&&snapshot.timelineGestureContext;
+    if(!e||!d||d.pointerId!==e.pointerId)return;
+    // Keep the compatibility path for environments where the React operation
+    // resolver is not mounted; the built Studio always supplies an operation array.
+    if(!Array.isArray(preparedOperations))return onUp(e);
+
+    var dragDomRefs=gestureDomRefs;
+    S.drag=null;
+    S.skipNextClipClick=true;
+    setTimeout(function(){S.skipNextClipClick=false;},0);
+    showTimelineSnapGuide(null);
+    clearDragTrackTarget(d);
+    var reactOwnsActiveDrag=setTimelineActiveDragIds(null);
+    if(!reactOwnsActiveDrag)(d.members||[]).forEach(function(member){
+      var element=dragDomRefs&&dragDomRefs.memberElements[member.id];
+      if(element)element.classList.remove('fs-dragging');
+    });
+    gestureDomRefs=null;
+
+    if(S.pendingExternalRevision){
+      syncClipSelectionVisual();
+      renderTimeline();
+      clearTimelineGesturePreview();
+      showStatus('影片 revision 在拖动期间变化；本次旧画面拖动未提交，先载入外部版本。','error');
+      flushPendingExternalRevision();
+      return;
+    }
+    if(!d.active){
+      syncClipSelectionVisual();
+      if(d.mode==='slide'||d.mode==='slip'){
+        var clickedClip=findClip(d.id);
+        if(clickedClip){S.playhead=clickedClip.at;setPlayheadVisual();previewCurrent();}
+      }
+      clearTimelineGesturePreview();
+      flushPendingExternalRevision();
+      return;
+    }
+    if(d.invalidTargetMessage){
+      renderTimeline();
+      clearTimelineGesturePreview();
+      showStatus(d.invalidTargetMessage,'error');
+      flushPendingExternalRevision();
+      return;
+    }
+    if(!preparedOperations.length){
+      clearTimelineGesturePreview();
+      renderTimeline();
+      flushPendingExternalRevision();
+      return;
+    }
+    await filmStudioCommit(preparedOperations);
+  }
+
+  async function onUp(e) {
     if(S.envelopeDrag){
       var envelopeEdit=S.envelopeDrag;
       if(!e||e.pointerId!==envelopeEdit.pointerId)return;
@@ -2517,12 +2573,6 @@
     }
     if(d.invalidTargetMessage){
       renderTimeline();clearTimelineGesturePreview();showStatus(d.invalidTargetMessage,'error');flushPendingExternalRevision();return;
-    }
-    if(Array.isArray(reactPreparedOperations)){
-      if(!reactPreparedOperations.length){
-        clearTimelineGesturePreview();renderTimeline();flushPendingExternalRevision();return;
-      }
-      await filmStudioCommit(reactPreparedOperations);return;
     }
     var pointerDelta=e.clientX-d.startX,scrollDelta=$('fs-timeline-scroll').scrollLeft-d.startScrollLeft;
     var deltaSeconds=timelineDragDeltaSeconds(pointerDelta,scrollDelta,S.pxPerSec);
@@ -2637,7 +2687,8 @@
     var prepared=snapshot&&snapshot.timelineGestureContext&&timeline&&
       typeof timeline.prepareClipGestureCommit==='function'
       ?timeline.prepareClipGestureCommit(e):undefined;
-    return onUp(e,prepared);
+    if(Array.isArray(prepared))return finishReactClipGesture(e,prepared);
+    return onUp(e);
   };
   window.filmStudioMoveEnvelopeGesture=function(e,rect){
     var active=S.envelopeDrag;
