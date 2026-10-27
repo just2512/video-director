@@ -97,6 +97,23 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "steps.live_stream_config.outcome" in ai_workflow
     assert "steps.timeline_regression_gate.outcome == 'success'" in ai_workflow
 
+def test_fade_transition_action_is_explicitly_same_track_adjacent_and_one_transaction():
+    root = Path(__file__).resolve().parents[1]
+    runtime = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    assert 'data-context-action="fade-transition"' in runtime
+    assert 'data-context-action="fade-transition"' in component
+    assert "window.filmStudioApplyFadeTransition=async function(clipId)" in runtime
+    helper = runtime.split(
+        "window.filmStudioApplyFadeTransition=async function(clipId)", 1
+    )[1].split("window.filmStudioContextMenuAction=function", 1)[0]
+    assert "Math.abs(previousEnd-nextAt)>0.001" in helper
+    assert "filmStudioCommit(ops)" in helper
+    assert "action==='fade-transition'" in runtime
+    assert "淡出当前片段并淡入下一片段" in runtime
+    assert "不改变片段位置" in component
+
+
 def test_studio_components_share_one_react_root_and_keep_portal_slots():
     root = Path(__file__).resolve().parents[1]
     component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")

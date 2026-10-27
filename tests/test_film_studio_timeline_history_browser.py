@@ -1810,3 +1810,141 @@ def test_react_speed_preset_commits_one_operation_and_undo_redo_restores_duratio
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
+
+
+def test_react_context_menu_fade_transition_is_one_reversible_two_clip_transaction(
+    tmp_path, monkeypatch
+):
+    """The real React context menu creates a bounded fade-through-black handoff without moving clips."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-fade-transition-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    source_text = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#182030}</style></head>
+<body><section id="video-main" data-label="主画面">
+  <video id="clip-a" src="../assets/a.mp4#t=0,2" at="0"></video>
+  <video id="clip-b" src="../assets/b.mp4#t=0,2" at="2"></video>
+  <video id="clip-c" src="../assets/c.mp4#t=0,2" at="4"></video>
+</section></body></html>'''
+    film_path.write_text(source_text, encoding="utf-8")
+    before_text = film_path.read_text(encoding="utf-8")
+    before = fd.read_project_film(project_id)
+    assert before["exists"]
+    assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 2.0, "clip-c": 4.0}
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            edit_requests: list[dict] = []
+
+            def capture_edit(request):
+                if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        edit_requests.append(json.loads(request.post_data or "{}"))
+                    except json.JSONDecodeError:
+                        edit_requests.append({"_invalid_json": True})
+
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", capture_edit)
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select=document.querySelector('#editor-project');
+                      let option=[...select.options].find(item=>item.value===pid);
+                      if(!option){option=new Option(pid,pid);select.add(option);}
+                      select.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => typeof window.filmStudioReactTimeline?.renderSurface === 'function' "
+                    "&& !!document.querySelector('.fs-react-timeline-surface')",
+                    timeout=10000,
+                )
+                clip_a = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
+                clip_a.wait_for(state="visible")
+                clip_b = page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
+                clip_b.wait_for(state="visible")
+                page.mouse.click(
+                    (clip_a.bounding_box() or {})["x"] + 12,
+                    (clip_a.bounding_box() or {})["y"] + 12,
+                    button="right",
+                )
+                menu_item = page.locator('.fs-context-menu [data-context-action="fade-transition"]')
+                menu_item.wait_for(state="visible")
+                menu_item.click()
+
+                page.wait_for_function(
+                    """() => {
+                      const s=window.filmStudioStore?.getSnapshot();
+                      return !!s && !s.busy && s.pendingTransaction===null &&
+                        String(s.revision)!=='' && s.revision!==""" + json.dumps(before["rev"]) + """;
+                    }""",
+                    timeout=10000,
+                )
+                after = fd.read_project_film(project_id)
+                assert after["rev"] != before["rev"]
+                assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 2.0, "clip-c": 4.0}
+                clips = {
+                    clip["id"]: clip
+                    for track in after["doc"]["tracks"]
+                    for clip in track["clips"]
+                }
+                assert [float(value) for value in clips["clip-a"]["attrs"]["fade"].split(",")] == [0.0, 0.5]
+                assert [float(value) for value in clips["clip-b"]["attrs"]["fade"].split(",")] == [0.5, 0.0]
+                assert "fade" not in clips["clip-c"]["attrs"] or clips["clip-c"]["attrs"]["fade"] in {"0,0", "0.000,0.000"}
+                assert len(edit_requests) == 1, edit_requests
+                ops = edit_requests[0].get("ops") or []
+                assert len(ops) == 2, ops
+                assert all(op.get("op") == "set" and op.get("field") == "fade" for op in ops), ops
+                assert {op.get("clip") for op in ops} == {"clip-a", "clip-b"}, ops
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function(
+                    """revision => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state && !state.busy && state.pendingTransaction===null &&
+                        state.revision===revision;
+                    }""",
+                    arg=before["rev"],
+                    timeout=10000,
+                )
+                assert film_path.read_text(encoding="utf-8") == before_text
+                assert fd.read_project_film(project_id)["rev"] == before["rev"]
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                page.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
