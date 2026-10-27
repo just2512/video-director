@@ -2039,11 +2039,30 @@ def test_react_context_menu_crossfade_overlaps_two_clips_in_one_reversible_trans
                 page.wait_for_function(
                     """revision => {
                       const s=window.filmStudioStore?.getSnapshot();
-                      return !!s && !s.busy && s.pendingTransaction===null && s.revision!==revision;
+                      const alert=document.querySelector('#film-studio-alert');
+                      const rejected=!!alert&&alert.classList.contains('fs-error')&&!!alert.textContent;
+                      return !!s && !s.busy && s.pendingTransaction===null &&
+                        (s.revision!==revision || rejected);
                     }""",
                     arg=before["rev"],
                     timeout=10000,
                 )
+                observed = page.evaluate("""() => {
+                  const s=window.filmStudioStore?.getSnapshot();
+                  const alert=document.querySelector('#film-studio-alert');
+                  return {
+                    revision:s?.revision||'',
+                    busy:!!s?.busy,
+                    pending:!!s?.pendingTransaction,
+                    status:alert?.textContent||'',
+                    statusClass:alert?.className||'',
+                  };
+                }""")
+                assert observed["revision"] != before["rev"], {
+                    "observed": observed,
+                    "edit_requests": edit_requests,
+                    "page_errors": page_errors,
+                }
 
                 after = fd.read_project_film(project_id)
                 after_text = film_path.read_text(encoding="utf-8")
