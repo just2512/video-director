@@ -26,9 +26,9 @@
     mod
   ));
 
-  // ../remotion_runtime/node_modules/react/cjs/react.development.js
+  // node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
+    "node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/index.js
+  // node_modules/react/index.js
   var require_react = __commonJS({
-    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
+    "node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
+  // node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/index.js
+  // node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
+    "node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
+  // node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/index.js
+  // node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
+    "node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
+  // node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/client.js
+  // node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
+    "node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
+  // node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/jsx-runtime.js
+  // node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
+    "node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -25392,6 +25392,15 @@
       const at = Math.min(safeDuration, index * 5);
       return { at, label: formatFilmTime(at), left: filmTimelineMath.secondsToPixels(at, scale) };
     });
+    const rawMarkers = Array.isArray(film.markers) ? film.markers : [];
+    const markers = rawMarkers.map((rawMarker) => {
+      const marker = timelineRecord(rawMarker);
+      const id = String(marker.id ?? "");
+      const at = Number(marker.at);
+      const label = String(marker.label ?? "").trim();
+      if (!id || !label || !Number.isFinite(at) || at < 0) return null;
+      return { id, at, label, left: filmTimelineMath.secondsToPixels(at, scale) };
+    }).filter((marker) => marker !== null);
     const tracks = film.tracks.map((rawTrack) => {
       const track = timelineRecord(rawTrack);
       const attrs = timelineRecord(track.attrs);
@@ -25447,7 +25456,7 @@
         clips
       };
     });
-    return { laneWidth, totalWidth: 132 + laneWidth, pixelsPerSecond: scale, ticks, tracks };
+    return { laneWidth, totalWidth: 132 + laneWidth, pixelsPerSecond: scale, ticks, tracks, markers };
   };
   var DEFAULT_FILM_BEZIER = { x1: 0.25, y1: 0.1, x2: 0.25, y2: 1 };
   var FILM_KEYFRAME_PROPERTIES = [
@@ -26804,7 +26813,23 @@
       window.filmStudioSeek?.(seconds);
     };
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-ruler", style: { width: model.totalWidth }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-head", children: "\u65F6\u7801" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-ruler-head", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "\u65F6\u7801" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+          "button",
+          {
+            type: "button",
+            className: "fs-ruler-add-marker",
+            "data-film-add-marker": "true",
+            title: "\u5728\u5F53\u524D\u64AD\u653E\u5934\u4F4D\u7F6E\u6DFB\u52A0\u5F71\u7247\u6807\u8BB0",
+            "aria-label": "\u6DFB\u52A0\u5F71\u7247\u6807\u8BB0",
+            onClick: () => {
+              void window.filmStudioAddTimelineMarker?.();
+            },
+            children: "\uFF0B\u6807\u8BB0"
+          }
+        )
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "div",
         {
@@ -26878,7 +26903,31 @@
           },
           children: model.ticks.map((tick) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-mark", "data-at": tick.at, style: { left: tick.left }, children: tick.label }, tick.at))
         }
-      )
+      ),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-ruler-film-markers-layer", style: { width: model.laneWidth }, role: "group", "aria-label": "\u5F71\u7247\u6807\u8BB0", children: model.markers.map((marker) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+        "button",
+        {
+          type: "button",
+          className: "fs-ruler-film-marker",
+          "data-film-timeline-marker-id": marker.id,
+          "data-at": marker.at,
+          style: { left: marker.left },
+          title: marker.label + " \xB7 " + formatFilmTime(marker.at) + "\uFF1B\u5DE6\u952E\u8DF3\u8F6C\uFF0C\u53F3\u952E\u7F16\u8F91/\u5220\u9664",
+          "aria-label": "\u8DF3\u8F6C\u5230\u5F71\u7247\u6807\u8BB0 " + marker.label + "\uFF0C" + formatFilmTime(marker.at),
+          onClick: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            window.filmStudioSeek?.(marker.at);
+          },
+          onContextMenu: (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void window.filmStudioEditTimelineMarker?.(marker.id);
+          },
+          children: "\u25C6"
+        },
+        marker.id
+      )) })
     ] });
   };
   var TimelineSurface = import_react.default.memo(({ model }) => {
