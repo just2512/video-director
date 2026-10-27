@@ -457,13 +457,14 @@ jobs:
           report = {
               "PASS": "The isolated real-provider request streamed model token fragments before its final result and left FilmDocument unchanged.",
               "MISSING": "This run did not opt in to real-provider streaming; mocked SSE tests do not prove incremental provider output.",
-              "REJECT": "The explicitly requested real-provider stream or its required configuration failed. Token-stream acceptance remains blocked.",
+              "REJECT": "The explicitly requested real-provider stream failed its acceptance checks. Token-stream acceptance remains blocked.",
+              "BLOCKED_PROVIDER": "The upstream provider rejected the request because its account has insufficient balance. No token stream was produced; add provider credit or configure a funded endpoint and rerun.",
               "UNKNOWN": "The isolated real-provider JUnit evidence was missing or could not be interpreted.",
           }
           status = "UNKNOWN"
           if config_outcome == "skipped":
               status = "MISSING"
-          elif config_outcome != "success" or test_outcome != "success":
+          elif config_outcome != "success":
               status = "REJECT"
           else:
               junit_path = Path("live-stream-junit.xml")
@@ -478,13 +479,34 @@ jobs:
                           if "test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film"
                           in case.attrib.get("name", "")
                       ]
-                      if len(cases) == 1 and cases[0].find("failure") is None and cases[0].find("error") is None and cases[0].find("skipped") is None:
-                          status = "PASS"
+                      if len(cases) != 1:
+                          status = "UNKNOWN"
                       else:
-                          status = "REJECT"
+                          case = cases[0]
+                          failure = case.find("failure")
+                          error = case.find("error")
+                          if failure is None and error is None and case.find("skipped") is None and test_outcome == "success":
+                              status = "PASS"
+                          elif failure is not None or error is not None or test_outcome != "success":
+                              evidence = " ".join(
+                                  [
+                                      failure.attrib.get("message", "") if failure is not None else "",
+                                      failure.text or "" if failure is not None else "",
+                                      error.attrib.get("message", "") if error is not None else "",
+                                      error.text or "" if error is not None else "",
+                                  ]
+                              ).lower()
+                              if "insufficient balance" in evidence or ("429" in evidence and "balance" in evidence):
+                                  status = "BLOCKED_PROVIDER"
+                              else:
+                                  status = "REJECT"
+                          else:
+                              status = "UNKNOWN"
                   except (ET.ParseError, OSError) as exc:
                       print(f"Could not parse isolated live-stream JUnit evidence: {exc}")
                       status = "UNKNOWN"
+              elif test_outcome != "success":
+                  status = "REJECT"
 
           print(f"LIVE_STREAM_ACCEPTANCE={status}")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
