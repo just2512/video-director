@@ -97,6 +97,9 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
                   if (!response.ok) return false;
                   const doc = await response.json();
+                  const state = window.filmStudioStore?.getSnapshot();
+                  if (!state || state.busy || state.pendingTransaction !== null ||
+                      doc.rev !== state.revision) return false;
                   const clips = (doc.tracks || []).flatMap(track => track.clips || []);
                   const inserted = clips.find(clip => clip.id === 'inserted-asset');
                   const laterVideo = clips.find(clip => clip.id === 'video-later');
