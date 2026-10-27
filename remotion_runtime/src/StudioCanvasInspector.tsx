@@ -1719,7 +1719,6 @@ const TimelineScrubRuler: React.FC<{model:FilmTimelineSurfaceModel}> = ({model})
             }}>◆</button>
         ))}
       </div>
-      </div>
     </div>
   );
 };
