@@ -223,11 +223,11 @@ def test_stream_cancel_stops_cancellable_provider_without_creating_proposal(
             line = response.readline()
             if not line:
                 if event_name:
-                    return event_name, json.loads("\\n".join(data_lines)) if data_lines else {}
+                    return event_name, json.loads("\n".join(data_lines)) if data_lines else {}
                 return None
-            if line in (b"\\n", b"\\r\\n"):
+            if line in (b"\n", b"\r\n"):
                 if event_name:
-                    return event_name, json.loads("\\n".join(data_lines)) if data_lines else {}
+                    return event_name, json.loads("\n".join(data_lines)) if data_lines else {}
                 event_name, data_lines = None, []
             elif line.startswith(b"event:"):
                 event_name = line[len(b"event:"):].decode("utf-8").strip()
