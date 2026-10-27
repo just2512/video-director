@@ -9,6 +9,7 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     contract = (root / "CONTRACT.md").read_text(encoding="utf-8")
     ai_workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
     proxy_bootstrap = (root / "tools" / "bootstrap_python_socks.sh").read_text(encoding="utf-8")
+    requirements = (root / "requirements.txt").read_text(encoding="utf-8")
     package_path = root / "studio_ui" / "package.json"
     package = json.loads(package_path.read_text(encoding="utf-8"))
     remotion_package = json.loads((root / "remotion_runtime" / "package.json").read_text(encoding="utf-8"))
@@ -20,8 +21,11 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert "working-directory: studio_ui" in workflow
     assert "bash tools/bootstrap_python_socks.sh" in workflow
     assert "bash tools/bootstrap_python_socks.sh" in ai_workflow
-    assert "pysocks-1.7.1.json" in proxy_bootstrap
-    assert 'import json,sys; print(next(item["url"]' in proxy_bootstrap
+    assert 'download_and_install_wheel "PySocks" "1.7.1"' in proxy_bootstrap
+    assert 'download_and_install_wheel "socksio" "1.0.0"' in proxy_bootstrap
+    assert 'if ! "$python_bin" -c "import socksio"' in proxy_bootstrap
+    assert "import socks\\nimport socksio" in proxy_bootstrap
+    assert "socksio==1.0.0" in requirements
     assert not any(line.startswith(("import json", "import sys", "from pathlib")) for line in workflow.splitlines())
     assert "Install Remotion render runtime dependencies" in workflow
     assert "Install Remotion rendering runtime dependencies" in ai_workflow
