@@ -160,6 +160,12 @@ The selector-based `overrides` subset supports text and bounded style properties
 
 普通全量回归不会自动调用付费模型。需要真实提供方验证时，使用 AI Director workflow dispatch 的 `run_live_llm=true`，或让主线提交说明包含 `[live-stream-smoke]`。此模式必须具备 `VD_LLM_API_KEY`、`VD_LLM_BASE_URL` 和 `VD_LLM_MODEL`；缺少任一项时 workflow 应 fail closed。成功的模拟 SSE 测试与成功的真实模型流式 smoke 必须分开报告。
 
+### 真实模型流式验收记录（2026-10-27）
+
+- 常规主线回归 `40447817003` 为 SUCCESS，但其中 `Configure opt-in live model token-stream smoke` 步骤是 SKIPPED；这只证明常规回归通过，真实模型 token 流仍为 MISSING，不能记作 PASS。
+- 本次主线提交通过既有 `[live-stream-smoke]` 触发机制执行一次真实请求。验收只接受 workflow 中真实模型步骤与 `test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film` 实际通过的证据；缺少模型配置应 fail closed。记录结果时只保存 workflow URL、非敏感事件统计和错误类别，禁止保存 API key 或完整授权头。
+
+
 ## Failure policy
 
 Return a concrete `MISSING`, `UNSUPPORTED`, or error explanation when a resource or rendering behavior cannot be verified. Do not silently skip broken clips, convert unknown durations to guessed values, bypass revision conflicts, or label an unrendered candidate as a completed video.
