@@ -114,7 +114,8 @@ def test_crossfade_action_has_strict_overlap_and_single_transaction_contract():
     assert "return await filmStudioCommit(ops)" in helper
     assert "previousFade.out>0.001" in helper
     assert "active_clips" in document
-    assert "previous_fade_out" in document
+    assert "def _clip_overlap_is_valid(previous: dict, current: dict, overlap: float) -> bool:" in document
+    assert "_clip_overlap_is_valid(previous, clip, overlap)" in document
     assert "crossfade-transition" in component
 
 def test_fade_transition_action_is_explicitly_same_track_adjacent_and_one_transaction():

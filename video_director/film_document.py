@@ -108,6 +108,30 @@ def _film_document_duration(doc: dict) -> float:
     )
 
 
+def _clip_overlap_is_valid(previous: dict, current: dict, overlap: float) -> bool:
+    """Return whether two same-track clips declare a supported linear crossfade for their exact overlap."""
+    if not math.isfinite(overlap) or overlap <= 0.001:
+        return True
+    try:
+        previous_fade_out = _parse_fade((previous.get("attrs") or {}).get("fade"))[1]
+        current_fade_in = _parse_fade((current.get("attrs") or {}).get("fade"))[0]
+    except FilmError:
+        return False
+    previous_tag, current_tag = previous.get("tag"), current.get("tag")
+    if previous_tag == current_tag == "audio":
+        return (
+            abs(previous_fade_out - overlap) <= 0.001
+            and abs(current_fade_in - overlap) <= 0.001
+        )
+    visual_tags = {"video", "img", "iframe"}
+    if previous_tag in visual_tags and current_tag in visual_tags:
+        return (
+            abs(previous_fade_out) <= 0.001
+            and abs(current_fade_in - overlap) <= 0.001
+        )
+    return False
+
+
 def _parse_fade(value: Any) -> tuple[float, float]:
     """Parse the optional clip-relative visual/audio fade durations (in,out) in seconds."""
     if value is None or value == "":
@@ -1301,27 +1325,7 @@ def parse_film(text: str) -> dict:
                 else:
                     overlap = previous_end - at
                 if overlap is not None and overlap > 0.001:
-                    try:
-                        previous_fade_out = _parse_fade((previous.get("attrs") or {}).get("fade"))[1]
-                        current_fade_in = _parse_fade((clip.get("attrs") or {}).get("fade"))[0]
-                    except FilmError:
-                        previous_fade_out = current_fade_in = -1.0
-                    previous_tag, current_tag = previous.get("tag"), clip.get("tag")
-                    if previous_tag == current_tag == "audio":
-                        # Audio elements mix additively: both gain envelopes must
-                        # cover exactly the common interval.
-                        overlap_allowed = (
-                            abs(previous_fade_out - overlap) <= 0.001
-                            and abs(current_fade_in - overlap) <= 0.001
-                        )
-                    elif previous_tag in {"video", "img", "iframe"} and current_tag in {"video", "img", "iframe"}:
-                        # Visual elements are alpha-composited: keep the lower,
-                        # outgoing element opaque and fade the incoming element in.
-                        overlap_allowed = (
-                            abs(previous_fade_out) <= 0.001
-                            and abs(current_fade_in - overlap) <= 0.001
-                        )
-                    if not overlap_allowed:
+                    if not _clip_overlap_is_valid(previous, clip, overlap):
                         problems.append(
                             f"轨道 {track['id']} 片段重叠：{previous['id']} 与 {clip['id']}"
                         )
@@ -1534,8 +1538,11 @@ def _validate_doc(doc: dict):
     if not doc["tracks"]:
         raise FilmError("NO_TRACKS", "影片至少需要一条轨道")
     for track in doc["tracks"]:
-        end_seen = None
-        for clip in sorted(track["clips"], key=lambda c: _number(c["attrs"].get("at", 0), "at", 0)):
+        active_clips: list[dict[str, Any]] = []
+        ordered_clips = sorted(
+            track["clips"], key=lambda c: _number(c["attrs"].get("at", 0), "at", 0)
+        )
+        for clip in ordered_clips:
             attrs = clip["attrs"]
             for metadata_issue in _film_runtime_metadata_issues(clip):
                 raise FilmError(
@@ -1549,11 +1556,30 @@ def _validate_doc(doc: dict):
                     _number(attrs["speed"], "speed", 0.25, 4)
                 if "volume" in attrs:
                     _number(attrs["volume"], "volume", 0, 2)
-            end = clip_end(clip)
+            active_clips = [
+                active for active in active_clips
+                if clip_end(active) is None or clip_end(active) > _number(attrs.get("at", 0), "at", 0) + 0.001
+            ]
             at = _number(attrs.get("at", 0), "at", 0)
-            if end is not None and end_seen is not None and at < end_seen - 0.001:
-                raise FilmError("TRACK_OVERLAP", f"轨道 {track['id']} 片段 {clip['id']} 与前一片段重叠")
-            end_seen = end if end is not None else None
+            if len(active_clips) >= 2:
+                raise FilmError(
+                    "TRACK_OVERLAP",
+                    f"轨道 {track['id']} 片段 {active_clips[-2]['id']}、"
+                    f"{active_clips[-1]['id']} 与 {clip['id']} 重叠；不允许三个片段同时重叠",
+                    422,
+                )
+            if len(active_clips) == 1:
+                previous = active_clips[0]
+                previous_end = clip_end(previous)
+                overlap = None if previous_end is None else previous_end - at
+                if overlap is not None and overlap > 0.001:
+                    if not _clip_overlap_is_valid(previous, clip, overlap):
+                        raise FilmError(
+                            "TRACK_OVERLAP",
+                            f"轨道 {track['id']} 片段 {clip['id']} 与前一片段重叠且没有匹配的交叉淡化",
+                            422,
+                        )
+            active_clips.append(clip)
     _normalize_film_markers(doc.get("markers", []), max_time=_film_document_duration(doc))
 
 

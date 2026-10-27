@@ -203,6 +203,21 @@ def test_same_track_crossfade_overlap_requires_matching_clip_fades_and_never_all
     assert fd._parse_fade(clips["clip-a"]["attrs"].get("fade")) == (0.0, 0.0)
     assert fd._parse_fade(clips["clip-b"]["attrs"]["fade"]) == (0.5, 0.0)
 
+    # The same overlap must pass transaction-time validation after an edit.
+    source_doc = fd.parse_film(SAMPLE)
+    crossed, normalized_ops = fd.apply_ops(source_doc, [
+        {"op": "set", "clip": "clip-b", "field": "fade", "value": "0.5,0"},
+        {"op": "move", "clip": "clip-b", "track_id": "video-main", "at": 4.5},
+    ])
+    assert len(normalized_ops) == 2
+    crossed_clips = {
+        clip["id"]: clip
+        for track in crossed["tracks"]
+        for clip in track["clips"]
+    }
+    assert fd._parse_fade(crossed_clips["clip-b"]["attrs"]["fade"]) == (0.5, 0.0)
+    fd.apply_ops(crossed, [])
+
     no_fade = adjacent.replace(' at="4.5" fade="0.5,0"', ' at="4.5"')
     with pytest.raises(fd.FilmError, match="片段重叠"):
         fd.parse_film(no_fade)
