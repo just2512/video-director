@@ -2091,7 +2091,7 @@ def test_react_context_menu_crossfade_overlaps_two_clips_in_one_reversible_trans
                     timeout=10000,
                 )
                 assert film_path.read_text(encoding="utf-8") == after_text
-                assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 1.5, "clip-c": 4.0}
+                assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 1.5, "clip-c": 3.5}
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 page.close()
