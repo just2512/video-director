@@ -163,7 +163,7 @@ The selector-based `overrides` subset supports text and bounded style properties
 ### 真实模型流式验收记录（2026-10-27）
 
 - 常规主线回归 `40447817003` 为 SUCCESS，但其中 `Configure opt-in live model token-stream smoke` 步骤是 SKIPPED；这只证明常规回归通过，真实模型 token 流仍为 MISSING，不能记作 PASS。
-- 本次主线提交通过既有 `[live-stream-smoke]` 触发机制执行一次真实请求。验收只接受 workflow 中真实模型步骤与 `test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film` 实际通过的证据；缺少模型配置应 fail closed。记录结果时只保存 workflow URL、非敏感事件统计和错误类别，禁止保存 API key 或完整授权头。
+- 本次主线提交通过既有 `[live-stream-smoke]` 标记尝试触发真实模型烟测，但配置检查在发出模型请求前失败。运行 `40451342031` 的日志显示 `VD_LLM_API_KEY_SECRET`、`VD_LLM_BASE_URL_CONFIG`、`VD_LLM_MODEL_CONFIG` 均为空；因此本次没有真实模型请求，也没有 token 增量传输证据。当前验收状态为 `BLOCKED / MISSING`，不得记录为 PASS。只有真实模型步骤与 `test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film` 实际通过后才可验收。记录只保存 workflow URL、非敏感事件统计和错误类别，禁止保存 API key 或完整授权头。
 
 
 ## Failure policy
