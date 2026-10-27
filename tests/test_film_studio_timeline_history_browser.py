@@ -1437,3 +1437,179 @@ def test_react_timeline_markers_persist_and_share_revisioned_undo_redo(tmp_path,
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+
+def test_react_speed_preset_commits_one_operation_and_undo_redo_restores_duration(
+    tmp_path, monkeypatch
+):
+    """The speed chips must edit the authoritative film once and survive history replay."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-speed-preset-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    # Keep every other inspector field explicit so this preset produces exactly one op.
+    film_source = FILM.replace(
+        'id="clip-a" src="../assets/a.mp4#t=0,2" at="0"',
+        'id="clip-a" src="../assets/a.mp4#t=0,2" at="0" '
+        'speed="1" volume="1" fade="0,0" title="clip-a"',
+    )
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(film_source, encoding="utf-8")
+    original_text = film_path.read_text(encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"]
+    initial_revision = initial["rev"]
+
+    def clip_state():
+        state = fd.read_project_film(project_id)
+        return next(
+            clip
+            for track in state["doc"]["tracks"]
+            for clip in track["clips"]
+            if clip["id"] == "clip-a"
+        )
+
+    initial_clip = clip_state()
+    assert abs(fd.clip_duration(initial_clip) - 2.0) < 0.001
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            edit_requests: list[dict] = []
+
+            def capture_edit(request):
+                if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        edit_requests.append(json.loads(request.post_data or "{}"))
+                    except json.JSONDecodeError:
+                        edit_requests.append({"_invalid_json": True})
+
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", capture_edit)
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select=document.querySelector('#editor-project');
+                      let option=[...select.options].find(item=>item.value===pid);
+                      if(!option){option=new Option(pid,pid);select.add(option);}
+                      select.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
+                clip.wait_for(state="visible")
+                page.wait_for_function(
+                    "revision => window.filmStudioStore?.getSnapshot()?.revision === revision",
+                    arg=initial_revision,
+                    timeout=10000,
+                )
+
+                before_box = clip.bounding_box()
+                assert before_box, "React timeline clip has no browser geometry"
+                clip.click()
+                speed_field = page.locator("#fs-field-speed")
+                speed_field.wait_for(state="visible")
+                preset = page.locator('[data-speed-preset="2"]')
+                preset.wait_for(state="visible")
+                edit_count_before = len(edit_requests)
+                preset.click()
+                page.wait_for_function(
+                    """() => document.querySelector('#fs-field-speed')?.value === '2' &&
+                      document.querySelector('[data-speed-preset="2"]')?.classList.contains('fs-speed-chip-active')"""
+                )
+                # A preset selection is a draft until the user explicitly applies it.
+                assert len(edit_requests) == edit_count_before, edit_requests
+                page.locator("#fs-apply-clip-inspector").click()
+                page.wait_for_function(
+                    """oldRevision => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state && !state.busy && state.pendingTransaction===null &&
+                        state.revision!==oldRevision;
+                    }""",
+                    arg=initial_revision,
+                    timeout=10000,
+                )
+
+                committed = fd.read_project_film(project_id)
+                committed_revision = committed["rev"]
+                committed_text = film_path.read_text(encoding="utf-8")
+                committed_clip = clip_state()
+                assert committed_revision != initial_revision
+                assert float(committed_clip["attrs"]["speed"]) == 2.0
+                assert abs(fd.clip_duration(committed_clip) - 1.0) < 0.001
+                after_box = clip.bounding_box()
+                assert after_box and after_box["width"] < before_box["width"] - 8, (
+                    before_box, after_box
+                )
+                assert len(edit_requests) == edit_count_before + 1, edit_requests
+                request = edit_requests[-1]
+                assert request.get("base") == initial_revision, request
+                assert request.get("ops") == [
+                    {"op": "set", "clip": "clip-a", "field": "speed", "value": 2}
+                ], request
+
+                # Undo restores both the exact file bytes and the previous timeline duration.
+                page.evaluate("() => window.filmStudioUndo()")
+                page.wait_for_function(
+                    """revision => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state && !state.busy && state.pendingTransaction===null &&
+                        state.revision===revision;
+                    }""",
+                    arg=initial_revision,
+                    timeout=10000,
+                )
+                assert film_path.read_text(encoding="utf-8") == original_text
+                assert abs(fd.clip_duration(clip_state()) - 2.0) < 0.001
+                undone_box = clip.bounding_box()
+                assert undone_box and abs(undone_box["width"] - before_box["width"]) < 1
+
+                # Redo restores the same committed revision and visual duration.
+                page.evaluate("() => window.filmStudioRedo()")
+                page.wait_for_function(
+                    """revision => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state && !state.busy && state.pendingTransaction===null &&
+                        state.revision===revision;
+                    }""",
+                    arg=committed_revision,
+                    timeout=10000,
+                )
+                assert film_path.read_text(encoding="utf-8") == committed_text
+                assert abs(fd.clip_duration(clip_state()) - 1.0) < 0.001
+                redone_box = clip.bounding_box()
+                assert redone_box and abs(redone_box["width"] - after_box["width"]) < 1
+                assert abs(float(speed_field.input_value()) - 2.0) < 0.001
+                assert not page_errors, page_errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
