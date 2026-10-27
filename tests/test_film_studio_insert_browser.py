@@ -166,6 +166,177 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
 
 
 
+
+
+def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, monkeypatch):
+    """A right-click Lift leaves the following video in place; Ripple closes the gap on all tracks."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    sample = SAMPLE.replace(
+        '<video id="video-later" src="../assets/c.mp4#t=0,2" at="4"></video>',
+        '<video id="video-later" src="../assets/c.mp4#t=0,2" at="4"></video>\n'
+        '<video id="video-after" src="../assets/d.mp4#t=0,2" at="6"></video>',
+    )
+    project_id = "film-studio-lift-ripple-delete-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(sample, encoding="utf-8")
+    initial_bytes = film_path.read_bytes()
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"]
+
+    def clips_by_id(document):
+        return {
+            clip["id"]: clip
+            for track in document["tracks"]
+            for clip in track["clips"]
+        }
+
+    def audio_track_signature(document):
+        track = next(item for item in document["tracks"] if item["id"] == "audio-bed")
+        return [(clip["id"], dict(clip["attrs"])) for clip in track["clips"]]
+
+    initial_clips = clips_by_id(initial["doc"])
+    assert float(initial_clips["video-after"]["attrs"]["at"]) == 6
+    initial_audio = audio_track_signature(initial["doc"])
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select=document.querySelector('#editor-project');
+                      let option=[...select.options].find(item=>item.value===pid);
+                      if(!option){option=new Option(pid,pid);select.add(option);}
+                      select.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => typeof window.filmStudioReactTimeline?.renderSurface === 'function' "
+                    "&& !!document.querySelector('.fs-react-timeline-surface')",
+                    timeout=10000,
+                )
+                for clip_id in ("video-before", "video-later", "video-after"):
+                    page.locator(f'#fs-timeline .fs-clip[data-clip="{clip_id}"]').wait_for(
+                        state="visible"
+                    )
+
+                def wait_for_consistent_state(*, later_present: bool, after_at: float):
+                    page.wait_for_function(
+                        """async ({projectId, laterPresent, afterAt}) => {
+                          const response=await fetch(
+                            '/api/editor/film?project_id='+encodeURIComponent(projectId),
+                            {cache:'no-store'}
+                          );
+                          if(!response.ok)return false;
+                          const doc=await response.json();
+                          const state=window.filmStudioStore?.getSnapshot();
+                          if(!state||state.busy||state.pendingTransaction!==null||
+                             doc.rev!==state.revision)return false;
+                          const clips=(doc.tracks||[]).flatMap(track=>track.clips||[]);
+                          const later=clips.find(clip=>clip.id==='video-later');
+                          const after=clips.find(clip=>clip.id==='video-after');
+                          return (!!later===laterPresent)&&!!after&&
+                            Math.abs(Number(after.attrs.at)-afterAt)<0.001;
+                        }""",
+                        arg={
+                            "projectId": project_id,
+                            "laterPresent": later_present,
+                            "afterAt": after_at,
+                        },
+                        timeout=10000,
+                    )
+
+                # Lift delete: remove only the selected clip; preserve the two-second
+                # hole before video-after and leave every audio clip byte-for-byte equivalent.
+                page.locator('#fs-timeline .fs-clip[data-clip="video-later"]').click(
+                    button="right"
+                )
+                menu = page.locator('.fs-context-menu[data-react-context-menu="true"]')
+                menu.wait_for(state="visible", timeout=5000)
+                menu.locator('[data-context-action="delete"]').click()
+                wait_for_consistent_state(later_present=False, after_at=6)
+                lifted = fd.read_project_film(project_id)
+                lifted_clips = clips_by_id(lifted["doc"])
+                assert "video-later" not in lifted_clips
+                assert float(lifted_clips["video-after"]["attrs"]["at"]) == 6
+                assert audio_track_signature(lifted["doc"]) == initial_audio
+                assert film_path.read_bytes() != initial_bytes
+
+                # One undo restores the complete source document, including exact HTML bytes.
+                page.locator('[data-film-action="undo"]:visible').click()
+                wait_for_consistent_state(later_present=True, after_at=6)
+                assert film_path.read_bytes() == initial_bytes
+                restored = fd.read_project_film(project_id)
+                assert restored["rev"] != lifted["rev"]
+
+                # Ripple delete: the same target removes its interval from all affected tracks.
+                page.locator('#fs-timeline .fs-clip[data-clip="video-later"]').click(
+                    button="right"
+                )
+                menu = page.locator('.fs-context-menu[data-react-context-menu="true"]')
+                menu.wait_for(state="visible", timeout=5000)
+                menu.locator('[data-context-action="ripple"]').click()
+                wait_for_consistent_state(later_present=False, after_at=4)
+
+                ripple = fd.read_project_film(project_id)
+                ripple_clips = clips_by_id(ripple["doc"])
+                assert "video-later" not in ripple_clips
+                assert float(ripple_clips["video-after"]["attrs"]["at"]) == 4
+                assert ripple_clips["audio-later"]["attrs"]["src"].endswith("#t=0,1")
+                assert float(ripple_clips["audio-later"]["attrs"]["at"]) == 3
+                audio_track = next(
+                    item for item in ripple["doc"]["tracks"] if item["id"] == "audio-bed"
+                )
+                right_audio = [
+                    clip for clip in audio_track["clips"]
+                    if str(clip["attrs"].get("src", "")).endswith("#t=3,4")
+                ]
+                assert len(right_audio) == 1, audio_track["clips"]
+                assert float(right_audio[0]["attrs"]["at"]) == 4
+                assert float(ripple_clips["video-before"]["attrs"]["at"]) == 0
+                assert ripple["rev"] != restored["rev"]
+                assert film_path.read_bytes() != initial_bytes
+
+                # Undo must also restore all tracks together, not just the video selection.
+                page.locator('[data-film-action="undo"]:visible').click()
+                wait_for_consistent_state(later_present=True, after_at=6)
+                assert film_path.read_bytes() == initial_bytes
+                assert not page_errors, page_errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
 def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, monkeypatch):
     storage_root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
