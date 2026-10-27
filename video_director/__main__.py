@@ -213,12 +213,16 @@ def main(argv=None):
                           "message": "尚未初始化 film.html"})
                 doc = state["doc"]
                 clips = [clip for track in doc["tracks"] for clip in track["clips"]]
-                duration = max((fd.clip_end(clip) or 0.0 for clip in clips), default=0.0)
+                markers = list(doc.get("markers") or [])
+                duration = max(
+                    [fd.clip_end(clip) or 0.0 for clip in clips]
+                    + [float(marker["at"]) for marker in markers] + [0.0]
+                )
                 emit({
                     "ok": True, "exists": True, "project_id": pid,
                     "revision": state["rev"], "stage": doc["stage"],
                     "track_count": len(doc["tracks"]), "clip_count": len(clips),
-                    "duration": round(duration, 6),
+                    "duration": round(duration, 6), "markers": markers,
                     "tracks": [{"id": track["id"], "flags": sorted(track["attrs"].keys()),
                                 "clip_ids": [clip["id"] for clip in track["clips"]]}
                                for track in doc["tracks"]],

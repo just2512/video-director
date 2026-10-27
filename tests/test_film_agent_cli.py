@@ -150,3 +150,34 @@ def test_agent_cli_render_rejects_stale_expected_revision_before_side_effects(tm
     current = fd.read_project_film(project_id)
     assert current["rev"] == before["rev"]
     assert not (project / "render").exists(), "revision conflict must fail before creating export artifacts"
+
+
+def test_agent_cli_status_includes_persistent_timeline_markers_and_duration(tmp_path, monkeypatch):
+    storage_root = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    project_id = "agent-cli-status-markers"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True, exist_ok=True)
+    (project / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
+    before = fd.read_project_film(project_id)
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(storage_root)
+    ops_path = tmp_path / "film-ops.json"
+    ops_path.write_text(json.dumps([
+        {"op": "marker_add", "id": "marker-outro", "at": 8.0, "label": "片尾"}
+    ]), encoding="utf-8")
+
+    edited = _cli(
+        repo_root, env, "film", "edit", "--project-id", project_id,
+        "--base-revision", before["rev"], "--ops-file", str(ops_path),
+    )
+    assert edited.returncode == 0, edited.stdout + edited.stderr
+    assert json.loads(edited.stdout)["operation_count"] == 1
+
+    status = _cli(repo_root, env, "film", "status", "--project-id", project_id)
+    assert status.returncode == 0, status.stdout + status.stderr
+    result = json.loads(status.stdout)
+    assert result["markers"] == [{"id": "marker-outro", "at": 8.0, "label": "片尾"}]
+    assert result["duration"] == 8.0
+    assert result["revision"] == fd.read_project_film(project_id)["rev"]
