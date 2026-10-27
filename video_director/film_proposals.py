@@ -42,6 +42,15 @@ class FilmProposalStore:
                 "created_at": now,
             }
 
+    def discard(self, project_id: str, proposal_id: str) -> bool:
+        """Remove a proposal that could not be delivered to its requesting client."""
+        with self._lock:
+            item = self._items.get(proposal_id)
+            if item is None or item["project_id"] != project_id:
+                return False
+            self._items.pop(proposal_id, None)
+            return True
+
     def take(
         self,
         project_id: str,

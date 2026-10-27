@@ -1405,14 +1405,16 @@ class Handler(BaseHTTPRequestHandler):
 
                     def emit(event_name, data):
                         if disconnected["value"]:
-                            return
+                            return False
                         packet = ("event: " + event_name + "\n" +
                                   "data: " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n\n")
                         try:
                             self.wfile.write(packet.encode("utf-8"))
                             self.wfile.flush()
+                            return True
                         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                             disconnected["value"] = True
+                            return False
 
                     def on_stream_open(stream):
                         with _FILM_AI_STREAM_LOCK:
@@ -1429,16 +1431,19 @@ class Handler(BaseHTTPRequestHandler):
                     def on_delta(fragment):
                         if disconnected["value"] or cancel_event.is_set():
                             raise ConnectionAbortedError("AI 客户端已取消流式请求")
-                        emit("token", {"fragment": fragment})
+                        if not emit("token", {"fragment": fragment}):
+                            raise ConnectionAbortedError("AI 客户端已断开流式连接")
 
+                    stored_proposal_id = ""
+                    phase_after_result = None
                     try:
                         operations = fd.plan_film_command(
                             llm, state, str(payload.get("message") or ""),
                             selected_clip_id, summary_out=plan_summary,
                             selected_element=selected_element, on_token=on_delta,
                             on_stream_open=on_stream_open, cancel_event=cancel_event)
-                        if cancel_event.is_set():
-                            raise ConnectionAbortedError("AI 请求已取消")
+                        if disconnected["value"] or cancel_event.is_set():
+                            raise ConnectionAbortedError("AI 请求已取消或客户端已断开")
                         assistant_summary = str(plan_summary.get("summary") or "").strip()
                         if not operations:
                             response = {
@@ -1446,7 +1451,7 @@ class Handler(BaseHTTPRequestHandler):
                                 "message": assistant_summary or "AI 没有生成可安全执行的编辑操作；请明确片段或编辑目标。",
                                 "rev": state["rev"],
                             }
-                            sse_publish("film_ai", {"phase": "no_op", "project_id": pid, "base_revision": state["rev"]})
+                            phase_after_result = {"phase": "no_op", "project_id": pid, "base_revision": state["rev"]}
                         else:
                             candidate_doc, normalized = fd.apply_ops(state["doc"], operations)
                             candidate_text = fd.serialize_film(candidate_doc)
@@ -1464,14 +1469,29 @@ class Handler(BaseHTTPRequestHandler):
                                 "affected_clip_ids": sorted({str(op.get("clip")) for op in normalized if op.get("clip")}),
                             }
                             _FILM_PROPOSALS.put(proposal["id"], pid, state["rev"], normalized)
-                            sse_publish("film_ai", {"phase": "proposed", "project_id": pid,
-                                                    "base_revision": state["rev"], "proposal_id": proposal["id"],
-                                                    "operation_count": len(normalized)})
+                            stored_proposal_id = proposal["id"]
+                            phase_after_result = {"phase": "proposed", "project_id": pid,
+                                                  "base_revision": state["rev"], "proposal_id": proposal["id"],
+                                                  "operation_count": len(normalized)}
                             response = {"ok": True, "proposal": proposal,
                                         "message": "已生成并验证候选修改；尚未写入正式影片文档。"}
-                        emit("result", response)
+                        if disconnected["value"] or cancel_event.is_set():
+                            raise ConnectionAbortedError("AI 请求已取消或客户端已断开")
+                        delivered = emit("result", response)
+                        if delivered:
+                            if phase_after_result is not None:
+                                sse_publish("film_ai", phase_after_result)
+                        else:
+                            if stored_proposal_id:
+                                _FILM_PROPOSALS.discard(pid, stored_proposal_id)
+                                stored_proposal_id = ""
+                            sse_publish("film_ai", {"phase": "cancelled" if cancel_event.is_set() else "disconnected",
+                                                    "project_id": pid, "base_revision": state["rev"]})
                     except Exception as exc:
                         cancelled = cancel_event.is_set()
+                        if stored_proposal_id:
+                            _FILM_PROPOSALS.discard(pid, stored_proposal_id)
+                            stored_proposal_id = ""
                         if not disconnected["value"] and not cancelled:
                             code = getattr(exc, "code", "LLM_PLAN_FAILED")
                             emit("error", {"ok": False, "code": str(code),

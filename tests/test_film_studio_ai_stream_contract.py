@@ -8,6 +8,8 @@ import urllib.error
 import time
 import urllib.request
 import uuid
+import socket
+import struct
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -162,6 +164,136 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
     after = fd.read_project_film(project_id)
     assert after["rev"] == before["rev"]
     assert film_path.read_bytes() == original_bytes
+
+
+
+def test_stream_disconnect_after_last_token_discards_undelivered_proposal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A dropped connection on the terminal result must not leave a phantom proposal."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-disconnect-stream-" + uuid.uuid4().hex[:12]
+    request_id = "disconnect-stream-" + uuid.uuid4().hex
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(FILM_HTML, encoding="utf-8")
+    original_bytes = film_path.read_bytes()
+    before = fd.read_project_film(project_id)
+    assert before["exists"] and before["rev"]
+
+    model_output = json.dumps({
+        "summary": "移动 clip-b",
+        "operations": [{
+            "op": "move", "clip": "clip-b", "track_id": "video-main", "at": 8.5,
+        }],
+    }, ensure_ascii=False)
+    allow_provider_return = threading.Event()
+    provider_returned = threading.Event()
+
+    class DisconnectAwareLLM:
+        supports_stream_cancellation = True
+
+        def generate_stream(
+            self, _prompt, *, on_delta=None, on_stream_open=None, cancel_event=None
+        ):
+            assert callable(on_delta) and callable(on_stream_open) and cancel_event is not None
+            on_stream_open(type("ClosableStream", (), {"close": lambda _self: None})())
+            # One final token makes the disconnect happen at the boundary between the
+            # last model delta and the terminal result packet.
+            on_delta(model_output)
+            assert allow_provider_return.wait(timeout=5), "test client did not close the stream"
+            provider_returned.set()
+            return model_output
+
+    monkeypatch.setattr(web_server.vd_llm, "get_llm", lambda: DisconnectAwareLLM())
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    response = None
+    try:
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/editor/film/command",
+            data=json.dumps({
+                "project_id": project_id,
+                "base": before["rev"],
+                "message": "提出一个只移动 clip-b 的候选编辑方案。",
+                "stream": True,
+                "request_id": request_id,
+            }, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
+            method="POST",
+        )
+        response = urllib.request.urlopen(request, timeout=10)
+        event_name = None
+        event_data = []
+        while True:
+            line = response.readline()
+            if not line:
+                break
+            if line in (b"\n", b"\r\n"):
+                if event_name:
+                    break
+                event_name, event_data = None, []
+            elif line.startswith(b"event:"):
+                event_name = line[len(b"event:"):].decode("utf-8").strip()
+            elif line.startswith(b"data:"):
+                event_data.append(line[len(b"data:"):].decode("utf-8").strip())
+
+        assert event_name == "token", (event_name, event_data)
+        assert json.loads("\n".join(event_data)).get("fragment") == model_output
+
+        # Force an RST, rather than a graceful half-close which can leave a small
+        # response buffered in the OS and make disconnect detection nondeterministic.
+        candidates = [response]
+        current = response
+        seen = {id(current)}
+        for _ in range(6):
+            next_value = getattr(current, "fp", None)
+            if next_value is None:
+                next_value = getattr(current, "raw", None)
+            if next_value is None:
+                next_value = getattr(current, "_sock", None)
+            if next_value is None or id(next_value) in seen:
+                break
+            candidates.append(next_value)
+            seen.add(id(next_value))
+            current = next_value
+        sock = next((item for item in candidates if callable(getattr(item, "setsockopt", None))), None)
+        assert sock is not None, "could not access the test response socket to force client disconnect"
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        response.close()
+        response = None
+        allow_provider_return.set()
+        assert provider_returned.wait(timeout=3), "provider did not finish after simulated client disconnect"
+
+        key = (project_id, request_id)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and key in web_server._FILM_AI_ACTIVE_STREAMS:
+            time.sleep(0.02)
+        assert key not in web_server._FILM_AI_ACTIVE_STREAMS
+        with web_server._FILM_PROPOSALS._lock:
+            assert not any(
+                item["project_id"] == project_id
+                for item in web_server._FILM_PROPOSALS._items.values()
+            ), "a proposal that could not be delivered must be discarded"
+        after = fd.read_project_film(project_id)
+        assert after["rev"] == before["rev"]
+        assert film_path.read_bytes() == original_bytes
+    finally:
+        if response is not None:
+            response.close()
+        allow_provider_return.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def test_stream_cancel_stops_cancellable_provider_without_creating_proposal(
