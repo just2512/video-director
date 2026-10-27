@@ -177,6 +177,7 @@ jobs:
             tests/test_film_studio_roll_browser.py \
             tests/test_film_studio_insert_browser.py \
             tests/test_film_studio_external_watch_browser.py \
+            tests/test_film_studio_layout_persistence_browser.py \
             tests/test_film_studio_react_clip_inspector.py \
             tests/test_film_studio_react_fallback.py \
             tests/test_film_studio_react_toolbar.py \
