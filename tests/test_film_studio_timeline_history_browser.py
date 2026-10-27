@@ -1902,11 +1902,12 @@ def test_react_context_menu_fade_transition_is_one_reversible_two_clip_transacti
                 menu_item.click()
 
                 page.wait_for_function(
-                    """() => {
+                    """revision => {
                       const s=window.filmStudioStore?.getSnapshot();
                       return !!s && !s.busy && s.pendingTransaction===null &&
-                        String(s.revision)!=='' && s.revision!==""" + json.dumps(before["rev"]) + """;
+                        s.revision!==revision;
                     }""",
+                    arg=before["rev"],
                     timeout=10000,
                 )
                 after = fd.read_project_film(project_id)
