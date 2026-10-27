@@ -3536,6 +3536,17 @@ window.filmStudioCopyClips=function(){
     if(newAt<=previousAt+0.001){
       showStatus('交叉淡化会使片段可见时长过短；未更改影片。','error');return false;
     }
+    // Keep this track contiguous: move every later clip by the same overlap
+    // delta. A locked successor blocks the whole atomic transition.
+    var successors=ordered.filter(function(item){
+      return item.id!==current.id&&item.id!==next.id&&Number(item.at)>=nextAt-0.001;
+    });
+    var lockedSuccessor=successors.find(function(item){
+      return Object.prototype.hasOwnProperty.call(item.attrs||{},'data-clip-locked');
+    });
+    if(lockedSuccessor){
+      showStatus('后续片段 '+lockedSuccessor.id+' 已锁定；交叉淡化不会移动锁定内容。','error');return false;
+    }
     var previousOut=audioPair?duration:0;
     var previousValue=previousFade.in.toFixed(3)+','+previousOut.toFixed(3);
     var nextValue=duration.toFixed(3)+','+nextFade.out.toFixed(3);
@@ -3548,7 +3559,13 @@ window.filmStudioCopyClips=function(){
       ops.push({op:'set',clip:next.id,field:'fade',value:nextValue});
     }
     ops.push({op:'move',clip:next.id,track_id:track.id,at:newAt});
-    showStatus('正在提交 '+duration.toFixed(3)+' 秒交叉淡化：下一片段提前并与当前片段重叠，影片总时长相应缩短。');
+    successors.forEach(function(item){
+      ops.push({
+        op:'move',clip:item.id,track_id:track.id,
+        at:Number((Number(item.at)-duration).toFixed(3))
+      });
+    });
+    showStatus('正在提交 '+duration.toFixed(3)+' 秒交叉淡化：下一片段与当前片段重叠，同轨后续片段随之左移；其他轨道不变。');
     return await filmStudioCommit(ops);
   };
   window.filmStudioContextMenuAction=function(action,clipId){

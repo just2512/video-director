@@ -1969,9 +1969,9 @@ def test_react_context_menu_crossfade_overlaps_two_clips_in_one_reversible_trans
     source_text = '''<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"></head>
 <body><section id="video-main" data-label="主画面">
-  <img id="clip-a" src="../assets/a.png#t=0,2" at="0"></img>
-  <img id="clip-b" src="../assets/b.png#t=0,2" at="2"></img>
-  <img id="clip-c" src="../assets/c.png#t=0,2" at="4"></img>
+  <video id="clip-a" src="../assets/a.mp4#t=0,2" at="0"></video>
+  <video id="clip-b" src="../assets/b.mp4#t=0,2" at="2"></video>
+  <video id="clip-c" src="../assets/c.mp4#t=0,2" at="4"></video>
 </section></body></html>'''
     film_path.write_text(source_text, encoding="utf-8")
     before_text = film_path.read_text(encoding="utf-8")
@@ -2049,7 +2049,7 @@ def test_react_context_menu_crossfade_overlaps_two_clips_in_one_reversible_trans
                 after_text = film_path.read_text(encoding="utf-8")
                 after_revision = after["rev"]
                 assert after_revision != before["rev"]
-                assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 1.5, "clip-c": 4.0}
+                assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 1.5, "clip-c": 3.5}
                 clips = {
                     clip["id"]: clip
                     for track in after["doc"]["tracks"]
@@ -2060,13 +2060,17 @@ def test_react_context_menu_crossfade_overlaps_two_clips_in_one_reversible_trans
                 assert "fade" not in clips["clip-c"]["attrs"] or fd._parse_fade(clips["clip-c"]["attrs"]["fade"]) == (0.0, 0.0)
                 assert len(edit_requests) == 1, edit_requests
                 operations = edit_requests[0].get("ops") or []
-                assert len(operations) == 2, operations
+                assert len(operations) == 3, operations
                 assert {op.get("op") for op in operations} == {"set", "move"}, operations
                 assert any(op.get("op") == "set" and op.get("clip") == "clip-b"
                            and op.get("field") == "fade" for op in operations), operations
                 assert any(op.get("op") == "move" and op.get("clip") == "clip-b"
                            and op.get("track_id") == "video-main"
                            and abs(float(op.get("at", -1)) - 1.5) < 0.001
+                           for op in operations), operations
+                assert any(op.get("op") == "move" and op.get("clip") == "clip-c"
+                           and op.get("track_id") == "video-main"
+                           and abs(float(op.get("at", -1)) - 3.5) < 0.001
                            for op in operations), operations
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
 
@@ -2129,6 +2133,11 @@ def test_fade_handoff_rejects_gaps_and_locked_clips_or_tracks_without_writing(
 <section id="video-locked-next" data-label="下一片段锁定">
   <video id="clip-locked-next-current" src="../assets/g.mp4#t=0,2" at="0"></video>
   <video id="clip-locked-next" src="../assets/h.mp4#t=0,2" at="2" data-clip-locked></video>
+</section>
+<section id="video-crossfade-locked-successor" data-label="交叉淡化的后续片段锁定">
+  <video id="crossfade-current" src="../assets/i.mp4#t=0,2" at="0"></video>
+  <video id="crossfade-next" src="../assets/j.mp4#t=0,2" at="2"></video>
+  <video id="crossfade-later-locked" src="../assets/k.mp4#t=0,2" at="4" data-clip-locked></video>
 </section>
 </body></html>'''
     film_path.write_text(source_text, encoding="utf-8")
@@ -2208,6 +2217,11 @@ def test_fade_handoff_rejects_gaps_and_locked_clips_or_tracks_without_writing(
                     "gap-next",                    # no next clip in this track
                 ])
                 assert all(item["fade"] is False and item["crossfade"] is False for item in rejected), rejected
+                blocked_by_locked_successor = page.evaluate(
+                    "id => window.filmStudioApplyCrossfadeTransition(id)",
+                    "crossfade-current",
+                )
+                assert blocked_by_locked_successor is False
                 assert film_path.read_bytes() == original_bytes
                 assert fd.read_project_film(project_id)["rev"] == original["rev"]
                 assert edit_requests == [], edit_requests
