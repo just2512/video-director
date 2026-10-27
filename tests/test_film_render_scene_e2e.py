@@ -513,7 +513,7 @@ def test_visual_crossfade_fades_out_unmuted_video_audio_in_real_mp4(tmp_path, mo
 <body><section id="video-main" data-label="交叉淡化音频验收">
   <video id="outgoing" src="assets/video-a.webm#t=0,2" at="0"
     style="left:0px;top:0px;width:160px;height:90px;object-fit:cover"></video>
-  <img id="incoming" src="assets/moving-blue.png#t=0,2" at="1.5" fade="0.5,0"
+  <img id="incoming" src="assets/moving-blue.png#t=0,0.5" at="1.5" fade="0.5,0"
     style="left:0px;top:0px;width:160px;height:90px;object-fit:cover" />
 </section></body></html>""",
         encoding="utf-8",
