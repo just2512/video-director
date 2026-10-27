@@ -56,6 +56,39 @@ def test_studio_published_assets_are_real_build_outputs():
     assert "Build output placeholder" not in bundle.read_text(encoding="utf-8")
 
 
+
+
+def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
+    """Only the full browser/render/CLI/MCP gate may publish the built Studio bundle."""
+    root = Path(__file__).resolve().parents[1]
+    studio_workflow = (root / ".github" / "workflows" / "studio-ui-build.yml").read_text(encoding="utf-8")
+    ai_workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
+
+    assert "Publish built Studio assets without overwriting newer main" not in studio_workflow
+    assert "Asset publication is centralized in ai-director.yml" in studio_workflow
+
+    gate = ai_workflow.split(
+        "      - name: Gate Studio asset publication on timeline browser regressions", 1
+    )[1].split("      - name: Publish verified React Studio bundle and Tailwind CSS to main", 1)[0]
+    for required_real_gate in (
+        "tests/test_film_studio_timeline_history_browser.py",
+        "tests/test_film_studio_external_watch_browser.py",
+        "tests/test_film_studio_ai_proposal_browser.py",
+        "tests/test_film_agent_cli.py",
+        "tests/test_film_mcp_server.py",
+        "tests/test_film_full_pipeline_e2e.py",
+        "tests/test_film_render_scene_e2e.py",
+    ):
+        assert required_real_gate in gate, f"release gate lost {required_real_gate}"
+
+    assert "id: live_stream_config" in ai_workflow
+    require_live_or_not_requested = (
+        "steps.live_stream_config.outcome == 'success' || "
+        "steps.live_stream_config.outcome == 'skipped'"
+    )
+    assert ai_workflow.count(require_live_or_not_requested) >= 2
+    assert "steps.timeline_regression_gate.outcome == 'success'" in ai_workflow
+
 def test_studio_components_share_one_react_root_and_keep_portal_slots():
     root = Path(__file__).resolve().parents[1]
     component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
