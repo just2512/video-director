@@ -278,6 +278,11 @@ def test_stream_cancel_stops_cancellable_provider_without_creating_proposal(
         assert provider_closed.wait(timeout=3), "server did not close the upstream stream"
         assert not any(name in {"result", "error"} for name, _ in events), events
         assert ("project_id", request_id) not in web_server._FILM_AI_ACTIVE_STREAMS
+        with web_server._FILM_PROPOSALS._lock:
+            assert not any(
+                item["project_id"] == project_id
+                for item in web_server._FILM_PROPOSALS._items.values()
+            ), "a cancelled stream must not create a proposal"
         after = fd.read_project_film(project_id)
         assert after["rev"] == before["rev"]
         assert film_path.read_bytes() == original_bytes
