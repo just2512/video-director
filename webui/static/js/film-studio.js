@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', seekGeneration:0, data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null};
   var gestureDomRefs = null;
   var envelopeDomCanvas = null;
   var pendingRevisionSource = '';
@@ -530,8 +530,8 @@
     var command=S.runtimeCommand||'seek';
     if(command==='play')frame.contentWindow.postMessage({type:'film-runtime:play'},window.location.origin);
     else if(command==='pause')frame.contentWindow.postMessage({type:'film-runtime:pause'},window.location.origin);
-    else if(command==='seek-pause')frame.contentWindow.postMessage({type:'film-runtime:seek-pause',time:S.playhead},window.location.origin);
-    else frame.contentWindow.postMessage({type:'film-runtime:seek',time:S.playhead},window.location.origin);
+    else if(command==='seek-pause')frame.contentWindow.postMessage({type:'film-runtime:seek-pause',time:S.playhead,seekId:S.seekGeneration},window.location.origin);
+    else frame.contentWindow.postMessage({type:'film-runtime:seek',time:S.playhead,seekId:S.seekGeneration},window.location.origin);
     S.runtimeCommand='';
     syncPlaybackButtonText();
   }
@@ -2875,6 +2875,7 @@
   window.filmStudioSelectClip=function(id){S.selectedId=id;S.selectedIds=id?[id]:[];S.selectionAnchor=id;var c=findClip(id);if(c)S.playhead=c.at;render();};
   window.filmStudioSeek=function(value){
     var wasPlaying=!!window.filmStudioPlaying;
+    S.seekGeneration=Math.max(0,num(S.seekGeneration,0))+1;
     S.playhead=Math.max(0,Math.min(S.duration,num(value,0)));setPlaybackState(false);setPlayheadVisual();
     syncRuntime(wasPlaying?'seek-pause':undefined);
   };
@@ -3131,13 +3132,13 @@
         renderElementSelection(S.selectedElement);syncElementInspectorFields(S.selectedElement);
         window.filmStudioSaveSelectedElement();
       }
-    }else if(message.type==='film-runtime:time'){
+    }else if(message.type==='film-runtime:time'||message.type==='film-runtime:ended'||message.type==='film-runtime:paused'){
+      var responseSeekId=Number(message.seekId);
+      // Runtime replies can arrive after a newer keyboard/pointer seek. Never let
+      // an older (or pre-protocol) playback event overwrite the current playhead.
+      if(S.seekGeneration>0&&(!Number.isFinite(responseSeekId)||responseSeekId<S.seekGeneration))return;
       S.playhead=Math.max(0,Math.min(S.duration,num(message.time,S.playhead)));
-      setPlaybackState(!!message.playing);setPlayheadVisual();
-      syncPlaybackButtonText();
-    }else if(message.type==='film-runtime:ended'||message.type==='film-runtime:paused'){
-      S.playhead=Math.max(0,Math.min(S.duration,num(message.time,S.playhead)));
-      setPlaybackState(false);setPlayheadVisual();
+      setPlaybackState(message.type==='film-runtime:time'&&!!message.playing);setPlayheadVisual();
       syncPlaybackButtonText();
     }
   });

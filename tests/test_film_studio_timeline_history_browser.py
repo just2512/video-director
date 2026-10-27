@@ -160,6 +160,30 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
                 ), "React time ruler must retain keyboard focus after seeking"
                 page.keyboard.press("ArrowLeft")
                 wait_for_ruler_seek(0.0)
+                stale_reply = page.evaluate("""async () => {
+                  const frame=document.querySelector('#fs-preview-composition');
+                  const state=window.filmStudioStore.getSnapshot();
+                  const token='stale-seek-'+Date.now();
+                  const stale={type:'film-runtime:time',time:1,playing:false,
+                    duration:state.duration,rev:state.revision,seekId:0};
+                  const ack={type:'test:stale-seek-ack',token};
+                  return await new Promise(resolve => {
+                    const onMessage=event => {
+                      if(event.source!==frame.contentWindow||event.data?.type!==ack.type||event.data?.token!==token)return;
+                      window.removeEventListener('message',onMessage);
+                      const current=window.filmStudioStore.getSnapshot();
+                      const ruler=document.querySelector('#fs-timeline #fs-ruler-body');
+                      resolve({playhead:Number(current.playhead),aria:Number(ruler?.getAttribute('aria-valuenow'))});
+                    };
+                    window.addEventListener('message',onMessage);
+                    const target=JSON.stringify(window.location.origin);
+                    frame.contentWindow.eval(
+                      'parent.postMessage('+JSON.stringify(stale)+','+target+');'+
+                      'parent.postMessage('+JSON.stringify(ack)+','+target+');'
+                    );
+                  });
+                }""")
+                assert stale_reply == {"playhead": 0, "aria": 0}, stale_reply
                 assert page.evaluate(
                     "document.activeElement === document.querySelector('#fs-timeline #fs-ruler-body')"
                 ), "React time ruler must retain keyboard focus for successive keyboard seeks"
