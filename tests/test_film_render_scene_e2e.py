@@ -526,7 +526,10 @@ def test_visual_crossfade_fades_out_unmuted_video_audio_in_real_mp4(tmp_path, mo
         next(c for t in state["doc"]["tracks"] for c in t["clips"] if c["id"] == "outgoing")["attrs"]["volume_envelope"]
     ) == [{"t": 0.0, "v": 1.0}, {"t": 1.5, "v": 1.0}, {"t": 2.0, "v": 0.0}]
 
-    result = film_render.render_project_film(project_id, state["rev"], fps=10)
+    # Audio acceptance is independent of image frame rate; 2 fps avoids forcing Chromium
+    # to seek every tenth of a second in the tiny WebM fixture while still rendering
+    # the actual film document through the production browser/export path.
+    result = film_render.render_project_film(project_id, state["rev"], fps=2)
     output = Path(result["mp4_path"])
     assert result["ok"] is True, result
     assert result["rendered_revision"] == state["rev"]
