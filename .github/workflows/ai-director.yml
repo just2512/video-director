@@ -190,9 +190,9 @@ jobs:
         run: '"$PY311_BIN/python3.11" -m compileall -q tests'
       - name: Configure opt-in live model token-stream smoke
         id: live_stream_config
-        # A missing opt-in provider configuration is reported as REJECT by the
-        # acceptance summary, but must not block non-LLM build/browser release gates.
-        continue-on-error: true
+        # Live-provider acceptance is opt-in. Ordinary build/browser runs skip this
+        # step and report MISSING; an explicitly requested but misconfigured or
+        # failing real-model smoke must remain fail-closed and block publication.
         if: (github.event_name == 'workflow_dispatch' && inputs.run_live_llm) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-stream-smoke]'))
         shell: bash
         env:
