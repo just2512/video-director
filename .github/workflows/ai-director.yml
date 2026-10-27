@@ -309,6 +309,79 @@ jobs:
           PY
           fi
           exit "$test_exit"
+      - name: Report real-model token-stream acceptance gate
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        shell: bash
+        env:
+          LIVE_STREAM_CONFIG_OUTCOME: ${{ steps.live_stream_config.outcome }}
+        run: |
+          set -euo pipefail
+          "$PY311_BIN/python3.11" - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          test_name = "test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film"
+          config_outcome = os.environ.get("LIVE_STREAM_CONFIG_OUTCOME", "unknown")
+          report = {
+              "PASS": "A real configured model request produced token events before the final result, and FilmDocument stayed unchanged.",
+              "MISSING": "This run did not verify live model streaming. Mocked SSE contract tests do not prove that the configured provider sends incremental model text.",
+              "REJECT": "The explicitly requested live-model smoke or its required configuration failed. Do not treat token-stream acceptance as passed.",
+              "UNKNOWN": "The JUnit evidence was unavailable or did not identify the live-model smoke test.",
+          }
+          status = "UNKNOWN"
+          junit_path = Path("junit.xml")
+          if config_outcome == "failure":
+              status = "REJECT"
+          elif junit_path.is_file():
+              try:
+                  root = ET.parse(junit_path).getroot()
+                  suites = [root] if root.tag == "testsuite" else list(root.findall(".//testsuite"))
+                  cases = [
+                      case
+                      for suite in suites
+                      for case in suite.findall(".//testcase")
+                      if test_name in case.attrib.get("name", "")
+                  ]
+                  if config_outcome == "skipped" and (
+                      not cases or all(case.find("skipped") is not None for case in cases)
+                  ):
+                      status = "MISSING"
+                  elif cases and any(
+                      case.find("failure") is not None or case.find("error") is not None
+                      for case in cases
+                  ):
+                      status = "REJECT"
+                  elif config_outcome == "success" and cases and all(
+                      case.find("skipped") is None for case in cases
+                  ):
+                      status = "PASS"
+                  elif cases and all(case.find("skipped") is not None for case in cases):
+                      status = "MISSING"
+              except (ET.ParseError, OSError) as exc:
+                  print(f"Could not parse JUnit evidence: {exc}")
+          elif config_outcome == "skipped":
+              status = "MISSING"
+
+          print(f"LIVE_STREAM_ACCEPTANCE={status}")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(f"## Real-model token-stream acceptance: {status}\n\n")
+              summary.write(report[status] + "\n\n")
+              if status == "MISSING":
+                  summary.write(
+                      "To close this gate, configure repository secret "
+                      "`VD_LLM_API_KEY` and variables `VD_LLM_BASE_URL` / "
+                      "`VD_LLM_MODEL`, then run **AI Director regression** with "
+                      "`run_live_llm=true`. The live test must show multiple token "
+                      "events before the result and prove that proposal generation "
+                      "does not modify `film.html`.\n"
+                  )
+          if status == "MISSING":
+              print("::notice::Real-model token-stream acceptance is MISSING; this green regression does not prove live provider streaming.")
+          elif status in {"REJECT", "UNKNOWN"}:
+              print(f"::{ 'error' if status == 'REJECT' else 'warning' }::Live token-stream acceptance is {status}.")
+          PY
+
       - name: Check JavaScript syntax (run even when tests fail)
         id: js_syntax
         if: always() && steps.ensure_checkout.outcome == 'success'
