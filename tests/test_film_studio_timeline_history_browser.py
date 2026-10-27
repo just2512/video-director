@@ -770,16 +770,30 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 assert film_path.read_bytes() == original_bytes
                 assert fd.read_project_film(project_id)["rev"] == before_revision
 
-                # Move a real pointer into the other video track. React must render a
-                # cross-track ghost and a valid drop target without touching film.html.
+                # A single pointer gesture must recover from an invalid overlapping
+                # destination when the pointer returns to a valid cross-track position.
+                # No stale error may survive this target transition.
                 page.mouse.move(start_x, start_y)
                 page.mouse.down()
+                page.mouse.move(invalid_target_x, target_y, steps=8)
+                page.wait_for_function(
+                    """() => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state?.timelineGestureContext?.active &&
+                        state.timelineGestureContext.targetTrackId==='video-secondary' &&
+                        state.timelineDropTarget?.trackId==='video-secondary' &&
+                        state.timelineDropTarget.invalid===true &&
+                        String(state.timelineGestureContext.invalidTargetMessage||'').includes('时间重叠');
+                    }""",
+                    timeout=5000,
+                )
                 page.mouse.move(target_x, target_y, steps=8)
                 page.wait_for_function(
                     """() => {
                       const state=window.filmStudioStore?.getSnapshot();
                       return !!state?.timelineGestureContext?.active &&
                         state.timelineGestureContext.targetTrackId==='video-secondary' &&
+                        !state.timelineGestureContext.invalidTargetMessage &&
                         state.timelineDropTarget?.trackId==='video-secondary' &&
                         state.timelineDropTarget.invalid===false &&
                         state.timelineGesturePreview?.['clip-a']?.targetTrackId==='video-secondary';
