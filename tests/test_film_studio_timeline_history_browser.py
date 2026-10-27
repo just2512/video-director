@@ -1055,13 +1055,12 @@ def test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture(tmp_path
                 assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 7.0}
 
                 page.wait_for_function(
-                    """revision => {
+                    """args => {
                       const state=window.filmStudioStore?.getSnapshot();
-                      return !!state && state.revision!==revision &&
-                        (state.pendingExternalRevision===revision ||
-                         !!state.pendingExternalRevision);
+                      return !!state && state.revision===args.startRevision &&
+                        state.pendingExternalRevision===args.changedRevision;
                     }""",
-                    arg=start_revision,
+                    arg={"startRevision": start_revision, "changedRevision": changed_revision},
                     timeout=5000,
                 )
                 pending = page.evaluate("""() => {
