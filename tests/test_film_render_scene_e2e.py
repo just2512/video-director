@@ -298,6 +298,9 @@ def test_adjacent_clip_fades_match_browser_look_and_exported_mp4_frames(tmp_path
     )
     state = fd.read_project_film(project_id)
     assert state["exists"], state
+    fade_clips = {clip["id"]: clip for track in state["doc"]["tracks"] for clip in track["clips"]}
+    assert fd._parse_fade(fade_clips["fade-red"]["attrs"]["fade"]) == (0.0, 0.5)
+    assert fd._parse_fade(fade_clips["fade-blue"]["attrs"]["fade"]) == (0.5, 0.0)
     revision = state["rev"]
     look_times = [0.25, 0.75, 1.25, 1.75]
     look = film_render.look_project_film(
