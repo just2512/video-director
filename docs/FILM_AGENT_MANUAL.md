@@ -158,12 +158,12 @@ The selector-based `overrides` subset supports text and bounded style properties
 
 常规 CI 的 `tests/test_film_studio_ai_stream_contract.py` 使用确定性上游替身，验证生产 HTTP/SSE 路由逐段转发 token、token 先于 result 到达以及提案生成不写盘；这不能证明真实提供方或代理没有缓冲。真实验收由 `tests/test_film_studio_live_ai_streaming.py` 完成：它调用当前配置的 OpenAI-compatible 模型，要求至少两个非空 token 片段在 result 前到达，检查首 token 与最终 result 的时间间隔，并核实提案 revision 和原始文档字节未变化。
 
-普通全量回归不会自动调用付费模型。需要真实提供方验证时，使用 AI Director workflow dispatch 的 `run_live_llm=true`，或让主线提交说明包含 `[live-stream-smoke]`。此模式必须具备 `VD_LLM_API_KEY`、`VD_LLM_BASE_URL` 和 `VD_LLM_MODEL`；缺少任一项时 workflow 应 fail closed。成功的模拟 SSE 测试与成功的真实模型流式 smoke 必须分开报告。
+普通全量回归不会自动调用付费模型。需要真实提供方验证时，使用 AI Director workflow dispatch 的 `run_live_llm=true`，或让主线提交说明包含 `[live-stream-smoke]`。此模式优先使用 GitHub Actions secret `VD_LLM_API_KEY` 与 variables `VD_LLM_BASE_URL`、`VD_LLM_MODEL`；也可在自托管 runner 环境设置同名变量。如果 runner 的 `VIDEO_DIRECTOR_STORAGE_ROOT` 指向 checkout 外部的持久目录，workflow 还会尝试读取该目录中的 `model_config.json` 的 `llm` 角色。缺少完整配置时 workflow 应 fail closed，不发起模型请求。密钥不得写入日志。成功的模拟 SSE 测试与成功的真实模型流式 smoke 必须分开报告。
 
 ### 真实模型流式验收记录（2026-10-27）
 
-- 常规主线回归 `40447817003` 为 SUCCESS，但其中 `Configure opt-in live model token-stream smoke` 步骤是 SKIPPED；这只证明常规回归通过，真实模型 token 流仍为 MISSING，不能记作 PASS。
-- 本次主线提交通过既有 `[live-stream-smoke]` 标记尝试触发真实模型烟测，但配置检查在发出模型请求前失败。运行 `40451342031` 的日志显示 `VD_LLM_API_KEY_SECRET`、`VD_LLM_BASE_URL_CONFIG`、`VD_LLM_MODEL_CONFIG` 均为空；因此本次没有真实模型请求，也没有 token 增量传输证据。当前验收状态为 `BLOCKED / MISSING`，不得记录为 PASS。只有真实模型步骤与 `test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film` 实际通过后才可验收。记录只保存 workflow URL、非敏感事件统计和错误类别，禁止保存 API key 或完整授权头。
+- 完整主线回归 `40489889122` 为 SUCCESS：`1357 passed, 1 skipped`，时间线浏览器发布门禁通过；但 `Configure opt-in live model token-stream smoke` 步骤是 SKIPPED，工作流报告 `LIVE_STREAM_ACCEPTANCE=MISSING`。这只证明普通回归通过，真实模型 token 流仍为 MISSING，不能记作 PASS。
+- 随后由提交 `5cab55793917b03b72f4e98d9134c9068461dbd9`（`[live-stream-smoke]`）显式触发的运行 `40493603938` 已执行配置检查，但 `Configure opt-in live model token-stream smoke` 在模型请求前失败。该次增加了读取 checkout 外持久存储 `model_config.json` 的回退路径，仍未取得完整配置；没有真实模型请求，也没有 token 增量传输证据。当前验收状态继续保持 `BLOCKED / MISSING`，不得记录为 PASS。只有真实模型步骤与 `test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film` 实际通过后才可验收。记录只保存 workflow URL、非敏感事件统计和错误类别，禁止保存 API key 或完整授权头。
 
 
 ## Failure policy
