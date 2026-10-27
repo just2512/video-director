@@ -1949,3 +1949,123 @@ def test_react_context_menu_fade_transition_is_one_reversible_two_clip_transacti
         server.server_close()
         thread.join(timeout=5)
 
+
+def test_fade_handoff_rejects_gaps_and_locked_clips_or_tracks_without_writing(
+    tmp_path, monkeypatch
+):
+    """Fade handoff refuses unsupported adjacency/lock cases without a FilmDocument mutation."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-fade-transition-guard-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    source_text = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"></head>
+<body>
+<section id="video-gap" data-label="有间隙">
+  <video id="gap-current" src="../assets/a.mp4#t=0,2" at="0"></video>
+  <video id="gap-next" src="../assets/b.mp4#t=0,2" at="3"></video>
+</section>
+<section id="video-locked-track" data-label="锁定轨道" locked>
+  <video id="track-locked-current" src="../assets/c.mp4#t=0,2" at="0"></video>
+  <video id="track-locked-next" src="../assets/d.mp4#t=0,2" at="2"></video>
+</section>
+<section id="video-locked-current" data-label="锁定片段">
+  <video id="clip-locked-current" src="../assets/e.mp4#t=0,2" at="0" data-clip-locked></video>
+  <video id="clip-locked-current-next" src="../assets/f.mp4#t=0,2" at="2"></video>
+</section>
+<section id="video-locked-next" data-label="下一片段锁定">
+  <video id="clip-locked-next-current" src="../assets/g.mp4#t=0,2" at="0"></video>
+  <video id="clip-locked-next" src="../assets/h.mp4#t=0,2" at="2" data-clip-locked></video>
+</section>
+</body></html>'''
+    film_path.write_text(source_text, encoding="utf-8")
+    original_bytes = film_path.read_bytes()
+    original = fd.read_project_film(project_id)
+    assert original["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            edit_requests: list[dict] = []
+
+            def capture_edit(request):
+                if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        edit_requests.append(json.loads(request.post_data or "{}"))
+                    except json.JSONDecodeError:
+                        edit_requests.append({"_invalid_json": True})
+
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", capture_edit)
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select=document.querySelector('#editor-project');
+                      let option=[...select.options].find(item=>item.value===pid);
+                      if(!option){option=new Option(pid,pid);select.add(option);}
+                      select.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => typeof window.filmStudioReactTimeline?.renderSurface === 'function' "
+                    "&& !!document.querySelector('.fs-react-timeline-surface')",
+                    timeout=10000,
+                )
+                page.wait_for_function(
+                    "projectId => window.filmStudioStore?.getSnapshot()?.projectId === projectId "
+                    "&& window.filmStudioStore.getSnapshot().revision === " + json.dumps(original["rev"]),
+                    arg=project_id,
+                    timeout=10000,
+                )
+                rejected = page.evaluate("""async ids => {
+                  const out=[];
+                  for (const id of ids) {
+                    out.push({id, result:await window.filmStudioApplyFadeTransition(id)});
+                  }
+                  return out;
+                }""", [
+                    "gap-current",                 # next clip starts after a gap
+                    "track-locked-current",        # track is locked
+                    "clip-locked-current",         # selected clip is locked
+                    "clip-locked-next-current",    # next clip is locked
+                    "gap-next",                    # no next clip in this track
+                ])
+                assert all(item["result"] is False for item in rejected), rejected
+                assert film_path.read_bytes() == original_bytes
+                assert fd.read_project_film(project_id)["rev"] == original["rev"]
+                assert edit_requests == [], edit_requests
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                page.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
