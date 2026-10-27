@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 import json
 import threading
+import urllib.error
 import time
 import urllib.request
 import uuid

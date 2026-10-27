@@ -162,6 +162,7 @@ jobs:
             tests/test_film_variant_migration_api.py \
             tests/test_film_studio_migration_preview_browser.py \
             tests/test_film_studio_ai_proposal_browser.py \
+            tests/test_film_studio_ai_stream_contract.py \
             tests/test_film_mask_overlay_migration.py \
             tests/test_film_external_watch_history.py \
             tests/test_film_external_watch_encoding.py \
