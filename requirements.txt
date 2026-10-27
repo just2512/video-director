@@ -13,3 +13,5 @@ faster-whisper
 playwright>=1.40
 # pytest 仅测试需要，可注释
 pytest>=7.4
+# HTTPX optional dependency required when the runner uses a SOCKS proxy.
+socksio==1.0.0
