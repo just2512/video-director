@@ -818,10 +818,9 @@ def test_ai_proposal_returned_after_external_revision_during_generation_is_never
                 chat_input.fill("把第二个片段后移一秒")
                 page.locator('[data-film-action="ask"]:visible').click()
 
-                page.wait_for_function(
-                    "() => document.querySelector('#fs-chat-log')?.innerText.includes('正在读取影片上下文')",
-                    timeout=5000,
-                )
+                # The request is intercepted and intentionally held before any response
+                # reaches the app. Do not wait for text in the hidden legacy chat DOM:
+                # the built React AI panel renders its own message tree.
                 for _ in range(100):
                     if command_routes:
                         break
