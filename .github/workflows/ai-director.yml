@@ -349,6 +349,26 @@ jobs:
             tests/test_film_mask_overlay_migration.py \
             tests/test_film_variant_transform_keyframes.py \
             tests/test_film_registered_style_migration.py
+      # Real-model configuration for token-stream/live LLM paths. The config
+      # file is gitignored (contains API keys), so it lives in a private
+      # runner-side directory and is copied into the freshly restored
+      # workspace before tests. Absent file degrades honestly: tests that
+      # require a real model fall back to their unconfigured paths.
+      - name: Restore private model config for real-model tests
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cfg_src="/home/actions/ci-model-config/model_config.json"
+          cfg_dst="$GITHUB_WORKSPACE/storage/composer/model_config.json"
+          if [ -f "$cfg_src" ]; then
+            mkdir -p "$GITHUB_WORKSPACE/storage/composer"
+            cp "$cfg_src" "$cfg_dst"
+            chmod 600 "$cfg_dst"
+            echo "Private model config restored (keys not echoed)."
+          else
+            echo "::warning::runner-side model config missing; real-model tests will use fallback paths."
+          fi
       - name: Run test suite and retain JUnit report
         if: always() && steps.ensure_checkout.outcome == 'success'
         shell: bash
