@@ -181,7 +181,7 @@
 - [Studio #426](https://github.com/just2512/video-director/actions/runs/40186377769) 验证同步锁多轨插入在一次 Undo 后恢复原始 film.html 字节。
 - [Studio #427](https://github.com/just2512/video-director/actions/runs/40186926343) 验证成功覆盖在一次 Undo 后恢复原始 film.html 字节，并且此前的 stale/busy/submitter-failure 清理探针不会污染编辑历史。
 
-**仍未关闭的验收门禁：** 现有 Chromium 回归覆盖基础跨轨移动、Lift/Ripple/Delete/Insert/Overwrite、速度预设、roll/slide/slip、撤销重做和外部 revision 冲突，但并未穷尽所有操作顺序。新增的 `test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture` 专门验证拖动期间另一编辑者提交 revision 时，旧指针手势不能覆盖外部写入；必须等该测试在最新主线 CI 实际通过，才可把这项新门禁标为 PASS。Bezier/HTML 场景及任意网页动画、异步资源的确定性边界不能泛化；真实配置模型经中转端点的增量 token 传输仍由用户本地执行 opt-in 端到端烟测。必须继续用具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
+**仍未关闭的验收门禁：** 现有 Chromium 回归覆盖基础跨轨移动、Lift/Ripple/Delete/Insert/Overwrite、速度预设、roll/slide/slip、撤销重做和外部 revision 冲突，但并未穷尽所有操作顺序。`test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture` 已在 Studio 浏览器回归中通过，覆盖拖动期间外部 revision 变化时拒绝旧手势；延迟返回的过期 AI 提案回归也已验证禁止预览/应用。淡出/淡入菜单已加入成功和拒绝路径的真实 Chromium 测试；`test_adjacent_clip_fades_match_browser_look_and_exported_mp4_frames` 新增真实 MP4 帧与 Look 预览的像素一致性检查，须等待最新主线 AI Director 回归确认。Bezier/HTML 场景及任意网页动画、异步资源的确定性边界不能泛化；真实配置模型经中转端点的增量 token 传输仍由用户本地执行 opt-in 端到端烟测，CI 当前是 `MISSING`，不视为 PASS。必须继续用具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
 
 
 - 时间尺 click 与 scrub 共用 React 指针生命周期：父时间尺统一捕获指针，刻度点击在 pointerup 按 `data-at` 精确定位，真实移动超过 4px 才启动 scrub；拖动结束不会被子刻度的合成 click 拉回起点。
