@@ -401,6 +401,7 @@ jobs:
           fi
           exit "$test_exit"
       - name: Report real-model token-stream acceptance gate
+        id: live_stream_acceptance
         if: always() && steps.ensure_checkout.outcome == 'success'
         shell: bash
         env:
@@ -471,6 +472,10 @@ jobs:
               print("::notice::Real-model token-stream acceptance is MISSING; this green regression does not prove live provider streaming.")
           elif status in {"REJECT", "UNKNOWN"}:
               print(f"::{ 'error' if status == 'REJECT' else 'warning' }::Live token-stream acceptance is {status}.")
+          # Ordinary CI may skip live acceptance and continue publishing after its
+          # curated gates. An explicitly requested live run must pass the real test.
+          if config_outcome != "skipped" and status != "PASS":
+              raise SystemExit(1)
           PY
 
       - name: Check JavaScript syntax (run even when tests fail)
@@ -493,7 +498,7 @@ jobs:
       # A GitHub-token push intentionally does not fan out another workflow run.
       - name: Gate Studio asset publication on timeline browser regressions
         id: timeline_regression_gate
-        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped')
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && steps.live_stream_acceptance.outcome == 'success' && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped')
         shell: bash
         run: |
           set -euo pipefail
@@ -524,7 +529,7 @@ jobs:
             tests/test_studio_build_contract.py
 
       - name: Publish verified React Studio bundle and Tailwind CSS to main
-        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped') && steps.timeline_regression_gate.outcome == 'success'
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && steps.live_stream_acceptance.outcome == 'success' && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped') && steps.timeline_regression_gate.outcome == 'success'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
