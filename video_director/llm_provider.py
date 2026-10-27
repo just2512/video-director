@@ -67,6 +67,10 @@ class GenerationCancelled(Exception):
     """LLM 调用因用户停止创作被中断（重试循环内检测到取消标志）。"""
 
 
+class _EmptyGeneration(Exception):
+    """LLM 返回空内容（可重试的瞬时故障信号）。"""
+
+
 def retry_state() -> dict:
     """最近一次 generate 的重试进度快照（只读诊断）。"""
     return dict(_last_retry_state)
@@ -203,16 +207,62 @@ class OpenAICompatibleProvider:
             if _cancel_check is not None and _cancel_check():
                 raise GenerationCancelled("创作已停止，文本模型调用被中断")
             try:
-                resp = self._client.chat.completions.create(
-                    model=self._model,
-                    messages=messages,
-                )
-                # openai 2.x: resp.choices[0].message.content
+                # 2026-10-27 根修（用户实证「换供应商仍超时」对照矩阵）：
+                # 大 prompt 长生成（scene_plan 完整 JSON）非流式请求下，
+                # 模型全部生成完才返回首字节——httpx 120s 读超时在最后一
+                # 块数据到达前先打穿（11KB 无 max_tokens 实测 121.5s 超时；
+                # 同请求 stream=True 58.5s 成功）。改流式接收：超时语义变成
+                # 「两块之间 ≤120s」而非「总时长 ≤120s」，长生成不再误判
+                # 超时；取消检测也能在流式间隙生效。消费点签名零改动。
+                stream = None
                 try:
-                    return resp.choices[0].message.content or ""
-                except (AttributeError, IndexError) as exc:
-                    # 结构异常不是网络问题，重试无意义——直接失败
-                    raise RuntimeError(f"LLM 返回结构异常: {exc}") from exc
+                    stream = self._client.chat.completions.create(
+                        model=self._model,
+                        messages=messages,
+                        stream=True,
+                    )
+                    pieces: list = []
+                    for chunk in stream:
+                        if _cancel_check is not None and _cancel_check():
+                            # 流式间隙同样响应停止（不等整段生成完）
+                            try:
+                                stream.close()
+                            except Exception:
+                                pass
+                            raise GenerationCancelled("创作已停止，文本模型调用被中断")
+                        try:
+                            delta = chunk.choices[0].delta.content
+                        except (AttributeError, IndexError):
+                            delta = None
+                        if delta:
+                            pieces.append(delta)
+                    content = "".join(pieces)
+                except GenerationCancelled:
+                    raise
+                except (TypeError, AttributeError, StopIteration) as stream_exc:
+                    # 仅「流式不兼容」降级非流式（网关不支持 stream/响应结构
+                    # 异常）。网络/HTTP 错误（连接超时/4xx/5xx）不重复请求，
+                    # 直接向上抛走统一重试——避免一次失败打两发。
+                    content = ""
+                    logger.debug(f"LLM 流式不兼容，降级非流式: {stream_exc}")
+                if not content:
+                    # 2026-10-27：空流/流式失败兜底——部分 OpenAI 兼容网关
+                    # 对 stream 支持不完整。降级同请求非流式一次；仍空则
+                    # 走正常重试循环（可能是瞬时故障）。
+                    resp = self._client.chat.completions.create(
+                        model=self._model,
+                        messages=messages,
+                    )
+                    try:
+                        content = resp.choices[0].message.content or ""
+                    except (AttributeError, IndexError) as exc:
+                        raise RuntimeError(f"LLM 返回结构异常: {exc}") from exc
+                    if content:
+                        return content
+                    # 空内容走可重试路径（瞬时故障可能下轮恢复）
+                    raise _EmptyGeneration("LLM 返回空内容")
+                return content
+                return content
             except RuntimeError:
                 raise  # 结构异常类，不重试
             except Exception as exc:

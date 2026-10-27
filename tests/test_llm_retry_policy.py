@@ -74,7 +74,10 @@ class TestTextChannelRetry:
         self._wire(p, flaky, monkeypatch)
         out = p.generate("hi")
         assert out == "好的"
-        assert flaky.calls == 4  # 3 次失败 + 1 次成功
+        # 2026-10-27 流式根修后：generate 默认流式，mock 非流式结构 → 流式
+        # TypeError → 降级非流式成功。3 次网络失败 + 流式第 4 次调用拿到
+        # TypeError 降级 + 非流式第 5 次成功 = 5 次调用（流式不兼容多一发）。
+        assert flaky.calls == 5
 
     def test_gives_up_after_10(self, monkeypatch):
         p = self._provider()
