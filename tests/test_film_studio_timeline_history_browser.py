@@ -2077,12 +2077,17 @@ def test_react_context_menu_crossfade_overlaps_two_clips_in_one_reversible_trans
                 assert fd._parse_fade(clips["clip-a"]["attrs"].get("fade")) == (0.0, 0.0)
                 assert fd._parse_fade(clips["clip-b"]["attrs"]["fade"]) == (0.5, 0.0)
                 assert "fade" not in clips["clip-c"]["attrs"] or fd._parse_fade(clips["clip-c"]["attrs"]["fade"]) == (0.0, 0.0)
+                outgoing_envelope = fd._parse_volume_envelope(clips["clip-a"]["attrs"]["volume_envelope"])
+                assert [point["t"] for point in outgoing_envelope] == [0.0, 1.5, 2.0], outgoing_envelope
+                assert [point["v"] for point in outgoing_envelope] == [1.0, 1.0, 0.0], outgoing_envelope
                 assert len(edit_requests) == 1, edit_requests
                 operations = edit_requests[0].get("ops") or []
-                assert len(operations) == 3, operations
+                assert len(operations) == 4, operations
                 assert {op.get("op") for op in operations} == {"set", "move"}, operations
                 assert any(op.get("op") == "set" and op.get("clip") == "clip-b"
                            and op.get("field") == "fade" for op in operations), operations
+                assert any(op.get("op") == "set" and op.get("clip") == "clip-a"
+                           and op.get("field") == "volume_envelope" for op in operations), operations
                 assert any(op.get("op") == "move" and op.get("clip") == "clip-b"
                            and op.get("track_id") == "video-main"
                            and abs(float(op.get("at", -1)) - 1.5) < 0.001
@@ -2157,6 +2162,11 @@ def test_fade_handoff_rejects_gaps_and_locked_clips_or_tracks_without_writing(
   <video id="crossfade-current" src="../assets/i.mp4#t=0,2" at="0"></video>
   <video id="crossfade-next" src="../assets/j.mp4#t=0,2" at="2"></video>
   <video id="crossfade-later-locked" src="../assets/k.mp4#t=0,2" at="4" data-clip-locked></video>
+</section>
+<section id="video-crossfade-custom-envelope" data-label="交叉淡化保留自定义音量曲线">
+  <video id="crossfade-envelope-current" src="../assets/l.mp4#t=0,2" at="0"
+    volume_envelope='[{"t":0,"v":1},{"t":2,"v":0.5}]'></video>
+  <video id="crossfade-envelope-next" src="../assets/m.mp4#t=0,2" at="2"></video>
 </section>
 </body></html>'''
     film_path.write_text(source_text, encoding="utf-8")
@@ -2241,6 +2251,11 @@ def test_fade_handoff_rejects_gaps_and_locked_clips_or_tracks_without_writing(
                     "crossfade-current",
                 )
                 assert blocked_by_locked_successor is False
+                blocked_by_existing_envelope = page.evaluate(
+                    "id => window.filmStudioApplyCrossfadeTransition(id)",
+                    "crossfade-envelope-current",
+                )
+                assert blocked_by_existing_envelope is False
                 assert film_path.read_bytes() == original_bytes
                 assert fd.read_project_film(project_id)["rev"] == original["rev"]
                 assert edit_requests == [], edit_requests

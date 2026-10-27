@@ -113,6 +113,9 @@ def test_crossfade_action_has_strict_overlap_and_single_transaction_contract():
     assert "track_id:track.id,at:newAt" in helper
     assert "return await filmStudioCommit(ops)" in helper
     assert "previousFade.out>0.001" in helper
+    assert "current.attrs.volume_envelope" in helper
+    assert "field:'volume_envelope',value:outgoingAudioEnvelope" in helper
+    assert "已有自定义音量包络" in helper
     assert "active_clips" in document
     assert "def _clip_overlap_is_valid(previous: dict, current: dict, overlap: float) -> bool:" in document
     assert "_clip_overlap_is_valid(previous, clip, overlap)" in document

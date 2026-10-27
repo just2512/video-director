@@ -3536,6 +3536,29 @@ window.filmStudioCopyClips=function(){
     if(newAt<=previousAt+0.001){
       showStatus('交叉淡化会使片段可见时长过短；未更改影片。','error');return false;
     }
+    // Visual alpha fade and native video audio are separate channels. Keep the
+    // outgoing image opaque, but fade its source audio over the same interval.
+    // A pre-existing gain envelope is authored data; never overwrite it silently.
+    var outgoingAudioEnvelope=null;
+    var currentVolume=Number(current.attrs&&current.attrs.volume!=null?current.attrs.volume:1);
+    var audioAlreadyMuted=Object.prototype.hasOwnProperty.call(track.attrs||{},'muted')
+      ||Object.prototype.hasOwnProperty.call(track.attrs||{},'hidden')
+      ||Object.prototype.hasOwnProperty.call(current.attrs||{},'muted')
+      ||!Number.isFinite(currentVolume)||currentVolume<=0;
+    if(visualPair&&currentTag==='video'&&!audioAlreadyMuted){
+      var existingEnvelope=current.attrs&&current.attrs.volume_envelope;
+      if(existingEnvelope!=null&&String(existingEnvelope).trim()!==''){
+        showStatus('当前视频已有自定义音量包络。为避免覆盖该曲线，不能自动添加交叉淡化；请先明确调整或清除音量包络。','error');return false;
+      }
+      if(previousDuration>600.001){
+        showStatus('当前视频超过音量包络支持的 600 秒范围，无法安全生成原声音量淡出。','error');return false;
+      }
+      outgoingAudioEnvelope=[
+        {t:0,v:1},
+        {t:Number((previousDuration-duration).toFixed(3)),v:1},
+        {t:Number(previousDuration.toFixed(3)),v:0}
+      ];
+    }
     // Keep this track contiguous: move every later clip by the same overlap
     // delta. A locked successor blocks the whole atomic transition.
     var successors=ordered.filter(function(item){
@@ -3551,6 +3574,9 @@ window.filmStudioCopyClips=function(){
     var previousValue=previousFade.in.toFixed(3)+','+previousOut.toFixed(3);
     var nextValue=duration.toFixed(3)+','+nextFade.out.toFixed(3);
     var ops=[];
+    if(outgoingAudioEnvelope){
+      ops.push({op:'set',clip:current.id,field:'volume_envelope',value:outgoingAudioEnvelope});
+    }
     if(Math.abs(previousFade.out-previousOut)>0.001||String((current.attrs||{}).fade||'')===''){
       if(Math.abs(previousFade.in)>0.001||Math.abs(previousOut)>0.001)
         ops.push({op:'set',clip:current.id,field:'fade',value:previousValue});
