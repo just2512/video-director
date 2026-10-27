@@ -464,6 +464,104 @@ def test_visual_crossfade_overlap_matches_browser_look_and_exported_mp4_frames(t
                 "exported_mp4_pixel": exported_pixel,
             }
 
+
+def test_visual_crossfade_fades_out_unmuted_video_audio_in_real_mp4(tmp_path, monkeypatch):
+    """A visual overlap must also fade the outgoing video's native audio in the exported MP4."""
+    pytest.importorskip("playwright.sync_api")
+    from array import array
+    import math
+    import sys
+
+    from video_director import config, film_document as fd, film_render, renderer
+
+    try:
+        ffmpeg = renderer._ffmpeg()
+    except Exception as exc:  # pragma: no cover - environment-dependent binary
+        pytest.skip(f"FFmpeg is unavailable in this environment: {exc}")
+
+    project_id, _ = _write_html_film_project(tmp_path, monkeypatch)
+    project = config.project_dir(project_id)
+    assets = project / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+
+    def generate(*args: str) -> None:
+        completed = subprocess.run(
+            [ffmpeg, "-y", "-loglevel", "error", *args],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert completed.returncode == 0, completed.stderr[-2000:]
+
+    # WebM/VP8 + Opus keeps the fixture broadly decodable by headless Chromium.
+    # Both videos contain a constant tone; the incoming clip is muted so the
+    # measured fade can only come from the outgoing video's volume envelope.
+    for name, color, frequency in (
+        ("video-a.webm", "red", 440),
+        ("video-b.webm", "blue", 880),
+    ):
+        generate(
+            "-f", "lavfi", "-i", f"color=c={color}:s=160x90:r=10:d=2",
+            "-f", "lavfi", "-i", f"sine=frequency={frequency}:sample_rate=48000:duration=2",
+            "-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "8", "-b:v", "100k",
+            "-c:a", "libopus", "-b:a", "64k", "-shortest",
+            str(assets / name),
+        )
+
+    film_path = project / fd.FILM_NAME
+    film_path.write_text(
+        """<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=160,height=90">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}</style></head>
+<body><section id="video-main" data-label="交叉淡化音频验收">
+  <video id="outgoing" src="assets/video-a.webm#t=0,2" at="0"
+    volume_envelope='[{"t":0,"v":1},{"t":1.5,"v":1},{"t":2,"v":0}]'
+    style="left:0px;top:0px;width:160px;height:90px;object-fit:cover"></video>
+  <video id="incoming" src="assets/video-b.webm#t=0,2" at="1.5" fade="0.5,0" muted
+    style="left:0px;top:0px;width:160px;height:90px;object-fit:cover"></video>
+</section></body></html>""",
+        encoding="utf-8",
+    )
+    state = fd.read_project_film(project_id)
+    assert state["exists"], state
+    assert fd._parse_volume_envelope(
+        next(c for t in state["doc"]["tracks"] for c in t["clips"] if c["id"] == "outgoing")["attrs"]["volume_envelope"]
+    ) == [{"t": 0.0, "v": 1.0}, {"t": 1.5, "v": 1.0}, {"t": 2.0, "v": 0.0}]
+
+    result = film_render.render_project_film(project_id, state["rev"], fps=10)
+    output = Path(result["mp4_path"])
+    assert result["ok"] is True, result
+    assert result["rendered_revision"] == state["rev"]
+    assert result["current"] is True
+    assert output.is_file() and output.stat().st_size > 0
+
+    decoded = subprocess.run(
+        [ffmpeg, "-v", "error", "-i", str(output), "-vn", "-ac", "1", "-ar", "48000",
+         "-f", "f32le", "pipe:1"],
+        capture_output=True, timeout=30,
+    )
+    assert decoded.returncode == 0, decoded.stderr.decode("utf-8", errors="replace")[-2000:]
+    samples = array("f")
+    samples.frombytes(decoded.stdout)
+    if sys.byteorder != "little":
+        samples.byteswap()
+
+    def rms(start: float, end: float) -> float:
+        chunk = samples[int(start * 48000):int(end * 48000)]
+        assert chunk, (start, end, len(samples))
+        return math.sqrt(sum(float(value) * float(value) for value in chunk) / len(chunk))
+
+    before_fade = rms(0.6, 1.0)
+    during_fade = rms(1.8, 1.9)
+    tail_fade = rms(1.94, 1.99)
+    assert before_fade > 0.02, {"before_fade_rms": before_fade}
+    assert during_fade < before_fade * 0.55, {
+        "before_fade_rms": before_fade, "during_fade_rms": during_fade,
+        "hint": "The outgoing video's source audio must fade over the same 0.5s overlap.",
+    }
+    assert tail_fade < before_fade * 0.2, {
+        "before_fade_rms": before_fade, "tail_fade_rms": tail_fade,
+        "hint": "The outgoing video's audio should reach silence at its source out-point.",
+    }
+
 def test_offline_render_guard_blocks_external_scene_network_requests():
     from video_director.film_render import (
         FilmRenderError,
