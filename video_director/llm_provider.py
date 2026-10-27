@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from typing import List, Optional, Protocol, runtime_checkable
@@ -101,9 +102,31 @@ class OpenAICompatibleProvider:
             return
         # __init__ 已验证 openai 可 import；这里再取一次（sys.modules 缓存，零成本）
         from openai import OpenAI  # type: ignore[import-untyped]
+        client_options = {}
+        timeout_raw = os.environ.get("VD_LLM_REQUEST_TIMEOUT_SECONDS", "").strip()
+        if timeout_raw:
+            try:
+                timeout_seconds = float(timeout_raw)
+            except ValueError as exc:
+                raise ValueError("VD_LLM_REQUEST_TIMEOUT_SECONDS must be a positive number") from exc
+            if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+                raise ValueError("VD_LLM_REQUEST_TIMEOUT_SECONDS must be a positive number")
+            client_options["timeout"] = timeout_seconds
+
+        retries_raw = os.environ.get("VD_LLM_MAX_RETRIES", "").strip()
+        if retries_raw:
+            try:
+                max_retries = int(retries_raw)
+            except ValueError as exc:
+                raise ValueError("VD_LLM_MAX_RETRIES must be an integer from 0 to 5") from exc
+            if not 0 <= max_retries <= 5:
+                raise ValueError("VD_LLM_MAX_RETRIES must be an integer from 0 to 5")
+            client_options["max_retries"] = max_retries
+
         self._client = OpenAI(
             api_key=self._api_key,
             base_url=self._base_url,
+            **client_options,
         )
 
     @property

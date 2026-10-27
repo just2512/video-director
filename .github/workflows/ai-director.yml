@@ -307,6 +307,10 @@ jobs:
             exit 1
           fi
           printf 'VD_LLM_LIVE_STREAM_TEST=1\n' >> "$GITHUB_ENV"
+          # Bound only this explicitly opted-in real-provider acceptance run.
+          # Normal application calls retain the SDK's default timeout and retry policy.
+          printf 'VD_LLM_REQUEST_TIMEOUT_SECONDS=120\n' >> "$GITHUB_ENV"
+          printf 'VD_LLM_MAX_RETRIES=0\n' >> "$GITHUB_ENV"
 
       - name: Install Remotion rendering runtime dependencies
         if: always() && steps.ensure_checkout.outcome == 'success'
