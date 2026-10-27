@@ -77,29 +77,39 @@ jobs:
           # Preserve only the private model configuration before cleaning the shared checkout.
           # git clean -ffdx removes ignored storage/composer data, where the app persists
           # model_config.json by default. Never print the config or copy project media.
-          configured_root="${VIDEO_DIRECTOR_STORAGE_ROOT:-$workspace/storage/composer}"
+          # The app's default local config can live either in the shared Actions
+          # checkout or in the developer checkout mounted into this WSL runner.
+          # Probe only known storage roots; never print config contents or keys.
+          candidate_roots=()
+          if [ -n "${VIDEO_DIRECTOR_STORAGE_ROOT:-}" ]; then
+            candidate_roots+=("$VIDEO_DIRECTOR_STORAGE_ROOT")
+          fi
+          candidate_roots+=("$workspace/storage/composer" "/mnt/d/autocut/video-director/storage/composer")
+          configured_root=""
+          for candidate_root in "${candidate_roots[@]}"; do
+            if [ -f "$candidate_root/model_config.json" ]; then
+              configured_root="$candidate_root"
+              break
+            fi
+          done
+          if [ -z "$configured_root" ]; then
+            configured_root="${VIDEO_DIRECTOR_STORAGE_ROOT:-$workspace/storage/composer}"
+          fi
           if [[ "$configured_root" != /* ]]; then
             configured_root="$workspace/$configured_root"
           fi
-          workspace_real="$(realpath -m "$workspace")"
-          configured_root_real="$(realpath -m "$configured_root")"
-          case "$configured_root_real/" in
-            "$workspace_real/"*)
-              if [ -f "$configured_root_real/model_config.json" ]; then
-                preserved_root="$RUNNER_TEMP/video-director-preserved-model-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/composer"
-                install -d -m 700 "$preserved_root"
-                install -m 600 "$configured_root_real/model_config.json" "$preserved_root/model_config.json"
-                printf 'VIDEO_DIRECTOR_STORAGE_ROOT=%s\n' "$preserved_root" >> "$GITHUB_ENV"
-                export VIDEO_DIRECTOR_STORAGE_ROOT="$preserved_root"
-                echo "Preserved the runner's private model configuration outside the clean checkout."
-              else
-                echo "No workspace-local model_config.json found to preserve."
-              fi
-              ;;
-            *)
-              echo "Model storage is outside the checkout; leaving its private configuration in place."
-              ;;
-          esac
+          if [ -f "$configured_root/model_config.json" ]; then
+            # Copy only the model configuration to a private per-run directory.
+            # This survives git clean/archive recovery without carrying project media.
+            preserved_root="$RUNNER_TEMP/video-director-preserved-model-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/composer"
+            install -d -m 700 "$preserved_root"
+            install -m 600 "$configured_root/model_config.json" "$preserved_root/model_config.json"
+            printf 'VIDEO_DIRECTOR_STORAGE_ROOT=%s\n' "$preserved_root" >> "$GITHUB_ENV"
+            export VIDEO_DIRECTOR_STORAGE_ROOT="$preserved_root"
+            echo "Preserved the runner's private model configuration before checkout cleanup."
+          else
+            echo "No model_config.json found in the configured or known runner storage roots."
+          fi
 
           if git rev-parse --is-inside-work-tree >/dev/null 2>&1 && [ "$(git rev-parse HEAD 2>/dev/null || true)" = "$expected" ]; then
             git reset --hard "$expected"
