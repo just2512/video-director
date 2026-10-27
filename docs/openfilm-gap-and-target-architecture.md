@@ -181,7 +181,7 @@
 - [Studio #426](https://github.com/just2512/video-director/actions/runs/40186377769) 验证同步锁多轨插入在一次 Undo 后恢复原始 film.html 字节。
 - [Studio #427](https://github.com/just2512/video-director/actions/runs/40186926343) 验证成功覆盖在一次 Undo 后恢复原始 film.html 字节，并且此前的 stale/busy/submitter-failure 清理探针不会污染编辑历史。
 
-**仍未关闭的验收门禁：** 导演与 Studio 的产品入口尚未完全收敛；多轨移动、Lift/Ripple/Delete/Insert/Overwrite 在所有操作顺序、外部 revision 与 undo/redo 组合下的完整矩阵仍需补充；Bezier/HTML 场景及任意网页动画、异步资源的确定性边界不能泛化；真实配置模型经中转端点的增量 token 传输仍需 opt-in 端到端烟测。必须继续用具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
+**仍未关闭的验收门禁：** 现有 Chromium 回归覆盖基础跨轨移动、Lift/Ripple/Delete/Insert/Overwrite、速度预设、roll/slide/slip、撤销重做和外部 revision 冲突，但并未穷尽所有操作顺序。新增的 `test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture` 专门验证拖动期间另一编辑者提交 revision 时，旧指针手势不能覆盖外部写入；必须等该测试在最新主线 CI 实际通过，才可把这项新门禁标为 PASS。Bezier/HTML 场景及任意网页动画、异步资源的确定性边界不能泛化；真实配置模型经中转端点的增量 token 传输仍由用户本地执行 opt-in 端到端烟测。必须继续用具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
 
 
 - 时间尺 click 与 scrub 共用 React 指针生命周期：父时间尺统一捕获指针，刻度点击在 pointerup 按 `data-at` 精确定位，真实移动超过 4px 才启动 scrub；拖动结束不会被子刻度的合成 click 拉回起点。
