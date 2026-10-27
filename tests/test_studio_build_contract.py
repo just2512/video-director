@@ -82,11 +82,18 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
         assert required_real_gate in gate, f"release gate lost {required_real_gate}"
 
     assert "id: live_stream_config" in ai_workflow
+    # Live-provider acceptance is a separate fail-closed gate. Its nonzero
+    # outcome remains visible as REJECT, but cannot block product build/browser
+    # checks or publication when the provider was not configured.
     require_live_or_not_requested = (
-        "steps.live_stream_config.outcome == 'success' || "
-        "steps.live_stream_config.outcome == 'skipped'"
+        "steps.live_stream_config.conclusion == 'success' || "
+        "steps.live_stream_config.conclusion == 'skipped'"
     )
     assert ai_workflow.count(require_live_or_not_requested) >= 2
+    assert "continue-on-error: true" in ai_workflow.split(
+        "      - name: Configure opt-in live model token-stream smoke", 1
+    )[1].split("      - name: Install Remotion rendering runtime dependencies", 1)[0]
+    assert "steps.live_stream_config.outcome" in ai_workflow
     assert "steps.timeline_regression_gate.outcome == 'success'" in ai_workflow
 
 def test_studio_components_share_one_react_root_and_keep_portal_slots():
