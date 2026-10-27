@@ -189,6 +189,7 @@ jobs:
         if: steps.ensure_checkout.outcome == 'success'
         run: '"$PY311_BIN/python3.11" -m compileall -q tests'
       - name: Configure opt-in live model token-stream smoke
+        id: live_stream_config
         if: (github.event_name == 'workflow_dispatch' && inputs.run_live_llm) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-stream-smoke]'))
         shell: bash
         env:
@@ -328,7 +329,7 @@ jobs:
       # A GitHub-token push intentionally does not fan out another workflow run.
       - name: Gate Studio asset publication on timeline browser regressions
         id: timeline_regression_gate
-        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success'
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && (steps.live_stream_config.outcome == 'success' || steps.live_stream_config.outcome == 'skipped')
         shell: bash
         run: |
           set -euo pipefail
@@ -358,7 +359,7 @@ jobs:
             tests/test_studio_build_contract.py
 
       - name: Publish verified React Studio bundle and Tailwind CSS to main
-        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && steps.timeline_regression_gate.outcome == 'success'
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && (steps.live_stream_config.outcome == 'success' || steps.live_stream_config.outcome == 'skipped') && steps.timeline_regression_gate.outcome == 'success'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
