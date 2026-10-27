@@ -26603,8 +26603,8 @@
     ] });
   };
   var StudioTimelineContextMenu = ({ model }) => {
-    const left = Math.max(8, Math.min(model.x, window.innerWidth - 204));
-    const top = Math.max(8, Math.min(model.y, window.innerHeight - 292));
+    const left = Math.max(8, Math.min(model.x, window.innerWidth - 300));
+    const top = Math.max(8, Math.min(model.y, window.innerHeight - 360));
     const action = (name) => (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -26629,6 +26629,8 @@
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "paste", onClick: action("paste"), children: "\u7C98\u8D34\u5230\u64AD\u653E\u5934" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-context-separator" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "split", onClick: action("split"), children: "\u5728\u64AD\u653E\u5934\u5207\u5206" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "fade-transition", onClick: action("fade-transition"), title: "\u4EC5\u9002\u7528\u4E8E\u540C\u8F68\u65F6\u95F4\u76F8\u90BB\u7247\u6BB5\uFF1B\u6DE1\u51FA\u5F53\u524D\u7247\u6BB5\u5E76\u6DE1\u5165\u4E0B\u4E00\u7247\u6BB5\uFF0C\u4E0D\u6539\u53D8\u7247\u6BB5\u4F4D\u7F6E", children: "\u6DE1\u51FA\u5E76\u6DE1\u5165\u4E0B\u4E00\u7247\u6BB5" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "crossfade-transition", onClick: action("crossfade-transition"), title: "\u540C\u8F68\u76F8\u90BB\u7247\u6BB5\u91CD\u53E0\u6DE1\u5316\uFF1B\u4E0B\u4E00\u7247\u6BB5\u63D0\u524D\uFF0C\u5F71\u7247\u603B\u65F6\u957F\u76F8\u5E94\u7F29\u77ED", children: "\u4EA4\u53C9\u6DE1\u5316\uFF08\u91CD\u53E0\uFF09" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "delete", onClick: action("delete"), title: "\u53EA\u79FB\u9664\u6240\u9009\u7247\u6BB5\uFF0C\u540E\u7EED\u5185\u5BB9\u65F6\u95F4\u4E0D\u53D8", children: "\u5220\u9664\u5E76\u4FDD\u7559\u7A7A\u9699" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "ripple", onClick: action("ripple"), title: "\u5220\u9664\u6240\u9009\u65F6\u95F4\u6BB5\uFF0C\u5E76\u6536\u62E2\u6240\u6709\u53D7\u5F71\u54CD\u8F68\u9053", children: "\u6CE2\u7EB9\u5220\u9664\uFF08\u6536\u62E2\u65F6\u95F4\u7EBF\uFF09" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-context-separator" }),
