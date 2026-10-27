@@ -1252,8 +1252,9 @@ def parse_film(text: str) -> dict:
     runtime_warnings: list[str] = []
     for track in parser.tracks:
         ordered = sorted(track["clips"], key=lambda c: _number(c["attrs"].get("at", 0), "at", 0))
-        last_end = None
-        last_id = ""
+        # At most two clips may overlap on a track, and only when their fade
+        # envelopes explicitly describe the same transition interval.
+        active_clips: list[dict[str, Any]] = []
         for clip in ordered:
             override_issues, override_warnings = _film_override_diagnostics(clip)
             problems.extend(
@@ -1281,10 +1282,50 @@ def parse_film(text: str) -> dict:
                     problems.append(f"片段 {clip['id']} 的 fade 无效：{exc}")
             end = clip_end(clip)
             at = _number(clip["attrs"].get("at", 0), "at", 0)
-            if end is not None and last_end is not None and at < last_end - 0.001:
-                problems.append(f"轨道 {track['id']} 片段重叠：{last_id} 与 {clip['id']}")
-            last_end = (max(last_end or 0, end) if end is not None else None)
-            last_id = clip["id"]
+            active_clips = [
+                active for active in active_clips
+                if clip_end(active) is None or clip_end(active) > at + 0.001
+            ]
+            overlap_allowed = False
+            if len(active_clips) >= 2:
+                problems.append(
+                    f"轨道 {track['id']} 片段重叠："
+                    + "、".join(str(active["id"]) for active in active_clips[-2:])
+                    + f" 与 {clip['id']}（不允许三个片段同时重叠）"
+                )
+            elif len(active_clips) == 1:
+                previous = active_clips[0]
+                previous_end = clip_end(previous)
+                if previous_end is None:
+                    overlap = None
+                else:
+                    overlap = previous_end - at
+                if overlap is not None and overlap > 0.001:
+                    try:
+                        previous_fade_out = _parse_fade((previous.get("attrs") or {}).get("fade"))[1]
+                        current_fade_in = _parse_fade((clip.get("attrs") or {}).get("fade"))[0]
+                    except FilmError:
+                        previous_fade_out = current_fade_in = -1.0
+                    previous_tag, current_tag = previous.get("tag"), clip.get("tag")
+                    if previous_tag == current_tag == "audio":
+                        # Audio elements mix additively: both gain envelopes must
+                        # cover exactly the common interval.
+                        overlap_allowed = (
+                            abs(previous_fade_out - overlap) <= 0.001
+                            and abs(current_fade_in - overlap) <= 0.001
+                        )
+                    elif previous_tag in {"video", "img", "iframe"} and current_tag in {"video", "img", "iframe"}:
+                        # Visual elements are alpha-composited: keep the lower,
+                        # outgoing element opaque and fade the incoming element in.
+                        overlap_allowed = (
+                            abs(previous_fade_out) <= 0.001
+                            and abs(current_fade_in - overlap) <= 0.001
+                        )
+                    if not overlap_allowed:
+                        problems.append(
+                            f"轨道 {track['id']} 片段重叠：{previous['id']} 与 {clip['id']}"
+                        )
+            active_clips.append(clip)
     if problems:
         raise FilmError("INVALID_FILM", "film.html 校验失败：\n- " + "\n- ".join(problems), 422)
     markers: list[dict[str, Any]] = []

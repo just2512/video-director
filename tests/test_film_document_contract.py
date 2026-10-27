@@ -188,6 +188,51 @@ def test_overlap_failure_does_not_mutate_original_document():
     assert fd.serialize_film(doc)==before
 
 
+
+
+def test_same_track_crossfade_overlap_requires_matching_clip_fades_and_never_allows_three_clips():
+    adjacent = SAMPLE.replace(
+        'id="clip-b" src="../assets/b.mp4#t=0,5" at="5"',
+        'id="clip-b" src="../assets/b.mp4#t=0,5" at="4.5" fade="0.5,0"',
+    )
+    doc = fd.parse_film(adjacent)
+    video = next(track for track in doc["tracks"] if track["id"] == "video-main")
+    clips = {clip["id"]: clip for clip in video["clips"]}
+    assert float(clips["clip-a"]["attrs"]["at"]) == 0
+    assert float(clips["clip-b"]["attrs"]["at"]) == 4.5
+    assert fd._parse_fade(clips["clip-a"]["attrs"].get("fade")) == (0.0, 0.0)
+    assert fd._parse_fade(clips["clip-b"]["attrs"]["fade"]) == (0.5, 0.0)
+
+    no_fade = adjacent.replace(' at="4.5" fade="0.5,0"', ' at="4.5"')
+    with pytest.raises(fd.FilmError, match="片段重叠"):
+        fd.parse_film(no_fade)
+
+    mismatched = adjacent.replace('fade="0.5,0"', 'fade="0.4,0"')
+    with pytest.raises(fd.FilmError, match="片段重叠"):
+        fd.parse_film(mismatched)
+
+    triple = adjacent.replace(
+        '</section>\n<section id="audio-bed"',
+        '<video id="clip-c" src="../assets/c.mp4#t=0,5" at="4.75" fade="4.75,0"></video>\n</section>\n<section id="audio-bed"',
+    )
+    with pytest.raises(fd.FilmError, match="三个片段同时重叠"):
+        fd.parse_film(triple)
+
+
+def test_same_track_audio_crossfade_requires_matching_fade_out_and_fade_in():
+    audio = INSERT_SAMPLE.replace(
+        'id="audio-before" src="../assets/music.wav#t=0,3" at="0"',
+        'id="audio-before" src="../assets/music.wav#t=0,3" at="0" fade="0,0.5"',
+    ).replace(
+        'id="audio-later" src="../assets/other.wav#t=0,4" at="3"',
+        'id="audio-later" src="../assets/other.wav#t=0,4" at="2.5" fade="0.5,0"',
+    )
+    doc = fd.parse_film(audio)
+    track = next(item for item in doc["tracks"] if item["id"] == "audio-bed")
+    clips = {clip["id"]: clip for clip in track["clips"]}
+    assert fd._parse_fade(clips["audio-before"]["attrs"]["fade"]) == (0.0, 0.5)
+    assert fd._parse_fade(clips["audio-later"]["attrs"]["fade"]) == (0.5, 0.0)
+
 def test_cross_track_move_overlap_is_rejected_before_mutating_original_document():
     doc = fd.parse_film(SAMPLE)
     doc["tracks"].append({

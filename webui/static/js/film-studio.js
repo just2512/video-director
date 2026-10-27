@@ -3473,12 +3473,91 @@ window.filmStudioCopyClips=function(){
     showStatus('正在为两个相邻片段提交淡出/淡入衔接（各 '+duration.toFixed(3)+' 秒）；片段位置不变。');
     return await filmStudioCommit(ops);
   };
+  window.filmStudioApplyCrossfadeTransition=async function(clipId){
+    var current=findClip(clipId);
+    if(!current||!S.data||!S.data.exists){showStatus('请先选择一个有效的影片片段。','error');return false;}
+    var track=(S.data.tracks||[]).find(function(item){return item.id===current.track_id;});
+    if(!track){showStatus('无法定位所选片段的轨道。','error');return false;}
+    if(Object.prototype.hasOwnProperty.call(track.attrs||{},'locked')
+      ||Object.prototype.hasOwnProperty.call(current.attrs||{},'data-clip-locked')){
+      showStatus('当前片段或轨道已锁定，不能添加交叉淡化。','error');return false;
+    }
+    var ordered=(track.clips||[]).slice().sort(function(a,b){return Number(a.at)-Number(b.at);});
+    var index=ordered.findIndex(function(item){return item.id===current.id;});
+    var next=index>=0?ordered[index+1]:null;
+    if(!next){showStatus('所选片段后面没有同轨片段，不能添加交叉淡化。','error');return false;}
+    if(Object.prototype.hasOwnProperty.call(next.attrs||{},'data-clip-locked')){
+      showStatus('下一片段已锁定，不能添加交叉淡化。','error');return false;
+    }
+    var currentTag=String(current.tag||''),nextTag=String(next.tag||'');
+    var audioPair=currentTag==='audio'&&nextTag==='audio';
+    var visualTags=['video','img','iframe'];
+    var visualPair=visualTags.indexOf(currentTag)>=0&&visualTags.indexOf(nextTag)>=0;
+    if(!audioPair&&!visualPair){
+      showStatus('交叉淡化要求两个相邻片段属于同一种视觉或音频类型；未更改影片。','error');return false;
+    }
+    var previousAt=Number(current.at),nextAt=Number(next.at);
+    var previousDuration=Number(current.duration),nextDuration=Number(next.duration);
+    var previousEnd=current.end==null?previousAt+previousDuration:Number(current.end);
+    if(!Number.isFinite(previousAt)||!Number.isFinite(nextAt)
+      ||!Number.isFinite(previousDuration)||!Number.isFinite(nextDuration)
+      ||previousDuration<=0||nextDuration<=0||!Number.isFinite(previousEnd)){
+      showStatus('两个片段必须有已知且有效的时长，才能添加交叉淡化。','error');return false;
+    }
+    if(Math.abs(previousEnd-nextAt)>0.001){
+      showStatus('交叉淡化只适用于同轨道上原本时间相邻、没有空隙或重叠的两个片段；未更改影片。','error');return false;
+    }
+    function readFade(item){
+      var values=String((item.attrs||{}).fade||'0,0').split(',');
+      var fadeIn=Number(values[0]||0),fadeOut=Number(values[1]||0);
+      if(!Number.isFinite(fadeIn)||!Number.isFinite(fadeOut)||fadeIn<0||fadeOut<0)return null;
+      return {in:fadeIn,out:fadeOut};
+    }
+    var previousFade=readFade(current),nextFade=readFade(next);
+    if(!previousFade||!nextFade
+      ||previousFade.in+previousFade.out>previousDuration+0.001
+      ||nextFade.in+nextFade.out>nextDuration+0.001){
+      showStatus('现有淡入/淡出参数无效，请先在属性检查器修正。','error');return false;
+    }
+    if(visualPair&&previousFade.out>0.001){
+      showStatus('视觉交叉淡化需要当前片段在重叠段保持不透明；请先移除当前片段已有的淡出。','error');return false;
+    }
+    var previousAvailable=previousDuration-previousFade.in;
+    var nextAvailable=nextDuration-nextFade.out;
+    var limit=Math.min(previousDuration/2,nextDuration/2,previousAvailable,nextAvailable);
+    var requested=Math.min(0.5,limit);
+    var duration=Math.max(requested,audioPair?previousFade.out:0,nextFade.in);
+    if(!Number.isFinite(duration)||duration<0.05||duration>limit+0.001){
+      showStatus('现有淡入/淡出占用了可用时长，无法形成安全的交叉淡化重叠；未更改影片。','error');return false;
+    }
+    duration=Number(duration.toFixed(3));
+    if(duration<=0){showStatus('交叉淡化时长必须大于零。','error');return false;}
+    var newAt=Number((previousEnd-duration).toFixed(3));
+    if(newAt<=previousAt+0.001){
+      showStatus('交叉淡化会使片段可见时长过短；未更改影片。','error');return false;
+    }
+    var previousOut=audioPair?duration:0;
+    var previousValue=previousFade.in.toFixed(3)+','+previousOut.toFixed(3);
+    var nextValue=duration.toFixed(3)+','+nextFade.out.toFixed(3);
+    var ops=[];
+    if(Math.abs(previousFade.out-previousOut)>0.001||String((current.attrs||{}).fade||'')===''){
+      if(Math.abs(previousFade.in)>0.001||Math.abs(previousOut)>0.001)
+        ops.push({op:'set',clip:current.id,field:'fade',value:previousValue});
+    }
+    if(Math.abs(nextFade.in-duration)>0.001||String((next.attrs||{}).fade||'')===''){
+      ops.push({op:'set',clip:next.id,field:'fade',value:nextValue});
+    }
+    ops.push({op:'move',clip:next.id,track_id:track.id,at:newAt});
+    showStatus('正在提交 '+duration.toFixed(3)+' 秒交叉淡化：下一片段提前并与当前片段重叠，影片总时长相应缩短。');
+    return await filmStudioCommit(ops);
+  };
   window.filmStudioContextMenuAction=function(action,clipId){
     closeTimelineContextMenu();
     if(action==='copy')return window.filmStudioCopyClips();
     if(action==='duplicate')return window.filmStudioDuplicateClips(clipId);
     if(action==='paste')return window.filmStudioPasteClips();
     if(action==='fade-transition')return window.filmStudioApplyFadeTransition(clipId);
+    if(action==='crossfade-transition')return window.filmStudioApplyCrossfadeTransition(clipId);
     if(action==='split'){
       var clip=findClip(clipId);
       if(!clip||S.playhead<=clip.at+0.001||clip.end==null||S.playhead>=clip.end-0.001){
@@ -3515,13 +3594,14 @@ window.filmStudioCopyClips=function(){
       '<div class="fs-context-separator"></div>',
       '<button type="button" role="menuitem" data-context-action="split">在播放头切分</button>',
       '<button type="button" role="menuitem" data-context-action="fade-transition" title="同轨时间相邻片段，淡出当前片段并淡入下一片段；不重叠、不改变位置">淡出并淡入下一片段</button>',
+      '<button type="button" role="menuitem" data-context-action="crossfade-transition" title="两段视觉片段或两段音频重叠淡化；下一片段提前，影片总时长相应缩短">交叉淡化（重叠）</button>',
       '<button type="button" role="menuitem" data-context-action="delete" title="只移除所选片段，后续内容时间不变">删除并保留空隙</button>',
       '<button type="button" role="menuitem" data-context-action="ripple" title="删除所选时间段，并收拢所有受影响轨道">波纹删除（收拢时间线）</button>',
       '<div class="fs-context-separator"></div>',
       '<button type="button" role="menuitem" data-context-action="inspector">打开属性检查器</button>'
     ].join('');
-    menu.style.left=Math.max(8,Math.min(event.clientX,window.innerWidth-204))+'px';
-    menu.style.top=Math.max(8,Math.min(event.clientY,window.innerHeight-326))+'px';
+    menu.style.left=Math.max(8,Math.min(event.clientX,window.innerWidth-300))+'px';
+    menu.style.top=Math.max(8,Math.min(event.clientY,window.innerHeight-360))+'px';
     document.body.appendChild(menu);
     activeTimelineContextMenu=menu;
     menu.addEventListener('contextmenu',function(e){e.preventDefault();e.stopPropagation();});

@@ -97,6 +97,26 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "steps.live_stream_config.outcome" in ai_workflow
     assert "steps.timeline_regression_gate.outcome == 'success'" in ai_workflow
 
+
+
+def test_crossfade_action_has_strict_overlap_and_single_transaction_contract():
+    root = Path(__file__).resolve().parents[1]
+    runtime = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
+    document = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
+    assert 'data-context-action="crossfade-transition"' in runtime
+    assert 'data-context-action="crossfade-transition"' in component
+    assert "window.filmStudioApplyCrossfadeTransition=async function(clipId)" in runtime
+    helper = runtime.split(
+        "window.filmStudioApplyCrossfadeTransition=async function(clipId)", 1
+    )[1].split("window.filmStudioContextMenuAction=function", 1)[0]
+    assert "track_id:track.id,at:newAt" in helper
+    assert "return await filmStudioCommit(ops)" in helper
+    assert "previousFade.out>0.001" in helper
+    assert "active_clips" in document
+    assert "previous_fade_out" in document
+    assert "crossfade-transition" in component
+
 def test_fade_transition_action_is_explicitly_same_track_adjacent_and_one_transaction():
     root = Path(__file__).resolve().parents[1]
     runtime = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")

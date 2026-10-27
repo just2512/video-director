@@ -1414,8 +1414,8 @@ const StudioAiDirector: React.FC<{model: FilmStudioAiDirectorModel}> = ({model})
 };
 
 const StudioTimelineContextMenu: React.FC<{model: FilmTimelineContextMenu}> = ({model}) => {
-  const left = Math.max(8, Math.min(model.x, window.innerWidth - 252));
-  const top = Math.max(8, Math.min(model.y, window.innerHeight - 326));
+  const left = Math.max(8, Math.min(model.x, window.innerWidth - 300));
+  const top = Math.max(8, Math.min(model.y, window.innerHeight - 360));
   const action = (name: string) => (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -1432,6 +1432,7 @@ const StudioTimelineContextMenu: React.FC<{model: FilmTimelineContextMenu}> = ({
       <div className="fs-context-separator" />
       <button type="button" role="menuitem" data-context-action="split" onClick={action("split")}>在播放头切分</button>
       <button type="button" role="menuitem" data-context-action="fade-transition" onClick={action("fade-transition")} title="仅适用于同轨时间相邻片段；淡出当前片段并淡入下一片段，不改变片段位置">淡出并淡入下一片段</button>
+      <button type="button" role="menuitem" data-context-action="crossfade-transition" onClick={action("crossfade-transition")} title="同轨相邻片段重叠淡化；下一片段提前，影片总时长相应缩短">交叉淡化（重叠）</button>
       <button type="button" role="menuitem" data-context-action="delete" onClick={action("delete")} title="只移除所选片段，后续内容时间不变">删除并保留空隙</button>
       <button type="button" role="menuitem" data-context-action="ripple" onClick={action("ripple")} title="删除所选时间段，并收拢所有受影响轨道">波纹删除（收拢时间线）</button>
       <div className="fs-context-separator" />
