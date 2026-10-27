@@ -38,7 +38,7 @@
 - 真实模型测试不是普通 SSE mock 测试的别名。只有 `tests/test_film_studio_live_ai_streaming.py` 收到至少两个真实 `token` 事件，并确认这些事件在 `result` 事件之前到达、生成提案前后 `film.html` 字节与 revision 不变，才可记录为 PASS。
 - 自托管 Runner 需要配置 `VD_LLM_API_KEY`、`VD_LLM_BASE_URL`、`VD_LLM_MODEL`。可在 GitHub Actions 手动运行 **AI Director regression** 并将 `run_live_llm=true`；或在 main 推送提交信息包含 `[live-stream-smoke]` 的提交。这个请求可能产生模型服务费用。
 - 每次普通回归会在 Actions Summary 显示 `PASS / MISSING / REJECT / UNKNOWN`：测试被跳过只能是 MISSING，不能以 mock 通过替代真实服务证据。MISSING 不意味着应用构建失败，但意味着“真实模型逐段 Token 流”验收仍未关闭。
-- 最近一次默认回归把真实模型步骤标为 MISSING；本轮将按上面的 opt-in 流程实际尝试一次。若当前仓库/Runner 未配置必要凭据，工作流应明确 REJECT，而不是伪造成功。
+- 默认 push/PR 回归不主动调用真实模型；未显式 opt-in 时应标记为 MISSING，不阻断无模型配置下的基础构建和浏览器回归。显式 opt-in 后，若缺少凭据或真实模型烟测失败，则必须 REJECT 并阻断发布。当前自托管 Runner 未配置真实模型凭据，真实 token 流烟测由用户拉取后在本地执行。
 
 ## 当前下一阶段落地点
 
@@ -161,7 +161,7 @@
 - **Gesture**：拖拽 preview 不写盘；释放后仅一事务/一次撤销。
 - **Render**：先 validate，再 look，最后导出；校验失败要带具体 clip ID/资源 URI。
 - **UI**：React 与 fallback 使用同一表单/operation contract；真实浏览器测试覆盖交互和文件落盘，不以静态字符串断言替代用户路径。
-- **Honesty**：未实测支持的复杂网页效果、转场、曲线或媒体格式应显示为 unsupported/warning，不以“OpenFilm 兼容”或“剪映级”名义模糊带过。
+- **Honesty**：当前时间线右键菜单提供同轨、无间隙相邻片段的“淡出并淡入下一片段”操作，沿用片段 fade 属性、不移动片段位置；它是淡黑衔接，不是重叠式 crossfade。未实测支持的复杂网页效果、重叠式转场、曲线或媒体格式应显示为 unsupported/warning，不以“OpenFilm 兼容”或“剪映级”名义模糊带过。
 
 ## 本轮落地记录
 
