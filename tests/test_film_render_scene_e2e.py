@@ -512,7 +512,6 @@ def test_visual_crossfade_fades_out_unmuted_video_audio_in_real_mp4(tmp_path, mo
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}</style></head>
 <body><section id="video-main" data-label="交叉淡化音频验收">
   <video id="outgoing" src="assets/video-a.webm#t=0,2" at="0"
-    volume_envelope='[{"t":0,"v":1},{"t":1.5,"v":1},{"t":2,"v":0}]'
     style="left:0px;top:0px;width:160px;height:90px;object-fit:cover"></video>
   <img id="incoming" src="assets/moving-blue.png#t=0,2" at="1.5" fade="0.5,0"
     style="left:0px;top:0px;width:160px;height:90px;object-fit:cover" />
@@ -521,6 +520,28 @@ def test_visual_crossfade_fades_out_unmuted_video_audio_in_real_mp4(tmp_path, mo
     )
     state = fd.read_project_film(project_id)
     assert state["exists"], state
+    initial_revision = state["rev"]
+    saved = fd.edit_project_film(
+        project_id,
+        initial_revision,
+        [{
+            "op": "set",
+            "clip": "outgoing",
+            "field": "volume_envelope",
+            "value": [
+                {"t": 0, "v": 1},
+                {"t": 1.5, "v": 1},
+                {"t": 2, "v": 0},
+            ],
+        }],
+        require_base=True,
+        source="crossfade-audio-e2e",
+    )
+    assert saved["ok"] is True, saved
+    assert saved["base"] == initial_revision
+    assert saved["rev"] != initial_revision
+    state = fd.read_project_film(project_id)
+    assert state["rev"] == saved["rev"]
     assert fd._parse_volume_envelope(
         next(c for t in state["doc"]["tracks"] for c in t["clips"] if c["id"] == "outgoing")["attrs"]["volume_envelope"]
     ) == [{"t": 0.0, "v": 1.0}, {"t": 1.5, "v": 1.0}, {"t": 2.0, "v": 0.0}]
