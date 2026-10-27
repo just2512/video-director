@@ -161,3 +161,126 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
     after = fd.read_project_film(project_id)
     assert after["rev"] == before["rev"]
     assert film_path.read_bytes() == original_bytes
+
+
+def test_stream_cancel_stops_cancellable_provider_without_creating_proposal(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A cancel request must stop upstream generation before a proposal can be stored."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-cancel-stream-" + uuid.uuid4().hex[:12]
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(FILM_HTML, encoding="utf-8")
+    original_bytes = film_path.read_bytes()
+    before = fd.read_project_film(project_id)
+    assert before["exists"] and before["rev"]
+
+    valid_output = json.dumps({
+        "summary": "移动 clip-b",
+        "operations": [{"op": "move", "clip": "clip-b", "track_id": "video-main", "at": 8.5}],
+    }, ensure_ascii=False)
+    provider_entered = threading.Event()
+    provider_closed = threading.Event()
+
+    class ClosableProviderStream:
+        def close(self):
+            provider_closed.set()
+
+    class CancellableStreamingLLM:
+        supports_stream_cancellation = True
+
+        def generate_stream(self, _prompt, *, on_delta=None, on_stream_open=None, cancel_event=None):
+            assert callable(on_delta) and callable(on_stream_open) and cancel_event is not None
+            upstream = ClosableProviderStream()
+            on_stream_open(upstream)
+            on_delta('{"summary":"')
+            provider_entered.set()
+            # Model generation must remain active until the real cancel endpoint signals it.
+            assert cancel_event.wait(timeout=5), "server did not propagate cancellation upstream"
+            return valid_output
+
+    llm = CancellableStreamingLLM()
+    monkeypatch.setattr(web_server.vd_llm, "get_llm", lambda: llm)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    request_id = "cancel-stream-" + uuid.uuid4().hex
+    events: list[tuple[str, dict]] = []
+
+    def read_sse_event(response):
+        event_name = None
+        data_lines = []
+        while True:
+            line = response.readline()
+            if not line:
+                if event_name:
+                    return event_name, json.loads("\\n".join(data_lines)) if data_lines else {}
+                return None
+            if line in (b"\\n", b"\\r\\n"):
+                if event_name:
+                    return event_name, json.loads("\\n".join(data_lines)) if data_lines else {}
+                event_name, data_lines = None, []
+            elif line.startswith(b"event:"):
+                event_name = line[len(b"event:"):].decode("utf-8").strip()
+            elif line.startswith(b"data:"):
+                data_lines.append(line[len(b"data:"):].decode("utf-8").strip())
+
+    try:
+        payload = {
+            "project_id": project_id,
+            "base": before["rev"],
+            "message": "提出一个只移动 clip-b 的候选编辑方案。",
+            "stream": True,
+            "request_id": request_id,
+        }
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/editor/film/command",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            assert response.status == 200
+            assert response.headers.get_content_type() == "text/event-stream"
+            first_event = read_sse_event(response)
+            assert first_event and first_event[0] == "token", first_event
+            events.append(first_event)
+            assert provider_entered.wait(timeout=3), "provider never entered generation"
+
+            cancel_request = urllib.request.Request(
+                f"http://127.0.0.1:{server.server_port}/api/editor/film/command/cancel",
+                data=json.dumps({
+                    "project_id": project_id, "request_id": request_id,
+                }).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(cancel_request, timeout=5) as cancelled:
+                cancel_result = json.loads(cancelled.read().decode("utf-8"))
+            assert cancel_result == {
+                "ok": True, "cancel_requested": True, "stream_found": True,
+            }, cancel_result
+            next_event = read_sse_event(response)
+            while next_event:
+                events.append(next_event)
+                next_event = read_sse_event(response)
+
+        assert provider_closed.wait(timeout=3), "server did not close the upstream stream"
+        assert not any(name in {"result", "error"} for name, _ in events), events
+        assert ("project_id", request_id) not in web_server._FILM_AI_ACTIVE_STREAMS
+        after = fd.read_project_film(project_id)
+        assert after["rev"] == before["rev"]
+        assert film_path.read_bytes() == original_bytes
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
