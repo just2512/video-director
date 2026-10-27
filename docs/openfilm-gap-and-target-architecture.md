@@ -33,6 +33,13 @@
 | 确定性与导出 | `frame(t)`、本地资源边界、look 重复抽样、Revision 绑定导出均已有；采样检查不是全帧证明 | 对每个场景验证资源 ready 和帧回执；导出错误定位到 clip ID；明确运行时支持边界，不宣称任意网页/任意 WebGL 都确定 |
 | 产品入口 | 全屏 Studio 顶栏现在复用同一个项目选择器，支持不退出时间线切换项目；关闭时原位还原，仍经过 `editorLoad()` 的文档权威、revision、拖动和未提交草稿保护。不同项目状态的导演规划与剪辑仍存在迁移阶段差异 | 继续把导演规划、素材、场景、剪辑、AI 对话和导出收敛到同一项目壳/同一最终时间线；不能把项目切换器进入 Studio 误认成所有入口已统一 |
 
+## 真实模型 Token 流验收的执行方式
+
+- 真实模型测试不是普通 SSE mock 测试的别名。只有 `tests/test_film_studio_live_ai_streaming.py` 收到至少两个真实 `token` 事件，并确认这些事件在 `result` 事件之前到达、生成提案前后 `film.html` 字节与 revision 不变，才可记录为 PASS。
+- 自托管 Runner 需要配置 `VD_LLM_API_KEY`、`VD_LLM_BASE_URL`、`VD_LLM_MODEL`。可在 GitHub Actions 手动运行 **AI Director regression** 并将 `run_live_llm=true`；或在 main 推送提交信息包含 `[live-stream-smoke]` 的提交。这个请求可能产生模型服务费用。
+- 每次普通回归会在 Actions Summary 显示 `PASS / MISSING / REJECT / UNKNOWN`：测试被跳过只能是 MISSING，不能以 mock 通过替代真实服务证据。MISSING 不意味着应用构建失败，但意味着“真实模型逐段 Token 流”验收仍未关闭。
+- 最近一次默认回归把真实模型步骤标为 MISSING；本轮将按上面的 opt-in 流程实际尝试一次。若当前仓库/Runner 未配置必要凭据，工作流应明确 REJECT，而不是伪造成功。
+
 ## 当前下一阶段落地点
 
 - 普通片段 move/trim/roll/slide/slip 的活动手势上下文已由 FilmStore 的 `timelineGestureContext` 类型化保存：仅含指针 ID、模式、稳定 clip/track ID、原始时间/时长、目标轨道状态及成员数值快照；Store 对必要字段与成员身份做严格校验。React 路径不保存 DOM 引用。
