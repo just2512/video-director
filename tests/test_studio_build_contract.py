@@ -107,10 +107,12 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert ai_workflow.count(require_live_or_not_requested) >= 2
     live_config_step = ai_workflow.split(
         "      - name: Configure opt-in live model token-stream smoke", 1
-    )[1].split("      - name: Install Remotion rendering runtime dependencies", 1)[0]
+    )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
     assert "continue-on-error: true" not in live_config_step
-    assert "exit 1" in live_config_step
+    assert "raise SystemExit(1)" in live_config_step
+    assert "id: live_stream_smoke" in ai_workflow
     assert "steps.live_stream_config.outcome" in ai_workflow
+    assert "steps.live_stream_acceptance.outcome == 'success'" in ai_workflow
     assert "steps.timeline_regression_gate.outcome == 'success'" in ai_workflow
 
 
@@ -185,18 +187,23 @@ def test_explicit_live_model_stream_gate_fails_closed_when_configuration_is_miss
     """An opt-in live request must not silently pass when the provider is unconfigured."""
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
-    step = workflow.split("      - name: Configure opt-in live model token-stream smoke", 1)[1].split(
+    config_step = workflow.split("      - name: Configure opt-in live model token-stream smoke", 1)[1].split(
+        "      - name: Run isolated real-model token-stream acceptance test", 1
+    )[0]
+    live_step = workflow.split("      - name: Run isolated real-model token-stream acceptance test", 1)[1].split(
         "      - name: Install Remotion rendering runtime dependencies", 1
     )[0]
 
     assert "contains(github.event.head_commit.message, '[live-stream-smoke]')" in workflow
-    assert "VD_LLM_API_KEY_SECRET" in step
-    assert "VD_LLM_BASE_URL_CONFIG" in step
-    assert "VD_LLM_MODEL_CONFIG" in step
-    assert 'echo "::error::Real-model token-stream smoke was explicitly requested but configuration is incomplete.' in step
-    assert "exit 1" in step
-    assert "Real-model token-stream smoke was not run" not in step
-    assert "VD_LLM_LIVE_STREAM_TEST=1" in step
+    assert "VD_LLM_API_KEY_SECRET" in config_step
+    assert "VD_LLM_BASE_URL_CONFIG" in config_step
+    assert "VD_LLM_MODEL_CONFIG" in config_step
+    assert "Opt-in live-model smoke is missing a complete key/base URL/model configuration." in config_step
+    assert "raise SystemExit(1)" in config_step
+    assert "VD_LLM_LIVE_STREAM_TEST=1" not in config_step
+    assert "VD_LLM_LIVE_STREAM_TEST" in live_step
+    assert "live-stream-junit.xml" in live_step
+    assert "raise SystemExit(result.returncode" in live_step
 
 def test_react_timeline_owns_pointer_anchored_zoom_and_legacy_toolbar_delegates():
     """The built React timeline owns zoom scale/anchor; legacy toolbar is compatibility only."""
