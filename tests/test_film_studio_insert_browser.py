@@ -214,6 +214,9 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
+            # Lift/Delete and Ripple Delete ask for confirmation; accept the dialog
+            # explicitly so the browser test exercises the actual edit transaction.
+            page.add_init_script("window.confirm = () => true;")
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
