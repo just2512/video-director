@@ -119,8 +119,8 @@ When a Composition has multiple variants and no valid active_variant_id, migrati
 - `python -m video_director film status --project-id ID` emits the current revision, stage size, duration, tracks and clip IDs as JSON.
 - `python -m video_director film validate --project-id ID` runs the strict document parser and checks that every clip's local media reference resolves to an existing file. It does not claim that an HTML scene is renderable merely because the document parses; `film look` and `film render` exercise that contract in a real browser.
 - `python -m video_director film diff --project-id ID [--from-revision REV]` prints a unified text diff against a retained history snapshot. Without an explicit revision it compares the last edit's before-snapshot with the current document.
-- `python -m video_director film look --project-id ID [--times 0,1.5,4]` renders a contact sheet from the same browser runtime as export, visits samples in reverse order, and writes the PNG under `.film/cache/look/`. A materially different repeat fails with `NON_DETERMINISTIC_FRAME`.
-- `python -m video_director film render --project-id ID [--fps 30]` pins the current revision before rendering and records the revision associated with the resulting MP4.
+- `python -m video_director film look --project-id ID --revision REVISION_FROM_STATUS [--times 0,1.5,4]` requires the exact revision returned by `film status`, renders a contact sheet from the same browser runtime as export, visits samples in reverse order, and writes the PNG under `.film/cache/look/`. A missing/blank revision is rejected before browser or cache side effects; a stale revision fails with `REVISION_CONFLICT`; a materially different repeat fails with `NON_DETERMINISTIC_FRAME`.
+- `python -m video_director film render --project-id ID --expected-revision REVISION_FROM_STATUS [--fps 30]` requires the same explicit revision that was inspected. It never silently substitutes the latest version; missing/blank or stale pins are rejected before export side effects, and `rendered_revision` records the version associated with the resulting MP4.
 - Real Chromium regression exercises the injected frame bridge with a sandboxed iframe and verifies exact local time, frame identity, support acknowledgement, and an actual call to the authored `frame(t)` implementation.
 
 ## Direct HTML canvas editing and Agent context
@@ -180,3 +180,12 @@ The Studio is being moved incrementally to typed React components instead of swa
 - [Independent Studio `40685008091`](https://github.com/just2512/video-director/actions/runs/40685008091) SUCCESS: 329 passed, 2 warnings, 0 failures.
 - Bundle publication step verified React Studio bundle, Tailwind CSS and the package lock were already current; it intentionally created no new artifact commit. The committed bundle remains the gate-verified `036ea8e`.
 - The authority hard gate now also rejects duplicate `/api/editor/film/initialize` calls, old `composition_version()` reads and legacy proposal HTTP endpoints when `film.html` exists. Normal CI reports live-provider streaming as MISSING unless explicitly opted in.
+
+
+## Latest mainline revision-pin acceptance (2026-10-28, `5081a943`)
+
+- [AI Director regression `40696547029`](https://github.com/just2512/video-director/actions/runs/40696547029) completed **SUCCESS** on `5081a943`: **1375 passed, 1 skipped, 0 failed, 6 warnings** across the full pytest/Chromium suite. The curated timeline/browser/export publication gate also passed: **295 passed, 1 warning, 0 failed**. TypeScript/React, Tailwind, integration smoke and JavaScript syntax checks passed.
+- [Independent Studio UI/browser smoke `40696547133`](https://github.com/just2512/video-director/actions/runs/40696547133) completed **SUCCESS**: **331 passed, 2 warnings, 0 failed**.
+- The build step verified `webui/static/js/film-studio-react.js`, `webui/static/css/film-studio-tailwind.css` and the dependency lock are already current; no duplicate bundle commit was created. The validated bundle remains `036ea8e`.
+- CLI/MCP `film look` and `film render` now require a non-empty revision pin. Regression tests prove missing/blank/stale pins are rejected before cache/render artifacts are written. The full-pipeline MP4 E2E now passes `--expected-revision` from the immediately preceding `film status` snapshot rather than relying on an implicit latest revision.
+- This default CI intentionally reports `LIVE_STREAM_ACCEPTANCE=MISSING` because no paid provider call was opted in. The separate actual provider run `40689393487` returned HTTP 410 for the configured `z-ai/glm-5.3`; that remains a provider-configuration blocker, not a code PASS. No model key or preserved runner configuration was read out or changed.

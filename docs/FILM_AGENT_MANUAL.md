@@ -218,3 +218,11 @@ Marker IDs are stable and unique; names are 1–120 characters and times are non
 - React bundle、Tailwind CSS 与依赖锁已由发布门禁确认为最新，本轮没有创建额外的 bundle commit。现有已验证产物为 `036ea8e`。
 - 当前 FilmDocument authority 保护覆盖重复初始化、旧 CompositionIR 内容读取与版本读取、旧 proposal API 及 MCP `film.initialize`；这些拒绝路径都要求保留原始 `film.html` revision 不变。
 - 默认 CI 的 `LIVE_STREAM_ACCEPTANCE=MISSING`，因为本轮没有选择真实付费模型请求；请勿把模拟流或旧的单次 live-stream smoke 证据等同于每次 CI 的 token 流验收。
+
+
+### 最新主线验收复核（2026-10-28，`5081a943`）
+
+- [AI Director `40696547029`](https://github.com/just2512/video-director/actions/runs/40696547029) SUCCESS：全量 pytest/Chromium **1375 passed、1 skipped、0 failed、6 warnings**；精选时间线/浏览器/导出发布门禁 **295 passed、1 warning、0 failed**。React/TypeScript、Tailwind、Studio integration smoke 与 JS 语法均通过。
+- [独立 Studio `40696547133`](https://github.com/just2512/video-director/actions/runs/40696547133) SUCCESS：**331 passed、2 warnings、0 failed**。
+- CLI 的 `film look` 现在要求 `--revision`，`film render` 要求 `--expected-revision`；缺失、空值和过期 revision 都在产生预览缓存/导出文件前拒绝。完整成片 E2E 也使用 `film status` 读出的同一 revision。
+- 本轮普通 CI 的 `LIVE_STREAM_ACCEPTANCE=MISSING` 是有意不发起付费模型请求；此前真实请求 `40689393487` 的上游返回 HTTP 410，指出配置模型 `z-ai/glm-5.3` 已退役。真实 token 流仍未通过当前配置的端点验收，需要运维侧更新当前受支持的模型/endpoint 并重新 opt-in；没有读取或修改 API key/保存配置。
