@@ -2268,3 +2268,113 @@ def test_fade_handoff_rejects_gaps_and_locked_clips_or_tracks_without_writing(
         server.server_close()
         thread.join(timeout=5)
 
+
+
+def test_react_typed_gesture_start_controller_validates_modes_and_context_in_chromium(
+    tmp_path, monkeypatch
+):
+    """Exercise the built TypeScript gesture controller in a real Chromium page."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+    project_id = "film-studio-typed-gesture-start-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    (project_root / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const s=document.querySelector('#editor-project'); "
+                    "return !!s && s.options.length>0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const s=document.querySelector('#editor-project');
+                      let o=[...s.options].find(item=>item.value===pid);
+                      if(!o){o=new Option(pid,pid);s.add(o);}
+                      s.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => !!window.filmStudioTimelineController && "
+                    "typeof window.filmStudioTimelineController.createGestureStart==='function'"
+                )
+                result = page.evaluate(
+                    """() => {
+                      const c=window.filmStudioTimelineController;
+                      const clip=(id,at,end,attrs={})=>({id,at,end,duration:end-at,tag:"video",attrs});
+                      const pointer={pointerId:7,startX:100,startY:20,startScrollLeft:0};
+                      const base=[{id:"v1",attrs:{},clips:[
+                        clip("a",0,2,{src:"a.mp4#t=1.25,3.25",speed:1.5}),clip("b",6,8)
+                      ]}];
+                      const move=c.createGestureStart({tracks:base,clipId:"a",mode:"move",selectedIds:["a","b"],...pointer});
+                      const locked=c.createGestureStart({tracks:[
+                        {id:"locked",attrs:{locked:"true"},clips:[clip("a",0,2)]}
+                      ],clipId:"a",mode:"move",selectedIds:["a"],...pointer});
+                      const roll=c.createGestureStart({tracks:[
+                        {id:"v1",attrs:{},clips:[clip("a",0,2),clip("b",2,4)]}
+                      ],clipId:"a",mode:"roll",trimEdge:"end",selectedIds:["a"],...pointer});
+                      const slide=c.createGestureStart({tracks:[
+                        {id:"v1",attrs:{},clips:[clip("l",0,2),clip("c",2,4),clip("r",4,6)]}
+                      ],clipId:"c",mode:"slide",selectedIds:["c"],...pointer});
+                      return {
+                        modes:[
+                          c.resolveGestureStartMode({clipTag:"video"}),
+                          c.resolveGestureStartMode({clipTag:"video",trimEdge:"start"}),
+                          c.resolveGestureStartMode({clipTag:"video",trimEdge:"end",ctrlKey:true}),
+                          c.resolveGestureStartMode({clipTag:"video",altKey:true,shiftKey:true}),
+                          c.resolveGestureStartMode({clipTag:"video",altKey:true}),
+                          c.resolveGestureStartMode({clipTag:"img",slideMode:true})
+                        ],
+                        move:move.ok?{ok:true,members:move.memberIds,sourceIn:move.context.originalSourceIn,
+                          speed:move.context.originalSpeed,end:move.context.originalEnd}:move,
+                        locked,roll:roll.ok?{ok:true,left:roll.context.leftClipId,
+                          right:roll.context.rightClipId,rightAt:roll.context.rightAt}:roll,
+                        slide:slide.ok?{ok:true,left:slide.context.leftClipId,
+                          center:slide.context.centerClipId,right:slide.context.rightClipId,
+                          centerAt:slide.context.centerAt,rightAt:slide.context.rightAt}:slide
+                      };
+                    }"""
+                )
+                assert result["modes"] == ["move","trim-start","roll","slide","slip","move"]
+                assert result["move"] == {
+                    "ok": True, "members": ["a","b"], "sourceIn": 1.25, "speed": 1.5, "end": 2
+                }, result["move"]
+                assert result["locked"]["ok"] is False, result["locked"]
+                assert result["locked"]["error"]["code"] == "MOVE_MEMBER_BLOCKED", result["locked"]
+                assert result["roll"] == {
+                    "ok":True,"left":"a","right":"b","rightAt":2
+                }, result["roll"]
+                assert result["slide"] == {
+                    "ok":True,"left":"l","center":"c","right":"r","centerAt":2,"rightAt":4
+                }, result["slide"]
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
