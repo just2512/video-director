@@ -196,4 +196,4 @@
 ### 后续浏览器回归：点击定位与选区职责（2026-10-28）
 
 - [Studio run 40638395915](https://github.com/just2512/video-director/actions/runs/40638395915) 在修复多选与 React Portal 清理后报告 `326 passed, 1 failed`。唯一失败为 `test_react_roll_and_slide_snap_previews_use_resolved_candidates`：Slide 模式下点击 `clip-center` 后，播放头未按既有契约定位到 5 秒；该测试随后未能进入实际 slide 吸附预览步骤。根因是避免双重选区切换时，点击兼容分支也被整体短路。
-- 主线提交 [`168e1dc`](https://github.com/just2512/video-director/commit/168e1dc9d43d6a29f9c4451ff9eb654a066bebc6) 保留 React `pointerdown` 的选区所有权，后续真实鼠标 `click` 仅执行既有播放头定位而不再次修改选区。Studio 回归 run [40639540884](https://github.com/just2512/video-director/actions/runs/40639540884) 是该提交的验收依据；提交本身和构建通过均不能替代其浏览器结果，在该 run 完成前保持 UNKNOWN。
+- 主线提交 [`168e1dc`](https://github.com/just2512/video-director/commit/168e1dc9d43d6a29f9c4451ff9eb654a066bebc6) 保留 React `pointerdown` 的选区所有权，真实鼠标 `click` 仅执行既有播放头定位而不再次修改选区；随后 [`current fix`](https://github.com/just2512/video-director/commit/d84dfda1644f08d9dc0fbce4a1d524169bd03bc7) 对问题进一步收敛：只有已经发生有效拖动的手势才抑制附带 click，无位移的点击必须继续触发定位播放头。Studio 回归 run [40639540884](https://github.com/just2512/video-director/actions/runs/40639540884) 是该提交的验收依据；提交本身和构建通过均不能替代其浏览器结果，在该 run 完成前保持 UNKNOWN。

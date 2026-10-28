@@ -319,6 +319,10 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     assert "selectClipWithModifiers(id,e)" not in click_route
     assert "S.playhead=pointerClickedClip.at;" in click_route
     assert "setPlayheadVisual();previewCurrent();" in click_route
+    finish_start = legacy.index("async function finishReactClipGesture(e, preparedOperations)")
+    finish_end = legacy.index("async function onUp(e)", finish_start)
+    finish_body = legacy[finish_start:finish_end]
+    assert "S.drag=null;\n    if(d.active)suppressNextClipClick();" in finish_body
     cancel_start = legacy.index("function cancelReactTimelineGestureAfterContractLoss(e)")
     cancel_end = legacy.index("function updateTimelineGestureContext", cancel_start)
     cancel_body = legacy[cancel_start:cancel_end]
