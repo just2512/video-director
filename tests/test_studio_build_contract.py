@@ -99,6 +99,7 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     root = Path(__file__).resolve().parents[1]
     studio_workflow = (root / ".github" / "workflows" / "studio-ui-build.yml").read_text(encoding="utf-8")
     ai_workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
+    live_acceptance = (root / "video_director" / "live_stream_acceptance.py").read_text(encoding="utf-8")
 
     assert "Publish built Studio assets without overwriting newer main" not in studio_workflow
     assert "Asset publication is centralized in ai-director.yml" in studio_workflow
@@ -118,6 +119,8 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
         assert required_real_gate in gate, f"release gate lost {required_real_gate}"
 
     assert "id: live_stream_config" in ai_workflow
+    assert "id: full_regression" in ai_workflow
+    assert "steps.full_regression.outcome == 'success'" in ai_workflow
     # Ordinary runs skip this provider-specific test; an explicit opt-in failure
     # must not be masked by continue-on-error and must block release publication.
     require_live_or_not_requested = (
@@ -134,9 +137,13 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "steps.live_stream_config.outcome" in ai_workflow
     assert "steps.live_stream_acceptance.outcome == 'success'" in ai_workflow
     assert "steps.timeline_regression_gate.outcome == 'success'" in ai_workflow
-    assert '"BLOCKED_PROVIDER":' in ai_workflow
-    assert '"insufficient balance" in evidence' in ai_workflow
-    assert 'if config_outcome != "skipped" and status != "PASS":' in ai_workflow
+    assert '"BLOCKED_PROVIDER":' in live_acceptance
+    assert '"BLOCKED_MODEL":' in live_acceptance
+    assert '"insufficient balance" in evidence' in live_acceptance
+    assert '"has reached its end of life"' in live_acceptance
+    assert 'LIVE_STREAM_ACCEPTANCE={status}' in live_acceptance
+    assert 'if config_outcome != "skipped" and status != "PASS":' in live_acceptance
+    assert 'python3.11" -m video_director.live_stream_acceptance --junit live-stream-junit.xml' in ai_workflow
 
 
 
