@@ -189,5 +189,5 @@
 
 ### 当前主线的真实浏览器回归状态（2026-10-28）
 
-- [Studio run 40637515301](https://github.com/just2512/video-director/actions/runs/40637515301) 测试的是修复前的 `1b165051`，报告 324 passed、3 failed：Ctrl 多选在 click 阶段被再次切换、手势取消时 React Portal DOM 出现 `removeChild` 异常、外部文件回归因此没能观察到多选状态。不能把这些旧版失败归到后续源码已修复的主线，也不能反过来声称修复已通过。
+- [Studio run 40637515301](https://github.com/just2512/video-director/actions/runs/40637515301) 测试的是修复前的 `1b165051`，报告 288 passed、3 failed、1 warning：Ctrl 多选在 click 阶段被再次切换、手势取消时 React Portal DOM 出现 `removeChild` 异常、外部文件回归因此没能观察到多选状态。不能把这些旧版失败归到后续源码已修复的主线，也不能反过来声称修复已通过。
 - `a576a6e4` 修正 React 指针点击不应二次修改选区，并将 Portal 清理限定为 FilmStore 状态更新。下一轮必须让当前主线重新通过真实 Chromium 门禁；在新 CI 完成前，该项状态为 UNKNOWN / 待验收，而不是 PASS。

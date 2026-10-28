@@ -312,7 +312,13 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     assert "function suppressNextClipClick()" in legacy
     assert "if(skipClipClickGeneration===generation)S.skipNextClipClick=false;" in legacy
     assert "setTimeout(function(){S.skipNextClipClick=false;},0);" not in legacy
-    assert "if(reactOwnsTimeline&&e&&Number(e.detail)>0)return;" in legacy
+    assert "if(reactOwnsTimeline&&e&&Number(e.detail)>0){" in legacy
+    click_route_start = legacy.index("if(reactOwnsTimeline&&e&&Number(e.detail)>0){")
+    click_route_end = legacy.index("if(selectClipWithModifiers(id,e)){", click_route_start)
+    click_route = legacy[click_route_start:click_route_end]
+    assert "selectClipWithModifiers(id,e)" not in click_route
+    assert "S.playhead=pointerClickedClip.at;" in click_route
+    assert "setPlayheadVisual();previewCurrent();" in click_route
     cancel_start = legacy.index("function cancelReactTimelineGestureAfterContractLoss(e)")
     cancel_end = legacy.index("function updateTimelineGestureContext", cancel_start)
     cancel_body = legacy[cancel_start:cancel_end]

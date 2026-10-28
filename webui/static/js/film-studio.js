@@ -1238,11 +1238,17 @@
     var reactOwnsTimeline=!!(window.filmStudioReactTimeline&&
       typeof window.filmStudioReactTimeline.renderSurface==='function'&&
       document.querySelector('.fs-react-timeline-surface'));
-    // React's pointerdown already owns pointer selection, playhead seek and gesture start.
-    // Reapplying Ctrl/Meta selection from the ensuing native click toggles a newly-added
-    // clip back out of the selection. Only click-only activation (for example keyboard
-    // activation, detail===0) needs this compatibility selection path.
-    if(reactOwnsTimeline&&e&&Number(e.detail)>0)return;
+    // React pointerdown owns mouse selection and gesture initialization. The native
+    // click still carries the long-standing click-to-seek behavior (including Slide/Slip
+    // mode), but must not reapply Ctrl/Meta selection and toggle the clip back out.
+    if(reactOwnsTimeline&&e&&Number(e.detail)>0){
+      var pointerClickedClip=findClip(id);
+      if(pointerClickedClip&&!S.drag&&!S.envelopeDrag){
+        S.playhead=pointerClickedClip.at;
+        setPlayheadVisual();previewCurrent();
+      }
+      return;
+    }
     if(selectClipWithModifiers(id,e)){
       var selected=findClip(id);
       if(selected){S.playhead=selected.at;setPlayheadVisual();previewCurrent();}
