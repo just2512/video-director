@@ -2665,9 +2665,22 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     item for track in group_before["doc"]["tracks"]
                     for item in track["clips"] if item["id"] == "audio-1"
                 )
+                # The expanded Studio places the lower audio track below the 1000px
+                # test viewport on slower/longer layouts. Scroll the real clip into
+                # view before sending browser pointer events; otherwise mouseup can
+                # occur outside Chromium's viewport and the gesture never starts.
+                audio_clip.scroll_into_view_if_needed(timeout=5000)
+                clip.scroll_into_view_if_needed(timeout=5000)
                 video_box = clip.bounding_box()
                 audio_box = audio_clip.bounding_box()
                 assert video_box and audio_box, {"video": video_box, "audio": audio_box}
+                viewport = page.evaluate("() => ({width: innerWidth, height: innerHeight})")
+                for name, box in (("video", video_box), ("audio", audio_box)):
+                    center_x = box["x"] + box["width"] * 0.5
+                    center_y = box["y"] + box["height"] * 0.5
+                    assert 0 <= center_x < viewport["width"] and 0 <= center_y < viewport["height"], {
+                        "name": name, "box": box, "viewport": viewport
+                    }
                 group_start_x = audio_box["x"] + audio_box["width"] * 0.5
                 group_start_y = audio_box["y"] + audio_box["height"] * 0.5
                 group_delta_x = video_box["width"] / 5
