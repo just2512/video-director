@@ -233,3 +233,10 @@
 - The build step verified `webui/static/js/film-studio-react.js`, `webui/static/css/film-studio-tailwind.css` and the dependency lock are already current; no duplicate bundle commit was created. The validated bundle remains `036ea8e`.
 - CLI/MCP `film look` and `film render` now require a non-empty revision pin. Regression tests prove missing/blank/stale pins are rejected before cache/render artifacts are written. The full-pipeline MP4 E2E now passes `--expected-revision` from the immediately preceding `film status` snapshot rather than relying on an implicit latest revision.
 - This default CI intentionally reports `LIVE_STREAM_ACCEPTANCE=MISSING` because no paid provider call was opted in. The separate actual provider run `40689393487` returned HTTP 410 for the configured `z-ai/glm-5.3`; that remains a provider-configuration blocker, not a code PASS. No model key or preserved runner configuration was read out or changed.
+
+
+### NVIDIA GLM-5.3-Flash live-stream diagnostic (2026-10-28)
+
+- The isolated live smoke accepts a validated `[live-provider=nvidia]` marker plus `[live-model=z-ai/glm-5.3-flash]`, or equivalent workflow-dispatch inputs. NVIDIA's official OpenAI-compatible base URL is `https://integrate.api.nvidia.com/v1`; this per-run config uses that endpoint and the exact model ID without rewriting it or mutating persisted Runner configuration.
+- The live smoke prefers the `NVIDIA_API_KEY` GitHub secret, then the generic `VD_LLM_API_KEY` secret or preserved runner key. Keys are never logged. If credentials are absent or the upstream request rejects, the Actions summary records `REJECT`/not passed; the diagnostic is non-blocking but never reported as PASS.
+- Failure of the explicitly requested live-provider diagnostic does not block independent full regression, browser/export gates, or verified asset publication. Those gates must still pass. A live result of `REJECT` or `MISSING` is not evidence of token streaming; the remaining provider configuration can be tested locally.

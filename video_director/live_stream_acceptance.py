@@ -37,6 +37,21 @@ def resolve_live_model_override(explicit_override: str, commit_message: str) -> 
     return candidate
 
 
+def resolve_live_provider_override(explicit_override: str, commit_message: str) -> str:
+    """Allow only the explicitly supported per-run provider override.
+
+    ``[live-provider=nvidia]`` selects NVIDIA's official OpenAI-compatible endpoint.
+    This is isolated to the live smoke config; stored runner settings are unchanged.
+    """
+    candidate = str(explicit_override or "").strip().lower()
+    if not candidate:
+        match = re.search(r"\[live-provider=([a-z0-9-]{1,32})\]", str(commit_message or ""))
+        candidate = match.group(1) if match else ""
+    if candidate and candidate != "nvidia":
+        raise ValueError("currently only the nvidia live-provider override is supported")
+    return candidate
+
+
 def resolve_live_model(model: str, base_url: str) -> str:
     """Resolve a retired OpenRouter model only for the official OpenRouter endpoint.
 

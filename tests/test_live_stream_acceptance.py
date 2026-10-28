@@ -10,6 +10,7 @@ from video_director.live_stream_acceptance import (
     classify_live_stream_acceptance,
     resolve_live_model,
     resolve_live_model_override,
+    resolve_live_provider_override,
 )
 
 
@@ -134,3 +135,16 @@ def test_one_run_model_override_rejects_shell_or_whitespace_payloads():
     import pytest
     with pytest.raises(ValueError):
         resolve_live_model_override("model id; echo unsafe", "")
+
+
+def test_one_run_nvidia_provider_override_can_be_pinned_in_push_commit_message():
+    assert resolve_live_provider_override("", "Use NVIDIA [live-provider=nvidia]") == "nvidia"
+
+
+def test_explicit_nvidia_provider_override_has_priority_over_commit_marker():
+    assert resolve_live_provider_override("nvidia", "[live-provider=nvidia]") == "nvidia"
+
+
+def test_unsupported_live_provider_override_fails_closed():
+    with pytest.raises(ValueError):
+        resolve_live_provider_override("unknown-provider", "")
