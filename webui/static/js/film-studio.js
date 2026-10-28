@@ -4,6 +4,7 @@
   var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', seekGeneration:0, data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null};
   var gestureDomRefs = null;
   var envelopeDomCanvas = null;
+  var skipClipClickGeneration = 0;
   var pendingRevisionSource = '';
   if(window.filmStudioStore&&typeof window.filmStudioStore.bindLegacyState==='function')window.filmStudioStore.bindLegacyState(S);
   function bindPlaybackCompatibilityAlias(){
@@ -1220,9 +1221,22 @@
   };
   // Shared gesture logic; React owns event dispatch in the built Studio while
   // the same functions preserve behavior for the native fallback.
+  function clearClipClickSuppression(){
+    skipClipClickGeneration++;
+    S.skipNextClipClick=false;
+  }
+  function suppressNextClipClick(){
+    S.skipNextClipClick=true;
+    var generation=++skipClipClickGeneration;
+    // Chromium may dispatch click in a separate event task after pointerup.
+    // Let the click handler consume this token; a new pointerdown clears stale state.
+    setTimeout(function(){
+      if(skipClipClickGeneration===generation)S.skipNextClipClick=false;
+    },500);
+  }
   window.filmStudioClickClip = function(id,e){
     if(e&&typeof e.stopPropagation==='function')e.stopPropagation();
-    if(S.skipNextClipClick){S.skipNextClipClick=false;return;}
+    if(S.skipNextClipClick){clearClipClickSuppression();return;}
     if(selectClipWithModifiers(id,e)){
       var selected=findClip(id);
       if(selected){S.playhead=selected.at;setPlayheadVisual();previewCurrent();}
@@ -1236,6 +1250,9 @@
           if(e&&typeof e.stopPropagation==='function')e.stopPropagation();
           return false;
         }
+        // Clear a stale token when a new pointer sequence starts. The click that
+        // belongs to the previous sequence has already had its chance to consume it.
+        clearClipClickSuppression();
         context=context||{};
         var clipId=String(context.clipId||(el&&el.getAttribute('data-clip'))||'');
         if(e.button!==0||context.targetIsButton)return;
@@ -2571,8 +2588,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
 
     var dragDomRefs=gestureDomRefs;
     S.drag=null;
-    S.skipNextClipClick=true;
-    setTimeout(function(){S.skipNextClipClick=false;},0);
+    suppressNextClipClick();
     showTimelineSnapGuide(null);
     clearDragTrackTarget(d);
     var reactOwnsActiveDrag=setTimelineActiveDragIds(null);
@@ -2646,12 +2662,19 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       return;
     }
     var d=S.drag;
-    if(!d){showTimelineSnapGuide(null);clearDragTrackTarget(null);gestureDomRefs=null;setTimelineActiveDragIds(null);clearTimelineGesturePreview();S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);flushPendingExternalRevision();return;}
+    if(!d){
+      showTimelineSnapGuide(null);clearDragTrackTarget(null);gestureDomRefs=null;
+      setTimelineActiveDragIds(null);clearTimelineGesturePreview();
+      var pointerTarget=e&&e.target;
+      if(pointerTarget&&typeof pointerTarget.closest==='function'&&
+         pointerTarget.closest('#fs-timeline .fs-clip[data-clip]'))suppressNextClipClick();
+      flushPendingExternalRevision();return;
+    }
     // Document-level fallbacks also observe pointer events from other contacts; only the
     // pointer that began this transaction may finish or commit it.
     if(!e||e.pointerId!==d.pointerId)return;
     var dragDomRefs=gestureDomRefs;
-    S.drag=null;S.skipNextClipClick=true;setTimeout(function(){S.skipNextClipClick=false;},0);
+    S.drag=null;suppressNextClipClick();
     showTimelineSnapGuide(null);clearDragTrackTarget(d);
     var reactOwnsActiveDrag=setTimelineActiveDragIds(null);
     if(!reactOwnsActiveDrag)(d.members||[]).forEach(function(member){

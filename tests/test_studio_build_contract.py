@@ -306,7 +306,10 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     ):
         assert call in component
     assert "reactTimeline.previewClipGesture(e)" in legacy
-    assert "if(snapshot&&snapshot.timelineGestureContext&&" in legacy
+    assert "function cancelReactTimelineGestureAfterContractLoss(e)" in legacy
+    assert "var context=snapshot&&snapshot.timelineGestureContext;" in legacy
+    assert "if(!context||!e||context.pointerId!==e.pointerId)return false;" in legacy
+    assert "cancelReactTimelineGestureAfterContractLoss(e);" in legacy
 
 
 def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
@@ -321,7 +324,9 @@ def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
     assert "return result ? [result.operation] : [];" in component
     assert "return result && Math.abs(result.resolution.deltaSeconds) >= 0.001" in component
     assert "return result && Math.abs(result.resolution.sourceDeltaSeconds) >= 0.001" in component
-    assert "typeof timeline.prepareClipGestureCommit==='function'" in legacy
+    assert "function hasCompleteReactTimelineGestureContract(bridge,controller)" in legacy
+    assert "typeof bridge.prepareClipGestureCommit==='function'" in legacy
+    assert "var prepared=timeline.prepareClipGestureCommit(e);" in legacy
     assert "if(Array.isArray(prepared))return finishReactClipGesture(e,prepared);" in legacy
     assert "function finishReactClipGesture(e, preparedOperations)" in legacy
     assert "await filmStudioCommit(preparedOperations);" in legacy
