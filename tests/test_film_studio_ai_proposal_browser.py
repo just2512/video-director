@@ -1003,7 +1003,7 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
                 assert fd.read_project_film(project_id)["rev"] == before["rev"], (
                     "generating a director proposal must not write the authoritative film"
                 )
-                assert before["rev"] in page.locator("#fs-proposal-detail").inner_text()
+                assert before["rev"] in page.locator('#fs-proposal-panel[data-react-ai-proposal="true"] #fs-proposal-detail').inner_text()
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 context.close()
