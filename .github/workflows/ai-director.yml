@@ -287,7 +287,7 @@ jobs:
               except (OSError, json.JSONDecodeError):
                   saved = {}
 
-          api_key = (os.environ.get("NVIDIA_API_KEY_SECRET") or os.environ.get("VD_LLM_API_KEY_SECRET") or saved.get("api_key") or "").strip()
+          api_key = (os.environ.get("NVIDIA_API_KEY_SECRET") or os.environ.get("NVIDIA_API_KEY") or os.environ.get("VD_LLM_API_KEY_SECRET") or saved.get("api_key") or "").strip()
           base_url = (
               os.environ.get("VD_LLM_BASE_URL_CONFIG")
               or saved.get("base_url")
