@@ -29,7 +29,7 @@ def resolve_live_model(model: str, base_url: str) -> str:
         endpoint = "https://" + endpoint
     host = (urlparse(endpoint).hostname or "").lower().rstrip(".")
     if model_id == "z-ai/glm-5.3" and host in {"openrouter.ai", "www.openrouter.ai"}:
-        return "z-ai/glm-latest"
+        return "~z-ai/glm-latest"
     return model_id
 
 

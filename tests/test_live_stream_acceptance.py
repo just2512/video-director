@@ -90,7 +90,7 @@ def test_main_honors_explicit_junit_path(tmp_path, monkeypatch, capsys):
     ["https://openrouter.ai/api/v1", "https://openrouter.ai/api/v1/"],
 )
 def test_retired_openrouter_glm_model_uses_live_alias_without_mutating_config(base_url):
-    assert resolve_live_model("z-ai/glm-5.3", base_url) == "z-ai/glm-latest"
+    assert resolve_live_model("z-ai/glm-5.3", base_url) == "~z-ai/glm-latest"
 
 
 @pytest.mark.parametrize(
@@ -106,4 +106,4 @@ def test_live_model_resolver_leaves_other_routes_unchanged(model, base_url, expe
 
 
 def test_live_model_resolver_trims_model_and_endpoint_strings():
-    assert resolve_live_model(" z-ai/glm-5.3 ", " https://openrouter.ai/api/v1 ") == "z-ai/glm-latest"
+    assert resolve_live_model(" z-ai/glm-5.3 ", " https://openrouter.ai/api/v1 ") == "~z-ai/glm-latest"
