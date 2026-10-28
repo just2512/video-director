@@ -1471,6 +1471,10 @@ def test_legacy_composition_is_blocked_once_film_html_exists(tmp_path, monkeypat
     assert command.status == "REJECTED"
     assert command.errors[0]["code"] == "FILM_DOCUMENT_AUTHORITATIVE"
 
+    with pytest.raises(editor.EditorError) as read_error:
+        editor.load_composition("film-test")
+    assert read_error.value.code == "FILM_DOCUMENT_AUTHORITATIVE"
+
     with pytest.raises(fd.FilmError, match="film.html"):
         workflow_run.run_render_async("film-test", "final")
 
@@ -1484,6 +1488,8 @@ def test_legacy_save_and_render_endpoints_are_hard_gated_after_migration():
     studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     creative = (root / "webui" / "static" / "js" / "creative-plan.js").read_text(encoding="utf-8")
     assert 'assert_legacy_composition_access(project_id, "保存 CompositionIR")' in editor
+    assert 'assert_legacy_composition_access(project_id, "读取旧 CompositionIR")' in editor
+    assert '_reject_legacy_composition_access(str(pid).strip(), "使用旧 CompositionIR AI 提案")' in server
     assert 'assert_legacy_composition_access(project_id, f"渲染 {kind}")' in workflow
     assert 'assert_legacy_composition_access(project_id, "导出旧时间线成片")' in confirm
     assert '_reject_legacy_composition_access(pid, "启动旧时间线渲染")' in server

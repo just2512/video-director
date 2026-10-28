@@ -4562,6 +4562,8 @@ class Handler(BaseHTTPRequestHandler):
             if not pid:
                 self._send_json({"error": "缺少 project_id"}, 400)
                 return
+            if self._reject_legacy_composition_access(str(pid).strip(), "使用旧 CompositionIR AI 提案"):
+                return
             try:
                 from video_director import proposal as vd_proposal
                 if parsed.path.endswith("propose"):

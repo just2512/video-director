@@ -95,7 +95,12 @@ def load_revisions(project_id: str) -> List[dict]:
 
 
 def load_composition(project_id: str) -> CompositionIR:
-    """读项目 composition.json（Editor 的 server state 事实源）。"""
+    """读项目 composition.json；film.html 生效后，旧 IR 读取同样必须被拒绝。"""
+    from video_director import film_document as fd
+    try:
+        fd.assert_legacy_composition_access(project_id, "读取旧 CompositionIR")
+    except fd.FilmError as exc:
+        raise EditorError(exc.code, str(exc), recoverable=False) from exc
     p = config.project_dir(project_id) / "plans" / "composition.json"
     if not p.is_file():
         raise EditorError("NOT_FOUND", f"项目 {project_id} 无 composition.json", recoverable=False)
