@@ -2,23 +2,10 @@ name: Studio UI build and browser smoke
 
 # Build and browser-smoke the Studio on the repository's existing self-hosted WSL runner.
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/studio-ui-build.yml"
-      - "remotion_runtime/**"
-      - "studio_ui/**"
-      - "webui/static/**"
-      - "webui/server.py"
-      - "video_director/film_document.py"
-      - "video_director/film_scene_runtime.py"
-      - "video_director/film_render.py"
-      - "video_director/film_watch.py"
-      - "video_director/film_mcp_server.py"
-      - "video_director/prober.py"
-      - "tests/test_film_*.py"
-      - "tests/test_studio_build_contract.py"
-      - "tools/bootstrap_python_socks.sh"
+  # ai-director.yml already builds React/Tailwind and runs browser/release gates
+  # for main pushes. This manual-only workflow shares the same self-hosted
+  # checkout, so auto-queuing both workflows for one push would replace one
+  # pending run under GitHub's single-pending concurrency rule.
   workflow_dispatch:
 
 permissions:

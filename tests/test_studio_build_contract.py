@@ -406,4 +406,7 @@ def test_self_hosted_workflows_share_runner_checkout_concurrency_lock():
     assert expected_group in ai_workflow
     assert expected_group in studio_workflow
     assert "cancel-in-progress: false" in studio_workflow
+    trigger_block = studio_workflow.split("permissions:", 1)[0]
+    assert "\n  workflow_dispatch:\n" in trigger_block
+    assert "\n  push:\n" not in trigger_block
     assert "contains(github.event.head_commit.message, '[unblock-runner]')" in ai_workflow
