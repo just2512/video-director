@@ -215,3 +215,8 @@
 - 发布步骤检查确认 `webui/static/js/film-studio-react.js`、`webui/static/css/film-studio-tailwind.css` 和依赖锁已是最新，未创建多余 bundle commit；当前产物仍是此前通过门禁验证的 [`036ea8e`](https://github.com/just2512/video-director/commit/036ea8e5bebef40be98612431d02f6aed2ab1d31)。
 - 本轮 authority hard gate 增补了重复初始化 `film.html` 的 HTTP 409 拒绝；`editor.load_composition()` 与 `editor.composition_version()` 对 FilmDocument 项目 fail closed；旧 `/api/proposal/{propose,preview,apply,reject}` 均返回 `409 FILM_DOCUMENT_AUTHORITATIVE`；MCP `film.initialize` 对已有影片也拒绝且不改变文件。
 - `LIVE_STREAM_ACCEPTANCE=MISSING` 是因为本轮默认工作流没有启用付费模型 smoke，不是 live token gate 的 PASS。本次独立真实模型流式证据仍以先前显式 run `40637515525` 记录为单项 PASS；它不替代默认运行的 MISSING，也不扩大为每次 CI 都进行了真实请求。
+
+
+### Current-main real-provider stream recheck request (2026-10-28)
+
+- The default regression intentionally reports `LIVE_STREAM_ACCEPTANCE=MISSING` when the paid-provider smoke is not opted in. The current mainline's model-stream acceptance is being rechecked through the repository's explicit `[live-stream-smoke]` workflow path; record PASS only if the isolated request receives at least two non-empty model token fragments before the final result and proves `film.html` bytes/revision unchanged. A lifecycle-only SSE stream is not sufficient evidence.
