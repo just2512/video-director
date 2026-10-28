@@ -24409,6 +24409,10 @@
     return "move";
   };
   var createTimelineGestureStart = (input) => {
+    const mode = input.mode;
+    if (mode !== "move" && mode !== "trim-start" && mode !== "trim-end" && mode !== "roll" && mode !== "slide" && mode !== "slip") {
+      return { ok: false, error: { code: "INVALID_GESTURE_MODE" } };
+    }
     const clipId = gestureStartString(input.clipId);
     const tracks = gestureStartTracks(input.tracks);
     const active = gestureStartFindClip(tracks, clipId);
@@ -24416,7 +24420,6 @@
     if (!Number.isInteger(input.pointerId) || input.pointerId < 0 || !Number.isFinite(input.startX) || !Number.isFinite(input.startY) || !Number.isFinite(input.startScrollLeft) || input.startScrollLeft < 0) {
       return { ok: false, error: { code: "INVALID_POINTER_CONTEXT" } };
     }
-    const mode = input.mode;
     const duration = gestureStartDuration(active.clip);
     if (mode !== "move" && duration === void 0) return { ok: false, error: { code: "UNKNOWN_DURATION" } };
     const chosenIds = mode === "move" ? Array.from(new Set(input.selectedIds.map(gestureStartString).filter(Boolean))) : [clipId];
