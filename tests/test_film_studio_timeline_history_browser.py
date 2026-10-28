@@ -2448,6 +2448,7 @@ def test_react_timeline_rejects_gesture_without_typed_controller_instead_of_lega
                 page.wait_for_function(
                     "() => typeof window.filmStudioReactTimeline?.renderSurface === 'function' "
                     "&& !!document.querySelector('.fs-react-timeline-surface') "
+                    "&& typeof window.filmStudioTimelineController?.createGestureStart === 'function' "
                     "&& typeof window.filmStudioBeginClipGesture === 'function'"
                 )
                 assert page.locator("#fs-static-timeline-toolbar").is_hidden()

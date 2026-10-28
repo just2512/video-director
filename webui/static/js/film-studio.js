@@ -1221,7 +1221,7 @@
         // Once React owns the timeline surface, never silently fall through to
         // the legacy DOM gesture initializer: the React path has no DOM refs and
         // must be backed by the typed FilmStore gesture controller.
-        if(reactOwnsGestureSurface&&!canStartTypedReactGesture){
+        if(reactGestureSurfaceMounted&&!canStartTypedReactGesture){
           e.preventDefault();
           if(typeof e.stopPropagation==='function')e.stopPropagation();
           showStatus('React 时间线的类型化控制器未就绪或桥接接口缺失；本次操作已拒绝，未回退到旧版 DOM 手势。','error');
