@@ -1209,9 +1209,19 @@
         var reactGestureBridge=window.filmStudioReactTimeline;
         var reactGestureController=window.filmStudioTimelineController;
         var reactOwnsGestureSurface=!!(reactGestureBridge&&typeof reactGestureBridge.setGesturePreview==='function'&&typeof reactGestureBridge.setActiveDragIds==='function');
-        if(reactOwnsGestureSurface&&reactGestureController&&
+        var canStartTypedReactGesture=!!(reactGestureController&&
            typeof reactGestureController.resolveGestureStartMode==='function'&&
-           typeof reactGestureController.createGestureStart==='function'){
+           typeof reactGestureController.createGestureStart==='function');
+        // Once React owns the timeline surface, never silently fall through to
+        // the legacy DOM gesture initializer: the React path has no DOM refs and
+        // must be backed by the typed FilmStore gesture controller.
+        if(reactOwnsGestureSurface&&!canStartTypedReactGesture){
+          e.preventDefault();
+          if(typeof e.stopPropagation==='function')e.stopPropagation();
+          showStatus('React 时间线类型化手势控制器尚未就绪；本次操作已拒绝，未回退到旧版 DOM 手势。','error');
+          return false;
+        }
+        if(reactOwnsGestureSurface&&canStartTypedReactGesture){
           var reactMode=reactGestureController.resolveGestureStartMode({
             clipTag:clip.tag,trimEdge:context.trimEdge==='start'||context.trimEdge==='end'?context.trimEdge:null,
             ctrlKey:e.ctrlKey,altKey:e.altKey,shiftKey:e.shiftKey,slideMode:S.slideMode,slipMode:S.slipMode

@@ -2378,3 +2378,105 @@ def test_react_typed_gesture_start_controller_validates_modes_and_context_in_chr
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+def test_react_timeline_rejects_gesture_without_typed_controller_instead_of_legacy_fallback(
+    tmp_path, monkeypatch
+):
+    """Fail closed if React owns the timeline but its typed controller is unavailable."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+    project_id = "film-studio-missing-typed-gesture-controller"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(FILM, encoding="utf-8")
+    original_text = film_path.read_text(encoding="utf-8")
+    original = fd.read_project_film(project_id)
+    edit_requests: list[dict] = []
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+
+            def capture_edit(request):
+                if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        edit_requests.append(json.loads(request.post_data or "{}"))
+                    except json.JSONDecodeError:
+                        edit_requests.append({"_invalid_json": True})
+
+            page.on("request", capture_edit)
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select=document.querySelector('#editor-project');
+                      let option=[...select.options].find(item=>item.value===pid);
+                      if(!option){option=new Option(pid,pid);select.add(option);}
+                      select.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => typeof window.filmStudioReactTimeline?.renderSurface === 'function' "
+                    "&& !!document.querySelector('.fs-react-timeline-surface') "
+                    "&& typeof window.filmStudioBeginClipGesture === 'function'"
+                )
+                assert page.locator("#fs-static-timeline-toolbar").is_hidden()
+                result = page.evaluate(
+                    """() => {
+                      window.filmStudioTimelineController=undefined;
+                      const event={
+                        button:0,pointerId:777,clientX:110,clientY:100,
+                        ctrlKey:false,altKey:false,shiftKey:false,
+                        defaultPrevented:false,stopped:false,
+                        preventDefault(){this.defaultPrevented=true;},
+                        stopPropagation(){this.stopped=true;}
+                      };
+                      const accepted=window.filmStudioBeginClipGesture(event,{clipId:"clip-a"});
+                      const snapshot=window.filmStudioStore.getSnapshot();
+                      return {
+                        accepted:accepted===true,
+                        defaultPrevented:event.defaultPrevented,
+                        stopped:event.stopped,
+                        contextPresent:!!snapshot.timelineGestureContext,
+                        notice:document.body.innerText.includes(
+                          "React 时间线类型化手势控制器尚未就绪；本次操作已拒绝，未回退到旧版 DOM 手势。"
+                        )
+                      };
+                    }"""
+                )
+                assert result == {
+                    "accepted":False,"defaultPrevented":True,"stopped":True,
+                    "contextPresent":False,"notice":True
+                }, result
+                assert edit_requests == [], edit_requests
+                assert film_path.read_text(encoding="utf-8") == original_text
+                assert fd.read_project_film(project_id)["rev"] == original["rev"]
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
