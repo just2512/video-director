@@ -94,7 +94,20 @@
        'resolveSlipGesture','validateMoveTarget','buildMovePreview',
        'buildMoveOperations'].every(function(name){return typeof controller[name]==='function';}));
   }
-  function cancelReactTimelineGestureAfterContractLoss(e){
+  function cancelReactTimelineGestureAfterContractLoss(e,reason){
+    // Preserve a structured diagnostic before clearing shared state; the old
+    // generic warning concealed whether the bridge disappeared, preview threw,
+    // or commit preparation returned an invalid result.
+    try{
+      console.error('REACT_TIMELINE_GESTURE_CANCEL='+JSON.stringify({
+        reason:String(reason||'unspecified'),
+        pointerId:e&&e.pointerId,
+        bridgeMethods:window.filmStudioReactTimeline?Object.keys(window.filmStudioReactTimeline).sort():[],
+        controllerMethods:window.filmStudioTimelineController?Object.keys(window.filmStudioTimelineController).sort():[],
+        context:(window.filmStudioStore&&window.filmStudioStore.getSnapshot
+          ?window.filmStudioStore.getSnapshot().timelineGestureContext:null)
+      }));
+    }catch(_){/* diagnostic output must never prevent gesture cleanup */}
     var store=window.filmStudioStore;
     var snapshot=store&&typeof store.getSnapshot==='function'?store.getSnapshot():null;
     var context=snapshot&&snapshot.timelineGestureContext;
@@ -2845,11 +2858,11 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     if(snapshot&&snapshot.timelineGestureContext){
       if(snapshot.timelineGestureContext.pointerId!==e.pointerId)return;
       if(!hasCompleteReactTimelineGestureContract(reactTimeline,window.filmStudioTimelineController)){
-        cancelReactTimelineGestureAfterContractLoss(e);
+        cancelReactTimelineGestureAfterContractLoss(e,'missing runtime bridge/controller contract');
         return;
       }
-      try{reactTimeline.previewClipGesture(e);}catch(_){
-        cancelReactTimelineGestureAfterContractLoss(e);
+      try{reactTimeline.previewClipGesture(e);}catch(error){
+        cancelReactTimelineGestureAfterContractLoss(e,'previewClipGesture threw: '+String(error&&error.stack||error));
       }
       return;
     }
@@ -2864,14 +2877,17 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     if(snapshot&&snapshot.timelineGestureContext){
       if(snapshot.timelineGestureContext.pointerId!==e.pointerId)return;
       if(!hasCompleteReactTimelineGestureContract(timeline,window.filmStudioTimelineController)){
-        cancelReactTimelineGestureAfterContractLoss(e);
+        cancelReactTimelineGestureAfterContractLoss(e,'missing commit runtime bridge/controller contract');
         return;
       }
       try{
         var prepared=timeline.prepareClipGestureCommit(e);
         if(Array.isArray(prepared))return finishReactClipGesture(e,prepared);
-      }catch(_){/* a failed React commit preparation must never invoke the legacy editor */}
-      cancelReactTimelineGestureAfterContractLoss(e);
+        cancelReactTimelineGestureAfterContractLoss(e,'prepareClipGestureCommit returned '+(prepared===null?'null':typeof prepared));
+      }catch(error){
+        // A failed React commit preparation must never invoke the legacy editor.
+        cancelReactTimelineGestureAfterContractLoss(e,'prepareClipGestureCommit threw: '+String(error&&error.stack||error));
+      }
       return;
     }
     return onUp(e);
