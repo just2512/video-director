@@ -142,6 +142,7 @@ class FrameVisionProvider(VisionProvider):
     def analyze(self, asset: AssetRef, frame_dir: Path) -> dict:
         import base64
         import urllib.request
+        import urllib.error
 
         try:
             from video_director import provider_matrix
@@ -174,27 +175,50 @@ class FrameVisionProvider(VisionProvider):
             },
             method="POST",
         )
-        # 2026-10-20 用户裁决统一策略：LLM 调用失败 10 次重试、单次超时
-        # ≥3 分钟（此前 2 次/120s 生产显示经常边缘超时）。
+        # 2026-10-27 用户裁决：重试 3 次（10 次太久）、固定 10s 间隔（视觉通道
+# 此前的递增等待 10→60s 没跟上 10-26 的统一裁决）。
+# 2026-10-20 用户裁决统一策略：LLM 调用失败重试、单次超时≥3 分钟
+# （此前 2 次/120s 生产显示经常边缘超时）。
         data = None
         last_exc: Optional[Exception] = None
-        max_attempts = 10
+        max_attempts = 3
         for attempt in range(1, max_attempts + 1):
             try:
                 with urllib.request.urlopen(req, timeout=180) as resp:
                     data = json.loads(resp.read().decode())
                 break
+            except urllib.error.HTTPError as exc:
+                # 2026-10-27 用户报障：4xx 参数类错误立即失败不重试。错误信息
+                # 必须带网关响应体——只报「400 Bad Request」标题无法定位真实
+                # 原因（模型不支持/参数/权限，网关只写在 body 里）。
+                body = ""
+                try:
+                    body = exc.read().decode("utf-8", errors="replace")[:200]
+                except Exception:
+                    pass
+                if 400 <= exc.code < 500 and exc.code != 429:
+                    raise VisionError(
+                        f"视觉 LLM 客户端错误 {exc.code}（不重试）: {body or str(exc)[:160]}。"
+                        "请到「设置 → 模型」检查视觉模型是否可用（大模型测试按钮"
+                        "测的是文本模型，视觉是独立角色）。") from exc
+                last_exc = exc
+                if attempt < max_attempts:
+                    import time as _time
+                    logger.warning(
+                        f"视觉 LLM 调用第 {attempt}/{max_attempts} 次失败"
+                        f"（10s 后重试）: {exc.code} {body}")
+                    _time.sleep(10.0)
             except Exception as exc:
                 last_exc = exc
                 if attempt < max_attempts:
                     import time as _time
-                    _wait = min(10.0 * attempt, 60.0)
                     logger.warning(
                         f"视觉 LLM 调用第 {attempt}/{max_attempts} 次失败"
-                        f"（{_wait:.0f}s 后重试）: {exc}")
-                    _time.sleep(_wait)
+                        f"（10s 后重试）: {exc}")
+                    _time.sleep(10.0)
         if data is None:
-            raise VisionError(f"视觉 LLM 调用失败（重试 {max_attempts} 次后）: {last_exc}") from last_exc
+            raise VisionError(
+                f"视觉 LLM 调用失败（重试 {max_attempts} 次后）: {str(last_exc)[:200]}") from last_exc
         # 防三连：choices 空（网关错误体）→ IndexError；content 为 None（安全
         # 过滤/截断）→ NoneType.find；花括号切片非 JSON → 裸 json.loads 崩。
         # 全部换成带原始响应摘要的诚实报错，调用方仍按 provider 失败降级。

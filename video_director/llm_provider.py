@@ -42,7 +42,8 @@ DEFAULT_MODEL = "gpt-4o-mini"
 # 2026-10-20 用户裁决：LLM 调用失败给 10 次重试机会。
 # 2026-10-25 用户裁决修正：递增等待（15/30/45/60s）在网关静默挂死场景下
 # 把 10 次重试拖成 8-15 分钟假卡死；改固定 10s 间隔。
-LLM_MAX_RETRIES = 10
+# 2026-10-27 用户裁决：重试次数 10 → 3（10 次太久）。
+LLM_MAX_RETRIES = 3
 LLM_RETRY_WAIT_S = 10.0       # 固定重试间隔（用户裁决 2026-10-25）
 LLM_ATTEMPT_TIMEOUT_S = 120   # 单次尝试超时：正常长生成 60~150s，挂死网关 120s 内暴露
 
@@ -187,12 +188,13 @@ class OpenAICompatibleProvider:
         return changed
 
     def generate(self, prompt: str, system: Optional[str] = None) -> str:
-        """调用 chat.completions 生成文本。
+        """调用 chat.completions 生成文本（流式接收）。
 
-        2026-10-20 用户裁决：失败给 10 次重试机会，每次单次超时预留不少于
-        3 分钟（LLM_ATTEMPT_TIMEOUT_S）。重试覆盖网络抖动/超时/5xx/429
-        （限流等待后重试）；4xx 参数类错误不重试（重试也无用，快速失败）。
-        全部失败抛 RuntimeError（调用方降级到规则路径）。
+        2026-10-27 用户裁决：重试 3 次（10 次太久），固定 10s 间隔。
+        每次单次超时 LLM_ATTEMPT_TIMEOUT_S（流式语义=相邻数据块间隔）。
+        重试覆盖网络抖动/超时/5xx/429（限流等待后重试）；4xx 参数类错误
+        不重试（重试也无用，快速失败）。全部失败抛 RuntimeError（调用方
+        降级到规则路径）。
         """
         self._ensure_client()
         messages = []

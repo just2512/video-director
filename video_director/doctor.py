@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -152,10 +153,76 @@ def _check_vision() -> CheckResult:
                                    "未配置——不影响使用。核心匹配已用文件名语义零依赖完成；"
                                    "在设置 → 模型里配视觉角色可升级为视觉级理解")
         st = provider_matrix.state("vision", "vision.frame_analyze", cfg)
-        if st.status == provider_matrix.READY:
-            return CheckResult("Vision 增强（可选）", "PASS", str(cfg.get("model") or ""))
-        # NOT_READY：纯文本模型误配等，如实亮出原因
-        return CheckResult("Vision 增强（可选）", "FAIL", st.reason or "视觉能力不可用", optional=True)
+        if st.status != provider_matrix.READY:
+            # NOT_READY：纯文本模型误配等，如实亮出原因
+            return CheckResult("Vision 增强（可选）", "FAIL", st.reason or "视觉能力不可用", optional=True)
+        # 2026-10-27 用户报障「doctor 说 PASS、创作中途 400/超时」：本地矩阵
+        # READY 只代表配置形状对，不代表网关侧模型真的能处理图文——真实
+        # 发一次最小图文请求（1px JPEG），把「模型挂了/不支持图片」提前
+        # 亮在设置页，别等创作中途炸。硬超时 10s：挂死网关（读超时不触发）
+        # 用守护线程丢弃法兜底，不让 doctor 被单项拖死。
+        import threading
+        probe_box: dict = {}
+
+        def _probe():
+            try:
+                import urllib.request, urllib.error
+                tiny = ("data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgH"
+                        "BwcJCQgKDBQNCwsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgy"
+                        "PC4zNDL/wAALCAABAAEBAREA/8QAFAABAQAAAAAAAAAAAAAAAAAAAAn/2gAIAQEAAD8A"
+                        "2qn/2Q==")
+                payload = json.dumps({
+                    "model": cfg.get("model"),
+                    "messages": [{"role": "user", "content": [
+                        {"type": "text", "text": "回复 OK"},
+                        {"type": "image_url", "image_url": {"url": tiny}},
+                    ]}],
+                    "max_tokens": 8,
+                }).encode()
+                req = urllib.request.Request(
+                    str(cfg.get("base_url") or "").rstrip("/") + "/chat/completions",
+                    data=payload,
+                    headers={"Content-Type": "application/json",
+                             "Authorization": "Bearer " + str(cfg.get("api_key"))},
+                    method="POST")
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    body = json.loads(resp.read().decode())
+                probe_box["body"] = body
+            except urllib.error.HTTPError as http_exc:
+                try:
+                    probe_box["http_error"] = (
+                        http_exc.code, http_exc.read().decode("utf-8", errors="replace")[:160])
+                except Exception:
+                    probe_box["http_error"] = (http_exc.code, "")
+            except Exception as exc:
+                probe_box["exc"] = str(exc)[:120]
+
+        t = threading.Thread(target=_probe, daemon=True)
+        t.start()
+        t.join(timeout=12.0)
+        if t.is_alive():
+            return CheckResult(
+                "Vision 增强（可选）", "FAIL",
+                "真实图文探活 12s 无响应（网关对视觉模型挂死/静默）"
+                "——请到「设置 → 模型」换可用的视觉模型", optional=True)
+        if "body" in probe_box:
+            content = (((probe_box["body"].get("choices") or [{}])[0].get("message") or {})
+                       .get("content") or "")
+            if content:
+                return CheckResult("Vision 增强（可选）", "PASS",
+                                   f"真实图文调用成功（model={cfg.get('model')}）")
+            return CheckResult("Vision 增强（可选）", "FAIL",
+                                "端点对图文返回空内容", optional=True)
+        if "http_error" in probe_box:
+            code, err_body = probe_box["http_error"]
+            return CheckResult(
+                "Vision 增强（可选）", "FAIL",
+                f"真实图文调用失败 HTTP {code}: {err_body or '网关拒绝'}"
+                "——请到「设置 → 模型」换可用的视觉模型", optional=True)
+        return CheckResult(
+            "Vision 增强（可选）", "FAIL",
+            f"真实图文调用失败: {probe_box.get('exc') or '未知错误'}"
+            "——请到「设置 → 模型」换可用的视觉模型", optional=True)
     except Exception as exc:
         return CheckResult("Vision 增强（可选）", "FAIL", f"检测异常: {str(exc)[:120]}", optional=True)
 

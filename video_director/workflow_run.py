@@ -556,9 +556,12 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
     # 2026-10-20 意图链修复：retry 重建 spec 必须重跑意图解析——否则 brief 里的
     # 自然语言要求（水印/时长/字幕开关）在「重试」入口被丢（生产实锚：
     # web-cf64b359 三次 retry 后 watermark 丢失、_intent_duration_s=None）。
+    # 2026-10-27 用户报障「15s 超时一直报」：retry 路径与 create 同分层——
+    # 同步只跑规则层（毫秒级，不烧 LLM 15s），LLM 泛化层由 understand 节点
+    # 的 merge_llm_intents 后台补齐（understand 本来就会做这件事）。
     try:
         from video_director import director_intent
-        _intent = director_intent.resolve_director_intents(
+        _intent = director_intent.resolve_rule_intents(
             bundle.get("brief") or params.get("creative_brief") or "")
     except Exception:
         _intent = {}

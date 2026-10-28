@@ -6,6 +6,7 @@
 20+ 分钟不返回 run_id，前端「点了没反应」。增强层必须独立快速失败。
 """
 import time
+from pathlib import Path
 
 import pytest
 
@@ -74,3 +75,25 @@ class TestIntentLlmFastFail:
             assert r.get("duration") == "40+"
         finally:
             lp.get_llm = orig
+
+class TestRetryPathUsesRuleLayerOnly:
+    """2026-10-27 用户报障「意图 15s 超时一直报」：retry 路径重建 spec 时
+    与 create 同分层——同步只跑规则层（毫秒级），LLM 泛化层由 understand
+    节点的 merge_llm_intents 后台补齐。锁：retry spec 重建代码不再引用
+    resolve_director_intents（同步 LLM 版），引用 resolve_rule_intents。
+    """
+
+    def test_retry_spec_rebuild_uses_rule_layer(self):
+        root = Path(__file__).resolve().parents[1]
+        src = (root / "video_director" / "workflow_run.py").read_text(encoding="utf-8")
+        # retry 重建 spec 的意图解析必须走规则层（不烧同步 LLM 15s）
+        assert "director_intent.resolve_rule_intents(" in src
+        assert "director_intent.resolve_director_intents(" not in src
+
+    def test_rule_layer_has_no_llm_call(self):
+        """规则层纯函数：无 provider 引用（毫秒级返回）。"""
+        from video_director import director_intent as dint
+        r = dint.resolve_rule_intents("总时长40秒以上，加字幕，慢动作")
+        assert str(r.get("duration") or "").startswith("40")
+        assert r.get("subtitle_mode") in ("on", "plain")  # 规则层字幕口径
+        assert r.get("clip_speed") == "0.8"

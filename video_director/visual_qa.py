@@ -21,6 +21,7 @@ import json
 import math
 import os
 import tempfile
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -456,27 +457,39 @@ def frame_vision_visual_qa(scene_id: str, scene_text: str, asset_id: str,
         method="POST",
     )
     try:
-        # 2026-10-20 统一策略：10 次重试+单次 180s（此前 90s 无重试，独立
-        # HTTP 调用曾直接超时失败——与 vision.py FrameVisionProvider 同策略）
+        # 2026-10-27 用户裁决：3 次重试、固定 10s 间隔（原 10 次递增 10→60s
+        # 没跟上统一裁决）；4xx 参数类错误不重试立即失败。
         data = None
         last_exc: Optional[Exception] = None
-        for attempt in range(1, 11):
+        for attempt in range(1, 4):
             try:
                 with urllib.request.urlopen(req, timeout=180) as resp:
                     data = json.loads(resp.read().decode())
                 break
+            except urllib.error.HTTPError as http_exc:
+                if 400 <= http_exc.code < 500 and http_exc.code != 429:
+                    raise VisualAnalysisError(
+                        "PROVIDER_BAD_REQUEST",
+                        f"视觉 QA 客户端错误 {http_exc.code}（不重试）: "
+                        f"{str(http_exc)[:160]}。请到「设置 → 模型」检查视觉 QA 模型"
+                        "是否支持图片输入。") from http_exc
+                last_exc = http_exc
+                if attempt < 3:
+                    import time as _time
+                    logger.warning(
+                        f"视觉 QA 调用第 {attempt}/3 次失败（10s 后重试）: {http_exc}")
+                    _time.sleep(10.0)
             except Exception as exc:
                 last_exc = exc
-                if attempt < 10:
+                if attempt < 3:
                     import time as _time
-                    _wait = min(10.0 * attempt, 60.0)
                     logger.warning(
-                        f"视觉 QA 调用第 {attempt}/10 次失败（{_wait:.0f}s 后重试）: {exc}")
-                    _time.sleep(_wait)
+                        f"视觉 QA 调用第 {attempt}/3 次失败（10s 后重试）: {exc}")
+                    _time.sleep(10.0)
         if data is None:
             raise VisualAnalysisError(
                 "PROVIDER_FETCH_FAILED",
-                f"视觉 QA 调用失败（重试 10 次后）: {last_exc}") from last_exc
+                f"视觉 QA 调用失败（重试 3 次后）: {last_exc}") from last_exc
     except VisualAnalysisError:
         raise
     except Exception as exc:

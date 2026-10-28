@@ -70,16 +70,17 @@ class TestTextChannelRetry:
 
     def test_retry_until_success(self, monkeypatch):
         p = self._provider()
-        flaky = _Flaky(fail_times=3, exc_factory=lambda: TimeoutError("read timeout"))
+        flaky = _Flaky(fail_times=2, exc_factory=lambda: TimeoutError("read timeout"))
         self._wire(p, flaky, monkeypatch)
         out = p.generate("hi")
         assert out == "好的"
-        # 2026-10-27 流式根修后：generate 默认流式，mock 非流式结构 → 流式
-        # TypeError → 降级非流式成功。3 次网络失败 + 流式第 4 次调用拿到
-        # TypeError 降级 + 非流式第 5 次成功 = 5 次调用（流式不兼容多一发）。
-        assert flaky.calls == 5
+        # 2026-10-27 用户裁决 LLM_MAX_RETRIES 10→3：流式根修后 mock 非流式
+        # 结构 → 流式 TypeError → 降级非流式。2 次网络失败 + 流式第 3 次
+        # TypeError 降级 + 非流式第 4 次成功 = 4 次调用。
+        assert flaky.calls == 4
 
-    def test_gives_up_after_10(self, monkeypatch):
+    def test_gives_up_after_3(self, monkeypatch):
+        # 2026-10-27 用户裁决契约翻转：重试 10 次 → 3 次（10 次太久）。
         p = self._provider()
         flaky = _Flaky(fail_times=99, exc_factory=lambda: TimeoutError("t"))
         self._wire(p, flaky, monkeypatch)
@@ -87,8 +88,11 @@ class TestTextChannelRetry:
             p.generate("hi")
             raise AssertionError("应抛 RuntimeError")
         except RuntimeError as exc:
-            assert "重试 10 次" in str(exc) or "10 次" in str(exc)
-        assert flaky.calls == 10
+            assert "重试 3 次" in str(exc) or "3 次" in str(exc)
+        # 2026-10-27 LLM_MAX_RETRIES 10→3。mock create 不区分 stream——流式
+        # create 直接 raise TimeoutError（不进 TypeError 降级分支），每次尝试
+        # 1 发：3 次尝试 = 3 发后放弃。
+        assert flaky.calls == 3
 
     def test_4xx_no_retry(self, monkeypatch):
         p = self._provider()
@@ -104,10 +108,11 @@ class TestTextChannelRetry:
         assert flaky.calls == 1  # 不重试
 
     def test_constants_meet_user_ruling(self):
-        # 2026-10-25 用户裁决修正：固定 10s 重试间隔（不再递增）。
-        assert llm_provider.LLM_MAX_RETRIES == 10
+        # 2026-10-27 用户裁决契约翻转：重试 10 → 3 次（10 次太久）。
+        # 2026-10-25 用户裁决保持：固定 10s 重试间隔（不再递增）。
+        assert llm_provider.LLM_MAX_RETRIES == 3
         assert llm_provider.LLM_RETRY_WAIT_S == 10.0
-        # 单次尝试超时 120s：正常长生成足够，挂死网关 120s 内暴露。
+        # 单次尝试超时 120s：流式语义=相邻数据块间隔（长生成不再误杀）。
         assert llm_provider.LLM_ATTEMPT_TIMEOUT_S == 120
 
     def test_retry_drops_dead_client_connection(self, monkeypatch):

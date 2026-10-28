@@ -140,7 +140,10 @@ class TestCancelInterruptsRetry:
         lp.set_cancel_check(None)
         with pytest.raises(RuntimeError) as exc:
             p.generate("hi")
-        assert factory.calls == lp.LLM_MAX_RETRIES  # 10 次全尝试
+        # 2026-10-27 LLM_MAX_RETRIES 10→3。本 mock 的 create 对流式/非流式
+        # 都 raise 同一 TimeoutError → 流式 create 即抛（不进 TypeError 降级
+        # 分支），每次尝试只发 1 次：3 次尝试 = 3 发。
+        assert factory.calls == lp.LLM_MAX_RETRIES
         # 结束时取消钩子保持 None
         assert "失败" in str(exc.value)
 
