@@ -45,6 +45,13 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     # process; broad regressions must not inherit the runner's paid model config.
     assert "VD_PRESERVED_MODEL_CONFIG_FILE" in ai_workflow
     assert "VD_LLM_LIVE_CONFIG_FILE" in ai_workflow
+    live_config_step = ai_workflow.split(
+        "      - name: Configure opt-in live model token-stream smoke", 1
+    )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
+    assert 'os.environ.get("NVIDIA_API_KEY")' in live_config_step
+    assert '"https://integrate.api.nvidia.com/v1"' in live_config_step
+    assert "resolve_live_provider_override" in live_config_step
+    assert "resolve_live_model_override" in live_config_step
     assert "id: live_stream_smoke" in ai_workflow
     assert "live-stream-junit.xml" in ai_workflow
     assert "env -u VD_LLM_API_KEY" in ai_workflow
