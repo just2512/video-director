@@ -23,6 +23,74 @@ from loguru import logger
 
 from video_director import audio as audio_mod, config, prober
 
+#: 2026-10-28 用户实证修正：视觉探活图必须是真实尺寸——1×1 像素图会被
+#: 部分网关挂起/拒绝（glm-5.3-flash 对 1px 图超时、对 320×240 图 25s 200）。
+#: 320×240 渐变 JPEG（~5.9KB），与创作链 extract_frames 输出同量级。
+VLM_PROBE_JPEG_B64 = (
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEY"
+    "Gh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4e"
+    "Hh4eHh4eHh4eHh4eHh7/wAARCADwAUADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAA"
+    "AgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6"
+    "Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXG"
+    "x8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREA"
+    "AgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5"
+    "OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPE"
+    "xcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD5OCU8JUgSnqlfsLkedCZGEp4SpQlPCVm5"
+    "HVCZEEp6pUoSnqlQ5HVCZEEp4SpQlPCVDkdUJkQSnhKlCU8JWbkdUJkQSnhKlVKeEqHI64TI1SnhKkVKeqVm5HVCZGEp4SpF"
+    "SnhKhyOqEyMJTwlSBKeErNyOqEyMJTwlSKlPCVDkdUJkapT1SpFSnhKhyOuEyMJT1SpVSnhKzcjqhMiCU9UqUJTwlQ5HVCZE"
+    "Ep4SpQlPCVm5HVCZEqU9UqUJT1SocjrhMiCVIEqQJT1Ss3I6oTIwlPCVIEp6pUOR1QmRhKeEqQJTwlZuR1QmRhKeqVIEp6pU"
+    "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"
+    "UoSnqlQ5HVCZEEp4SpQlPVKzcjqhM//Z"
+)
 #: 可用磁盘下限（GB）——渲染 60s 1080p 成片约需 0.5GB，留 10 倍余量
 MIN_FREE_GB = 5.0
 
@@ -158,53 +226,66 @@ def _check_vision() -> CheckResult:
             return CheckResult("Vision 增强（可选）", "FAIL", st.reason or "视觉能力不可用", optional=True)
         # 2026-10-27 用户报障「doctor 说 PASS、创作中途 400/超时」：本地矩阵
         # READY 只代表配置形状对，不代表网关侧模型真的能处理图文——真实
-        # 发一次最小图文请求（1px JPEG），把「模型挂了/不支持图片」提前
-        # 亮在设置页，别等创作中途炸。硬超时 10s：挂死网关（读超时不触发）
-        # 用守护线程丢弃法兜底，不让 doctor 被单项拖死。
+        # 发一次图文请求，把「模型挂了/不支持图片」提前亮在设置页，别等
+        # 创作中途炸。硬超时 160s（视觉推理实测 ~144s/图，见下方实测注释）：
+        # 守护线程丢弃法兜底，不让 doctor 被单项无限拖死。
+        # 2026-10-28 用户实证修正：1×1 像素图会被部分网关挂起/拒绝（假阴性）
+        # ——glm-5.3-flash 对真实 320×240 图正常描述，对 1px 图超时。
+        # 探活图必须是真实尺寸（与创作链 extract_frames 的输出同量级）。
         import threading
         probe_box: dict = {}
 
         def _probe():
-            try:
-                import urllib.request, urllib.error
-                tiny = ("data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgH"
-                        "BwcJCQgKDBQNCwsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgy"
-                        "PC4zNDL/wAALCAABAAEBAREA/8QAFAABAQAAAAAAAAAAAAAAAAAAAAn/2gAIAQEAAD8A"
-                        "2qn/2Q==")
-                payload = json.dumps({
-                    "model": cfg.get("model"),
-                    "messages": [{"role": "user", "content": [
-                        {"type": "text", "text": "回复 OK"},
-                        {"type": "image_url", "image_url": {"url": tiny}},
-                    ]}],
-                    "max_tokens": 8,
-                }).encode()
-                req = urllib.request.Request(
-                    str(cfg.get("base_url") or "").rstrip("/") + "/chat/completions",
-                    data=payload,
-                    headers={"Content-Type": "application/json",
-                             "Authorization": "Bearer " + str(cfg.get("api_key"))},
-                    method="POST")
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    body = json.loads(resp.read().decode())
-                probe_box["body"] = body
-            except urllib.error.HTTPError as http_exc:
+            import urllib.request, urllib.error
+            # 320×240 渐变 JPEG（5.9KB）——真实尺寸探活图，非 1px 假体
+            probe_img = "data:image/jpeg;base64," + VLM_PROBE_JPEG_B64
+            payload = json.dumps({
+                "model": cfg.get("model"),
+                "messages": [{"role": "user", "content": [
+                    {"type": "text", "text": "回复 OK"},
+                    {"type": "image_url", "image_url": {"url": probe_img}},
+                ]}],
+                "max_tokens": 8,
+            }).encode()
+            req = urllib.request.Request(
+                str(cfg.get("base_url") or "").rstrip("/") + "/chat/completions",
+                data=payload,
+                headers={"Content-Type": "application/json",
+                         "Authorization": "Bearer " + str(cfg.get("api_key"))},
+                method="POST")
+            # 2026-10-28 实测修正：glm-5.3-flash 处理一张 320×240 图
+            # 耗时 25~150s 剧烈波动（45s 超时 3 连败、150s 预算 143.8s 成功）。
+            # 视觉慢≠挂死。探活策略：单次 70s 超时 × 2 次尝试（第二次常落在
+            # 快区间）；两次都超时才判「极慢/挂死」。总预算 ~150s 与创作链
+            # 180s 同量级，守护线程兜底 doctor 不被无限拖死。
+            for attempt in (1, 2):
                 try:
-                    probe_box["http_error"] = (
-                        http_exc.code, http_exc.read().decode("utf-8", errors="replace")[:160])
-                except Exception:
-                    probe_box["http_error"] = (http_exc.code, "")
-            except Exception as exc:
-                probe_box["exc"] = str(exc)[:120]
+                    with urllib.request.urlopen(req, timeout=70) as resp:
+                        body = json.loads(resp.read().decode())
+                    probe_box["body"] = body
+                    return
+                except urllib.error.HTTPError as http_exc:
+                    try:
+                        probe_box["http_error"] = (
+                            http_exc.code,
+                            http_exc.read().decode("utf-8", errors="replace")[:160])
+                    except Exception:
+                        probe_box["http_error"] = (http_exc.code, "")
+                    return  # 4xx/5xx 是明确拒绝，重试无意义
+                except Exception as exc:
+                    if attempt == 2:
+                        probe_box["exc"] = str(exc)[:120]
+                    # 首次超时：可能是慢尾，静默再试一次
 
         t = threading.Thread(target=_probe, daemon=True)
         t.start()
-        t.join(timeout=12.0)
+        t.join(timeout=160.0)
         if t.is_alive():
             return CheckResult(
                 "Vision 增强（可选）", "FAIL",
-                "真实图文探活 12s 无响应（网关对视觉模型挂死/静默）"
-                "——请到「设置 → 模型」换可用的视觉模型", optional=True)
+                "真实图文探活 160s 无响应——该视觉模型响应极慢或挂死"
+                "（glm-5.3-flash 实测单图 25~150s 波动）。创作可用但视觉步骤"
+                "会显著拖慢，建议换更快的视觉模型", optional=True)
         if "body" in probe_box:
             content = (((probe_box["body"].get("choices") or [{}])[0].get("message") or {})
                        .get("content") or "")
@@ -218,11 +299,12 @@ def _check_vision() -> CheckResult:
             return CheckResult(
                 "Vision 增强（可选）", "FAIL",
                 f"真实图文调用失败 HTTP {code}: {err_body or '网关拒绝'}"
-                "——请到「设置 → 模型」换可用的视觉模型", optional=True)
+                "——请到「设置 → 模型」检查视觉模型", optional=True)
         return CheckResult(
             "Vision 增强（可选）", "FAIL",
             f"真实图文调用失败: {probe_box.get('exc') or '未知错误'}"
-            "——请到「设置 → 模型」换可用的视觉模型", optional=True)
+            "——该视觉模型响应极慢（实测可达 150s+/图）或不可达；"
+            "创作可用但视觉步骤会显著拖慢", optional=True)
     except Exception as exc:
         return CheckResult("Vision 增强（可选）", "FAIL", f"检测异常: {str(exc)[:120]}", optional=True)
 
