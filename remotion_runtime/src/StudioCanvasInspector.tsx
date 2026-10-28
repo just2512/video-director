@@ -2548,8 +2548,8 @@ const StudioTimelineToolbar: React.FC = () => {
     <button className="fs-btn" type="button" data-film-action="copy-clips" title="复制选中片段（Ctrl/⌘+C）">复制</button>
     <button className="fs-btn" type="button" data-film-action="paste-clips" title="按原相对布局粘贴到播放头附近的可用区间（Ctrl/⌘+V）">粘贴</button>
     <button className="fs-btn" type="button" data-film-action="join-cut" title="合并同轨相邻、同源连续且属性一致的切分片段">愈合切口</button>
-    <button className="fs-btn" type="button" data-film-action="remove">删除片段</button>
-    <button className="fs-btn" type="button" data-film-action="ripple-delete" title="删除选中片段对应的时间段，并收拢全部轨道">波纹删除</button>
+    <button className="fs-btn" type="button" data-film-action="remove" title="Lift：仅移除所选片段，保留时间线空隙；后续片段不移动。">删除并保留空隙</button>
+    <button className="fs-btn" type="button" data-film-action="ripple-delete" title="波纹删除：删除时间段并收拢所有受影响轨道">波纹删除（收拢时间线）</button>
     <button className={"fs-btn" + (envelopeMode ? " fs-envelope-mode-active" : "")} type="button" data-film-action="envelope-mode" aria-pressed={envelopeMode} title="切换音量关键帧编辑模式；普通模式下可正常拖动片段">音量曲线：{envelopeMode ? "开" : "关"}</button>
     <button className={"fs-btn" + (slideMode ? " fs-slide-mode-active" : "")} type="button" data-film-action="slide-mode" aria-pressed={slideMode} title="切换滑移修剪模式；拖动中间视频/音频片段主体，外侧时间线边界保持不变">滑移修剪：{slideMode ? "开" : "关"}</button>
     <button className={"fs-btn" + (slipMode ? " fs-slip-mode-active" : "")} type="button" data-film-action="slip-mode" aria-pressed={slipMode} title="切换源区间滑移模式；只改变素材源范围，片段时间线位置与长度不变">源区间滑移：{slipMode ? "开" : "关"}</button>

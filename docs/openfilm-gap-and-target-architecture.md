@@ -42,6 +42,7 @@
 
 ## 当前下一阶段落地点
 
+- 时间线工具栏将 Lift 明确显示为“删除并保留空隙”，将 Ripple Delete 显示为“波纹删除（收拢时间线）”；两者分别说明后续片段是否移动，并与右键菜单保持同一语义。
 - 普通片段 move/trim/roll/slide/slip 的活动手势上下文已由 FilmStore 的 `timelineGestureContext` 类型化保存：仅含指针 ID、模式、稳定 clip/track ID、原始时间/时长、目标轨道状态及成员数值快照；Store 对必要字段与成员身份做严格校验。React 路径不保存 DOM 引用。
 - 音量包络活动手势已迁为 FilmStore 的 `timelineEnvelopeGesture`：只保存 clip ID、pointer ID、数值矩形、持续时间、关键帧快照、索引与活动标志；Canvas 引用只保留在无 bundle fallback 的适配器闭包里。真实 Chromium 已验证 ID-only Store 快照、React 预览、pointercancel 清理、pointerup 单事务和 undo。
 - Agent/外部进程在音量包络指针手势期间写入新 revision 的冲突边界已由真实 Chromium 回归覆盖：外部文件 revision 被保留；旧预览在 pointerup 时被丢弃，不会发送 edit 请求；FilmStore 活动手势/预览清空，随后重载到外部 revision。该测试随 AI Director #1349 和 Studio #340 通过。

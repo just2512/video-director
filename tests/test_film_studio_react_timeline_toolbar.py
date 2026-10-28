@@ -130,6 +130,10 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "S.waveformCache" not in studio
     assert "syncTimelineWaveformSources" not in studio
     assert "bridge.setField('timelineWaveformSources',next)" in studio
+    assert 'title="Lift：仅移除所选片段，保留时间线空隙；后续片段不移动。">删除并保留空隙</button>' in component
+    assert 'title="波纹删除：删除时间段并收拢所有受影响轨道">波纹删除（收拢时间线）</button>' in component
+    assert 'title="Lift：仅移除所选片段，保留时间线空隙；后续片段不移动。">删除并保留空隙</button>' in html
+    assert 'title="波纹删除：删除时间段并收拢所有受影响轨道">波纹删除（收拢时间线）</button>' in html
     assert "删除并保留空隙" in component
     assert "波纹删除（收拢时间线）" in component
     assert "删除并保留空隙" in studio
