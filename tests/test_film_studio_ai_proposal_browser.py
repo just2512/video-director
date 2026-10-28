@@ -1080,7 +1080,14 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
                   document.querySelector('#shotbook-details').appendChild(button);
                   button.click();button.remove();
                 }""")
-                page.locator('#creative-plan-panel [data-action="ui.creative_plan_initialize"]').click()
+                initialize_button = page.locator('#creative-plan-panel [data-action="ui.creative_plan_initialize"]')
+                assert initialize_button.is_disabled()
+                # The button is disabled in reference-only mode. A synthetic DOM click must
+                # also stay local; the direct API probe above separately proves server rejection.
+                page.evaluate("""() => {
+                  const button=document.querySelector('#creative-plan-panel [data-action="ui.creative_plan_initialize"]');
+                  button?.click();
+                }""")
                 assert legacy_post_requests == [], legacy_post_requests
                 assert fd.read_project_film(project_id)["rev"] == before["rev"]
 
