@@ -1485,7 +1485,8 @@ def test_legacy_save_and_render_endpoints_are_hard_gated_after_migration():
     assert 'assert_legacy_composition_access(project_id, "导出旧时间线成片")' in confirm
     assert '_reject_legacy_composition_access(pid, "启动旧时间线渲染")' in server
     assert '_reject_legacy_composition_access(pid, "导出旧时间线成片")' in server
-    assert '_reject_legacy_composition_access(pid, "生成或保存基于旧 CompositionIR 的分镜")' in server
+    server_contract = " ".join(server.split())
+    assert '_reject_legacy_composition_access( pid, "生成或保存基于旧 CompositionIR 的分镜")' in server_contract
     assert 'get_project_shotbook_reference(pid)' in server
     assert 'fd._film_path(pid).is_file()' in server
     assert 'await window.shotbookLoad(true)' in studio

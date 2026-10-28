@@ -16,7 +16,7 @@ async function shotbookLoad(discardDirty){
   if(!data||data.ok===false||data.error){if(status)status.textContent='读取失败：'+((data&&data.error)||'服务暂不可用');return false;}
   SHOTBOOK=data;SHOTBOOK_DIRTY=false;shotbookRender();
   if(status)status.textContent=data.reference_only
-    ? (data.saved?'已载入旧版分镜参考（只读）。旧时间与镜头 ID 不具备 film.html 写入权威。':'当前项目没有已保存的旧版分镜参考。')
+    ? (data.saved?'已载入旧版分镜只读参考。旧时间与镜头 ID 不具备 film.html 写入权威。':'当前项目没有已保存的旧版分镜只读参考。')
     : (data.saved?'已载入已保存的分镜。修改后点“保存分镜”。':'当前项目还没有保存过分镜；可从当前时间线生成草案。');
   return true;
 }
