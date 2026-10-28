@@ -359,7 +359,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "data-react-context-menu=\"true\"" in component
     assert "openContextMenu(model: FilmTimelineContextMenu): void;" in component
     assert "window.filmStudioOpenTimelineContextMenu=function(clipId,clientX,clientY)" in studio
-    assert "window.filmStudioContextMenuAction=function(action,clipId)" in studio
+    assert "window.filmStudioContextMenuAction=function(action,clipId,requestedDuration)" in studio
     assert "bridge.isContextMenuOpen==='function'&&bridge.isContextMenuOpen()" in studio
     assert "setSnapGuide(guide: FilmTimelineSnapGuide): void;" in component
     assert "setTrackDropTarget(target: FilmTimelineDropTarget): void;" in component

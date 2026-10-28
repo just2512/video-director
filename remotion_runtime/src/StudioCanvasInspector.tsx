@@ -1414,8 +1414,29 @@ const StudioAiDirector: React.FC<{model: FilmStudioAiDirectorModel}> = ({model})
 };
 
 const StudioTimelineContextMenu: React.FC<{model: FilmTimelineContextMenu}> = ({model}) => {
-  const left = Math.max(8, Math.min(model.x, window.innerWidth - 300));
-  const top = Math.max(8, Math.min(model.y, window.innerHeight - 430));
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [menuPosition,setMenuPosition] = useState(() => ({
+    left:Math.max(8,Math.min(model.x,window.innerWidth-300)),
+    top:Math.max(8,Math.min(model.y,window.innerHeight-430)),
+  }));
+  useLayoutEffect(() => {
+    const reposition = () => {
+      const menu = menuRef.current;
+      if (!menu) return;
+      const bounds = menu.getBoundingClientRect();
+      const next = {
+        left:Math.max(8,Math.min(model.x,window.innerWidth-bounds.width-8)),
+        top:Math.max(8,Math.min(model.y,window.innerHeight-bounds.height-8)),
+      };
+      setMenuPosition(current =>
+        Math.abs(current.left-next.left)<0.5 && Math.abs(current.top-next.top)<0.5
+          ? current : next
+      );
+    };
+    reposition();
+    window.addEventListener("resize",reposition);
+    return () => window.removeEventListener("resize",reposition);
+  }, [model.x,model.y]);
   const [transitionDuration,setTransitionDuration] = useState("0.5");
   const [transitionDurationTouched,setTransitionDurationTouched] = useState(false);
   const action = (name: string) => (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -1429,8 +1450,8 @@ const StudioTimelineContextMenu: React.FC<{model: FilmTimelineContextMenu}> = ({
     window.filmStudioContextMenuAction?.(name,model.clipId,transitionDurationTouched?transitionDuration:undefined);
   };
   return createPortal(
-    <div className="fs-context-menu" role="menu" data-react-context-menu="true"
-      style={{position:"fixed",left,top}}
+    <div ref={menuRef} className="fs-context-menu" role="menu" data-react-context-menu="true"
+      style={{position:"fixed",left:menuPosition.left,top:menuPosition.top}}
       onContextMenu={event => { event.preventDefault(); event.stopPropagation(); }}
       onPointerDown={event => event.stopPropagation()}>
       <button type="button" role="menuitem" data-context-action="copy" onClick={action("copy")}>复制所选片段</button>

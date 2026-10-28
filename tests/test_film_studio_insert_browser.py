@@ -306,6 +306,11 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                 )
                 menu = page.locator('.fs-context-menu[data-react-context-menu="true"]')
                 menu.wait_for(state="visible", timeout=5000)
+                menu_bounds = menu.bounding_box()
+                assert menu_bounds, "React context menu is not measurable"
+                assert menu_bounds["x"] >= 0 and menu_bounds["y"] >= 0, menu_bounds
+                assert menu_bounds["x"] + menu_bounds["width"] <= 1441, menu_bounds
+                assert menu_bounds["y"] + menu_bounds["height"] <= 1001, menu_bounds
                 menu.locator('[data-context-action="ripple"]').click()
                 wait_for_consistent_state(later_present=False, after_at=4)
 
@@ -825,6 +830,11 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 ripple_count = len(edit_requests)
                 page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, button="right")
                 menu.wait_for(state="visible", timeout=5000)
+                menu_bounds = menu.bounding_box()
+                assert menu_bounds, "React context menu is not measurable"
+                assert menu_bounds["x"] >= 0 and menu_bounds["y"] >= 0, menu_bounds
+                assert menu_bounds["x"] + menu_bounds["width"] <= 1441, menu_bounds
+                assert menu_bounds["y"] + menu_bounds["height"] <= 1001, menu_bounds
                 menu.locator('[data-context-action="ripple"]').click()
 
                 page.wait_for_function("""async (pid) => {

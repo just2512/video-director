@@ -339,7 +339,7 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 
 .fs-timeline{position:relative}
 .fs-snap-guide{position:absolute;top:0;bottom:0;width:1px;z-index:80;background:#f4d57a;box-shadow:0 0 0 1px rgba(244,213,122,.18);pointer-events:none}
-.fs-context-menu{position:fixed;z-index:10000;display:grid;gap:2px;min-width:196px;padding:5px;background:var(--fs-pane,#181818);color:var(--fs-text,#eee);border:1px solid var(--fs-border,#3a3a3a);border-radius:8px;box-shadow:0 12px 36px rgba(0,0,0,.42)}
+.fs-context-menu{position:fixed;z-index:10000;display:grid;gap:2px;min-width:196px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px);overflow:auto;overscroll-behavior:contain;padding:5px;background:var(--fs-pane,#181818);color:var(--fs-text,#eee);border:1px solid var(--fs-border,#3a3a3a);border-radius:8px;box-shadow:0 12px 36px rgba(0,0,0,.42)}
 .fs-context-menu button{width:100%;min-height:30px;padding:6px 9px;border:0;border-radius:4px;background:transparent;color:inherit;text-align:left;font:inherit;font-size:12px;cursor:pointer}
 .fs-context-menu button:hover,.fs-context-menu button:focus-visible{outline:none;background:var(--fs-hover,#2a2a2a)}
 .fs-context-separator{height:1px;margin:3px 4px;background:var(--fs-border,#3a3a3a)}

@@ -160,8 +160,10 @@ def test_fade_transition_action_is_explicitly_same_track_adjacent_and_one_transa
     assert "action==='fade-transition'" in runtime
     assert "requestedDuration" in runtime
     assert "transitionDurationTouched?transitionDuration:undefined" in component
-    assert "淡出当前片段并淡入下一片段" in runtime
-    assert "不改变片段位置" in component
+    assert "正在为两个相邻片段提交淡出/淡入衔接" in runtime
+    assert "片段位置不变" in runtime
+    assert "淡出/淡入接续（无重叠）" in component
+    assert "不重叠、不改变位置" in component
 
 
 def test_studio_components_share_one_react_root_and_keep_portal_slots():
