@@ -295,7 +295,9 @@ jobs:
           if model_override:
               print("Using the explicitly supplied model ID override for this isolated run; stored configuration remains unchanged.")
           elif model != configured_model:
-              print("Detected the retired OpenRouter GLM-5.3 model ID; using the provider GLM Latest alias for this isolated run. Stored configuration remains unchanged.")
+              print("Detected the retired OpenRouter GLM-5.3 model ID on the official OpenRouter endpoint; using the GLM Latest alias for this isolated run. Stored configuration remains unchanged.")
+          elif configured_model == "z-ai/glm-5.3":
+              print("::warning::The configured model ID is retired, but this is not the official OpenRouter endpoint. Supply live_model_override with a model ID supported by this gateway; saved configuration remains unchanged.")
           if not api_key or not base_url or not model:
               print("::error::Opt-in live-model smoke is missing a complete key/base URL/model configuration.")
               raise SystemExit(1)

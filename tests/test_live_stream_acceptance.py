@@ -87,28 +87,31 @@ def test_main_honors_explicit_junit_path(tmp_path, monkeypatch, capsys):
 
 @pytest.mark.parametrize(
     "base_url",
-    [
-        "https://openrouter.ai/api/v1",
-        "https://openrouter.ai/api/v1/",
-        "https://compatible-proxy.example/v1",
-        "",
-    ],
+    ["https://openrouter.ai/api/v1", "https://openrouter.ai/api/v1/"],
 )
-def test_retired_glm_model_uses_live_alias_through_configured_endpoint_without_mutating_config(base_url):
+def test_retired_model_uses_glm_latest_alias_only_on_official_openrouter(base_url):
     assert resolve_live_model("z-ai/glm-5.3", base_url) == "~z-ai/glm-latest"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    ["https://compatible-proxy.example/v1", "https://models.example/v1", ""],
+)
+def test_custom_gateway_model_ids_are_not_rewritten_to_openrouter_alias(base_url):
+    assert resolve_live_model("z-ai/glm-5.3", base_url) == "z-ai/glm-5.3"
 
 
 @pytest.mark.parametrize(
     ("model", "base_url", "expected"),
     [
         ("z-ai/glm-5.3-flash", "https://openrouter.ai/api/v1", "z-ai/glm-5.3-flash"),
-        ("z-ai/glm-5.3", "https://models.example/v1", "~z-ai/glm-latest"),
         ("gpt-4o-mini", "https://openrouter.ai/api/v1", "gpt-4o-mini"),
+        ("native-model-v2", "https://compatible-proxy.example/v1", "native-model-v2"),
     ],
 )
-def test_live_model_resolver_leaves_other_model_ids_unchanged(model, base_url, expected):
+def test_live_model_resolver_leaves_unrelated_models_unchanged(model, base_url, expected):
     assert resolve_live_model(model, base_url) == expected
 
 
 def test_live_model_resolver_trims_model_and_endpoint_strings():
-    assert resolve_live_model(" z-ai/glm-5.3 ", " https://compatible-proxy.example/v1 ") == "~z-ai/glm-latest"
+    assert resolve_live_model(" z-ai/glm-5.3 ", " https://openrouter.ai/api/v1 ") == "~z-ai/glm-latest"
