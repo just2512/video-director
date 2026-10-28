@@ -191,3 +191,9 @@
 
 - [Studio run 40637515301](https://github.com/just2512/video-director/actions/runs/40637515301) 测试的是修复前的 `1b165051`，报告 288 passed、3 failed、1 warning：Ctrl 多选在 click 阶段被再次切换、手势取消时 React Portal DOM 出现 `removeChild` 异常、外部文件回归因此没能观察到多选状态。不能把这些旧版失败归到后续源码已修复的主线，也不能反过来声称修复已通过。
 - `a576a6e4` 修正 React 指针点击不应二次修改选区，并将 Portal 清理限定为 FilmStore 状态更新。下一轮必须让当前主线重新通过真实 Chromium 门禁；在新 CI 完成前，该项状态为 UNKNOWN / 待验收，而不是 PASS。
+
+
+### 后续浏览器回归：点击定位与选区职责（2026-10-28）
+
+- [Studio run 40638395915](https://github.com/just2512/video-director/actions/runs/40638395915) 在修复多选与 React Portal 清理后报告 `326 passed, 1 failed`。唯一失败为 `test_react_roll_and_slide_snap_previews_use_resolved_candidates`：Slide 模式下点击 `clip-center` 后，播放头未按既有契约定位到 5 秒；该测试随后未能进入实际 slide 吸附预览步骤。根因是避免双重选区切换时，点击兼容分支也被整体短路。
+- 主线提交 [`168e1dc`](https://github.com/just2512/video-director/commit/168e1dc9d43d6a29f9c4451ff9eb654a066bebc6) 保留 React `pointerdown` 的选区所有权，后续真实鼠标 `click` 仅执行既有播放头定位而不再次修改选区。Studio 回归 run [40639540884](https://github.com/just2512/video-director/actions/runs/40639540884) 是该提交的验收依据；提交本身和构建通过均不能替代其浏览器结果，在该 run 完成前保持 UNKNOWN。
