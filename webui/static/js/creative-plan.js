@@ -154,6 +154,15 @@
     else if (state.stale) renderStatus("计划已过期：" + state.staleReasons.join("；"), true);
     else renderStatus("已加载。保存会进行版本检查，不会直接修改 CompositionIR。");
     render();
+    const initializeButton=document.querySelector('#creative-plan-panel [data-action="ui.creative_plan_initialize"]');
+    const validateButton=document.querySelector('#creative-plan-panel [data-action="ui.creative_plan_validate"]');
+    [initializeButton,validateButton].forEach((button) => {
+      if (!button) return;
+      button.disabled=state.referenceOnly;
+      button.title=state.referenceOnly
+        ? "旧计划依赖 CompositionIR；请先转换为当前 film.html 的 revision 绑定提案"
+        : "";
+    });
   };
 
   window.creativePlanInitialize = async function () {

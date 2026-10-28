@@ -2163,6 +2163,15 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       }
       S.data=r;S.rev=r.rev;S.broken=false;S.migration=null;
       $('film-studio-panel').setAttribute('data-project-id',S.projectId);render();renderAiDirector();
+      // Read the legacy director sidecars as references only once FilmDocument becomes active.
+      // These requests must never load or mutate the old CompositionIR timeline.
+      try {
+        if(typeof window.shotbookLoad==='function')await window.shotbookLoad(true);
+        if(requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return false;
+        if(typeof window.creativePlanReload==='function')await window.creativePlanReload();
+      } catch(referenceError) {
+        showStatus('影片已载入，但读取旧版导演参考失败：'+String(referenceError&&referenceError.message||referenceError),'error');
+      }
       return true;
     }
     if(r&&r.ok&&!r.exists){

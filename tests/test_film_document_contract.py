@@ -1488,6 +1488,9 @@ def test_legacy_save_and_render_endpoints_are_hard_gated_after_migration():
     assert '_reject_legacy_composition_access(pid, "生成或保存基于旧 CompositionIR 的分镜")' in server
     assert 'get_project_shotbook_reference(pid)' in server
     assert 'fd._film_path(pid).is_file()' in server
+    assert 'await window.shotbookLoad(true)' in studio
+    assert 'await window.creativePlanReload()' in studio
+    assert 'button.disabled=state.referenceOnly' in creative
     assert '_reject_legacy_composition_access(pid, "执行旧 CompositionIR Editor Command")' in server
     assert '_reject_legacy_composition_access(pid, "将旧生成素材添加到 CompositionIR 时间线")' in server
     assert '_reject_legacy_composition_access(pid, "执行旧版 AI Director 指令")' in server
