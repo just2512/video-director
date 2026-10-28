@@ -127,9 +127,12 @@ def test_crossfade_action_has_strict_overlap_and_single_transaction_contract():
     document = (root / "video_director" / "film_document.py").read_text(encoding="utf-8")
     assert 'data-context-action="crossfade-transition"' in runtime
     assert 'data-context-action="crossfade-transition"' in component
-    assert "window.filmStudioApplyCrossfadeTransition=async function(clipId)" in runtime
+    assert 'data-transition-duration="true"' in runtime
+    assert 'data-transition-duration="true"' in component
+    assert "function transitionDurationOverride(value)" in runtime
+    assert "window.filmStudioApplyCrossfadeTransition=async function(clipId,requestedDuration)" in runtime
     helper = runtime.split(
-        "window.filmStudioApplyCrossfadeTransition=async function(clipId)", 1
+        "window.filmStudioApplyCrossfadeTransition=async function(clipId,requestedDuration)", 1
     )[1].split("window.filmStudioContextMenuAction=function", 1)[0]
     assert "track_id:track.id,at:newAt" in helper
     assert "return await filmStudioCommit(ops)" in helper
@@ -148,13 +151,15 @@ def test_fade_transition_action_is_explicitly_same_track_adjacent_and_one_transa
     component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
     assert 'data-context-action="fade-transition"' in runtime
     assert 'data-context-action="fade-transition"' in component
-    assert "window.filmStudioApplyFadeTransition=async function(clipId)" in runtime
+    assert "window.filmStudioApplyFadeTransition=async function(clipId,requestedDuration)" in runtime
     helper = runtime.split(
-        "window.filmStudioApplyFadeTransition=async function(clipId)", 1
+        "window.filmStudioApplyFadeTransition=async function(clipId,requestedDuration)", 1
     )[1].split("window.filmStudioContextMenuAction=function", 1)[0]
     assert "Math.abs(previousEnd-nextAt)>0.001" in helper
     assert "filmStudioCommit(ops)" in helper
     assert "action==='fade-transition'" in runtime
+    assert "requestedDuration" in runtime
+    assert "transitionDurationTouched?transitionDuration:undefined" in component
     assert "淡出当前片段并淡入下一片段" in runtime
     assert "不改变片段位置" in component
 

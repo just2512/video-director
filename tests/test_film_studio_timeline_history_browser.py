@@ -1897,6 +1897,10 @@ def test_react_context_menu_fade_transition_is_one_reversible_two_clip_transacti
                     (clip_a.bounding_box() or {})["y"] + 12,
                     button="right",
                 )
+                duration_input = page.locator('.fs-context-menu [data-transition-duration="true"]')
+                duration_input.wait_for(state="visible")
+                assert duration_input.input_value() == "0.5"
+                duration_input.fill("0.75")
                 menu_item = page.locator('.fs-context-menu [data-context-action="fade-transition"]')
                 menu_item.wait_for(state="visible")
                 menu_item.click()
@@ -1918,8 +1922,8 @@ def test_react_context_menu_fade_transition_is_one_reversible_two_clip_transacti
                     for track in after["doc"]["tracks"]
                     for clip in track["clips"]
                 }
-                assert [float(value) for value in clips["clip-a"]["attrs"]["fade"].split(",")] == [0.0, 0.5]
-                assert [float(value) for value in clips["clip-b"]["attrs"]["fade"].split(",")] == [0.5, 0.0]
+                assert [float(value) for value in clips["clip-a"]["attrs"]["fade"].split(",")] == [0.0, 0.75]
+                assert [float(value) for value in clips["clip-b"]["attrs"]["fade"].split(",")] == [0.75, 0.0]
                 assert "fade" not in clips["clip-c"]["attrs"] or clips["clip-c"]["attrs"]["fade"] in {"0,0", "0.000,0.000"}
                 assert len(edit_requests) == 1, edit_requests
                 ops = edit_requests[0].get("ops") or []
@@ -2033,6 +2037,10 @@ def test_react_context_menu_crossfade_overlaps_two_clips_in_one_reversible_trans
                 page.mouse.click(
                     clip_a_box["x"] + 12, clip_a_box["y"] + 12, button="right"
                 )
+                duration_input = page.locator('.fs-context-menu [data-transition-duration="true"]')
+                duration_input.wait_for(state="visible")
+                assert duration_input.input_value() == "0.5"
+                duration_input.fill("1.0")
                 menu_item = page.locator('.fs-context-menu [data-context-action="crossfade-transition"]')
                 menu_item.wait_for(state="visible")
                 menu_item.click()
@@ -2068,17 +2076,17 @@ def test_react_context_menu_crossfade_overlaps_two_clips_in_one_reversible_trans
                 after_text = film_path.read_text(encoding="utf-8")
                 after_revision = after["rev"]
                 assert after_revision != before["rev"]
-                assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 1.5, "clip-c": 3.5}
+                assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 1.0, "clip-c": 3.0}
                 clips = {
                     clip["id"]: clip
                     for track in after["doc"]["tracks"]
                     for clip in track["clips"]
                 }
                 assert fd._parse_fade(clips["clip-a"]["attrs"].get("fade")) == (0.0, 0.0)
-                assert fd._parse_fade(clips["clip-b"]["attrs"]["fade"]) == (0.5, 0.0)
+                assert fd._parse_fade(clips["clip-b"]["attrs"]["fade"]) == (1.0, 0.0)
                 assert "fade" not in clips["clip-c"]["attrs"] or fd._parse_fade(clips["clip-c"]["attrs"]["fade"]) == (0.0, 0.0)
                 outgoing_envelope = fd._parse_volume_envelope(clips["clip-a"]["attrs"]["volume_envelope"])
-                assert [point["t"] for point in outgoing_envelope] == [0.0, 1.5, 2.0], outgoing_envelope
+                assert [point["t"] for point in outgoing_envelope] == [0.0, 1.0, 2.0], outgoing_envelope
                 assert [point["v"] for point in outgoing_envelope] == [1.0, 1.0, 0.0], outgoing_envelope
                 assert len(edit_requests) == 1, edit_requests
                 operations = edit_requests[0].get("ops") or []
@@ -2090,11 +2098,11 @@ def test_react_context_menu_crossfade_overlaps_two_clips_in_one_reversible_trans
                            and op.get("field") == "volume_envelope" for op in operations), operations
                 assert any(op.get("op") == "move" and op.get("clip") == "clip-b"
                            and op.get("track_id") == "video-main"
-                           and abs(float(op.get("at", -1)) - 1.5) < 0.001
+                           and abs(float(op.get("at", -1)) - 1.0) < 0.001
                            for op in operations), operations
                 assert any(op.get("op") == "move" and op.get("clip") == "clip-c"
                            and op.get("track_id") == "video-main"
-                           and abs(float(op.get("at", -1)) - 3.5) < 0.001
+                           and abs(float(op.get("at", -1)) - 3.0) < 0.001
                            for op in operations), operations
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
 
@@ -2115,7 +2123,7 @@ def test_react_context_menu_crossfade_overlaps_two_clips_in_one_reversible_trans
                     timeout=10000,
                 )
                 assert film_path.read_text(encoding="utf-8") == after_text
-                assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 1.5, "clip-c": 3.5}
+                assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 1.0, "clip-c": 3.0}
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 page.close()

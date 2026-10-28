@@ -3569,7 +3569,16 @@ window.filmStudioCopyClips=function(){
     if(bridge&&typeof bridge.openContextMenu==='function')
       bridge.openContextMenu({clipId:clipId,x:Number(clientX)||0,y:Number(clientY)||0});
   };
-  window.filmStudioApplyFadeTransition=async function(clipId){
+  function transitionDurationOverride(value){
+    if(value===undefined||value===null)return {provided:false,valid:true,value:null};
+    var raw=String(value).trim(),parsed=Number(raw);
+    if(!raw||!Number.isFinite(parsed)||parsed<0.05||parsed>60)
+      return {provided:true,valid:false,value:null};
+    return {provided:true,valid:true,value:Number(parsed.toFixed(3))};
+  }
+  window.filmStudioApplyFadeTransition=async function(clipId,requestedDuration){
+    var durationOverride=transitionDurationOverride(requestedDuration);
+    if(!durationOverride.valid){showStatus('转场时长必须是 0.05 到 60 秒之间的有效数字。','error');return false;}
     var current=findClip(clipId);
     if(!current||!S.data||!S.data.exists){showStatus('请先选择一个有效的影片片段。','error');return false;}
     var track=(S.data.tracks||[]).find(function(item){return item.id===current.track_id;});
@@ -3610,8 +3619,12 @@ window.filmStudioCopyClips=function(){
     }
     var previousAvailable=previousDuration-previousFade.in;
     var nextAvailable=nextDuration-nextFade.out;
-    var requested=Math.min(0.5,previousDuration/2,nextDuration/2,previousAvailable,nextAvailable);
-    var duration=Math.max(requested,previousFade.out,nextFade.in);
+    var limit=Math.min(previousDuration/2,nextDuration/2,previousAvailable,nextAvailable);
+    var requested=durationOverride.provided?durationOverride.value:Math.min(0.5,limit);
+    if(durationOverride.provided&&requested>limit+0.001){
+      showStatus('所选转场时长超过两段片段的安全可用范围；未更改影片。','error');return false;
+    }
+    var duration=durationOverride.provided?requested:Math.max(requested,previousFade.out,nextFade.in);
     if(!Number.isFinite(duration)||duration<0.05
       ||duration>previousAvailable+0.001||duration>nextAvailable+0.001){
       showStatus('现有淡入/淡出占用了可用时长，无法形成两侧等长的淡化衔接；未更改影片。','error');return false;
@@ -3631,7 +3644,9 @@ window.filmStudioCopyClips=function(){
     showStatus('正在为两个相邻片段提交淡出/淡入衔接（各 '+duration.toFixed(3)+' 秒）；片段位置不变。');
     return await filmStudioCommit(ops);
   };
-  window.filmStudioApplyCrossfadeTransition=async function(clipId){
+  window.filmStudioApplyCrossfadeTransition=async function(clipId,requestedDuration){
+    var durationOverride=transitionDurationOverride(requestedDuration);
+    if(!durationOverride.valid){showStatus('转场时长必须是 0.05 到 60 秒之间的有效数字。','error');return false;}
     var current=findClip(clipId);
     if(!current||!S.data||!S.data.exists){showStatus('请先选择一个有效的影片片段。','error');return false;}
     var track=(S.data.tracks||[]).find(function(item){return item.id===current.track_id;});
@@ -3683,8 +3698,11 @@ window.filmStudioCopyClips=function(){
     var previousAvailable=previousDuration-previousFade.in;
     var nextAvailable=nextDuration-nextFade.out;
     var limit=Math.min(previousDuration/2,nextDuration/2,previousAvailable,nextAvailable);
-    var requested=Math.min(0.5,limit);
-    var duration=Math.max(requested,audioPair?previousFade.out:0,nextFade.in);
+    var requested=durationOverride.provided?durationOverride.value:Math.min(0.5,limit);
+    if(durationOverride.provided&&requested>limit+0.001){
+      showStatus('所选交叉淡化时长超过两段片段的安全可用范围；未更改影片。','error');return false;
+    }
+    var duration=durationOverride.provided?requested:Math.max(requested,audioPair?previousFade.out:0,nextFade.in);
     if(!Number.isFinite(duration)||duration<0.05||duration>limit+0.001){
       showStatus('现有淡入/淡出占用了可用时长，无法形成安全的交叉淡化重叠；未更改影片。','error');return false;
     }
@@ -3752,13 +3770,13 @@ window.filmStudioCopyClips=function(){
     showStatus('正在提交 '+duration.toFixed(3)+' 秒交叉淡化：下一片段与当前片段重叠，同轨后续片段随之左移；其他轨道不变。');
     return await filmStudioCommit(ops);
   };
-  window.filmStudioContextMenuAction=function(action,clipId){
+  window.filmStudioContextMenuAction=function(action,clipId,requestedDuration){
     closeTimelineContextMenu();
     if(action==='copy')return window.filmStudioCopyClips();
     if(action==='duplicate')return window.filmStudioDuplicateClips(clipId);
     if(action==='paste')return window.filmStudioPasteClips();
-    if(action==='fade-transition')return window.filmStudioApplyFadeTransition(clipId);
-    if(action==='crossfade-transition')return window.filmStudioApplyCrossfadeTransition(clipId);
+    if(action==='fade-transition')return window.filmStudioApplyFadeTransition(clipId,requestedDuration);
+    if(action==='crossfade-transition')return window.filmStudioApplyCrossfadeTransition(clipId,requestedDuration);
     if(action==='split'){
       var clip=findClip(clipId);
       if(!clip||S.playhead<=clip.at+0.001||clip.end==null||S.playhead>=clip.end-0.001){
@@ -3794,23 +3812,29 @@ window.filmStudioCopyClips=function(){
       '<button type="button" role="menuitem" data-context-action="paste">粘贴到播放头</button>',
       '<div class="fs-context-separator"></div>',
       '<button type="button" role="menuitem" data-context-action="split">在播放头切分</button>',
-      '<button type="button" role="menuitem" data-context-action="fade-transition" title="同轨时间相邻片段，淡出当前片段并淡入下一片段；不重叠、不改变位置">淡出并淡入下一片段</button>',
-      '<button type="button" role="menuitem" data-context-action="crossfade-transition" title="两段视觉片段或两段音频重叠淡化；下一片段提前，影片总时长相应缩短">交叉淡化（重叠）</button>',
+      '<div class="fs-context-transition-settings"><label for="fs-context-transition-duration">转场时长（秒）<input id="fs-context-transition-duration" type="number" min="0.05" max="60" step="0.05" value="0.5" data-transition-duration="true"></label><small>未修改时按默认时长和现有淡化属性计算；无重叠接续保留位置，交叉淡化会左移后续同轨片段。</small></div>',
+      '<button type="button" role="menuitem" data-context-action="fade-transition" title="同轨相邻片段淡出/淡入；不重叠、不改变位置">淡出/淡入接续（无重叠）</button>',
+      '<button type="button" role="menuitem" data-context-action="crossfade-transition" title="交叉重叠淡化；下一片段提前，后续同轨片段随之左移">交叉淡化（重叠）</button>',
       '<button type="button" role="menuitem" data-context-action="delete" title="只移除所选片段，后续内容时间不变">删除并保留空隙</button>',
       '<button type="button" role="menuitem" data-context-action="ripple" title="删除所选时间段，并收拢所有受影响轨道">波纹删除（收拢时间线）</button>',
       '<div class="fs-context-separator"></div>',
       '<button type="button" role="menuitem" data-context-action="inspector">打开属性检查器</button>'
     ].join('');
     menu.style.left=Math.max(8,Math.min(event.clientX,window.innerWidth-300))+'px';
-    menu.style.top=Math.max(8,Math.min(event.clientY,window.innerHeight-360))+'px';
+    menu.style.top=Math.max(8,Math.min(event.clientY,window.innerHeight-430))+'px';
     document.body.appendChild(menu);
     activeTimelineContextMenu=menu;
+    var transitionDurationInput=menu.querySelector('[data-transition-duration="true"]');
+    if(transitionDurationInput)transitionDurationInput.addEventListener('input',function(){transitionDurationInput.dataset.touched='true';});
     menu.addEventListener('contextmenu',function(e){e.preventDefault();e.stopPropagation();});
     menu.addEventListener('click',function(e){
       var item=e.target&&e.target.closest?e.target.closest('[data-context-action]'):null;
       if(!item)return;
       e.preventDefault();e.stopPropagation();
-      window.filmStudioContextMenuAction(item.getAttribute('data-context-action'),clipId);
+      var actionName=item.getAttribute('data-context-action');
+      var durationInput=menu.querySelector('[data-transition-duration="true"]');
+      var chosenDuration=durationInput&&durationInput.dataset.touched==='true'?durationInput.value:undefined;
+      window.filmStudioContextMenuAction(actionName,clipId,chosenDuration);
     });
   });
   document.addEventListener('pointerdown',function(event){

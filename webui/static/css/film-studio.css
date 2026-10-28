@@ -389,3 +389,8 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-ruler-film-marker{position:absolute;top:0;bottom:0;z-index:5;transform:translateX(-50%);display:flex;align-items:center;justify-content:center;width:16px;border:0;padding:0;background:transparent;color:#f4c96b;font-size:12px;line-height:1;cursor:pointer;pointer-events:auto}
 .fs-ruler-film-marker:hover{color:#fff2b8;text-shadow:0 0 4px rgba(244,201,107,.8)}
 .fs-ruler-film-marker:focus-visible,.fs-ruler-add-marker:focus-visible{outline:2px solid #f4c96b;outline-offset:1px}
+
+.fs-context-transition-settings{display:grid;gap:4px;padding:6px 8px;margin:2px 0;border-top:1px solid var(--fs-border,#3a3a3a);border-bottom:1px solid var(--fs-border,#3a3a3a);color:var(--fs-muted,#aaa);font-size:11px}
+.fs-context-transition-settings label{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--fs-text,#eee)}
+.fs-context-transition-settings input{width:72px;min-width:72px;box-sizing:border-box;padding:4px 5px;background:var(--fs-input,#111);border:1px solid var(--fs-border,#3a3a3a);border-radius:4px;color:inherit;font:inherit}
+.fs-context-transition-settings small{font-size:10px;line-height:1.4;color:var(--fs-muted,#aaa)}
