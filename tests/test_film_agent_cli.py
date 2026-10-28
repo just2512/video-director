@@ -181,3 +181,55 @@ def test_agent_cli_status_includes_persistent_timeline_markers_and_duration(tmp_
     assert result["markers"] == [{"id": "marker-outro", "at": 4.0, "label": "片尾"}]
     assert result["duration"] == 5.0
     assert result["revision"] == fd.read_project_film(project_id)["rev"]
+
+
+def test_agent_cli_look_requires_current_revision_pin_and_rejects_stale_before_side_effects(tmp_path, monkeypatch):
+    storage_root = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    project_id = "agent-cli-look-revision"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True, exist_ok=True)
+    (project / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
+    before = fd.read_project_film(project_id)
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(storage_root)
+
+    missing = _cli(repo_root, env, "film", "look", "--project-id", project_id)
+    assert missing.returncode == 2
+    assert "--revision" in missing.stderr
+    assert not (project / ".film" / "cache" / "look").exists()
+
+    stale = _cli(
+        repo_root, env, "film", "look", "--project-id", project_id,
+        "--revision", "stale-revision",
+    )
+    assert stale.returncode != 0, stale.stdout + stale.stderr
+    failure = json.loads(stale.stdout)
+    assert failure["ok"] is False
+    assert failure["code"] == "REVISION_CONFLICT", failure
+    assert fd.read_project_film(project_id)["rev"] == before["rev"]
+    assert not (project / ".film" / "cache" / "look").exists(), (
+        "a stale preview must fail before producing contact-sheet artifacts"
+    )
+
+
+def test_agent_cli_render_requires_explicit_expected_revision(tmp_path, monkeypatch):
+    storage_root = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    project_id = "agent-cli-render-requires-pin"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True, exist_ok=True)
+    (project / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
+    before = fd.read_project_film(project_id)
+    repo_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(storage_root)
+
+    missing = _cli(repo_root, env, "film", "render", "--project-id", project_id)
+    assert missing.returncode == 2
+    assert "--expected-revision" in missing.stderr
+    assert fd.read_project_film(project_id)["rev"] == before["rev"]
+    assert not (project / "render").exists(), (
+        "an export without an inspected revision must not create output artifacts"
+    )

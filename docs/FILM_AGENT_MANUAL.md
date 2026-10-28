@@ -99,9 +99,10 @@ Run these from the video-director repository's Python environment, replacing `PR
 ```bash
 python -m video_director film status --project-id PROJECT_ID
 python -m video_director film validate --project-id PROJECT_ID
-python -m video_director film look --project-id PROJECT_ID
-python -m video_director film diff --project-id PROJECT_ID
-python -m video_director film render --project-id PROJECT_ID
+# Copy the exact revision returned by status; reuse it for look and render.
+python -m video_director film look --project-id PROJECT_ID --revision REVISION_FROM_STATUS
+python -m video_director film diff --project-id PROJECT_ID --from-revision REVISION_FROM_STATUS
+python -m video_director film render --project-id PROJECT_ID --expected-revision REVISION_FROM_STATUS
 ```
 
 For timeline edits, external agents must use the revision-checked operation entry point instead of overwriting `film.html` directly:
@@ -125,10 +126,10 @@ Studio watches active projects for direct external `film.html` writes. After a s
 
 - `status` reports the current revision, stage, tracks, clips and duration.
 - `validate` checks the strict film document and verifies that referenced local files exist. It does not prove that the scene's frame contract works.
-- `look` renders a contact sheet through the real browser runtime and repeats sample times in reverse order. Read the returned `image_path`; fix each explicit frame/resource/determinism failure before full export.
+- `look` requires `--revision` copied from the latest `film status`. It renders a contact sheet through the real browser runtime and repeats sample times in reverse order; if the project changed, it rejects the stale request before browser or cache side effects. Read the returned `image_path`; fix each explicit frame/resource/determinism failure before full export.
 - `diff` shows the current document against a retained revision snapshot. The built-in history window is finite, so create a deliberate project snapshot or Git commit before a large rewrite.
 - Composition migration resolves version-pinned `motion_recipe_id` and `motion_instance` through MotionRegistry. Supported opacity/scale/rotation/blur and pixel-offset channels become deterministic `data-film-keyframes` consumed by `frame(t)`; the exact recipe ID/version/instance parameters are preserved in clip attributes. Unsupported properties or parameters are identified in migration warnings.
-- `film.html` stores its project frame rate in the `film-fps` meta tag. Existing documents without this meta default to 30 FPS. `render` inherits the saved rate unless the caller explicitly supplies `--fps`; it exports the exact revision and returns `rendered_revision`. It also writes `qc/film-final-<revision>.json` with output SHA-256/size, probed stream/dimensions/duration, audio signal measurements when available, visual sample hashes/metrics and determinism checks. Studio exposes the QC record next to the MP4 link. If the project changes during export, the record includes `current_revision_match: false`; do not describe the result as the latest revision. A technical PASS does not replace human review of visual composition or listening to the audio.
+- `film.html` stores its project frame rate in the `film-fps` meta tag. Existing documents without this meta default to 30 FPS. `render` requires `--expected-revision` copied from the same `film status` used for inspection; it never silently substitutes the latest revision. It inherits the saved rate unless the caller explicitly supplies `--fps`, exports that exact revision and returns `rendered_revision`. It also writes `qc/film-final-<revision>.json` with output SHA-256/size, probed stream/dimensions/duration, audio signal measurements when available, visual sample hashes/metrics and determinism checks. Studio exposes the QC record next to the MP4 link. If the project changes during export, the record includes `current_revision_match: false`; do not describe the result as the latest revision. A technical PASS does not replace human review of visual composition or listening to the audio.
 
 Studio timeline editing also supports `Ctrl/⌘+C` and `Ctrl/⌘+V` for selected clips. The in-memory clipboard is intentionally scoped to the current project: paste preserves each clip's source range, speed, effects/overrides and relative timing, searches the original tracks for the next interval that can be proven not to overlap, and commits the group as one undoable FilmDocument transaction. It rejects missing/locked source tracks, unknown-duration clips and cross-project paste rather than guessing. Clipboard state is not persisted across a page reload.
 

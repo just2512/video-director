@@ -184,13 +184,13 @@ def main(argv=None):
             command_parser.add_argument("--from-revision", default=None,
                                         help="历史 revision；省略时比较最近一次编辑前的版本")
         if command == "look":
-            command_parser.add_argument("--revision", default=None,
-                                        help="要求当前 revision 必须精确匹配")
+            command_parser.add_argument("--revision", required=True,
+                                        help="必须来自本次 film status 的 revision；过期时在预览前拒绝")
             command_parser.add_argument("--times", default=None,
                                         help="逗号分隔的秒数，例如 0,1.5,4")
         if command == "render":
-            command_parser.add_argument("--expected-revision", default=None,
-                                        help="从 film status 获取的精确 revision；过期时在渲染前拒绝")
+            command_parser.add_argument("--expected-revision", required=True,
+                                        help="必须来自本次 film status 的精确 revision；过期时在渲染前拒绝")
             command_parser.add_argument("--fps", type=int, default=None,
                                         help="覆盖 film.html 保存的帧率；省略则使用项目帧率")
     
@@ -349,16 +349,10 @@ def main(argv=None):
                 if not state.get("exists"):
                     emit({"ok": False, "code": "FILM_NOT_INITIALIZED",
                           "error": "当前项目尚未初始化 film.html。"}, 2)
-                expected_revision = a.expected_revision
-                if expected_revision is not None:
-                    expected_revision = expected_revision.strip()
-                    if not expected_revision:
-                        emit({"ok": False, "code": "INVALID_REVISION",
-                              "error": "--expected-revision 必须是从 film status 获取的非空 revision。"}, 2)
-                else:
-                    # Preserve manual CLI compatibility while allowing Agents to pin the
-                    # exact revision they inspected; MCP always supplies this argument.
-                    expected_revision = state["rev"]
+                expected_revision = a.expected_revision.strip()
+                if not expected_revision:
+                    emit({"ok": False, "code": "INVALID_REVISION",
+                          "error": "--expected-revision 必须是从 film status 获取的非空 revision。"}, 2)
                 result = film_render_mod.render_project_film(pid, expected_revision, fps=a.fps)
                 emit(result)
 
