@@ -130,6 +130,14 @@ def test_generate_script_requires_llm(monkeypatch, tmp_path):
     from video_director import llm_provider as lp
     monkeypatch.setattr(mc, "_config_path", lambda: tmp_path / "mc.json")
     monkeypatch.setattr(mc, "_cache", {})
+    # _provider_cache 是进程级单例：前序任何测试一旦真实 get_llm() 成功，
+    # 这里不挡缓存就会拿到已配置 provider，测不到「未配置」分支
+    # （全量序列才暴露的测试隔离缺口，2026-10-20 根修）。
+    monkeypatch.setattr(lp, "_provider_cache", None)
+    # set_llm_config 的运行时配置同属进程级状态：真实模型配置进驻 CI 后，
+    # 序列中任何 set_llm_config 调用都会残留并越过 config/env 的未配置
+    # 分支，直接对残留端点发起真实调用（全量序列 429 实证）。一并清零。
+    monkeypatch.setattr(lp, "_runtime_config", None)
     for env in ("VD_LLM_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(env, raising=False)
     with pytest.raises(RuntimeError, match="未配置文本大模型"):
