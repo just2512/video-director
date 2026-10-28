@@ -198,8 +198,9 @@ Marker IDs are stable and unique; names are 1–120 characters and times are non
 
 ### 真实模型流式复核（2026-10-28）
 
-- [AI Director run 40637515525](https://github.com/just2512/video-director/actions/runs/40637515525)，提交 `1b16505179608860bc6698533e5dfe98a0b05e3e`，真实模型配置步骤与独立 `test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film` 均成功；`Report real-model token-stream acceptance gate` 为 SUCCESS。该门禁只有在测试确实收到至少两个非空模型 token 片段、token 先于 result 到达、正式 `film.html` 字节与 revision 均未变化时才会报告 PASS，因此这次真实增量 token 流验收记为 PASS，而非仅有生命周期事件或模拟 SSE 的通过。
-- 同次运行的完整 pytest 套件仍失败，时间线发布门禁运行的是修复前的提交并未完成发布验收。它不构成全项目回归 PASS；`a576a6e` 已修正 React 指针点击重复切换多选及取消手势时的 React Portal DOM 所有权问题，仍需由后续 Studio 浏览器门禁确认。后续普通 CI 不启用真实模型时仍报告 MISSING，避免把一次性 live 证据误报为每次构建都已验证。
+- 较早的隔离运行 [40637515525](https://github.com/just2512/video-director/actions/runs/40637515525) 曾在当时通过真实 token-stream gate；它只证明那次请求可用，不能证明当前模型仍可调用。
+- 当前主线的显式复验 [40689393487](https://github.com/just2512/video-director/actions/runs/40689393487) 实际请求了配置的模型，但上游返回 HTTP 410：`z-ai/glm-5.3` 已于 `2026-10-28T08:00:00Z` 退役。结果为 `LIVE_STREAM_ACCEPTANCE=REJECT`，未收到 token 流。因为这个硬门禁失败，精选时间线/导出发布门禁与 bundle 发布步骤均跳过；不能把它记为 PASS。
+- 同一运行的完整正常 pytest/Chromium 回归仍通过：1364 passed、1 skipped、0 failed。失败边界是过期模型配置，而非普通代码回归。需要有权限的运维者将 Runner 保存的模型配置切换到当前受支持的 endpoint/model 后，再运行 `[live-stream-smoke]`。本次没有读取或更改 API key/保存配置。普通 CI 未 opt-in 时仍标记 MISSING，不做付费调用。
 
 
 ### 上一轮主线发布验收（2026-10-28，已由后续提交复验）

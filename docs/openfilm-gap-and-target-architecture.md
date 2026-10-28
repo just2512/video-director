@@ -217,6 +217,9 @@
 - `LIVE_STREAM_ACCEPTANCE=MISSING` 是因为本轮默认工作流没有启用付费模型 smoke，不是 live token gate 的 PASS。本次独立真实模型流式证据仍以先前显式 run `40637515525` 记录为单项 PASS；它不替代默认运行的 MISSING，也不扩大为每次 CI 都进行了真实请求。
 
 
-### Current-main real-provider stream recheck request (2026-10-28)
+### Current-main real-provider stream recheck (2026-10-28)
 
-- The default regression intentionally reports `LIVE_STREAM_ACCEPTANCE=MISSING` when the paid-provider smoke is not opted in. The current mainline's model-stream acceptance is being rechecked through the repository's explicit `[live-stream-smoke]` workflow path; record PASS only if the isolated request receives at least two non-empty model token fragments before the final result and proves `film.html` bytes/revision unchanged. A lifecycle-only SSE stream is not sufficient evidence.
+- [Explicit live-stream run 40689393487](https://github.com/just2512/video-director/actions/runs/40689393487) ran against main commit `2b5fc2f`. The full normal pytest/Chromium regression passed: **1364 passed, 1 skipped, 0 failed**; React/TypeScript, Tailwind, Studio smoke and JavaScript syntax also passed.
+- The isolated live-provider step was an actual request, not a skipped test. It returned `LLM_PLAN_FAILED` with upstream **HTTP 410**: model `z-ai/glm-5.3` “has reached its end of life on 2026-10-28T08:00:00Z and is no longer available.” Therefore `LIVE_STREAM_ACCEPTANCE=REJECT`; no real token fragments were delivered and the full workflow ended FAILURE.
+- Because the opt-in live-stream gate failed, the curated timeline/export release gate and bundle publication were skipped. The committed verified React bundle remains `036ea8e`; this run does not publish an unverified artifact. Do not change the gate to PASS or treat the 1364 passing normal tests as proof of live-provider streaming.
+- Resolution requires an authorized operator to update the runner's preserved provider/model configuration to an endpoint and model that are currently supported, then rerun the same `[live-stream-smoke]` acceptance. No API key or preserved configuration was read out or changed by this run. Ordinary CI without opt-in continues to report `MISSING`, not PASS.
