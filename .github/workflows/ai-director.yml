@@ -385,6 +385,7 @@ jobs:
             tests/test_film_variant_transform_keyframes.py \
             tests/test_film_registered_style_migration.py
       - name: Run test suite and retain JUnit report
+        id: full_regression
         if: always() && steps.ensure_checkout.outcome == 'success'
         shell: bash
         run: |
@@ -500,7 +501,7 @@ jobs:
             tests/test_studio_build_contract.py
 
       - name: Publish verified React Studio bundle and Tailwind CSS to main
-        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && steps.live_stream_acceptance.outcome == 'success' && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped') && steps.timeline_regression_gate.outcome == 'success'
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.full_regression.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && steps.live_stream_acceptance.outcome == 'success' && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped') && steps.timeline_regression_gate.outcome == 'success'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
