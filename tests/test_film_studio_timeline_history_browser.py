@@ -2473,9 +2473,23 @@ def test_react_timeline_rejects_gesture_without_typed_controller_instead_of_lega
                       window.filmStudioReactTimeline={};
                       const missingBridge=attempt(778);
                       window.filmStudioReactTimeline=originalBridge;
+                      window.filmStudioTimelineController={
+                        resolveGestureStartMode:originalController.resolveGestureStartMode,
+                        createGestureStart:originalController.createGestureStart
+                      };
+                      const partialController=attempt(779);
+                      window.filmStudioTimelineController=originalController;
+                      window.filmStudioReactTimeline={
+                        setGesturePreview:originalBridge.setGesturePreview,
+                        setActiveDragIds:originalBridge.setActiveDragIds,
+                        setSnapGuide:originalBridge.setSnapGuide,
+                        setTrackDropTarget:originalBridge.setTrackDropTarget
+                      };
+                      const partialBridge=attempt(780);
+                      window.filmStudioReactTimeline=originalBridge;
                       const snapshot=window.filmStudioStore.getSnapshot();
                       return {
-                        missingController,missingBridge,
+                        missingController,missingBridge,partialController,partialBridge,
                         contextPresent:!!snapshot.timelineGestureContext,
                         notice:document.body.innerText.includes(
                           "React 时间线的类型化控制器未就绪或桥接接口缺失；本次操作已拒绝，未回退到旧版 DOM 手势。"
@@ -2486,6 +2500,8 @@ def test_react_timeline_rejects_gesture_without_typed_controller_instead_of_lega
                 expected = {"accepted":False,"defaultPrevented":True,"stopped":True}
                 assert result["missingController"] == expected, result
                 assert result["missingBridge"] == expected, result
+                assert result["partialController"] == expected, result
+                assert result["partialBridge"] == expected, result
                 assert result["contextPresent"] is False, result
                 assert result["notice"] is True, result
                 assert edit_requests == [], edit_requests

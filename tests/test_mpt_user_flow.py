@@ -130,6 +130,9 @@ def test_generate_script_requires_llm(monkeypatch, tmp_path):
     from video_director import llm_provider as lp
     monkeypatch.setattr(mc, "_config_path", lambda: tmp_path / "mc.json")
     monkeypatch.setattr(mc, "_cache", {})
+    # Keep this contract test independent of process-wide provider state left by earlier tests.
+    monkeypatch.setattr(lp, "_provider_cache", None)
+    monkeypatch.setattr(lp, "_runtime_config", None)
     for env in ("VD_LLM_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
         monkeypatch.delenv(env, raising=False)
     with pytest.raises(RuntimeError, match="未配置文本大模型"):

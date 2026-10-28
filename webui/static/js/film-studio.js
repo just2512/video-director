@@ -1213,11 +1213,19 @@
           typeof reactGestureBridge.setGesturePreview==='function'&&
           typeof reactGestureBridge.setActiveDragIds==='function');
         var canStartTypedReactGesture=!!(reactGestureBridge&&
+           typeof reactGestureBridge.previewClipGesture==='function'&&
+           typeof reactGestureBridge.prepareClipGestureCommit==='function'&&
            typeof reactGestureBridge.setGesturePreview==='function'&&
            typeof reactGestureBridge.setActiveDragIds==='function'&&
+           typeof reactGestureBridge.setSnapGuide==='function'&&
+           typeof reactGestureBridge.setTrackDropTarget==='function'&&
            reactGestureController&&
-           typeof reactGestureController.resolveGestureStartMode==='function'&&
-           typeof reactGestureController.createGestureStart==='function');
+           ['resolveGestureStartMode','createGestureStart','resolveMoveGesture',
+            'resolveTrimGesture','resolveRollGesture','resolveSlideGesture',
+            'resolveSlipGesture','validateMoveTarget','buildMovePreview',
+            'buildMoveOperations'].every(function(name){
+              return typeof reactGestureController[name]==='function';
+            }));
         // Once React owns the timeline surface, never silently fall through to
         // the legacy DOM gesture initializer: the React path has no DOM refs and
         // must be backed by the typed FilmStore gesture controller.
