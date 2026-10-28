@@ -824,6 +824,7 @@
     var anchor=item.nextSibling&&item.nextSibling.parentNode===item.parent?item.nextSibling:null;
     item.parent.insertBefore(item.node,anchor);
     if(typeof item.display==='string')item.node.style.display=item.display;
+    if(typeof item.open==='boolean')item.node.open=item.open;
   }
   function mountDirectorPlanning(allowLegacyCompositionCommands){
     var host=$('fs-director-planning-host');
@@ -835,12 +836,15 @@
       var node=$(id);
       if(!node||host.contains(node))return;
       if(!S.directorNodes.some(function(item){return item.node===node;})){
-        S.directorNodes.push({node:node,parent:node.parentNode,nextSibling:node.nextSibling,display:node.style.display});
+        S.directorNodes.push({node:node,parent:node.parentNode,nextSibling:node.nextSibling,display:node.style.display,
+          open:node.tagName==='DETAILS'?node.open:undefined});
       }
       host.appendChild(node);
     });
     // Creative Plan is normally toggled from the hidden legacy timeline toolbar.
     // The Director tab is now its visible home while Studio is open.
+    var shotbookPanel=$('shotbook-details');
+    if(shotbookPanel&&host.contains(shotbookPanel))shotbookPanel.open=true;
     var creativePlanPanel=$('creative-plan-panel');
     if(creativePlanPanel&&host.contains(creativePlanPanel))creativePlanPanel.style.display='';
     if(allowLegacyCompositionCommands){
@@ -871,6 +875,7 @@
       var anchor=item.nextSibling&&item.nextSibling.parentNode===item.parent?item.nextSibling:null;
       item.parent.insertBefore(item.node,anchor);
       if(typeof item.display==='string')item.node.style.display=item.display;
+      if(typeof item.open==='boolean')item.node.open=item.open;
     });
     S.directorNodes=[];
     syncAssetPaneMode();

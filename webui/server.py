@@ -2556,6 +2556,9 @@ class Handler(BaseHTTPRequestHandler):
                 kind = payload.get("kind", "")
                 if kind == "compose":
                     spec = payload.get("spec") or {}
+                    legacy_pid = str(spec.get("project_id") or "").strip() if isinstance(spec, dict) else ""
+                    if legacy_pid and self._reject_legacy_composition_access(legacy_pid, "启动旧 CompositionIR 创作"):
+                        return
                     if not (spec.get("script") or "").strip():
                         self._send_json({"error": "请先粘贴文案"}, 400)
                         return
@@ -3313,6 +3316,14 @@ class Handler(BaseHTTPRequestHandler):
             except json.JSONDecodeError:
                 self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
                 return
+            director_inputs = payload.get("director_inputs")
+            requested_pid = payload.get("project_id") or (
+                director_inputs.get("project_id") if isinstance(director_inputs, dict) else ""
+            )
+            if requested_pid and self._reject_legacy_composition_access(
+                str(requested_pid).strip(), "启动旧版 AI Director 创作"
+            ):
+                return
             try:
                 from video_director.director_service import (
                     create_director_run, DirectorServiceError,
@@ -3334,6 +3345,11 @@ class Handler(BaseHTTPRequestHandler):
                 )
             except json.JSONDecodeError:
                 self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            continue_pid = str(payload.get("project_id") or "").strip()
+            if continue_pid and self._reject_legacy_composition_access(
+                continue_pid, "继续旧版 AI Director 检查点"
+            ):
                 return
             try:
                 from video_director.director_service import (
@@ -3359,6 +3375,11 @@ class Handler(BaseHTTPRequestHandler):
                 )
             except json.JSONDecodeError:
                 self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            retry_pid = str(payload.get("project_id") or "").strip()
+            if retry_pid and self._reject_legacy_composition_access(
+                retry_pid, "重新执行旧版 AI Director 创作"
+            ):
                 return
             try:
                 from video_director.director_service import (
@@ -3410,6 +3431,8 @@ class Handler(BaseHTTPRequestHandler):
             instruction = (payload.get("instruction") or "").strip()
             if not pid or not instruction:
                 self._send_json({"error": "缺少 project_id 或 instruction"}, 400)
+                return
+            if self._reject_legacy_composition_access(pid, "执行旧版 AI Director 指令"):
                 return
             try:
                 from video_director import director as vd_director
@@ -4118,6 +4141,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 from video_director import project_manager as vd_pm
                 from video_director.project_manager import ProjectActionError
+                if action == "convert" and self._reject_legacy_composition_access(pid, "转换旧 CompositionIR 项目"):
+                    return
                 if action == "rename":
                     r = vd_pm.rename(pid, payload.get("new_name") or "")
                 elif action == "clone":
@@ -4338,6 +4363,8 @@ class Handler(BaseHTTPRequestHandler):
                 from video_director import shotbook as vd_shotbook
                 action = payload.get("action")
                 if action == "generate":
+                    if self._reject_legacy_composition_access(pid, "生成基于旧 CompositionIR 的分镜"):
+                        return
                     result = vd_shotbook.generate_project_shotbook(pid, payload.get("base_version"))
                 elif action == "save":
                     result = vd_shotbook.save_project_shotbook(pid, payload)
@@ -4367,6 +4394,30 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 pid = creative.validate_project_id(payload.get("project_id", ""))
                 action = str(payload.get("action", "")).strip()
+                from video_director import film_document as fd
+                film_authoritative = fd._film_path(pid).is_file()
+                if film_authoritative and action in ("initialize", "validate"):
+                    if self._reject_legacy_composition_access(pid, "初始化或预检旧 CompositionIR 语义计划"):
+                        return
+                if film_authoritative and action == "save":
+                    # A Creative Plan is a separate planning artifact. In Film mode it may
+                    # still be saved as a non-authoritative reference, but it must not load,
+                    # validate against, or write the legacy CompositionIR timeline.
+                    plan = CreativePlan.model_validate(payload.get("plan"))
+                    if plan.project_id != pid:
+                        self._send_json({"ok": False, "error": "计划 project_id 与当前项目不一致"}, 400)
+                        return
+                    expected = payload.get("expected_version")
+                    if not isinstance(expected, int) or isinstance(expected, bool):
+                        self._send_json({"ok": False, "error": "缺少 expected_version，拒绝覆盖未知版本"}, 400)
+                        return
+                    saved = creative.save_plan(plan, expected_version=expected)
+                    self._send_json({
+                        "ok": True, "plan": saved.model_dump(mode="json"),
+                        "reference_only": True,
+                        "message": "已保存为旧版导演参考；当前 film.html 未被修改。",
+                    })
+                    return
                 ir = vd_editor.load_composition(pid)
                 current = creative.load_plan(pid)
 
@@ -4444,6 +4495,8 @@ class Handler(BaseHTTPRequestHandler):
             pid = payload.get("project_id", "")
             if not pid:
                 self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            if self._reject_legacy_composition_access(str(pid).strip(), "执行旧 CompositionIR Editor Command"):
                 return
             try:
                 from video_director import editor as vd_editor
@@ -4571,6 +4624,8 @@ class Handler(BaseHTTPRequestHandler):
             asset_id = payload.get("asset_id", "")
             if not (pid and scene_id and asset_id):
                 self._send_json({"error": "缺少 project_id/scene_id/asset_id"}, 400)
+                return
+            if self._reject_legacy_composition_access(str(pid).strip(), "将旧生成素材添加到 CompositionIR 时间线"):
                 return
             try:
                 from video_director import generation as vd_generation

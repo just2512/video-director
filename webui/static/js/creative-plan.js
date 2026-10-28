@@ -216,7 +216,9 @@
     state.plan = result.plan;
     state.exists = true;
     state.report = null;
-    renderStatus("已保存 v" + state.plan.version + "。创作计划已持久化，CompositionIR 尚未被直接改写。");
+    renderStatus(result.reference_only === true
+      ? "已保存 v" + state.plan.version + "。该创作计划仅作为 film.html 项目的导演参考；正式影片未被改写。"
+      : "已保存 v" + state.plan.version + "。创作计划已持久化，CompositionIR 尚未被直接改写。");
     if (!quiet) render();
     return true;
   };

@@ -994,6 +994,32 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
                 assert page.locator("#shotbook-film-authority-note").is_visible()
                 assert page.locator("#creative-plan-film-authority-note").is_visible()
 
+                base_url = f"http://127.0.0.1:{server.server_port}"
+                legacy_write_probes = [
+                    ("/api/editor/command", {"project_id":project_id,"command":"set_duration","targetId":"clip-b","payload":{"duration":4.0}}),
+                    ("/api/editor/generate/add", {"project_id":project_id,"scene_id":"clip-b","asset_id":"legacy-asset"}),
+                    ("/api/editor/shotbook", {"project_id":project_id,"action":"generate"}),
+                    ("/api/editor/creative-plan", {"project_id":project_id,"action":"initialize"}),
+                    ("/api/editor/creative-plan", {"project_id":project_id,"action":"validate"}),
+                    ("/api/director/create", {"project_id":project_id,"brief":"旧版导演写入测试","script":"测试脚本"}),
+                    ("/api/director/continue", {"project_id":project_id,"target":"preview"}),
+                    ("/api/director/retry", {"project_id":project_id}),
+                    ("/api/director/execute", {"project_id":project_id,"instruction":"移动第二个镜头"}),
+                    ("/api/workflows", {"kind":"compose","spec":{"project_id":project_id,"script":"旧版合成测试"}}),
+                    ("/api/project_action", {"project_id":project_id,"action":"convert"}),
+                ]
+                for route, payload in legacy_write_probes:
+                    result = page.request.post(
+                        base_url + route,
+                        data=json.dumps(payload),
+                        headers={"Content-Type":"application/json"},
+                    )
+                    body = result.json()
+                    assert result.status == 409 and body.get("code") == "FILM_DOCUMENT_AUTHORITATIVE", (
+                        route, result.status, body
+                    )
+                assert fd.read_project_film(project_id)["rev"] == before["rev"]
+
                 legacy_post_requests: list[str] = []
                 def record_legacy_post(request):
                     if request.method == "POST" and any(path in request.url for path in (
