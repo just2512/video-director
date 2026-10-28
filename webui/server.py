@@ -3425,6 +3425,8 @@ class Handler(BaseHTTPRequestHandler):
                 }, 400)
                 return
             pid = (payload.get("project_id") or "").strip()
+            if pid and self._reject_legacy_composition_access(pid, "执行旧版 Action Service 编辑动作"):
+                return
             if not payload.get("selection"):
                 payload["selection"] = _DIRECTOR_SELECTION.get(pid) or {"type": "project"}
             try:

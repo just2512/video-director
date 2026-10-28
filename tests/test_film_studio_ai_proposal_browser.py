@@ -1044,6 +1044,7 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
                     ("/api/director/continue", {"project_id":project_id,"target":"preview"}),
                     ("/api/director/retry", {"project_id":project_id}),
                     ("/api/director/execute", {"project_id":project_id,"instruction":"移动第二个镜头"}),
+                    ("/api/action/execute", {"project_id":project_id,"action_id":"timeline.move","params":{"clip_id":"clip-b"}}),
                     ("/api/workflows", {"kind":"compose","spec":{"project_id":project_id,"script":"旧版合成测试"}}),
                     ("/api/project_action", {"project_id":project_id,"action":"convert"}),
                 ]
@@ -1071,6 +1072,7 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
                 assert "旧分镜：解释第二个镜头" in page.locator("#shotbook-storyboard").inner_text()
                 assert page.locator('[data-shotbook-action="generate"]').is_disabled()
                 assert page.locator('[data-shotbook-action="save"]').is_disabled()
+                page.wait_for_function("() => document.querySelector('#creative-plan-status')?.textContent.includes('只读作导演参考')",timeout=10000)
                 assert "只读作导演参考" in page.locator("#creative-plan-status").inner_text()
                 page.evaluate("""() => {
                   const button=document.createElement('button');
