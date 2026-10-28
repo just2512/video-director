@@ -2340,6 +2340,9 @@ def test_react_typed_gesture_start_controller_validates_modes_and_context_in_chr
                       const slide=c.createGestureStart({tracks:[
                         {id:"v1",attrs:{},clips:[clip("l",0,2),clip("c",2,4),clip("r",4,6)]}
                       ],clipId:"c",mode:"slide",selectedIds:["c"],...pointer});
+                      const invalidMode=c.createGestureStart({
+                        tracks:base,clipId:"a",mode:"unknown-runtime-mode",selectedIds:["a"],...pointer
+                      });
                       return {
                         modes:[
                           c.resolveGestureStartMode({clipTag:"video"}),
@@ -2355,7 +2358,8 @@ def test_react_typed_gesture_start_controller_validates_modes_and_context_in_chr
                           right:roll.context.rightClipId,rightAt:roll.context.rightAt}:roll,
                         slide:slide.ok?{ok:true,left:slide.context.leftClipId,
                           center:slide.context.centerClipId,right:slide.context.rightClipId,
-                          centerAt:slide.context.centerAt,rightAt:slide.context.rightAt}:slide
+                          centerAt:slide.context.centerAt,rightAt:slide.context.rightAt}:slide,
+                        invalidMode
                       };
                     }"""
                 )
@@ -2371,6 +2375,9 @@ def test_react_typed_gesture_start_controller_validates_modes_and_context_in_chr
                 assert result["slide"] == {
                     "ok":True,"left":"l","center":"c","right":"r","centerAt":2,"rightAt":4
                 }, result["slide"]
+                assert result["invalidMode"] == {
+                    "ok":False,"error":{"code":"INVALID_GESTURE_MODE"}
+                }, result["invalidMode"]
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 browser.close()

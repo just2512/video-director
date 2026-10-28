@@ -524,6 +524,7 @@ type GestureStartFailure =
   | {code:"CLIP_NOT_FOUND"}
   | {code:"UNKNOWN_DURATION"}
   | {code:"INVALID_POINTER_CONTEXT"}
+  | {code:"INVALID_GESTURE_MODE"}
   | {code:"NO_VALID_MEMBERS"}
   | {code:"ROLL_CUT_REQUIRED"}
   | {code:"SLIDE_NEIGHBORS_REQUIRED"}
@@ -593,6 +594,13 @@ export const resolveTimelineGestureStartMode = (
 export const createTimelineGestureStart = (
   input:FilmTimelineGestureStartInput,
 ):FilmTimelineGestureStartResult => {
+  // TypeScript callers are statically checked, but the browser bridge is a
+  // runtime boundary from JavaScript. Never reinterpret an unknown mode as move.
+  const mode=input.mode;
+  if(mode!=="move"&&mode!=="trim-start"&&mode!=="trim-end"&&
+     mode!=="roll"&&mode!=="slide"&&mode!=="slip") {
+    return {ok:false,error:{code:"INVALID_GESTURE_MODE"}};
+  }
   const clipId=gestureStartString(input.clipId);
   const tracks=gestureStartTracks(input.tracks);
   const active=gestureStartFindClip(tracks,clipId);
@@ -602,7 +610,6 @@ export const createTimelineGestureStart = (
      !Number.isFinite(input.startScrollLeft)||input.startScrollLeft<0) {
     return {ok:false,error:{code:"INVALID_POINTER_CONTEXT"}};
   }
-  const mode=input.mode;
   const duration=gestureStartDuration(active.clip);
   if(mode!=="move"&&duration===undefined) return {ok:false,error:{code:"UNKNOWN_DURATION"}};
 
