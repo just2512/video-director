@@ -488,8 +488,226 @@ const resolveSlipGesture = (input: FilmTimelineSlipGestureInput): FilmTimelineSl
   };
 };
 
+
+
+export type FilmTimelineGestureStartMode = "move" | "trim-start" | "trim-end" | "roll" | "slide" | "slip";
+
+export interface FilmTimelineGestureModeInput {
+  clipTag:string;
+  trimEdge?:"start"|"end"|null;
+  ctrlKey?:boolean;
+  altKey?:boolean;
+  shiftKey?:boolean;
+  slideMode?:boolean;
+  slipMode?:boolean;
+}
+
+export interface FilmTimelineGestureStartInput {
+  tracks:unknown;
+  clipId:string;
+  mode:FilmTimelineGestureStartMode;
+  trimEdge?:"start"|"end"|null;
+  selectedIds:readonly string[];
+  pointerId:number;
+  startX:number;
+  startY:number;
+  startScrollLeft:number;
+}
+
+type GestureStartRecord = Record<string,unknown>;
+type GestureStartTrack = {
+  id:string;
+  record:GestureStartRecord;
+  clips:Array<{id:string;record:GestureStartRecord}>;
+};
+type GestureStartFailure =
+  | {code:"CLIP_NOT_FOUND"}
+  | {code:"UNKNOWN_DURATION"}
+  | {code:"INVALID_POINTER_CONTEXT"}
+  | {code:"NO_VALID_MEMBERS"}
+  | {code:"ROLL_CUT_REQUIRED"}
+  | {code:"SLIDE_NEIGHBORS_REQUIRED"}
+  | {code:"MOVE_MEMBER_BLOCKED";kind:"片段"|"轨道";id:string;reason:"已不存在"|"已锁定"};
+
+export type FilmTimelineGestureStartResult =
+  | {ok:true;context:GestureStartRecord;memberIds:string[]}
+  | {ok:false;error:GestureStartFailure};
+
+const gestureStartRecord = (value:unknown):GestureStartRecord|null =>
+  value && typeof value==="object" && !Array.isArray(value) ? value as GestureStartRecord : null;
+const gestureStartString = (value:unknown):string =>
+  typeof value==="string" ? value : value==null ? "" : String(value);
+const gestureStartNumber = (value:unknown):number|undefined => {
+  const number=typeof value==="number" ? value : Number(value);
+  return Number.isFinite(number) ? number : undefined;
+};
+const gestureStartHas = (record:GestureStartRecord|null,key:string):boolean =>
+  !!record && Object.prototype.hasOwnProperty.call(record,key);
+const gestureStartAt = (clip:GestureStartRecord):number|undefined => gestureStartNumber(clip.at);
+const gestureStartEnd = (clip:GestureStartRecord):number|undefined =>
+  clip.end==null ? undefined : gestureStartNumber(clip.end);
+const gestureStartDuration = (clip:GestureStartRecord):number|undefined =>
+  clip.duration==null ? undefined : gestureStartNumber(clip.duration);
+
+const gestureStartTracks = (value:unknown):GestureStartTrack[] => {
+  if(!Array.isArray(value)) return [];
+  const result:GestureStartTrack[]=[];
+  for(const rawTrack of value) {
+    const record=gestureStartRecord(rawTrack);
+    const id=record ? gestureStartString(record.id) : "";
+    if(!record||!id) continue;
+    const clips:Array<{id:string;record:GestureStartRecord}>=[];
+    if(Array.isArray(record.clips)) {
+      for(const rawClip of record.clips) {
+        const clip=gestureStartRecord(rawClip);
+        const clipId=clip ? gestureStartString(clip.id) : "";
+        if(clip&&clipId) clips.push({id:clipId,record:clip});
+      }
+    }
+    result.push({id,record,clips});
+  }
+  return result;
+};
+
+const gestureStartFindClip = (
+  tracks:GestureStartTrack[],clipId:string,
+):{trackId:string;track:GestureStartRecord;clip:GestureStartRecord}|null => {
+  for(const track of tracks) {
+    const found=track.clips.find(item=>item.id===clipId);
+    if(found) return {trackId:track.id,track:track.record,clip:found.record};
+  }
+  return null;
+};
+
+export const resolveTimelineGestureStartMode = (
+  input:FilmTimelineGestureModeInput,
+):FilmTimelineGestureStartMode => {
+  const edge=input.trimEdge==="start"||input.trimEdge==="end" ? input.trimEdge : null;
+  const media=input.clipTag==="video"||input.clipTag==="audio";
+  if(edge) return input.ctrlKey===true ? "roll" : edge==="start" ? "trim-start" : "trim-end";
+  if(!input.slipMode&&(input.slideMode===true||(input.altKey===true&&input.shiftKey===true))&&media) return "slide";
+  if((input.slipMode===true||(input.altKey===true&&input.shiftKey!==true))&&media) return "slip";
+  return "move";
+};
+
+export const createTimelineGestureStart = (
+  input:FilmTimelineGestureStartInput,
+):FilmTimelineGestureStartResult => {
+  const clipId=gestureStartString(input.clipId);
+  const tracks=gestureStartTracks(input.tracks);
+  const active=gestureStartFindClip(tracks,clipId);
+  if(!clipId||!active) return {ok:false,error:{code:"CLIP_NOT_FOUND"}};
+  if(!Number.isInteger(input.pointerId)||input.pointerId<0||
+     !Number.isFinite(input.startX)||!Number.isFinite(input.startY)||
+     !Number.isFinite(input.startScrollLeft)||input.startScrollLeft<0) {
+    return {ok:false,error:{code:"INVALID_POINTER_CONTEXT"}};
+  }
+  const mode=input.mode;
+  const duration=gestureStartDuration(active.clip);
+  if(mode!=="move"&&duration===undefined) return {ok:false,error:{code:"UNKNOWN_DURATION"}};
+
+  const chosenIds=mode==="move"
+    ? Array.from(new Set(input.selectedIds.map(gestureStartString).filter(Boolean)))
+    : [clipId];
+  if(!chosenIds.length||(mode==="move"&&!chosenIds.includes(clipId))) {
+    return {ok:false,error:{code:"NO_VALID_MEMBERS"}};
+  }
+  const trackOrder=tracks.map(track=>track.id);
+  const members:Array<{id:string;originalAt:number;originalEnd:number;trackId:string;trackIndex:number}>=[];
+  for(const memberId of chosenIds) {
+    const found=gestureStartFindClip(tracks,memberId);
+    if(!found) return {ok:false,error:{code:"MOVE_MEMBER_BLOCKED",kind:"片段",id:memberId,reason:"已不存在"}};
+    if(mode==="move") {
+      if(gestureStartHas(gestureStartRecord(found.track.attrs),"locked")) {
+        return {ok:false,error:{code:"MOVE_MEMBER_BLOCKED",kind:"轨道",id:found.trackId,reason:"已锁定"}};
+      }
+      if(gestureStartHas(gestureStartRecord(found.clip.attrs),"data-clip-locked")) {
+        return {ok:false,error:{code:"MOVE_MEMBER_BLOCKED",kind:"片段",id:memberId,reason:"已锁定"}};
+      }
+    }
+    const at=gestureStartAt(found.clip);
+    if(at===undefined||at<0) return {ok:false,error:{code:"NO_VALID_MEMBERS"}};
+    const end=gestureStartEnd(found.clip);
+    const rawDuration=gestureStartNumber(found.clip.duration);
+    // Keep the prior adapter's finite-number fallback, including null -> 0.
+    const originalEnd=end===undefined ? at+(rawDuration===undefined?2:rawDuration) : end;
+    const trackIndex=trackOrder.indexOf(found.trackId);
+    if(trackIndex<0||originalEnd<at) return {ok:false,error:{code:"NO_VALID_MEMBERS"}};
+    members.push({id:memberId,originalAt:at,originalEnd,trackId:found.trackId,trackIndex});
+  }
+  if(!members.some(member=>member.id===clipId)) return {ok:false,error:{code:"NO_VALID_MEMBERS"}};
+
+  const attrs=gestureStartRecord(active.clip.attrs);
+  const source=gestureStartString(attrs?.src);
+  const sourceMatch=source.match(/#t=([0-9]+(?:\\.[0-9]+)?)(?:,|$)/);
+  const rawSpeed=gestureStartNumber(attrs?.speed);
+  const originalSpeed=active.clip.tag==="video"||active.clip.tag==="audio"
+    ? (rawSpeed===undefined?1:rawSpeed) : 1;
+  const at=gestureStartAt(active.clip);
+  if(at===undefined) return {ok:false,error:{code:"NO_VALID_MEMBERS"}};
+
+  const context:GestureStartRecord={
+    id:clipId,mode,pointerId:input.pointerId,startX:input.startX,startY:input.startY,
+    startScrollLeft:input.startScrollLeft,active:false,members,trackOrder,targetTrackId:active.trackId,
+  };
+  if(mode==="roll") {
+    const ordered=(tracks.find(track=>track.id===active.trackId)?.clips||[]).slice().sort(
+      (left,right)=>(gestureStartAt(left.record)??0)-(gestureStartAt(right.record)??0)
+    );
+    const index=ordered.findIndex(item=>item.id===clipId);
+    let left:GestureStartRecord|null=null,right:GestureStartRecord|null=null;
+    if(input.trimEdge==="end"&&index>=0&&index+1<ordered.length) {
+      const next=ordered[index+1].record,end=gestureStartEnd(active.clip),nextAt=gestureStartAt(next);
+      if(end!==undefined&&nextAt!==undefined&&Math.abs(end-nextAt)<=0.001) { left=active.clip;right=next; }
+    } else if(input.trimEdge==="start"&&index>0) {
+      const previous=ordered[index-1].record,previousEnd=gestureStartEnd(previous);
+      if(previousEnd!==undefined&&Math.abs(previousEnd-at)<=0.001) { left=previous;right=active.clip; }
+    }
+    if(!left||!right) return {ok:false,error:{code:"ROLL_CUT_REQUIRED"}};
+    const leftDuration=gestureStartDuration(left),rightDuration=gestureStartDuration(right),rightAt=gestureStartAt(right);
+    if(leftDuration===undefined||rightDuration===undefined||rightAt===undefined) return {ok:false,error:{code:"ROLL_CUT_REQUIRED"}};
+    Object.assign(context,{
+      leftClipId:gestureStartString(left.id),rightClipId:gestureStartString(right.id),
+      rightAt,leftDuration,rightDuration,
+    });
+  } else if(mode==="slide") {
+    const ordered=(tracks.find(track=>track.id===active.trackId)?.clips||[]).slice().sort(
+      (left,right)=>(gestureStartAt(left.record)??0)-(gestureStartAt(right.record)??0)
+    );
+    const index=ordered.findIndex(item=>item.id===clipId);
+    const leftItem=index>0?ordered[index-1]:null;
+    const rightItem=index>=0&&index+1<ordered.length?ordered[index+1]:null;
+    const left=leftItem?.record||null,right=rightItem?.record||null;
+    const leftEnd=left?gestureStartEnd(left):undefined,centerEnd=gestureStartEnd(active.clip);
+    const leftDuration=left?gestureStartDuration(left):undefined;
+    const rightDuration=right?gestureStartDuration(right):undefined;
+    const rightAt=right?gestureStartAt(right):undefined;
+    if(!leftItem||!rightItem||leftEnd===undefined||centerEnd===undefined||
+       leftDuration===undefined||duration===undefined||rightDuration===undefined||rightAt===undefined||
+       Math.abs(leftEnd-at)>0.001||Math.abs(centerEnd-rightAt)>0.001) {
+      return {ok:false,error:{code:"SLIDE_NEIGHBORS_REQUIRED"}};
+    }
+    Object.assign(context,{
+      leftClipId:leftItem.id,centerClipId:clipId,rightClipId:rightItem.id,
+      centerAt:at,rightAt,leftDuration,centerDuration:duration,rightDuration,
+    });
+  } else {
+    const activeEnd=gestureStartEnd(active.clip);
+    const rawDuration=gestureStartNumber(active.clip.duration);
+    Object.assign(context,{
+      originalAt:at,originalEnd:activeEnd===undefined?at+(rawDuration===undefined?0:rawDuration):activeEnd,
+      trackId:active.trackId,originalTrackIndex:trackOrder.indexOf(active.trackId),
+      clipTag:gestureStartString(active.clip.tag),originalSourceIn:sourceMatch?Number(sourceMatch[1]):0,
+      originalSpeed,
+    });
+  }
+  return {ok:true,context,memberIds:members.map(member=>member.id)};
+};
+
 export const filmTimelineGestureController = {
   resolveMoveGesture: resolveMove,
+  resolveGestureStartMode: resolveTimelineGestureStartMode,
+  createGestureStart: createTimelineGestureStart,
   resolveTrimGesture,
   resolveRollGesture,
   resolveSlideGesture,

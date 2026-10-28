@@ -1205,7 +1205,58 @@
           S.playhead=clip.at;setPlayheadVisual();previewCurrent();renderInspector();renderAssets();
           e.preventDefault();showStatus('该片段已锁定，只能查看属性；如需编辑，请在属性栏显式解锁。');return;
         }
-        var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEdge:null,
+        
+        var reactGestureBridge=window.filmStudioReactTimeline;
+        var reactGestureController=window.filmStudioTimelineController;
+        var reactOwnsGestureSurface=!!(reactGestureBridge&&typeof reactGestureBridge.setGesturePreview==='function'&&typeof reactGestureBridge.setActiveDragIds==='function');
+        if(reactOwnsGestureSurface&&reactGestureController&&
+           typeof reactGestureController.resolveGestureStartMode==='function'&&
+           typeof reactGestureController.createGestureStart==='function'){
+          var reactMode=reactGestureController.resolveGestureStartMode({
+            clipTag:clip.tag,trimEdge:context.trimEdge==='start'||context.trimEdge==='end'?context.trimEdge:null,
+            ctrlKey:e.ctrlKey,altKey:e.altKey,shiftKey:e.shiftKey,slideMode:S.slideMode,slipMode:S.slipMode
+          });
+          var reactSpecialMode=reactMode==='roll'||reactMode==='slide'||reactMode==='slip';
+          var canStartReactGesture;
+          if(reactSpecialMode){
+            S.selectedId=clip.id;S.selectedIds=[clip.id];S.selectionAnchor=clip.id;
+            syncClipSelectionVisual();renderInspector();renderAssets();syncDirectorSelection();
+            canStartReactGesture=true;
+          }else{
+            canStartReactGesture=selectClipWithModifiers(clip.id,e);
+          }
+          if(!canStartReactGesture){e.preventDefault();return false;}
+          if(reactMode==='move'){S.playhead=clip.at;setPlayheadVisual();previewCurrent();}
+          if(reactMode!=='move'&&clip.duration==null){e.preventDefault();return false;}
+          var reactScroll=$('fs-timeline-scroll');
+          if(!reactScroll){e.preventDefault();return false;}
+          var reactGestureResult=reactGestureController.createGestureStart({
+            tracks:S.data&&S.data.tracks||[],clipId:clip.id,mode:reactMode,
+            trimEdge:context.trimEdge==='start'||context.trimEdge==='end'?context.trimEdge:null,
+            selectedIds:S.selectedIds||[clip.id],pointerId:e.pointerId,
+            startX:e.clientX,startY:e.clientY,startScrollLeft:num(reactScroll.scrollLeft,0)
+          });
+          if(!reactGestureResult||reactGestureResult.ok!==true){
+            var gestureFailure=reactGestureResult&&reactGestureResult.error||{};
+            if(gestureFailure.code==='MOVE_MEMBER_BLOCKED'){
+              var blockedLabel=gestureFailure.reason==='已锁定'?'锁定':'不存在的';
+              showStatus('多选移动包含'+blockedLabel+gestureFailure.kind+' '+gestureFailure.id+'，整组移动已取消。','error');
+            }else if(gestureFailure.code==='ROLL_CUT_REQUIRED'){
+              showStatus('Ctrl 拖动切口只支持同轨相邻片段共用的切口。','error');
+            }else if(gestureFailure.code==='SLIDE_NEIGHBORS_REQUIRED'){
+              showStatus('Alt+Shift 滑移式修剪要求所选片段左右都有时间上连续的邻接片段。','error');
+            }
+            e.preventDefault();
+            return false;
+          }
+          S.drag=reactGestureResult.context;
+          gestureDomRefs=null;
+          setTimelineActiveDragIds(reactGestureResult.memberIds);
+          e.preventDefault();
+          return Boolean(S.drag&&S.drag.id===clip.id&&S.drag.pointerId===e.pointerId);
+        }
+
+var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEdge:null,
             rollGesture=!!(trimEdge&&e.ctrlKey),
             mediaCanSlip=(clip.tag==='video'||clip.tag==='audio'),
             slideGesture=!!(!trimEdge&&!S.slipMode&&(S.slideMode||(e.altKey&&e.shiftKey))&&mediaCanSlip),
