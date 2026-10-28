@@ -639,7 +639,7 @@ export const createTimelineGestureStart = (
 
   const attrs=gestureStartRecord(active.clip.attrs);
   const source=gestureStartString(attrs?.src);
-  const sourceMatch=source.match(/#t=([0-9]+(?:\\.[0-9]+)?)(?:,|$)/);
+  const sourceMatch=source.match(/#t=([0-9]+(?:\.[0-9]+)?)(?:,|$)/);
   const rawSpeed=gestureStartNumber(attrs?.speed);
   const originalSpeed=active.clip.tag==="video"||active.clip.tag==="audio"
     ? (rawSpeed===undefined?1:rawSpeed) : 1;
