@@ -12,8 +12,26 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 LIVE_TEST_NAME = "test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film"
+
+
+def resolve_live_model(model: str, base_url: str) -> str:
+    """Resolve a known-retired OpenRouter model ID for this run only.
+
+    The saved runner configuration is never modified. Other providers and model
+    IDs are left unchanged; an operator-supplied override takes precedence.
+    """
+    model_id = str(model or "").strip()
+    endpoint = str(base_url or "").strip()
+    if "://" not in endpoint:
+        endpoint = "https://" + endpoint
+    host = (urlparse(endpoint).hostname or "").lower().rstrip(".")
+    if model_id == "z-ai/glm-5.3" and host in {"openrouter.ai", "www.openrouter.ai"}:
+        return "z-ai/glm-latest"
+    return model_id
+
 
 REPORTS = {
     "PASS": (

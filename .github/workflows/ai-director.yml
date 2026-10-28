@@ -8,6 +8,11 @@ on:
         required: true
         type: boolean
         default: false
+      live_model_override:
+        description: "Optional model ID override for the isolated live token-stream smoke; does not change stored runner config"
+        required: false
+        type: string
+        default: ""
   pull_request:
     branches: [main]
   push:
@@ -250,6 +255,7 @@ jobs:
           VD_LLM_API_KEY_SECRET: ${{ secrets.VD_LLM_API_KEY }}
           VD_LLM_BASE_URL_CONFIG: ${{ vars.VD_LLM_BASE_URL }}
           VD_LLM_MODEL_CONFIG: ${{ vars.VD_LLM_MODEL }}
+          VD_LLM_MODEL_OVERRIDE: ${{ github.event.inputs.live_model_override || '' }}
         run: |
           set -euo pipefail
           live_config="$RUNNER_TEMP/video-director-live-llm-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
@@ -258,6 +264,7 @@ jobs:
           import os
           import stat
           import sys
+          from video_director.live_stream_acceptance import resolve_live_model
 
           path = sys.argv[1]
           saved = {}
@@ -278,11 +285,17 @@ jobs:
               or saved.get("base_url")
               or "https://api.openai.com/v1"
           ).strip()
-          model = (
+          configured_model = (
               os.environ.get("VD_LLM_MODEL_CONFIG")
               or saved.get("model")
               or "gpt-4o-mini"
           ).strip()
+          model_override = (os.environ.get("VD_LLM_MODEL_OVERRIDE") or "").strip()
+          model = resolve_live_model(model_override or configured_model, base_url)
+          if model_override:
+              print("Using the explicitly supplied model ID override for this isolated run; stored configuration remains unchanged.")
+          elif model != configured_model:
+              print("Detected the retired OpenRouter GLM-5.3 model ID; using the provider GLM Latest alias for this isolated run. Stored configuration remains unchanged.")
           if not api_key or not base_url or not model:
               print("::error::Opt-in live-model smoke is missing a complete key/base URL/model configuration.")
               raise SystemExit(1)
