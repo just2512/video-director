@@ -187,13 +187,22 @@
 - 时间尺 click 与 scrub 共用 React 指针生命周期：父时间尺统一捕获指针，刻度点击在 pointerup 按 `data-at` 精确定位，真实移动超过 4px 才启动 scrub；拖动结束不会被子刻度的合成 click 拉回起点。
 
 
-### 当前主线的真实浏览器回归状态（2026-10-28）
+### 历史失败定位记录（2026-10-28，已由后续主线验收覆盖）
 
 - [Studio run 40637515301](https://github.com/just2512/video-director/actions/runs/40637515301) 测试的是修复前的 `1b165051`，报告 288 passed、3 failed、1 warning：Ctrl 多选在 click 阶段被再次切换、手势取消时 React Portal DOM 出现 `removeChild` 异常、外部文件回归因此没能观察到多选状态。不能把这些旧版失败归到后续源码已修复的主线，也不能反过来声称修复已通过。
-- `a576a6e4` 修正 React 指针点击不应二次修改选区，并将 Portal 清理限定为 FilmStore 状态更新。下一轮必须让当前主线重新通过真实 Chromium 门禁；在新 CI 完成前，该项状态为 UNKNOWN / 待验收，而不是 PASS。
+- `a576a6e4` 修正 React 指针点击不应二次修改选区，并将 Portal 清理限定为 FilmStore 状态更新。该项后来在 `40657485729` 的 1362 项完整回归、`40657485766` 的 327 项独立 Studio 回归中通过；当前验收状态见文末“最新主线发布验收”。
 
 
 ### 后续浏览器回归：点击定位与选区职责（2026-10-28）
 
 - [Studio run 40638395915](https://github.com/just2512/video-director/actions/runs/40638395915) 在修复多选与 React Portal 清理后报告 `326 passed, 1 failed`。唯一失败为 `test_react_roll_and_slide_snap_previews_use_resolved_candidates`：Slide 模式下点击 `clip-center` 后，播放头未按既有契约定位到 5 秒；该测试随后未能进入实际 slide 吸附预览步骤。根因是避免双重选区切换时，点击兼容分支也被整体短路。
-- 主线提交 [`168e1dc`](https://github.com/just2512/video-director/commit/168e1dc9d43d6a29f9c4451ff9eb654a066bebc6) 保留 React `pointerdown` 的选区所有权，真实鼠标 `click` 仅执行既有播放头定位而不再次修改选区；随后 [`current fix`](https://github.com/just2512/video-director/commit/d84dfda1644f08d9dc0fbce4a1d524169bd03bc7) 对问题进一步收敛：只有已经发生有效拖动的手势才抑制附带 click，无位移的点击必须继续触发定位播放头。Studio 回归 run [40639540884](https://github.com/just2512/video-director/actions/runs/40639540884) 是该提交的验收依据；提交本身和构建通过均不能替代其浏览器结果，在该 run 完成前保持 UNKNOWN。
+- 主线提交 [`168e1dc`](https://github.com/just2512/video-director/commit/168e1dc9d43d6a29f9c4451ff9eb654a066bebc6) 与随后 `ffb397c`/`14c3c9e` 修复了 React `pointerdown` 的选区所有权、无位移点击的播放头定位和真实拖动后的合成 click 抑制。旧 run `40639540884` 被取消以释放单 Runner；后续通过 `40657485729` 的全量回归和 `40657485766` 的独立 Studio 浏览器回归复验。当前状态不再是 UNKNOWN。
+
+
+### 最新主线发布验收（2026-10-28）
+
+- [AI Director regression `40657485729`](https://github.com/just2512/video-director/actions/runs/40657485729) 对源码提交 `77f1cd4` 完成 SUCCESS：全量 pytest/Chromium **1362 passed、1 skipped、0 failed**，JavaScript 语法检查、React 19/TypeScript 构建、Tailwind 4 构建和 Studio 集成 smoke 均通过；精选时间线/导出发布门禁 **291 passed、0 failed**。
+- 该 run 通过受门禁保护的发布步骤提交了 [`036ea8e`](https://github.com/just2512/video-director/commit/036ea8e5bebef40be98612431d02f6aed2ab1d31)，更新 `webui/static/js/film-studio-react.js` 与 `webui/static/css/film-studio-tailwind.css`；不是只在临时构建目录生成产物。
+- 独立 [Studio UI build and browser smoke `40657485766`](https://github.com/just2512/video-director/actions/runs/40657485766) 也对 `77f1cd4` 完成 SUCCESS：**327 passed、2 warnings、0 failed**。该工作流只做独立构建/浏览器复验，不覆盖新发布 bundle commit；bundle 发布证据以 `036ea8e` 和 AI workflow 发布步骤为准。
+- 当前 AI workflow 未启用付费模型，故该次 `LIVE_STREAM_ACCEPTANCE=MISSING`，这是有意跳过的真实模型检查；另一次隔离的显式真实模型烟测 `40637515525` 的 token-stream 验收步骤曾输出 PASS，但整次 workflow 后来因旧源码的时间线回归被取消，不能把它当作整套绿色构建。真实 token 流证据与默认 CI 的 MISSING 必须分开记。
+- 仍未声称完全覆盖任意 HTML/WebGL 动画的逐帧确定性、所有剪辑操作排列、多人 CRDT 协作或同一模型会话的 token 级 steering。导演规划与素材准备已经在同一 Studio 壳内提供兼容/FilmDocument 两种受门禁路径，但 `CompositionIR` 的无损迁移仍非普遍保证；遇到未验证字段必须保留警告并让用户确认。

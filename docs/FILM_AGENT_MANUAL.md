@@ -200,3 +200,10 @@ Marker IDs are stable and unique; names are 1–120 characters and times are non
 
 - [AI Director run 40637515525](https://github.com/just2512/video-director/actions/runs/40637515525)，提交 `1b16505179608860bc6698533e5dfe98a0b05e3e`，真实模型配置步骤与独立 `test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film` 均成功；`Report real-model token-stream acceptance gate` 为 SUCCESS。该门禁只有在测试确实收到至少两个非空模型 token 片段、token 先于 result 到达、正式 `film.html` 字节与 revision 均未变化时才会报告 PASS，因此这次真实增量 token 流验收记为 PASS，而非仅有生命周期事件或模拟 SSE 的通过。
 - 同次运行的完整 pytest 套件仍失败，时间线发布门禁运行的是修复前的提交并未完成发布验收。它不构成全项目回归 PASS；`a576a6e` 已修正 React 指针点击重复切换多选及取消手势时的 React Portal DOM 所有权问题，仍需由后续 Studio 浏览器门禁确认。后续普通 CI 不启用真实模型时仍报告 MISSING，避免把一次性 live 证据误报为每次构建都已验证。
+
+
+### 最新主线发布验收（2026-10-28）
+
+- [AI Director 回归 `40657485729`](https://github.com/just2512/video-director/actions/runs/40657485729) 成功：全量回归 1362 passed、1 skipped、0 failed；独立的精选时间线/导出门禁 291 passed、0 failed。工作流已通过门禁发布 React Studio bundle 与 Tailwind CSS，发布提交为 [`036ea8e`](https://github.com/just2512/video-director/commit/036ea8e5bebef40be98612431d02f6aed2ab1d31)。
+- [独立 Studio UI 回归 `40657485766`](https://github.com/just2512/video-director/actions/runs/40657485766) 成功：327 passed、2 warnings、0 failed。该运行针对源码 `77f1cd4`，用于独立复验构建与浏览器行为。
+- 默认运行没有调用付费模型，因此 `LIVE_STREAM_ACCEPTANCE=MISSING`；这是检查未启用，不是失败，也不是 PASS。单独的真实模型 token 流烟测 `40637515525` 曾通过其专用 gate，但整次旧代码 workflow 后续被取消；该事实仅作为 token 增量传输的单项证据，不替代当前全量 regression result。
