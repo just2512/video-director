@@ -79,6 +79,48 @@
     bridge.setActiveDragIds(ids&&ids.length?ids.slice():null);
     return true;
   }
+  function hasCompleteReactTimelineGestureContract(bridge,controller){
+    return !!(bridge&&
+      typeof bridge.previewClipGesture==='function'&&
+      typeof bridge.prepareClipGestureCommit==='function'&&
+      typeof bridge.setGesturePreview==='function'&&
+      typeof bridge.setActiveDragIds==='function'&&
+      typeof bridge.setSnapGuide==='function'&&
+      typeof bridge.setTrackDropTarget==='function'&&
+      controller&&
+      ['resolveGestureStartMode','createGestureStart','resolveMoveGesture',
+       'resolveTrimGesture','resolveRollGesture','resolveSlideGesture',
+       'resolveSlipGesture','validateMoveTarget','buildMovePreview',
+       'buildMoveOperations'].every(function(name){return typeof controller[name]==='function';}));
+  }
+  function cancelReactTimelineGestureAfterContractLoss(e){
+    var store=window.filmStudioStore;
+    var snapshot=store&&typeof store.getSnapshot==='function'?store.getSnapshot():null;
+    var context=snapshot&&snapshot.timelineGestureContext;
+    if(!context||!e||context.pointerId!==e.pointerId)return false;
+    if(typeof e.preventDefault==='function')e.preventDefault();
+    if(typeof e.stopPropagation==='function')e.stopPropagation();
+    // Never let a stale S.drag fall through to onUp() after the authoritative
+    // React gesture context loses its bridge/controller mid-pointer sequence.
+    S.drag=null;
+    gestureDomRefs=null;
+    envelopeDomCanvas=null;
+    if(store&&typeof store.setField==='function'){
+      [['timelineGesturePreview',null],['timelineSnapGuide',null],
+       ['timelineDropTarget',null],['timelineActiveDragIds',null],
+       ['timelineGestureContext',null]].forEach(function(entry){
+        try{store.setField(entry[0],entry[1]);}catch(_){/* best-effort transient-state cleanup */}
+      });
+    }
+    var staleGuide=$('fs-snap-guide');
+    if(staleGuide&&staleGuide.parentNode)staleGuide.parentNode.removeChild(staleGuide);
+    document.querySelectorAll('#fs-timeline .fs-track-drop-target,#fs-timeline .fs-track-drop-invalid').forEach(function(node){
+      node.classList.remove('fs-track-drop-target','fs-track-drop-invalid');
+    });
+    showStatus('React 时间线手势过程中，类型化控制器或桥接接口失效；本次拖动已取消，未回退到旧版编辑路径。','error');
+    flushPendingExternalRevision();
+    return true;
+  }
   function updateTimelineGestureContext(patch){
     var current=S.drag;
     if(!current)return null;
@@ -1212,20 +1254,7 @@
         var reactOwnsGestureSurface=reactGestureSurfaceMounted||!!(reactGestureBridge&&
           typeof reactGestureBridge.setGesturePreview==='function'&&
           typeof reactGestureBridge.setActiveDragIds==='function');
-        var canStartTypedReactGesture=!!(reactGestureBridge&&
-           typeof reactGestureBridge.previewClipGesture==='function'&&
-           typeof reactGestureBridge.prepareClipGestureCommit==='function'&&
-           typeof reactGestureBridge.setGesturePreview==='function'&&
-           typeof reactGestureBridge.setActiveDragIds==='function'&&
-           typeof reactGestureBridge.setSnapGuide==='function'&&
-           typeof reactGestureBridge.setTrackDropTarget==='function'&&
-           reactGestureController&&
-           ['resolveGestureStartMode','createGestureStart','resolveMoveGesture',
-            'resolveTrimGesture','resolveRollGesture','resolveSlideGesture',
-            'resolveSlipGesture','validateMoveTarget','buildMovePreview',
-            'buildMoveOperations'].every(function(name){
-              return typeof reactGestureController[name]==='function';
-            }));
+        var canStartTypedReactGesture=hasCompleteReactTimelineGestureContract(reactGestureBridge,reactGestureController);
         // Once React owns the timeline surface, never silently fall through to
         // the legacy DOM gesture initializer: the React path has no DOM refs and
         // must be backed by the typed FilmStore gesture controller.
@@ -2746,9 +2775,15 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     var snapshot=window.filmStudioStore&&window.filmStudioStore.getSnapshot
       ?window.filmStudioStore.getSnapshot():null;
     var reactTimeline=window.filmStudioReactTimeline;
-    if(snapshot&&snapshot.timelineGestureContext&&
-       reactTimeline&&typeof reactTimeline.previewClipGesture==='function'){
-      reactTimeline.previewClipGesture(e);
+    if(snapshot&&snapshot.timelineGestureContext){
+      if(snapshot.timelineGestureContext.pointerId!==e.pointerId)return;
+      if(!hasCompleteReactTimelineGestureContract(reactTimeline,window.filmStudioTimelineController)){
+        cancelReactTimelineGestureAfterContractLoss(e);
+        return;
+      }
+      try{reactTimeline.previewClipGesture(e);}catch(_){
+        cancelReactTimelineGestureAfterContractLoss(e);
+      }
       return;
     }
     onMove(e);
@@ -2759,10 +2794,19 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     var snapshot=window.filmStudioStore&&window.filmStudioStore.getSnapshot
       ?window.filmStudioStore.getSnapshot():null;
     var timeline=window.filmStudioReactTimeline;
-    var prepared=snapshot&&snapshot.timelineGestureContext&&timeline&&
-      typeof timeline.prepareClipGestureCommit==='function'
-      ?timeline.prepareClipGestureCommit(e):undefined;
-    if(Array.isArray(prepared))return finishReactClipGesture(e,prepared);
+    if(snapshot&&snapshot.timelineGestureContext){
+      if(snapshot.timelineGestureContext.pointerId!==e.pointerId)return;
+      if(!hasCompleteReactTimelineGestureContract(timeline,window.filmStudioTimelineController)){
+        cancelReactTimelineGestureAfterContractLoss(e);
+        return;
+      }
+      try{
+        var prepared=timeline.prepareClipGestureCommit(e);
+        if(Array.isArray(prepared))return finishReactClipGesture(e,prepared);
+      }catch(_){/* a failed React commit preparation must never invoke the legacy editor */}
+      cancelReactTimelineGestureAfterContractLoss(e);
+      return;
+    }
     return onUp(e);
   };
   window.filmStudioMoveEnvelopeGesture=function(e,rect){

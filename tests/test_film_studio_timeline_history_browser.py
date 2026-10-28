@@ -2513,3 +2513,173 @@ def test_react_timeline_rejects_gesture_without_typed_controller_instead_of_lega
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+def test_react_clip_gesture_cancels_if_bridge_contract_disappears_midgesture(
+    tmp_path, monkeypatch
+):
+    """An active React gesture must never fall through to legacy onMove/onUp."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+    project_id = "film-studio-mid-gesture-bridge-loss"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(FILM, encoding="utf-8")
+    original_text = film_path.read_text(encoding="utf-8")
+    original = fd.read_project_film(project_id)
+    edit_requests: list[dict] = []
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+
+            def capture_edit(request):
+                if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        edit_requests.append(json.loads(request.post_data or "{}"))
+                    except json.JSONDecodeError:
+                        edit_requests.append({"_invalid_json": True})
+
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on("request", capture_edit)
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select=document.querySelector('#editor-project');
+                      let option=[...select.options].find(item=>item.value===pid);
+                      if(!option){option=new Option(pid,pid);select.add(option);}
+                      select.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => typeof window.filmStudioReactTimeline?.previewClipGesture === 'function' "
+                    "&& typeof window.filmStudioReactTimeline?.prepareClipGestureCommit === 'function' "
+                    "&& typeof window.filmStudioTimelineController?.buildMovePreview === 'function' "
+                    "&& !!document.querySelector('.fs-react-timeline-surface')"
+                )
+                clip_selector = '#fs-timeline .fs-clip[data-clip="clip-a"]'
+                revision_before = page.evaluate(
+                    "window.filmStudioStore.getSnapshot().revision"
+                )
+                edits_before = len(edit_requests)
+
+                # Case 1: controller disappears during pointermove. Reject and clear
+                # the active FilmStore context instead of calling legacy onMove().
+                clip = page.locator(clip_selector)
+                bounds = clip.bounding_box()
+                assert bounds
+                start_x = bounds["x"] + bounds["width"] / 2
+                start_y = bounds["y"] + bounds["height"] / 2
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.wait_for_function(
+                    "() => !!window.filmStudioStore?.getSnapshot()?.timelineGestureContext"
+                )
+                page.evaluate(
+                    """() => {
+                      window.__savedBuildMovePreview=window.filmStudioTimelineController.buildMovePreview;
+                      window.filmStudioTimelineController.buildMovePreview=undefined;
+                    }"""
+                )
+                page.mouse.move(start_x + 24, start_y, steps=3)
+                page.wait_for_function(
+                    """() => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state && state.timelineGestureContext===null &&
+                        state.timelineGesturePreview===null;
+                    }""",
+                    timeout=5000,
+                )
+                page.mouse.up()
+                page.evaluate(
+                    """() => {
+                      window.filmStudioTimelineController.buildMovePreview=window.__savedBuildMovePreview;
+                      delete window.__savedBuildMovePreview;
+                    }"""
+                )
+
+                # Case 2: pointerup preparation disappears after a valid preview.
+                clip = page.locator(clip_selector)
+                bounds = clip.bounding_box()
+                assert bounds
+                start_x = bounds["x"] + bounds["width"] / 2
+                start_y = bounds["y"] + bounds["height"] / 2
+                pixels_per_second = page.evaluate(
+                    "window.filmStudioStore.getSnapshot().pixelsPerSecond"
+                )
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.wait_for_function(
+                    "() => !!window.filmStudioStore?.getSnapshot()?.timelineGestureContext"
+                )
+                page.mouse.move(start_x + pixels_per_second, start_y, steps=6)
+                page.wait_for_function(
+                    """() => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state?.timelineGestureContext?.active &&
+                        !!state?.timelineGesturePreview?.['clip-a'];
+                    }""",
+                    timeout=5000,
+                )
+                page.evaluate(
+                    """() => {
+                      window.__savedPrepareClipGestureCommit=
+                        window.filmStudioReactTimeline.prepareClipGestureCommit;
+                      window.filmStudioReactTimeline.prepareClipGestureCommit=undefined;
+                    }"""
+                )
+                page.mouse.up()
+                page.wait_for_function(
+                    """() => {
+                      const state=window.filmStudioStore?.getSnapshot();
+                      return !!state && state.timelineGestureContext===null &&
+                        state.timelineGesturePreview===null && !state.busy;
+                    }""",
+                    timeout=5000,
+                )
+                page.evaluate(
+                    """() => {
+                      window.filmStudioReactTimeline.prepareClipGestureCommit=
+                        window.__savedPrepareClipGestureCommit;
+                      delete window.__savedPrepareClipGestureCommit;
+                    }"""
+                )
+
+                assert len(edit_requests) == edits_before, edit_requests
+                assert film_path.read_text(encoding="utf-8") == original_text
+                assert fd.read_project_film(project_id)["rev"] == original["rev"]
+                assert page.evaluate("window.filmStudioStore.getSnapshot().revision") == revision_before
+                assert page.locator("#fs-status").inner_text().find(
+                    "本次拖动已取消，未回退到旧版编辑路径。"
+                ) >= 0
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
