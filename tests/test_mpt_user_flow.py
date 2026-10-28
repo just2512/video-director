@@ -130,7 +130,9 @@ def test_generate_script_requires_llm(monkeypatch, tmp_path):
     from video_director import llm_provider as lp
     monkeypatch.setattr(mc, "_config_path", lambda: tmp_path / "mc.json")
     monkeypatch.setattr(mc, "_cache", {})
-    # Keep this contract test independent of process-wide provider state left by earlier tests.
+    # 进程级状态必须一并清零，否则全量序列中前序测试的真实配置/运行时
+    # 残留会越过本测试的"未配置"契约，直接对残留端点发起真实调用
+    # （2026-10-28 CI 实证：set_llm_config 残留 → 越过断言 → 429）。
     monkeypatch.setattr(lp, "_provider_cache", None)
     monkeypatch.setattr(lp, "_runtime_config", None)
     for env in ("VD_LLM_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
