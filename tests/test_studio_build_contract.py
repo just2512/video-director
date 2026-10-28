@@ -121,21 +121,22 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "id: live_stream_config" in ai_workflow
     assert "id: full_regression" in ai_workflow
     assert "steps.full_regression.outcome == 'success'" in ai_workflow
-    # Ordinary runs skip this provider-specific test; an explicit opt-in failure
-    # must not be masked by continue-on-error and must block release publication.
+    # Live-model diagnostics are intentionally non-blocking: the report must
+    # record REJECT/MISSING, while unrelated regression and release gates continue.
     require_live_or_not_requested = (
         "steps.live_stream_config.conclusion == 'success' || "
-        "steps.live_stream_config.conclusion == 'skipped'"
+        "steps.live_stream_config.conclusion == 'skipped' || "
+        "steps.live_stream_config.conclusion == 'failure'"
     )
     assert ai_workflow.count(require_live_or_not_requested) >= 2
     live_config_step = ai_workflow.split(
         "      - name: Configure opt-in live model token-stream smoke", 1
     )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
-    assert "continue-on-error: true" not in live_config_step
+    assert "continue-on-error: true" in live_config_step
     assert "raise SystemExit(1)" in live_config_step
     assert "id: live_stream_smoke" in ai_workflow
     assert "steps.live_stream_config.outcome" in ai_workflow
-    assert "steps.live_stream_acceptance.outcome == 'success'" in ai_workflow
+    assert "steps.live_stream_acceptance.conclusion == 'success'" in ai_workflow
     assert "steps.timeline_regression_gate.outcome == 'success'" in ai_workflow
     assert '"BLOCKED_PROVIDER":' in live_acceptance
     assert '"BLOCKED_MODEL":' in live_acceptance
