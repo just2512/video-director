@@ -1500,7 +1500,7 @@ def test_legacy_save_and_render_endpoints_are_hard_gated_after_migration():
     assert 'await window.shotbookLoad(true)' in studio
     assert 'await window.creativePlanReload()' in studio
     assert 'button.disabled=state.referenceOnly' in creative
-    assert '_reject_legacy_composition_access(pid, "执行旧 CompositionIR Editor Command")' in server
+    assert '_reject_legacy_composition_access(str(pid).strip(), "执行旧 CompositionIR Editor Command")' in server
     assert '_reject_legacy_composition_access(pid, "将旧生成素材添加到 CompositionIR 时间线")' in server
     assert '_reject_legacy_composition_access(pid, "执行旧版 AI Director 指令")' in server
     assert '_reject_legacy_composition_access(pid, "执行旧版 Action Service 编辑动作")' in server
