@@ -371,6 +371,12 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-director-planning-note{padding:8px 9px;border:1px solid #343434;border-radius:5px;background:#1e2525;margin:0 0 8px}
 .fs-director-planning-note strong{font-size:12px;color:#d9e6e4}
 .fs-director-planning-note p{font-size:11px;line-height:1.5;color:#a8b8b6;margin:5px 0 0}
+.fs-director-film-actions{display:grid;gap:7px;margin-top:9px}
+.fs-director-film-actions textarea{width:100%;min-height:84px;resize:vertical;padding:7px;border:1px solid #414141;border-radius:4px;line-height:1.45;font:inherit}
+.fs-director-film-presets{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+.fs-director-film-presets .fs-btn{white-space:normal}
+.fs-director-film-actions>.fs-primary{justify-self:start}
+
 #fs-director-planning-host #director-control-grid{background:transparent;border:0}
 #fs-director-planning-host #director-control-grid>*{max-width:100%;box-sizing:border-box}
 

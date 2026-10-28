@@ -4591,6 +4591,24 @@ window.filmStudioCopyClips=function(){
     };
   }
 
+  window.filmStudioSubmitDirectorPrompt=function(){
+    var source=$('fs-director-film-prompt');
+    var message=String(source&&source.value||'').trim();
+    if(!message){showStatus('请先输入导演指令，或选择一个指令模板。','error');if(source)source.focus();return false;}
+    if(!S.open||!S.data||!S.data.exists){showStatus('请先打开并初始化当前项目的 film.html。','error');return false;}
+    var input=$('fs-chat-input')||$('fs-static-chat-input');
+    if(!input){showStatus('右侧 AI 导演输入框尚未就绪；未提交指令。','error');return false;}
+    if(typeof window.filmStudioAsk!=='function'){showStatus('AI 导演接口尚未就绪；未提交指令。','error');return false;}
+    window.filmStudioSetSideMode('ai');
+    input.value=message;
+    var wasBusy=!!S.busy,previousSteer=S.aiPendingSteer;
+    var result=window.filmStudioAsk();
+    // Keep the draft if safety checks reject submission. Clear it only when a
+    // request starts or an active AI generation accepts a steering instruction.
+    if((!wasBusy&&S.busy)||S.aiPendingSteer!==previousSteer)source.value='';
+    return result;
+  };
+
   const FILM_STUDIO_ACTIONS = {
     toggle: () => window.filmStudioToggle(),
     undo: () => window.filmStudioUndo(),
@@ -4625,12 +4643,23 @@ window.filmStudioCopyClips=function(){
     'show-ai': () => window.filmStudioSetSideMode('ai'),
     render: () => window.filmStudioRender(),
     ask: () => window.filmStudioAsk(),
+    'director-propose': () => window.filmStudioSubmitDirectorPrompt(),
     'cancel-ai': () => window.filmStudioCancelAi(),
     'preview-proposal': () => window.filmStudioPreviewProposal(),
     'apply-proposal': () => window.filmStudioApplyProposal(),
     'reject-proposal': () => window.filmStudioRejectProposal(),
   };
   document.addEventListener('click', function(event) {
+    var preset = event.target && event.target.closest ? event.target.closest('[data-director-prompt]') : null;
+    if (preset) {
+      var promptInput = $('fs-director-film-prompt');
+      if (promptInput) {
+        promptInput.value = preset.getAttribute('data-director-prompt') || '';
+        promptInput.focus();
+      }
+      event.preventDefault();
+      return;
+    }
     var button = event.target && event.target.closest ? event.target.closest('[data-film-action]') : null;
     if (!button || button.disabled) return;
     var action = button.getAttribute('data-film-action');

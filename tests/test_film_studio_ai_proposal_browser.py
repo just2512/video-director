@@ -897,3 +897,118 @@ def test_ai_proposal_returned_after_external_revision_during_generation_is_never
         server.server_close()
         thread.join(timeout=5)
 
+
+
+def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_legacy_writes(tmp_path, monkeypatch):
+    """Director planning remains usable after initialization without reopening CompositionIR writers."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-director-bridge-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    before = fd.read_project_film(project_id)
+    assert before["exists"]
+
+    candidate_doc, normalized = fd.apply_ops(before["doc"], [
+        {"op": "move", "clip": "clip-b", "track_id": "video-main", "at": 6.0}
+    ])
+    candidate_text = fd.serialize_film(candidate_doc)
+    candidate_state = {
+        "exists": True,
+        "project_id": project_id,
+        "text": candidate_text,
+        "rev": fd.revision_of(candidate_text),
+        "doc": candidate_doc,
+    }
+    proposal = {
+        "id": "director-bridge-proposal",
+        "project_id": project_id,
+        "base_revision": before["rev"],
+        "operations": normalized,
+        "summary": "导演审查：调整第二个镜头节奏",
+        "candidate": fd.film_payload(project_id, candidate_state),
+        "affected_clip_ids": ["clip-b"],
+    }
+    command_requests: list[dict] = []
+
+    def handle_command(route):
+        command_requests.append(json.loads(route.request.post_data or "{}"))
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({
+                "ok": True,
+                "proposal": proposal,
+                "message": "已生成绑定 revision 的候选修改；尚未写入正式影片。",
+            }, ensure_ascii=False),
+        )
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.route("**/api/editor/film/command", handle_command)
+            try:
+                page.set_default_navigation_timeout(10_000)
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioAsk === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); return !!select && select.options.length>0; }"
+                )
+                page.evaluate("""pid => {
+                  const select=document.querySelector('#editor-project');
+                  let option=[...select.options].find(item=>item.value===pid);
+                  if(!option){option=new Option(pid,pid);select.add(option);}
+                  select.value=pid;
+                  select.dispatchEvent(new Event('change',{bubbles:true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').wait_for(state="visible")
+
+                page.locator('[data-film-action="director-mode"]').click()
+                page.locator("#fs-director-authority-note").wait_for(state="visible")
+                page.locator("#fs-director-prompt-review").click()
+                prompt = page.locator("#fs-director-film-prompt").input_value()
+                assert "导演审查" in prompt and "当前 revision" in prompt
+                assert page.locator("#fs-director-planning-host #director-bar-card").count() == 0
+                assert page.locator("#fs-director-planning-host #director-control-grid").count() == 0
+
+                page.locator('[data-film-action="director-propose"]').click()
+                page.locator('#fs-proposal-panel[data-react-ai-proposal="true"]').wait_for(
+                    state="visible", timeout=10_000
+                )
+                assert len(command_requests) == 1, command_requests
+                request = command_requests[0]
+                assert request["project_id"] == project_id, request
+                assert request["base"] == before["rev"], request
+                assert request["message"] == prompt, request
+                assert request["stream"] is True, request
+                assert fd.read_project_film(project_id)["rev"] == before["rev"], (
+                    "generating a director proposal must not write the authoritative film"
+                )
+                assert before["rev"] in page.locator("#fs-proposal-detail").inner_text()
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

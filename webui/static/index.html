@@ -148,8 +148,19 @@
               <p>当前项目还没有 film.html。可先使用旧导演规划生成初版，再显式初始化为可审计的影片文档。</p>
             </div>
             <div class="fs-director-planning-note" id="fs-director-authority-note" style="display:none">
-              <strong>当前以 film.html 为唯一时间线</strong>
-              <p>旧 CompositionIR 控制与命令入口已移出此工作区。要修改正式影片，请使用右侧 AI 导演生成可预览提案，确认后再应用；影片文档无效时须先修复并重新载入。</p>
+              <strong>导演规划已接入当前影片</strong>
+              <p>film.html 是唯一时间线。旧 CompositionIR 写入入口继续受硬门禁保护；下面的导演指令会转交右侧 AI 导演，生成绑定当前 revision 的可审查提案，不会直接修改正式影片。</p>
+              <div class="fs-director-film-actions">
+                <label for="fs-director-film-prompt">导演指令</label>
+                <textarea id="fs-director-film-prompt" rows="4" aria-label="当前影片导演指令" placeholder="描述需要审查或调整的镜头、节奏或音轨。指令会使用当前项目、选区和 revision。"></textarea>
+                <div class="fs-director-film-presets" aria-label="导演指令模板">
+                  <button type="button" class="fs-btn" id="fs-director-prompt-review" data-director-prompt="请基于当前影片和当前 revision，从镜头节奏、空隙或重叠、画面衔接、音轨层次及结尾收束几个方面做导演审查。只针对 FilmDocument 能证实的问题提出最小修改；保持旁白轨和旁白时序不变；逐项列出目标片段 ID、修改前后状态与影响；不要直接写入正式影片。">全片导演审查</button>
+                  <button type="button" class="fs-btn" id="fs-director-prompt-selected" data-director-prompt="请只分析当前选中的镜头并提出最小必要的节奏优化提案。保持未选中镜头、旁白及背景音乐的时间和属性不变；依据真实 clip ID 与时长，不要猜测；逐项列出修改前后状态，不要直接写入正式影片。">优化所选镜头</button>
+                  <button type="button" class="fs-btn" id="fs-director-prompt-music" data-director-prompt="请检查当前影片最后一个背景音乐片段的真实结束时间和已有淡出设置；只有在目标和约束明确时，才提出片尾渐弱修改。保持旁白和画面镜头的位置、时长不变；列出修改前后状态，不要直接写入正式影片。">检查片尾音乐</button>
+                </div>
+                <button type="button" class="fs-btn fs-primary" data-film-action="director-propose">生成可审查提案</button>
+                <p>提案先进入右侧预览；只有明确确认后才会写入 film.html。若影片 revision 已变化，旧提案会失效。</p>
+              </div>
             </div>
           </div>
         </aside>
