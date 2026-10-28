@@ -170,7 +170,7 @@
 - 新增构建契约测试，要求工作流使用自托管 runner、保留依赖锁文件，且实际 JS/CSS 不能是占位输出。
 - React Studio 的工具栏、时间线、素材列表、AI 面板、片段检查器和画布检查器改为通过一个 `createRoot()` 管理，并以 portals 挂载到既有布局槽位；这保留了现有 DOM 布局和事件桥接，但消除了多个 React root 独立管理同一个 Studio 的情况。
 - 右侧属性检查器和 AI 导演不再通过 tab 互斥隐藏；二者常驻同一工作区，新增可用鼠标/上下方向键调整比例的分隔条，选择比例存入 `localStorage`。
-- **当前验收状态（2026-10-22）：** 当前 `main` 的 React Studio bundle/CSS 已由自托管工作流构建并发布；定向 Studio 工作流和完整 AI Director 回归均通过（1256 passed、0 failed）。验证范围仍不包含所有媒体编解码组合、所有时间线操作排列、自定义 cubic Bezier 手柄与任意 HTML/WebGL 场景的逐帧确定性。
+- **历史验收状态（2026-10-22，已被后续主线实测覆盖）：** 当前 `main` 的 React Studio bundle/CSS 已由自托管工作流构建并发布；定向 Studio 工作流和完整 AI Director 回归均通过（1256 passed、0 failed）。验证范围仍不包含所有媒体编解码组合、所有时间线操作排列、自定义 cubic Bezier 手柄与任意 HTML/WebGL 场景的逐帧确定性。
 
 ## 本次直接落地
 
@@ -181,7 +181,7 @@
 - [Studio #426](https://github.com/just2512/video-director/actions/runs/40186377769) 验证同步锁多轨插入在一次 Undo 后恢复原始 film.html 字节。
 - [Studio #427](https://github.com/just2512/video-director/actions/runs/40186926343) 验证成功覆盖在一次 Undo 后恢复原始 film.html 字节，并且此前的 stale/busy/submitter-failure 清理探针不会污染编辑历史。
 
-**仍未关闭的验收门禁：** 现有 Chromium 回归覆盖基础跨轨移动、Lift/Ripple/Delete/Insert/Overwrite、速度预设、roll/slide/slip、撤销重做和外部 revision 冲突，但并未穷尽所有操作顺序。`test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture` 已在 Studio 浏览器回归中通过，覆盖拖动期间外部 revision 变化时拒绝旧手势；延迟返回的过期 AI 提案回归也已验证禁止预览/应用。淡出/淡入菜单已加入成功和拒绝路径的真实 Chromium 测试；`test_adjacent_clip_fades_match_browser_look_and_exported_mp4_frames` 新增真实 MP4 帧与 Look 预览的像素一致性检查，须等待最新主线 AI Director 回归确认。Bezier/HTML 场景及任意网页动画、异步资源的确定性边界不能泛化；真实配置模型经中转端点的增量 token 传输已在 [Actions 40637515525](https://github.com/just2512/video-director/actions/runs/40637515525) 通过 opt-in 端到端烟测；该运行的旧代码仍有时间线浏览器回归失败，不能视为整套门禁通过。必须继续用具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
+**仍未关闭的验收门禁：** 现有 Chromium 回归覆盖基础跨轨移动、Lift/Ripple/Delete/Insert/Overwrite、速度预设、roll/slide/slip、撤销重做和外部 revision 冲突，但并未穷尽所有操作顺序。`test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture` 已在 Studio 浏览器回归中通过，覆盖拖动期间外部 revision 变化时拒绝旧手势；延迟返回的过期 AI 提案回归也已验证禁止预览/应用。淡出/淡入菜单已加入成功和拒绝路径的真实 Chromium 测试；`test_adjacent_clip_fades_match_browser_look_and_exported_mp4_frames` 的真实 MP4 帧与 Look 预览一致性检查已由 [最新 AI Director gate `40685008083`](https://github.com/just2512/video-director/actions/runs/40685008083) 以 293 passed 的精选回归通过；这只覆盖被测 fixture，不泛化为任意 HTML/WebGL 的帧确定性。Bezier/HTML 场景及任意网页动画、异步资源的确定性边界不能泛化；真实配置模型经中转端点的增量 token 传输已在 [Actions 40637515525](https://github.com/just2512/video-director/actions/runs/40637515525) 通过 opt-in 端到端烟测；该运行的旧代码仍有时间线浏览器回归失败，不能视为整套门禁通过。必须继续用具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
 
 
 - 时间尺 click 与 scrub 共用 React 指针生命周期：父时间尺统一捕获指针，刻度点击在 pointerup 按 `data-at` 精确定位，真实移动超过 4px 才启动 scrub；拖动结束不会被子刻度的合成 click 拉回起点。
@@ -199,10 +199,19 @@
 - 主线提交 [`168e1dc`](https://github.com/just2512/video-director/commit/168e1dc9d43d6a29f9c4451ff9eb654a066bebc6) 与随后 `ffb397c`/`14c3c9e` 修复了 React `pointerdown` 的选区所有权、无位移点击的播放头定位和真实拖动后的合成 click 抑制。旧 run `40639540884` 被取消以释放单 Runner；后续通过 `40657485729` 的全量回归和 `40657485766` 的独立 Studio 浏览器回归复验。当前状态不再是 UNKNOWN。
 
 
-### 最新主线发布验收（2026-10-28）
+### 上一轮主线发布验收（2026-10-28，已由后续提交复验）
 
 - [AI Director regression `40657485729`](https://github.com/just2512/video-director/actions/runs/40657485729) 对源码提交 `77f1cd4` 完成 SUCCESS：全量 pytest/Chromium **1362 passed、1 skipped、0 failed**，JavaScript 语法检查、React 19/TypeScript 构建、Tailwind 4 构建和 Studio 集成 smoke 均通过；精选时间线/导出发布门禁 **291 passed、0 failed**。
 - 该 run 通过受门禁保护的发布步骤提交了 [`036ea8e`](https://github.com/just2512/video-director/commit/036ea8e5bebef40be98612431d02f6aed2ab1d31)，更新 `webui/static/js/film-studio-react.js` 与 `webui/static/css/film-studio-tailwind.css`；不是只在临时构建目录生成产物。
 - 独立 [Studio UI build and browser smoke `40657485766`](https://github.com/just2512/video-director/actions/runs/40657485766) 也对 `77f1cd4` 完成 SUCCESS：**327 passed、2 warnings、0 failed**。该工作流只做独立构建/浏览器复验，不覆盖新发布 bundle commit；bundle 发布证据以 `036ea8e` 和 AI workflow 发布步骤为准。
 - 当前 AI workflow 未启用付费模型，故该次 `LIVE_STREAM_ACCEPTANCE=MISSING`，这是有意跳过的真实模型检查；另一次隔离的显式真实模型烟测 `40637515525` 的 token-stream 验收步骤曾输出 PASS，但整次 workflow 后来因旧源码的时间线回归被取消，不能把它当作整套绿色构建。真实 token 流证据与默认 CI 的 MISSING 必须分开记。
 - 仍未声称完全覆盖任意 HTML/WebGL 动画的逐帧确定性、所有剪辑操作排列、多人 CRDT 协作或同一模型会话的 token 级 steering。导演规划与素材准备已经在同一 Studio 壳内提供兼容/FilmDocument 两种受门禁路径，但 `CompositionIR` 的无损迁移仍非普遍保证；遇到未验证字段必须保留警告并让用户确认。
+
+
+### 最新主线权威门禁与发布验收（2026-10-28）
+
+- [AI Director run `40685008083`](https://github.com/just2512/video-director/actions/runs/40685008083) 对源码提交 [`1cd42bc`](https://github.com/just2512/video-director/commit/1cd42bc59d58345c7e75c4bdde8e479a4dcdb63f) 完成 SUCCESS：完整 pytest/Chromium **1364 passed、1 skipped、0 failed**；精选时间线/预览/导出门禁 **293 passed、1 warning、0 failed**。React/TypeScript、Tailwind、Studio integration smoke 与 JS syntax 均通过。
+- 独立 [Studio UI run `40685008091`](https://github.com/just2512/video-director/actions/runs/40685008091) 同样 SUCCESS：**329 passed、2 warnings、0 failed**。
+- 发布步骤检查确认 `webui/static/js/film-studio-react.js`、`webui/static/css/film-studio-tailwind.css` 和依赖锁已是最新，未创建多余 bundle commit；当前产物仍是此前通过门禁验证的 [`036ea8e`](https://github.com/just2512/video-director/commit/036ea8e5bebef40be98612431d02f6aed2ab1d31)。
+- 本轮 authority hard gate 增补了重复初始化 `film.html` 的 HTTP 409 拒绝；`editor.load_composition()` 与 `editor.composition_version()` 对 FilmDocument 项目 fail closed；旧 `/api/proposal/{propose,preview,apply,reject}` 均返回 `409 FILM_DOCUMENT_AUTHORITATIVE`；MCP `film.initialize` 对已有影片也拒绝且不改变文件。
+- `LIVE_STREAM_ACCEPTANCE=MISSING` 是因为本轮默认工作流没有启用付费模型 smoke，不是 live token gate 的 PASS。本次独立真实模型流式证据仍以先前显式 run `40637515525` 记录为单项 PASS；它不替代默认运行的 MISSING，也不扩大为每次 CI 都进行了真实请求。

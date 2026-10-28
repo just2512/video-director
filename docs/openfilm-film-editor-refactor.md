@@ -167,8 +167,16 @@ When a Composition has multiple variants and no valid active_variant_id, migrati
 The Studio is being moved incrementally to typed React components instead of swapping the entire working editor in one rewrite. React/FilmStore now own timeline UI state, waveform/envelope painting, context-menu surfaces, gesture-preview geometry and snap/drop indicators; the native adapter still computes source-aware trim/roll/slide/slip/move operations and routes pointerup through FilmDocument revision validation, undo/redo and atomic writes. The active clip-gesture context is a typed, ID-only FilmStore snapshot; DOM references are kept only in the no-bundle fallback closure. Other React surfaces mount behind stable bridge contracts. Tailwind 4 is scoped to the React surfaces and deliberately omits Preflight so it cannot reset the existing dock/timeline styles. This is an integration milestone, not a claim that the entire Studio shell or every timeline interaction has completed a full React rewrite.
 
 
-## Latest verified mainline release (2026-10-28)
+## Previous verified mainline release (2026-10-28, superseded by later source regression)
 
 - [AI Director `40657485729`](https://github.com/just2512/video-director/actions/runs/40657485729) completed SUCCESS on source `77f1cd4`: 1362 passed, 1 skipped, no failed tests; the curated timeline/browser/export release gate completed with 291 passed and no failures. React/TypeScript, React bundle, Tailwind CSS, Studio smoke and JavaScript syntax checks all passed.
 - The workflow then published verified `webui/static/js/film-studio-react.js` and `webui/static/css/film-studio-tailwind.css` in commit [`036ea8e`](https://github.com/just2512/video-director/commit/036ea8e5bebef40be98612431d02f6aed2ab1d31). Independent [Studio browser smoke `40657485766`](https://github.com/just2512/video-director/actions/runs/40657485766) also completed SUCCESS: 327 passed, 2 warnings, 0 failed.
 - The default AI run's live-provider check is MISSING because it was intentionally skipped to avoid an unrequested paid call. The explicit run above supplies separate evidence of real token fragments; it is not evidence that every default CI run rechecks the provider.
+
+
+## Latest mainline acceptance (2026-10-28, source `1cd42bc`)
+
+- [AI Director `40685008083`](https://github.com/just2512/video-director/actions/runs/40685008083) SUCCESS: 1364 passed, 1 skipped, no failures; curated timeline/browser/export gate 293 passed, 1 warning, no failures. React/TypeScript, Tailwind, integration smoke and JavaScript syntax checks passed.
+- [Independent Studio `40685008091`](https://github.com/just2512/video-director/actions/runs/40685008091) SUCCESS: 329 passed, 2 warnings, 0 failures.
+- Bundle publication step verified React Studio bundle, Tailwind CSS and the package lock were already current; it intentionally created no new artifact commit. The committed bundle remains the gate-verified `036ea8e`.
+- The authority hard gate now also rejects duplicate `/api/editor/film/initialize` calls, old `composition_version()` reads and legacy proposal HTTP endpoints when `film.html` exists. Normal CI reports live-provider streaming as MISSING unless explicitly opted in.
