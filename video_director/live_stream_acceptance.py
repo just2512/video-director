@@ -6,6 +6,7 @@ prints provider credentials.
 """
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 import xml.etree.ElementTree as ET
@@ -114,14 +115,17 @@ def classify_live_stream_acceptance(
     return "UNKNOWN"
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Report the live model token-stream acceptance gate.")
+    parser.add_argument(
+        "--junit",
+        default=os.environ.get("LIVE_STREAM_JUNIT_PATH", "live-stream-junit.xml"),
+        help="JUnit XML written by the isolated real-provider smoke test.",
+    )
+    args = parser.parse_args(argv)
     config_outcome = os.environ.get("LIVE_STREAM_CONFIG_OUTCOME", "unknown")
     test_outcome = os.environ.get("LIVE_STREAM_TEST_OUTCOME", "unknown")
-    status = classify_live_stream_acceptance(
-        config_outcome,
-        test_outcome,
-        os.environ.get("LIVE_STREAM_JUNIT_PATH", "live-stream-junit.xml"),
-    )
+    status = classify_live_stream_acceptance(config_outcome, test_outcome, args.junit)
     print(f"LIVE_STREAM_ACCEPTANCE={status}")
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "").strip()
     if summary_path:

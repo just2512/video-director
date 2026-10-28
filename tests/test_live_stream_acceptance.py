@@ -65,3 +65,20 @@ def test_malformed_junit_does_not_become_pass(tmp_path):
     path = tmp_path / "live.xml"
     path.write_text("<testsuite>", encoding="utf-8")
     assert classify_live_stream_acceptance("success", "success", path) == "UNKNOWN"
+
+def test_main_honors_explicit_junit_path(tmp_path, monkeypatch, capsys):
+    import sys
+
+    from video_director import live_stream_acceptance
+
+    path = tmp_path / "explicit-live.xml"
+    write_junit(path)
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("LIVE_STREAM_CONFIG_OUTCOME", "success")
+    monkeypatch.setenv("LIVE_STREAM_TEST_OUTCOME", "success")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    monkeypatch.setattr(sys, "argv", ["live_stream_acceptance", "--junit", str(path)])
+
+    assert live_stream_acceptance.main() == 0
+    assert "LIVE_STREAM_ACCEPTANCE=PASS" in capsys.readouterr().out
+    assert "Real-model token-stream acceptance: PASS" in summary.read_text(encoding="utf-8")
