@@ -2598,12 +2598,12 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     // resolver is not mounted; the built Studio always supplies an operation array.
     if(!Array.isArray(preparedOperations))return onUp(e);
 
-    var dragDomRefs=gestureDomRefs;
-    S.drag=null;
     // Suppress only the synthetic click after an actual drag. A pointer sequence
     // with no active movement is a click and must retain click-to-seek behavior;
     // React already applied pointerdown selection, so the ensuing click may seek
     // but must not reapply selection.
+    var dragDomRefs=gestureDomRefs;
+    S.drag=null;
     if(d.active)suppressNextClipClick();
     showTimelineSnapGuide(null);
     clearDragTrackTarget(d);
