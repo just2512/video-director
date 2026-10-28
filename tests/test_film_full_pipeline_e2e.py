@@ -200,7 +200,7 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
 
     render = subprocess.run(
         [sys.executable, "-m", "video_director", "film", "render",
-         "--project-id", project_id, "--fps", "2"],
+         "--project-id", project_id, "--expected-revision", reloaded["rev"], "--fps", "2"],
         cwd=repo_root, env=environment, capture_output=True, text=True, timeout=240
     )
     assert render.returncode == 0, render.stdout + render.stderr
