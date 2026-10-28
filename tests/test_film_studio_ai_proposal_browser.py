@@ -1033,9 +1033,21 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
                 assert creative_save.json()["plan"]["version"] == creative_reference["plan"]["version"] + 1
                 assert fd.read_project_film(project_id)["rev"] == before["rev"]
 
+                legacy_read_probes = [
+                    "/api/editor/composition?project_id=" + project_id,
+                    "/api/editor/material_match?project_id=" + project_id,
+                ]
+                for route in legacy_read_probes:
+                    result = page.request.get(base_url + route)
+                    body = result.json()
+                    assert result.status == 409 and body.get("code") == "FILM_DOCUMENT_AUTHORITATIVE", (
+                        route, result.status, body
+                    )
+
                 legacy_write_probes = [
                     ("/api/editor/command", {"project_id":project_id,"command":"set_duration","targetId":"clip-b","payload":{"duration":4.0}}),
                     ("/api/editor/generate/add", {"project_id":project_id,"scene_id":"clip-b","asset_id":"legacy-asset"}),
+                    ("/api/editor/matting", {"project_id":project_id,"target_id":"old-scene#0"}),
                     ("/api/editor/shotbook", {"project_id":project_id,"action":"generate"}),
                     ("/api/editor/shotbook", {"project_id":project_id,"action":"save","base_version":4,"shots":[]}),
                     ("/api/editor/creative-plan", {"project_id":project_id,"action":"initialize"}),

@@ -1488,6 +1488,9 @@ def test_legacy_save_and_render_endpoints_are_hard_gated_after_migration():
     assert 'assert_legacy_composition_access(project_id, "导出旧时间线成片")' in confirm
     assert '_reject_legacy_composition_access(pid, "启动旧时间线渲染")' in server
     assert '_reject_legacy_composition_access(pid, "导出旧时间线成片")' in server
+    assert '_reject_legacy_composition_access(pid, "读取旧 CompositionIR 时间线")' in server
+    assert '_reject_legacy_composition_access(pid, "读取旧 CompositionIR 素材匹配数据")' in server
+    assert '_reject_legacy_composition_access(pid, "对旧 CompositionIR 图层执行抠像")' in server
     assert re.search(
         r'_reject_legacy_composition_access\(\s*pid,\s*"生成或保存基于旧 CompositionIR 的分镜"\s*\)',
         server,

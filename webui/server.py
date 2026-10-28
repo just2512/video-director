@@ -2144,6 +2144,8 @@ class Handler(BaseHTTPRequestHandler):
             if not pid:
                 self._send_json({"error": "缺少 project_id"}, 400)
                 return
+            if self._reject_legacy_composition_access(pid, "读取旧 CompositionIR 时间线"):
+                return
             try:
                 from video_director import editor as vd_editor
                 ir = vd_editor.load_composition(pid)
@@ -2280,6 +2282,8 @@ class Handler(BaseHTTPRequestHandler):
             pid = (qs.get("project_id") or [""])[0]
             if not pid:
                 self._send_json({"error": "缺少 project_id"}, 400)
+                return
+            if self._reject_legacy_composition_access(pid, "读取旧 CompositionIR 素材匹配数据"):
                 return
             try:
                 from video_director import editor as vd_editor
@@ -4301,6 +4305,8 @@ class Handler(BaseHTTPRequestHandler):
             target = (payload.get("target_id") or "").strip()
             if not pid or not target:
                 self._send_json({"error": "缺少 project_id / target_id"}, 400)
+                return
+            if self._reject_legacy_composition_access(pid, "对旧 CompositionIR 图层执行抠像"):
                 return
             try:
                 from video_director import editor as vd_editor
