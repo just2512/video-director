@@ -1,6 +1,6 @@
 /* Semantic-beat and shot-plan editor; state persists through project-scoped API. */
 (() => {
-  const state = {plan: null, exists: false, stale: false, staleReasons: [], report: null};
+  const state = {plan: null, exists: false, stale: false, staleReasons: [], referenceOnly:false, report: null};
   const el = (id) => document.getElementById(id);
   const escHtml = (value) => String(value == null ? "" : value)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -143,10 +143,14 @@
     }
     state.exists = !!result.exists;
     state.plan = result.plan || null;
-    state.stale = !!result.stale;
+    state.referenceOnly = result.reference_only === true;
+    state.stale = !!result.stale && !state.referenceOnly;
     state.staleReasons = result.stale_reasons || [];
     state.report = null;
-    if (!state.plan) renderStatus("尚无创作计划。点击“从当前稿件生成草案”开始。");
+    if (!state.plan) renderStatus(state.referenceOnly
+      ? "当前项目没有旧版语义计划；film.html 仍是唯一时间线。"
+      : "尚无创作计划。点击“从当前稿件生成草案”开始。");
+    else if (state.referenceOnly) renderStatus("已载入旧版语义计划，只读作导演参考；旧时间戳与 shot ID 不用于当前影片。"+(state.staleReasons.length?" 说明："+state.staleReasons.join("；"):""));
     else if (state.stale) renderStatus("计划已过期：" + state.staleReasons.join("；"), true);
     else renderStatus("已加载。保存会进行版本检查，不会直接修改 CompositionIR。");
     render();
@@ -226,7 +230,8 @@
   window.creativePlanExportForFilmDirector = function () {
     if (!state.plan) return null;
     return {
-      project_id:state.plan.project_id,version:state.plan.version,stale:state.stale===true,
+      project_id:state.plan.project_id,version:state.plan.version,
+      reference_only:state.referenceOnly===true,stale:state.stale===true||state.referenceOnly===true,
       stale_reasons:(state.staleReasons||[]).slice(0,4),
       semantic_beats:(state.plan.semantic_beats||[]).slice(0,8).map((beat) => ({
         sentence_id:String(beat.sentence_id||'').slice(0,100),text:String(beat.text||'').slice(0,160),

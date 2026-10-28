@@ -655,6 +655,59 @@ def get_project_shotbook(project_id: str) -> dict:
         return _get_project_shotbook_unlocked(pid)
 
 
+def get_project_shotbook_reference(project_id: str) -> dict:
+    """Read a legacy Shotbook sidecar without loading or treating CompositionIR as timeline authority."""
+    pid = _project_id(project_id)
+    with _project_plan_lock(pid):
+        previous = _read_plan(_plan_path(pid))
+    raw_shots = previous.get("shots", []) if isinstance(previous, dict) else []
+    shots = []
+    for item in raw_shots[:50] if isinstance(raw_shots, list) else []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            start = float(item.get("start", 0) or 0)
+            end = float(item.get("end", start) or start)
+        except (TypeError, ValueError):
+            start, end = 0.0, 0.0
+        if not (-1e9 < start < 1e9):
+            start = 0.0
+        if not (-1e9 < end < 1e9):
+            end = start
+        shots.append({
+            "scene_id": str(item.get("scene_id") or "")[:120],
+            "start": start, "end": end,
+            "text": str(item.get("text") or "")[:500],
+            "semantic_role": str(item.get("semantic_role") or "neutral")[:40],
+            "visual_intent": str(item.get("visual_intent") or "establish")[:40],
+            "shot_type": str(item.get("shot_type") or "footage")[:40],
+            "shot_recipe_id": str(item.get("shot_recipe_id") or "")[:160],
+            "motion_recipe_id": str(item.get("motion_recipe_id") or "")[:160],
+            "overlay_text": str(item.get("overlay_text") or "")[:120],
+            "evidence_ref": str(item.get("evidence_ref") or "")[:300],
+            "sfx_cue": str(item.get("sfx_cue") or "")[:160],
+            "notes": str(item.get("notes") or "")[:500],
+            "reviewed": bool(item.get("reviewed")),
+        })
+    note = (
+        "这是旧 CompositionIR 的分镜 sidecar，不是当前 film.html 的镜头列表。"
+        "所有 scene ID、时间、配方和素材关联都已失去时间线权威；只读展示，必须转换为当前 revision 绑定的 FilmOperation 提案后才能修改影片。"
+    )
+    gates = [
+        {"id":"timing","label":"时间锚点","status":"NEEDS_REVIEW","detail":note},
+        {"id":"semantic","label":"语义分镜","status":"NEEDS_REVIEW","detail":"旧版语义可作创作意图参考，不能视为当前影片事实。"},
+        {"id":"render","label":"镜头执行","status":"MISSING","detail":"旧配方/图层目标未对照当前 FilmDocument 校验。"},
+        {"id":"evidence","label":"证据素材","status":"NEEDS_REVIEW","detail":"旧证据引用尚未与当前影片和实际资源重新匹配。"},
+    ]
+    return {
+        "ok":True,"project_id":pid,"schema_version":SCHEMA_VERSION,
+        "version":int((previous or {}).get("version") or 0),
+        "saved":bool(previous),"reference_only":True,"stale":True,
+        "shots":shots,"recipes":[],"motions":[],"gates":gates,
+        "timing_source":"unverified","timing_note":note,
+    }
+
+
 def save_project_shotbook(project_id: str, payload: dict) -> dict:
     """Serialize save, stale-version check, and atomic replacement as one transaction."""
     pid = _project_id(project_id)

@@ -15,7 +15,9 @@ async function shotbookLoad(discardDirty){
   const data=await apiGet('/api/editor/shotbook?project_id='+encodeURIComponent(pid));
   if(!data||data.ok===false||data.error){if(status)status.textContent='读取失败：'+((data&&data.error)||'服务暂不可用');return false;}
   SHOTBOOK=data;SHOTBOOK_DIRTY=false;shotbookRender();
-  if(status)status.textContent=data.saved?'已载入已保存的分镜。修改后点“保存分镜”。':'当前项目还没有保存过分镜；可从当前时间线生成草案。';
+  if(status)status.textContent=data.reference_only
+    ? (data.saved?'已载入旧版分镜参考（只读）。旧时间与镜头 ID 不具备 film.html 写入权威。':'当前项目没有已保存的旧版分镜参考。')
+    : (data.saved?'已载入已保存的分镜。修改后点“保存分镜”。':'当前项目还没有保存过分镜；可从当前时间线生成草案。');
   return true;
 }
 async function shotbookGenerate(){
@@ -89,6 +91,27 @@ function shotbookRender(){
   if(gateBox)gateBox.innerHTML=(SHOTBOOK.gates||[]).map(function(g){
     return '<div class="sb-gate"><b>'+sbEsc(g.label)+'</b> <span class="'+sbStatusClass(g.status)+'">'+sbEsc(g.status)+'</span><div class="hint">'+sbEsc(g.detail)+'</div></div>';
   }).join('');
+  if(SHOTBOOK.reference_only===true){
+    const legacyShots=SHOTBOOK.shots||[];
+    if(board)board.innerHTML=legacyShots.length?legacyShots.map(function(s,idx){
+      return '<article class="sb-board-card"><div class="sb-board-info"><b>'+String(idx+1).padStart(2,'0')+'. '+sbEsc(s.scene_id)+'</b>'+
+        '<span class="hint">旧时间 '+Number(s.start||0).toFixed(2)+'–'+Number(s.end||0).toFixed(2)+'s · 仅参考</span><p>'+sbEsc(s.text||'')+'</p></div></article>';
+    }).join(''):'<div class="hint">当前项目没有可读取的旧版分镜 sidecar。</div>';
+    if(list)list.innerHTML=legacyShots.length?legacyShots.map(function(s,idx){
+      return '<article class="sb-shot panel" style="margin-top:8px;padding:10px"><b>'+String(idx+1)+'. '+sbEsc(s.scene_id)+'</b>'+
+        '<div class="hint">旧时间：'+Number(s.start||0).toFixed(2)+'–'+Number(s.end||0).toFixed(2)+'s · 不对应当前 film.html 镜头</div>'+
+        '<p class="sb-script">'+sbEsc(s.text||'')+'</p><div class="hint">语义：'+sbEsc(s.semantic_role||'未分类')+' · 画面意图：'+sbEsc(s.visual_intent||'未指定')+'</div>'+
+        '<div class="hint">旧镜头配方：'+sbEsc(s.shot_recipe_id||'无')+' · 旧动效配方：'+sbEsc(s.motion_recipe_id||'无')+'</div>'+
+        '<div class="hint">备注：'+sbEsc(s.notes||'无')+'</div></article>';
+    }).join(''):'<div class="hint">当前项目没有可读取的旧版分镜 sidecar。</div>';
+    document.querySelectorAll('#shotbook-details [data-shotbook-action]').forEach(function(button){
+      const action=button.getAttribute('data-shotbook-action')||'';
+      button.disabled=action!=='load';
+      button.title=action==='load'?'重新读取只读参考':'film.html 项目不允许执行旧版分镜时间线操作';
+    });
+    if(status)status.textContent='旧版分镜已作为只读参考载入。修改影片请使用“按现有分镜 / 语义计划生成提案”，并确认当前 revision。';
+    return;
+  }
   if(!SHOTBOOK.shots.length){
     if(board)board.innerHTML='<div class="hint">当前项目还没有分镜帧。先在时间线上建立场景或导入旁白，再生成分镜。</div>';
     if(list)list.innerHTML='<div class="hint">当前项目还没有可编辑场景。先在时间线上建立场景或导入旁白。</div>';
@@ -409,6 +432,11 @@ if(!window.__shotbookDelegated){
     const button=event.target.closest('[data-shotbook-action]');
     if(!button)return;
     const action=button.dataset.shotbookAction,sceneId=button.dataset.sceneKey||'';
+    if(SHOTBOOK&&SHOTBOOK.reference_only===true&&action!=='load'){
+      const status=document.getElementById('shotbook-status');
+      if(status)status.textContent='旧版分镜是只读参考；请通过当前 film.html 的 revision 绑定提案修改影片。';
+      event.preventDefault();event.stopPropagation();return;
+    }
     if(action==='load')shotbookLoad();
     else if(action==='generate')shotbookGenerate();
     else if(action==='save')shotbookSave();
@@ -446,6 +474,7 @@ window.shotbookExportForFilmDirector=function(){
   if(!SHOTBOOK||SHOTBOOK.project_id!==pid||!Array.isArray(SHOTBOOK.shots))return null;
   return {
     project_id:SHOTBOOK.project_id,version:SHOTBOOK.version,saved:SHOTBOOK.saved===true,
+    reference_only:SHOTBOOK.reference_only===true,
     shots:SHOTBOOK.shots.slice(0,8).map(function(shot){return {
       legacy_scene_id:String(shot.scene_id||'').slice(0,120),start:shot.start,end:shot.end,
       text:String(shot.text||'').slice(0,180),semantic_role:String(shot.semantic_role||'').slice(0,60),

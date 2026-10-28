@@ -911,6 +911,23 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    plans_dir = project_root / "plans"
+    plans_dir.mkdir(parents=True)
+    (plans_dir / "shotbook.json").write_text(json.dumps({
+        "schema_version":1,"project_id":project_id,"version":4,"updated_at":1,
+        "shots":[{
+            "scene_id":"old-scene-2","start":4.0,"end":7.5,"text":"旧分镜：解释第二个镜头的认知转折",
+            "semantic_role":"turn","visual_intent":"contrast","shot_type":"footage",
+            "shot_recipe_id":"old-shot-recipe","motion_recipe_id":"old-motion-recipe",
+            "overlay_text":"旧版强调字卡","evidence_ref":"old-evidence","sfx_cue":"old-sfx",
+            "notes":"这是旧版 sidecar 参考，不是当前时间线。","reviewed":True,
+            "characters":[],"editable_layers":[]
+        }]
+    },ensure_ascii=False),encoding="utf-8")
+    from video_director import creative_pipeline as vd_creative
+    from video_director.creative_contracts import CreativePlan
+    legacy_plan=CreativePlan(project_id=project_id,script_hash="legacy-script-hash",timing_source="missing")
+    vd_creative.save_plan(legacy_plan,expected_version=0)
     before = fd.read_project_film(project_id)
     assert before["exists"]
 
@@ -995,10 +1012,32 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
                 assert page.locator("#creative-plan-film-authority-note").is_visible()
 
                 base_url = f"http://127.0.0.1:{server.server_port}"
+                shotbook_response = page.request.get(base_url + "/api/editor/shotbook?project_id=" + project_id)
+                assert shotbook_response.status == 200
+                shotbook_reference = shotbook_response.json()
+                assert shotbook_reference["reference_only"] is True and shotbook_reference["stale"] is True
+                assert shotbook_reference["version"] == 4 and shotbook_reference["saved"] is True
+                assert shotbook_reference["shots"][0]["scene_id"] == "old-scene-2"
+                assert "旧 CompositionIR" in shotbook_reference["timing_note"]
+                creative_response = page.request.get(base_url + "/api/editor/creative-plan?project_id=" + project_id)
+                assert creative_response.status == 200
+                creative_reference = creative_response.json()
+                assert creative_reference["reference_only"] is True and creative_reference["stale"] is True
+                assert creative_reference["exists"] is True
+                assert creative_reference["plan"]["project_id"] == project_id
+                creative_save = page.request.post(base_url + "/api/editor/creative-plan", data=json.dumps({
+                    "project_id":project_id,"action":"save","expected_version":creative_reference["plan"]["version"],
+                    "plan":creative_reference["plan"]
+                }),headers={"Content-Type":"application/json"})
+                assert creative_save.status == 200 and creative_save.json().get("reference_only") is True, creative_save.text()
+                assert creative_save.json()["plan"]["version"] == creative_reference["plan"]["version"] + 1
+                assert fd.read_project_film(project_id)["rev"] == before["rev"]
+
                 legacy_write_probes = [
                     ("/api/editor/command", {"project_id":project_id,"command":"set_duration","targetId":"clip-b","payload":{"duration":4.0}}),
                     ("/api/editor/generate/add", {"project_id":project_id,"scene_id":"clip-b","asset_id":"legacy-asset"}),
                     ("/api/editor/shotbook", {"project_id":project_id,"action":"generate"}),
+                    ("/api/editor/shotbook", {"project_id":project_id,"action":"save","base_version":4,"shots":[]}),
                     ("/api/editor/creative-plan", {"project_id":project_id,"action":"initialize"}),
                     ("/api/editor/creative-plan", {"project_id":project_id,"action":"validate"}),
                     ("/api/director/create", {"project_id":project_id,"brief":"旧版导演写入测试","script":"测试脚本"}),
@@ -1027,6 +1066,12 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
                     )):
                         legacy_post_requests.append(request.url)
                 page.on("request", record_legacy_post)
+                page.locator('[data-shotbook-action="load"]').click()
+                page.wait_for_function("() => document.querySelector('#shotbook-status')?.textContent.includes('只读参考')")
+                assert "旧分镜：解释第二个镜头" in page.locator("#shotbook-storyboard").inner_text()
+                assert page.locator('[data-shotbook-action="generate"]').is_disabled()
+                assert page.locator('[data-shotbook-action="save"]').is_disabled()
+                assert "只读作导演参考" in page.locator("#creative-plan-status").inner_text()
                 page.evaluate("""() => {
                   const button=document.createElement('button');
                   button.type='button';button.dataset.shotbookAction='generate';button.textContent='legacy generate probe';

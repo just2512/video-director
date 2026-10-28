@@ -2104,9 +2104,21 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 from video_director import editor as vd_editor
                 from video_director import creative_pipeline as creative
+                from video_director import film_document as fd
                 pid = creative.validate_project_id(pid)
-                ir = vd_editor.load_composition(pid)
                 plan = creative.load_plan(pid)
+                if fd._film_path(pid).is_file():
+                    reasons = ["该计划来自旧 CompositionIR；时间戳与 shot ID 不能直接指向当前 film.html。"]
+                    self._send_json({
+                        "ok":True,"exists":plan is not None,
+                        "plan":plan.model_dump(mode="json") if plan is not None else None,
+                        "stale":plan is not None,"reference_only":True,
+                        "stale_reasons":reasons if plan is not None else [],
+                        "audio_fingerprint_available":False,
+                        "message":"旧版语义计划只作为只读导演参考；请重新对照当前 film.html 生成 revision 绑定提案。",
+                    })
+                    return
+                ir = vd_editor.load_composition(pid)
                 if plan is None:
                     self._send_json({"ok": True, "exists": False, "plan": None, "stale": False})
                     return
@@ -2253,7 +2265,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 from video_director import shotbook as vd_shotbook
-                self._send_json(vd_shotbook.get_project_shotbook(pid))
+                from video_director import film_document as fd
+                if fd._film_path(pid).is_file():
+                    self._send_json(vd_shotbook.get_project_shotbook_reference(pid))
+                else:
+                    self._send_json(vd_shotbook.get_project_shotbook(pid))
             except vd_shotbook.ShotbookError as exc:
                 self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, 404)
             except Exception as exc:
@@ -4362,9 +4378,11 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 from video_director import shotbook as vd_shotbook
                 action = payload.get("action")
+                if action in ("generate", "save") and self._reject_legacy_composition_access(
+                    pid, "生成或保存基于旧 CompositionIR 的分镜"
+                ):
+                    return
                 if action == "generate":
-                    if self._reject_legacy_composition_access(pid, "生成基于旧 CompositionIR 的分镜"):
-                        return
                     result = vd_shotbook.generate_project_shotbook(pid, payload.get("base_version"))
                 elif action == "save":
                     result = vd_shotbook.save_project_shotbook(pid, payload)
