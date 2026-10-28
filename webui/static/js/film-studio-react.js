@@ -26778,21 +26778,49 @@
     ] });
   };
   var StudioTimelineContextMenu = ({ model }) => {
-    const left = Math.max(8, Math.min(model.x, window.innerWidth - 300));
-    const top = Math.max(8, Math.min(model.y, window.innerHeight - 360));
+    const menuRef = (0, import_react.useRef)(null);
+    const [menuPosition, setMenuPosition] = (0, import_react.useState)(() => ({
+      left: Math.max(8, Math.min(model.x, window.innerWidth - 300)),
+      top: Math.max(8, Math.min(model.y, window.innerHeight - 430))
+    }));
+    (0, import_react.useLayoutEffect)(() => {
+      const reposition = () => {
+        const menu = menuRef.current;
+        if (!menu) return;
+        const bounds = menu.getBoundingClientRect();
+        const next = {
+          left: Math.max(8, Math.min(model.x, window.innerWidth - bounds.width - 8)),
+          top: Math.max(8, Math.min(model.y, window.innerHeight - bounds.height - 8))
+        };
+        setMenuPosition(
+          (current) => Math.abs(current.left - next.left) < 0.5 && Math.abs(current.top - next.top) < 0.5 ? current : next
+        );
+      };
+      reposition();
+      window.addEventListener("resize", reposition);
+      return () => window.removeEventListener("resize", reposition);
+    }, [model.x, model.y]);
+    const [transitionDuration, setTransitionDuration] = (0, import_react.useState)("0.5");
+    const [transitionDurationTouched, setTransitionDurationTouched] = (0, import_react.useState)(false);
     const action = (name) => (event) => {
       event.preventDefault();
       event.stopPropagation();
       window.filmStudioContextMenuAction?.(name, model.clipId);
     };
+    const transitionAction = (name) => (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      window.filmStudioContextMenuAction?.(name, model.clipId, transitionDurationTouched ? transitionDuration : void 0);
+    };
     return (0, import_react_dom.createPortal)(
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(
         "div",
         {
+          ref: menuRef,
           className: "fs-context-menu",
           role: "menu",
           "data-react-context-menu": "true",
-          style: { position: "fixed", left, top },
+          style: { position: "fixed", left: menuPosition.left, top: menuPosition.top },
           onContextMenu: (event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -26804,8 +26832,31 @@
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "paste", onClick: action("paste"), children: "\u7C98\u8D34\u5230\u64AD\u653E\u5934" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-context-separator" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "split", onClick: action("split"), children: "\u5728\u64AD\u653E\u5934\u5207\u5206" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "fade-transition", onClick: action("fade-transition"), title: "\u4EC5\u9002\u7528\u4E8E\u540C\u8F68\u65F6\u95F4\u76F8\u90BB\u7247\u6BB5\uFF1B\u6DE1\u51FA\u5F53\u524D\u7247\u6BB5\u5E76\u6DE1\u5165\u4E0B\u4E00\u7247\u6BB5\uFF0C\u4E0D\u6539\u53D8\u7247\u6BB5\u4F4D\u7F6E", children: "\u6DE1\u51FA\u5E76\u6DE1\u5165\u4E0B\u4E00\u7247\u6BB5" }),
-            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "crossfade-transition", onClick: action("crossfade-transition"), title: "\u540C\u8F68\u76F8\u90BB\u7247\u6BB5\u91CD\u53E0\u6DE1\u5316\uFF1B\u4E0B\u4E00\u7247\u6BB5\u63D0\u524D\uFF0C\u5F71\u7247\u603B\u65F6\u957F\u76F8\u5E94\u7F29\u77ED", children: "\u4EA4\u53C9\u6DE1\u5316\uFF08\u91CD\u53E0\uFF09" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-context-transition-settings", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { htmlFor: "fs-context-transition-duration", children: [
+                "\u8F6C\u573A\u65F6\u957F\uFF08\u79D2\uFF09",
+                /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+                  "input",
+                  {
+                    id: "fs-context-transition-duration",
+                    type: "number",
+                    min: 0.05,
+                    max: 60,
+                    step: 0.05,
+                    value: transitionDuration,
+                    "data-transition-duration": "true",
+                    "aria-label": "\u8F6C\u573A\u65F6\u957F\uFF08\u79D2\uFF09",
+                    onChange: (event) => {
+                      setTransitionDuration(event.currentTarget.value);
+                      setTransitionDurationTouched(true);
+                    }
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ (0, import_jsx_runtime.jsx)("small", { children: "\u672A\u4FEE\u6539\u65F6\u6309\u9ED8\u8BA4\u65F6\u957F\u548C\u73B0\u6709\u6DE1\u5316\u5C5E\u6027\u8BA1\u7B97\uFF1B\u65E0\u91CD\u53E0\u63A5\u7EED\u4FDD\u7559\u4F4D\u7F6E\uFF0C\u4EA4\u53C9\u6DE1\u5316\u4F1A\u5DE6\u79FB\u540E\u7EED\u540C\u8F68\u7247\u6BB5\u3002" })
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "fade-transition", onClick: transitionAction("fade-transition"), title: "\u540C\u8F68\u76F8\u90BB\u7247\u6BB5\u6DE1\u51FA/\u6DE1\u5165\uFF1B\u4E0D\u91CD\u53E0\u3001\u4E0D\u6539\u53D8\u4F4D\u7F6E", children: "\u6DE1\u51FA/\u6DE1\u5165\u63A5\u7EED\uFF08\u65E0\u91CD\u53E0\uFF09" }),
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "crossfade-transition", onClick: transitionAction("crossfade-transition"), title: "\u4EA4\u53C9\u91CD\u53E0\u6DE1\u5316\uFF1B\u4E0B\u4E00\u7247\u6BB5\u63D0\u524D\uFF0C\u540E\u7EED\u540C\u8F68\u7247\u6BB5\u968F\u4E4B\u5DE6\u79FB", children: "\u4EA4\u53C9\u6DE1\u5316\uFF08\u91CD\u53E0\uFF09" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "delete", onClick: action("delete"), title: "\u53EA\u79FB\u9664\u6240\u9009\u7247\u6BB5\uFF0C\u540E\u7EED\u5185\u5BB9\u65F6\u95F4\u4E0D\u53D8", children: "\u5220\u9664\u5E76\u4FDD\u7559\u7A7A\u9699" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { type: "button", role: "menuitem", "data-context-action": "ripple", onClick: action("ripple"), title: "\u5220\u9664\u6240\u9009\u65F6\u95F4\u6BB5\uFF0C\u5E76\u6536\u62E2\u6240\u6709\u53D7\u5F71\u54CD\u8F68\u9053", children: "\u6CE2\u7EB9\u5220\u9664\uFF08\u6536\u62E2\u65F6\u95F4\u7EBF\uFF09" }),
             /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "fs-context-separator" }),
