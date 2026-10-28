@@ -23,19 +23,15 @@ on:
   push:
     branches: [main, "feat/unified-director-agent-loop"]
 
-# Keep one running regression and the latest pending main update; this
-# repository currently has one self-hosted runner and recent pushes must not
-# accumulate an unbounded backlog while it is offline.
+# Both workflows execute on the same self-hosted runner host and share its checkout.
+# Serialize them across workflow names: different concurrency groups allowed one job
+# to clean/recover the shared worktree while the other was running browser tests.
 permissions:
   contents: write
 
 concurrency:
-  group: ai-director-${{ github.ref }}
-  # Keep long-running regressions by default. A deliberate push whose commit
-  # message contains [unblock-runner] may cancel a stale run stuck after the
-  # test process has ended (for example, at runner "Complete job") and let the
-  # newest main revision take the single self-hosted runner.
-  cancel-in-progress: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[unblock-runner]') }}
+  group: video-director-self-hosted-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   ai-director:

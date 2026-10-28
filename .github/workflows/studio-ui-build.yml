@@ -24,9 +24,10 @@ on:
 permissions:
   contents: write
 
+# Must match ai-director.yml: these workflows share the same checkout and runner.
 concurrency:
-  group: studio-ui-build-${{ github.ref }}
-  cancel-in-progress: true
+  group: video-director-self-hosted-${{ github.repository }}
+  cancel-in-progress: false
 
 jobs:
   build-and-smoke:
