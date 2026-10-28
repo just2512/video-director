@@ -160,7 +160,16 @@ def _write_composition_version(project_id: str, version: int) -> None:
 
 
 def composition_version(project_id: str) -> int:
-    """Return a monotonic version; content rollback must not cause an ABA version."""
+    """Return a monotonic version for legacy CompositionIR only.
+
+    Once film.html exists, even reading the old composition version is rejected;
+    it is not a valid concurrency token for the authoritative FilmDocument.
+    """
+    from video_director import film_document as fd
+    try:
+        fd.assert_legacy_composition_access(project_id, "读取旧 CompositionIR 版本")
+    except fd.FilmError as exc:
+        raise EditorError(exc.code, str(exc), recoverable=False) from exc
     revision_floor = len(load_revisions(project_id)) + 1
     try:
         stored = json.loads(_composition_version_path(project_id).read_text(encoding="utf-8"))

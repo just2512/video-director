@@ -1045,6 +1045,7 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
                     )
 
                 legacy_write_probes = [
+                    ("/api/editor/film/initialize", {"project_id":project_id,"expected_composition_version":1}),
                     ("/api/editor/command", {"project_id":project_id,"command":"set_duration","targetId":"clip-b","payload":{"duration":4.0}}),
                     ("/api/editor/generate/add", {"project_id":project_id,"scene_id":"clip-b","asset_id":"legacy-asset"}),
                     ("/api/editor/matting", {"project_id":project_id,"target_id":"old-scene#0"}),

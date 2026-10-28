@@ -1181,6 +1181,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "cancel_requested": not finalizing, "stream_found": bool(active)}, 200)
                 return True
             if route == "/api/editor/film/initialize":
+                # film.html existence is the authority switch. Do this before reading
+                # the legacy CompositionIR/version so repeated initialization is an
+                # explicit 409, never a generic error or a migration fallback.
+                if self._reject_legacy_composition_access(pid, "重复初始化已存在的 film.html"):
+                    return True
                 from video_director import editor as vd_editor
                 expected = payload.get("expected_composition_version")
                 current_version = vd_editor.composition_version(pid)

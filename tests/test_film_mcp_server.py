@@ -34,6 +34,23 @@ def test_mcp_initialize_and_tool_catalog_are_protocol_valid():
     assert mcp.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
 
 
+def test_film_initialize_mcp_rejects_an_existing_authoritative_film(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "mcp-film-already-initialized"
+    root = config.project_dir(project_id)
+    root.mkdir(parents=True, exist_ok=True)
+    (root / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
+
+    result = mcp.call_tool("film.initialize", {
+        "project_id": project_id,
+        "expected_composition_version": 1,
+    })
+    payload = _payload(result)
+    assert result["isError"] is True, result
+    assert payload["code"] == "FILM_DOCUMENT_AUTHORITATIVE", payload
+    assert fd.read_project_film(project_id)["text"] == FILM
+
+
 def test_standalone_mcp_supports_modern_discovery_and_versioned_tool_results(monkeypatch):
     modern_meta = {
         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
