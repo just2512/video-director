@@ -306,6 +306,12 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     ):
         assert call in component
     assert "reactTimeline.previewClipGesture(e)" in legacy
+    # Native click follows pointerup in a later browser task on Chromium. Keep
+    # the one-shot suppression alive through that event; a zero-delay reset
+    # can race Ctrl/Shift selection and undo the pointerdown selection.
+    assert "function suppressNextClipClick()" in legacy
+    assert "if(skipClipClickGeneration===generation)S.skipNextClipClick=false;" in legacy
+    assert "setTimeout(function(){S.skipNextClipClick=false;},0);" not in legacy
     assert "function cancelReactTimelineGestureAfterContractLoss(e)" in legacy
     assert "var context=snapshot&&snapshot.timelineGestureContext;" in legacy
     assert "if(!context||!e||context.pointerId!==e.pointerId)return false;" in legacy
