@@ -195,3 +195,8 @@ Marker IDs are stable and unique; names are 1–120 characters and times are non
 - 最新显式 live 运行 [`40522824180`](https://github.com/just2512/video-director/actions/runs/40522824180) 再次收到 ModelScope 对 `deepseek-ai/DeepSeek-V4-Pro-0813` 的 HTTP 429 `insufficient balance`，没有 token 或提案；常规回归为 `1358 passed, 1 skipped`，JavaScript 语法检查通过。
 - 已调整验收报告，将这类上游额度错误单独归类为 `BLOCKED_PROVIDER`，但它仍不是 PASS，并继续阻止本次显式 live 运行的时间线发布与 bundle 发布。没有把模型余额问题改成软件通过，也没有把凭据写入日志或全局环境。
 
+
+### 真实模型流式复核（2026-10-28）
+
+- [AI Director run 40637515525](https://github.com/just2512/video-director/actions/runs/40637515525)，提交 `1b16505179608860bc6698533e5dfe98a0b05e3e`，真实模型配置步骤与独立 `test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film` 均成功；`Report real-model token-stream acceptance gate` 为 SUCCESS。该门禁只有在测试确实收到至少两个非空模型 token 片段、token 先于 result 到达、正式 `film.html` 字节与 revision 均未变化时才会报告 PASS，因此这次真实增量 token 流验收记为 PASS，而非仅有生命周期事件或模拟 SSE 的通过。
+- 同次运行的完整 pytest 套件仍失败，时间线发布门禁运行的是修复前的提交并未完成发布验收。它不构成全项目回归 PASS；`a576a6e` 已修正 React 指针点击重复切换多选及取消手势时的 React Portal DOM 所有权问题，仍需由后续 Studio 浏览器门禁确认。后续普通 CI 不启用真实模型时仍报告 MISSING，避免把一次性 live 证据误报为每次构建都已验证。

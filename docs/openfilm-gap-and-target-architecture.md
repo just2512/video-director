@@ -6,7 +6,7 @@
 
 目标不是把 OpenFilm 的代码逐文件复制进来，而是吸收它的**工程契约**：可读的影片文件、稳定 ID、文件系统作为 agent 与 Studio 的连接层、可验证的时间函数、按 ID 操作、确定性预览/导出。Video Director 已经有 FilmDocument、`film.html`、场景 `frame(t)` 契约、版本化操作、undo/redo、外部文件 watcher、AI 提案预览/确认和渲染验收，不能再另建一套平行影片模型。
 
-最重要的剩余差距不是按钮数量，而是产品入口与外部 AI 服务的验收：导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；FilmDocument 是唯一最终时间线，React/FilmStore 已拥有多轨时间线显示、选择、波形/音量曲线、右键菜单、吸附/跨轨提示，以及 move/trim/roll/slide/slip 与音量包络的类型化 ID-only 手势上下文；React 路径的 `gestureDomRefs` 为空，DOM 引用只留给原生 fallback。共享适配器仍负责剪辑数学、FilmOperation 组合与 revision 检查；外部 revision 在包络手势期间到达时拒绝旧预览、保留外部文件并重载的真实 Chromium 回归已补齐。`frame(t)` 的确定性范围仍小于任意网页；AI 支持 SSE 生命周期反馈、取消与转向后重规划，但真实配置模型经中转端点的增量 token 传输仍须通过 opt-in 端到端烟测确认，且系统不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。
+最重要的剩余差距不是按钮数量，而是产品入口与完整回归验收：导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；FilmDocument 是唯一最终时间线，React/FilmStore 已拥有多轨时间线显示、选择、波形/音量曲线、右键菜单、吸附/跨轨提示，以及 move/trim/roll/slide/slip 与音量包络的类型化 ID-only 手势上下文；React 路径的 `gestureDomRefs` 为空，DOM 引用只留给原生 fallback。共享适配器仍负责剪辑数学、FilmOperation 组合与 revision 检查；外部 revision 在包络手势期间到达时拒绝旧预览、保留外部文件并重载的真实 Chromium 回归已补齐。2026-10-28 的显式真实模型烟测 [Actions 40637515525](https://github.com/just2512/video-director/actions/runs/40637515525) 已通过真实 token 流门禁；同一旧提交的完整回归仍失败，不能把这个单项 PASS 扩大为整套回归 PASS。`frame(t)` 的确定性范围仍小于任意网页；系统也不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。
 
 ## 目前已有的可复用基础
 
@@ -29,7 +29,7 @@
 | 页面元素编辑 | selector、文本、位置/尺寸、文字/背景色、不透明度、字重、对齐、字号、旋转、行高与字间距均可编辑；React 与无 bundle fallback 共用字段契约 | 继续覆盖剩余受限属性；Inspector 只提交实际变化字段，不物化未改文本/位置/样式；字段校验保持与服务端 allowlist 同步 |
 | 剪辑数学 | 已具备多个 source-aware 操作，但部分 roll/slide 条件严格；时间仍以秒浮点在许多接口流转 | 把帧吸附收敛到统一边界；长期评估整数 Tick/采样单位，而非全库冒险替换浮点 |
 | 动画 | 音量包络可编辑；通用视觉关键帧可在 Inspector 编辑、在片段本体显示时间标记；split/trim/roll/slide 会按片段相对时间切片并保留 easing 曲线；自定义 Bezier 控制柄已通过保存/重载的真实 Chromium 回归（Studio #211 / b9b0adf4） | 完整预览与最终导出的逐帧一致性仍须在可运行的浏览器/渲染环境里验收；控制柄的交互与持久化测试不等于逐帧渲染一致性的证明 |
-| 实时 AI | 已支持 SSE 生命周期事件、token 片段转发、停止当前请求、执行中转向后重新规划，以及基于 revision 的提案预览/拒绝/确认；正式文档仍只在确认后写入 | 假流单测覆盖 token delta/cancel；新增 `tests/test_film_studio_live_ai_streaming.py` 的显式 opt-in 烟测，可对当前 `VD_LLM_API_KEY` / `VD_LLM_BASE_URL` / `VD_LLM_MODEL` 配置发起真实请求，验证多个 token 事件在 result 前到达且 `film.html` 未写入。默认 CI 跳过该测试，因此在运维者实际启用并通过前，实时端到端仍标记 UNVERIFIED。转向仍是取消当前请求后用原指令+新指令重新规划，不是同一模型会话的 token 级 steering |
+| 实时 AI | 已支持 SSE 生命周期事件、token 片段转发、停止当前请求、执行中转向后重新规划，以及基于 revision 的提案预览/拒绝/确认；正式文档仍只在确认后写入 | [Actions 40637515525](https://github.com/just2512/video-director/actions/runs/40637515525) 在 2026-10-28 对实际配置的 OpenAI-compatible 提供方执行了显式 live smoke，真实模型 token 流门禁为 PASS：测试要求至少两个非空 token 片段先于 result 到达，并核实提案生成前后 `film.html` 字节与 revision 不变。默认 CI 不调用付费模型，因此普通运行仍按 MISSING 单独报告；这一单项 PASS 不替代同次旧提交失败的完整回归。转向仍是取消当前请求后用原指令+新指令重新规划，不是同一模型会话的 token 级 steering |
 | 确定性与导出 | `frame(t)`、本地资源边界、look 重复抽样、Revision 绑定导出均已有；采样检查不是全帧证明 | 对每个场景验证资源 ready 和帧回执；导出错误定位到 clip ID；明确运行时支持边界，不宣称任意网页/任意 WebGL 都确定 |
 | 产品入口 | 全屏 Studio 顶栏现在复用同一个项目选择器，支持不退出时间线切换项目；关闭时原位还原，仍经过 `editorLoad()` 的文档权威、revision、拖动和未提交草稿保护。不同项目状态的导演规划与剪辑仍存在迁移阶段差异 | 继续把导演规划、素材、场景、剪辑、AI 对话和导出收敛到同一项目壳/同一最终时间线；不能把项目切换器进入 Studio 误认成所有入口已统一 |
 
@@ -38,7 +38,7 @@
 - 真实模型测试不是普通 SSE mock 测试的别名。只有 `tests/test_film_studio_live_ai_streaming.py` 收到至少两个真实 `token` 事件，并确认这些事件在 `result` 事件之前到达、生成提案前后 `film.html` 字节与 revision 不变，才可记录为 PASS。
 - 自托管 Runner 需要配置 `VD_LLM_API_KEY`、`VD_LLM_BASE_URL`、`VD_LLM_MODEL`。可在 GitHub Actions 手动运行 **AI Director regression** 并将 `run_live_llm=true`；或在 main 推送提交信息包含 `[live-stream-smoke]` 的提交。这个请求可能产生模型服务费用。
 - 每次普通回归会在 Actions Summary 显示 `PASS / MISSING / REJECT / UNKNOWN`：测试被跳过只能是 MISSING，不能以 mock 通过替代真实服务证据。MISSING 不意味着应用构建失败，但意味着“真实模型逐段 Token 流”验收仍未关闭。
-- 默认 push/PR 回归不主动调用真实模型；未显式 opt-in 时应标记为 MISSING，不阻断无模型配置下的基础构建和浏览器回归。显式 opt-in 后，若缺少凭据或真实模型烟测失败，则必须 REJECT 并阻断发布。当前自托管 Runner 未配置真实模型凭据，真实 token 流烟测由用户拉取后在本地执行。
+- 默认 push/PR 回归不主动调用真实模型；未显式 opt-in 时应标记为 MISSING，不阻断无模型配置下的基础构建和浏览器回归。显式 opt-in 后，若缺少凭据或真实模型烟测失败，则必须 REJECT 并阻断发布。2026-10-28 的显式运行已证明当前自托管 Runner 能从受限的 per-run 配置通道读取模型配置并通过真实流式烟测；不再将“当前 Runner 无凭据”写作现状。后续默认 CI 仍是 MISSING，只有明确 opt-in 的单次运行能证明该次模型端点可用。
 
 ## 当前下一阶段落地点
 
@@ -181,7 +181,7 @@
 - [Studio #426](https://github.com/just2512/video-director/actions/runs/40186377769) 验证同步锁多轨插入在一次 Undo 后恢复原始 film.html 字节。
 - [Studio #427](https://github.com/just2512/video-director/actions/runs/40186926343) 验证成功覆盖在一次 Undo 后恢复原始 film.html 字节，并且此前的 stale/busy/submitter-failure 清理探针不会污染编辑历史。
 
-**仍未关闭的验收门禁：** 现有 Chromium 回归覆盖基础跨轨移动、Lift/Ripple/Delete/Insert/Overwrite、速度预设、roll/slide/slip、撤销重做和外部 revision 冲突，但并未穷尽所有操作顺序。`test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture` 已在 Studio 浏览器回归中通过，覆盖拖动期间外部 revision 变化时拒绝旧手势；延迟返回的过期 AI 提案回归也已验证禁止预览/应用。淡出/淡入菜单已加入成功和拒绝路径的真实 Chromium 测试；`test_adjacent_clip_fades_match_browser_look_and_exported_mp4_frames` 新增真实 MP4 帧与 Look 预览的像素一致性检查，须等待最新主线 AI Director 回归确认。Bezier/HTML 场景及任意网页动画、异步资源的确定性边界不能泛化；真实配置模型经中转端点的增量 token 传输仍由用户本地执行 opt-in 端到端烟测，CI 当前是 `MISSING`，不视为 PASS。必须继续用具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
+**仍未关闭的验收门禁：** 现有 Chromium 回归覆盖基础跨轨移动、Lift/Ripple/Delete/Insert/Overwrite、速度预设、roll/slide/slip、撤销重做和外部 revision 冲突，但并未穷尽所有操作顺序。`test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture` 已在 Studio 浏览器回归中通过，覆盖拖动期间外部 revision 变化时拒绝旧手势；延迟返回的过期 AI 提案回归也已验证禁止预览/应用。淡出/淡入菜单已加入成功和拒绝路径的真实 Chromium 测试；`test_adjacent_clip_fades_match_browser_look_and_exported_mp4_frames` 新增真实 MP4 帧与 Look 预览的像素一致性检查，须等待最新主线 AI Director 回归确认。Bezier/HTML 场景及任意网页动画、异步资源的确定性边界不能泛化；真实配置模型经中转端点的增量 token 传输已在 [Actions 40637515525](https://github.com/just2512/video-director/actions/runs/40637515525) 通过 opt-in 端到端烟测；该运行的旧代码仍有时间线浏览器回归失败，不能视为整套门禁通过。必须继续用具体用户路径的浏览器测试和实际 MP4/QC 证据关闭这些门禁，不能仅依赖静态源码测试。
 
 
 - 时间尺 click 与 scrub 共用 React 指针生命周期：父时间尺统一捕获指针，刻度点击在 pointerup 按 `data-at` 精确定位，真实移动超过 4px 才启动 scrub；拖动结束不会被子刻度的合成 click 拉回起点。
