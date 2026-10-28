@@ -1481,6 +1481,8 @@ def test_legacy_save_and_render_endpoints_are_hard_gated_after_migration():
     workflow = (root / "video_director" / "workflow_run.py").read_text(encoding="utf-8")
     confirm = (root / "video_director" / "confirm.py").read_text(encoding="utf-8")
     server = (root / "webui" / "server.py").read_text(encoding="utf-8")
+    studio = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    creative = (root / "webui" / "static" / "js" / "creative-plan.js").read_text(encoding="utf-8")
     assert 'assert_legacy_composition_access(project_id, "保存 CompositionIR")' in editor
     assert 'assert_legacy_composition_access(project_id, f"渲染 {kind}")' in workflow
     assert 'assert_legacy_composition_access(project_id, "导出旧时间线成片")' in confirm
