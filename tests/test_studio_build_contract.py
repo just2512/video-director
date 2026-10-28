@@ -312,6 +312,12 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     assert "function suppressNextClipClick()" in legacy
     assert "if(skipClipClickGeneration===generation)S.skipNextClipClick=false;" in legacy
     assert "setTimeout(function(){S.skipNextClipClick=false;},0);" not in legacy
+    assert "if(reactOwnsTimeline&&e&&Number(e.detail)>0)return;" in legacy
+    cancel_start = legacy.index("function cancelReactTimelineGestureAfterContractLoss(e)")
+    cancel_end = legacy.index("function updateTimelineGestureContext", cancel_start)
+    cancel_body = legacy[cancel_start:cancel_end]
+    assert "parentNode.removeChild" not in cancel_body
+    assert "querySelectorAll('#fs-timeline .fs-track-drop-target" not in cancel_body
     assert "function cancelReactTimelineGestureAfterContractLoss(e)" in legacy
     assert "var context=snapshot&&snapshot.timelineGestureContext;" in legacy
     assert "if(!context||!e||context.pointerId!==e.pointerId)return false;" in legacy

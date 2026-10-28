@@ -113,11 +113,9 @@
         try{store.setField(entry[0],entry[1]);}catch(_){/* best-effort transient-state cleanup */}
       });
     }
-    var staleGuide=$('fs-snap-guide');
-    if(staleGuide&&staleGuide.parentNode)staleGuide.parentNode.removeChild(staleGuide);
-    document.querySelectorAll('#fs-timeline .fs-track-drop-target,#fs-timeline .fs-track-drop-invalid').forEach(function(node){
-      node.classList.remove('fs-track-drop-target','fs-track-drop-invalid');
-    });
+    // The snap guide and drop-target classes are React-owned Portal output. The
+    // FilmStore fields above are their source of truth; never remove or mutate
+    // React-owned timeline nodes imperatively during cancellation.
     showStatus('React 时间线手势过程中，类型化控制器或桥接接口失效；本次拖动已取消，未回退到旧版编辑路径。','error');
     flushPendingExternalRevision();
     return true;
@@ -1237,6 +1235,14 @@
   window.filmStudioClickClip = function(id,e){
     if(e&&typeof e.stopPropagation==='function')e.stopPropagation();
     if(S.skipNextClipClick){clearClipClickSuppression();return;}
+    var reactOwnsTimeline=!!(window.filmStudioReactTimeline&&
+      typeof window.filmStudioReactTimeline.renderSurface==='function'&&
+      document.querySelector('.fs-react-timeline-surface'));
+    // React's pointerdown already owns pointer selection, playhead seek and gesture start.
+    // Reapplying Ctrl/Meta selection from the ensuing native click toggles a newly-added
+    // clip back out of the selection. Only click-only activation (for example keyboard
+    // activation, detail===0) needs this compatibility selection path.
+    if(reactOwnsTimeline&&e&&Number(e.detail)>0)return;
     if(selectClipWithModifiers(id,e)){
       var selected=findClip(id);
       if(selected){S.playhead=selected.at;setPlayheadVisual();previewCurrent();}
