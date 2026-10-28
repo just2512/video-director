@@ -9,6 +9,7 @@ from video_director.live_stream_acceptance import (
     REPORTS,
     classify_live_stream_acceptance,
     resolve_live_model,
+    resolve_live_model_override,
 )
 
 
@@ -115,3 +116,21 @@ def test_live_model_resolver_leaves_unrelated_models_unchanged(model, base_url, 
 
 def test_live_model_resolver_trims_model_and_endpoint_strings():
     assert resolve_live_model(" z-ai/glm-5.3 ", " https://openrouter.ai/api/v1 ") == "~z-ai/glm-latest"
+
+
+def test_one_run_model_override_can_be_pinned_in_push_commit_message():
+    assert resolve_live_model_override("", "Use current model [live-stream-smoke] [live-model=z-ai/glm-5.3-flash]") == "z-ai/glm-5.3-flash"
+
+
+def test_explicit_dispatch_override_has_priority_over_commit_marker():
+    assert resolve_live_model_override("vendor/native-v3", "[live-model=z-ai/glm-5.3-flash]") == "vendor/native-v3"
+
+
+def test_missing_one_run_model_override_is_empty():
+    assert resolve_live_model_override("", "ordinary push without model marker") == ""
+
+
+def test_one_run_model_override_rejects_shell_or_whitespace_payloads():
+    import pytest
+    with pytest.raises(ValueError):
+        resolve_live_model_override("model id; echo unsafe", "")

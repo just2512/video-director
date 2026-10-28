@@ -264,7 +264,7 @@ jobs:
           import os
           import stat
           import sys
-          from video_director.live_stream_acceptance import resolve_live_model
+          from video_director.live_stream_acceptance import resolve_live_model, resolve_live_model_override
 
           path = sys.argv[1]
           saved = {}
@@ -290,7 +290,20 @@ jobs:
               or saved.get("model")
               or "gpt-4o-mini"
           ).strip()
-          model_override = (os.environ.get("VD_LLM_MODEL_OVERRIDE") or "").strip()
+          event_payload = {}
+          try:
+              event_path = os.environ.get("GITHUB_EVENT_PATH", "").strip()
+              if event_path:
+                  with open(event_path, encoding="utf-8") as stream:
+                      event_payload = json.load(stream)
+          except (OSError, json.JSONDecodeError):
+              event_payload = {}
+          commit_message = (event_payload.get("head_commit") or {}).get("message", "") if isinstance(event_payload, dict) else ""
+          try:
+              model_override = resolve_live_model_override(os.environ.get("VD_LLM_MODEL_OVERRIDE", ""), commit_message)
+          except ValueError as error:
+              print(f"::error::Invalid one-run live model override: {error}")
+              raise SystemExit(1)
           model = resolve_live_model(model_override or configured_model, base_url)
           if model_override:
               print("Using the explicitly supplied model ID override for this isolated run; stored configuration remains unchanged.")

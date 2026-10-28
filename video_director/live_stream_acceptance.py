@@ -11,10 +11,30 @@ import os
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+import re
 from typing import Any
 from urllib.parse import urlparse
 
 LIVE_TEST_NAME = "test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film"
+
+
+def resolve_live_model_override(explicit_override: str, commit_message: str) -> str:
+    """Accept a one-run model override from workflow_dispatch or a tagged push.
+
+    The commit marker is ``[live-model=provider/model-id]``. Only a simple
+    model identifier is accepted; the commit text is never passed to a shell.
+    This affects the isolated smoke config only, never the saved runner config.
+    """
+    candidate = str(explicit_override or "").strip()
+    if not candidate:
+        match = re.search(
+            r"\[live-model=([A-Za-z0-9][A-Za-z0-9._:/-]{0,127})\]",
+            str(commit_message or ""),
+        )
+        candidate = match.group(1) if match else ""
+    if candidate and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", candidate):
+        raise ValueError("model override must be a simple provider/model identifier")
+    return candidate
 
 
 def resolve_live_model(model: str, base_url: str) -> str:
