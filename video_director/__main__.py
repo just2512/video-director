@@ -332,6 +332,10 @@ def main(argv=None):
 
             if a.film_cmd == "look":
                 from video_director import film_render as film_render_mod
+                expected_revision = a.revision.strip()
+                if not expected_revision:
+                    emit({"ok": False, "code": "INVALID_REVISION",
+                          "error": "--revision 必须是从 film status 获取的非空 revision。"}, 2)
                 requested_times = None
                 if a.times:
                     try:
@@ -340,7 +344,7 @@ def main(argv=None):
                         emit({"ok": False, "code": "INVALID_LOOK_TIMES",
                               "error": "--times 必须是逗号分隔的秒数。"}, 2)
                 result = film_render_mod.look_project_film(
-                    pid, expected_revision=a.revision, times=requested_times
+                    pid, expected_revision=expected_revision, times=requested_times
                 )
                 emit(result)
 

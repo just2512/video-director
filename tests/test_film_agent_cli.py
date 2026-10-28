@@ -200,6 +200,16 @@ def test_agent_cli_look_requires_current_revision_pin_and_rejects_stale_before_s
     assert "--revision" in missing.stderr
     assert not (project / ".film" / "cache" / "look").exists()
 
+    blank = _cli(
+        repo_root, env, "film", "look", "--project-id", project_id,
+        "--revision", "",
+    )
+    assert blank.returncode != 0, blank.stdout + blank.stderr
+    blank_result = json.loads(blank.stdout)
+    assert blank_result["ok"] is False
+    assert blank_result["code"] == "INVALID_REVISION"
+    assert not (project / ".film" / "cache" / "look").exists()
+
     stale = _cli(
         repo_root, env, "film", "look", "--project-id", project_id,
         "--revision", "stale-revision",
