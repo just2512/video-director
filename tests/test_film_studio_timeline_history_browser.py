@@ -2453,31 +2453,40 @@ def test_react_timeline_rejects_gesture_without_typed_controller_instead_of_lega
                 assert page.locator("#fs-static-timeline-toolbar").is_hidden()
                 result = page.evaluate(
                     """() => {
-                      window.filmStudioTimelineController=undefined;
-                      const event={
-                        button:0,pointerId:777,clientX:110,clientY:100,
-                        ctrlKey:false,altKey:false,shiftKey:false,
-                        defaultPrevented:false,stopped:false,
-                        preventDefault(){this.defaultPrevented=true;},
-                        stopPropagation(){this.stopped=true;}
+                      const originalController=window.filmStudioTimelineController;
+                      const originalBridge=window.filmStudioReactTimeline;
+                      const attempt=(pointerId)=>{
+                        const event={
+                          button:0,pointerId,clientX:110,clientY:100,
+                          ctrlKey:false,altKey:false,shiftKey:false,
+                          defaultPrevented:false,stopped:false,
+                          preventDefault(){this.defaultPrevented=true;},
+                          stopPropagation(){this.stopped=true;}
+                        };
+                        const accepted=window.filmStudioBeginClipGesture(event,{clipId:"clip-a"});
+                        return {accepted:accepted===true,defaultPrevented:event.defaultPrevented,stopped:event.stopped};
                       };
-                      const accepted=window.filmStudioBeginClipGesture(event,{clipId:"clip-a"});
+                      window.filmStudioTimelineController=undefined;
+                      const missingController=attempt(777);
+                      window.filmStudioTimelineController=originalController;
+                      window.filmStudioReactTimeline={};
+                      const missingBridge=attempt(778);
+                      window.filmStudioReactTimeline=originalBridge;
                       const snapshot=window.filmStudioStore.getSnapshot();
                       return {
-                        accepted:accepted===true,
-                        defaultPrevented:event.defaultPrevented,
-                        stopped:event.stopped,
+                        missingController,missingBridge,
                         contextPresent:!!snapshot.timelineGestureContext,
                         notice:document.body.innerText.includes(
-                          "React 时间线类型化手势控制器尚未就绪；本次操作已拒绝，未回退到旧版 DOM 手势。"
+                          "React 时间线的类型化控制器未就绪或桥接接口缺失；本次操作已拒绝，未回退到旧版 DOM 手势。"
                         )
                       };
                     }"""
                 )
-                assert result == {
-                    "accepted":False,"defaultPrevented":True,"stopped":True,
-                    "contextPresent":False,"notice":True
-                }, result
+                expected = {"accepted":False,"defaultPrevented":True,"stopped":True}
+                assert result["missingController"] == expected, result
+                assert result["missingBridge"] == expected, result
+                assert result["contextPresent"] is False, result
+                assert result["notice"] is True, result
                 assert edit_requests == [], edit_requests
                 assert film_path.read_text(encoding="utf-8") == original_text
                 assert fd.read_project_film(project_id)["rev"] == original["rev"]
