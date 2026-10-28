@@ -6,7 +6,7 @@ const SB_INTENT_LABELS = {establish:'建立场景',illustrate:'解释/举例',co
 const SB_SHOT_LABELS = {footage:'实拍/素材',document:'文件/文献',screenshot:'屏幕截图',chart:'图表数据',title_card:'动态字卡',diagram:'示意图',product:'产品/物件',map:'地图',split_screen:'分屏对照',still:'静帧'};
 function sbEsc(value){return String(value==null?'':value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function sbStatusClass(status){return status==='PASS'?'cap-ok':(status==='REJECT'||status==='MISSING'?'cap-off':'cap-warn');}
-function sbGetProjectId(){return (window.ED&&ED.pid)||(document.getElementById('editor-project')||{}).value||'';}
+function sbGetProjectId(){return (document.getElementById('editor-project')||{}).value||(window.ED&&ED.pid)||'';}
 async function shotbookLoad(discardDirty){
   const pid=sbGetProjectId(), status=document.getElementById('shotbook-status');
   if(!pid){if(status)status.textContent='先打开一个项目，再生成分镜。';return false;}
@@ -441,4 +441,19 @@ if(!window.__shotbookDelegated){
   window.__shotbookDelegated=true;
 }
 window.addEventListener('beforeunload',function(event){if(SHOTBOOK_DIRTY){event.preventDefault();event.returnValue='';}});
+window.shotbookExportForFilmDirector=function(){
+  const pid=sbGetProjectId();
+  if(!SHOTBOOK||SHOTBOOK.project_id!==pid||!Array.isArray(SHOTBOOK.shots))return null;
+  return {
+    project_id:SHOTBOOK.project_id,version:SHOTBOOK.version,saved:SHOTBOOK.saved===true,
+    shots:SHOTBOOK.shots.slice(0,8).map(function(shot){return {
+      legacy_scene_id:String(shot.scene_id||'').slice(0,120),start:shot.start,end:shot.end,
+      text:String(shot.text||'').slice(0,180),semantic_role:String(shot.semantic_role||'').slice(0,60),
+      visual_intent:String(shot.visual_intent||'').slice(0,80),shot_type:String(shot.shot_type||'').slice(0,60),
+      shot_recipe_id:String(shot.shot_recipe_id||'').slice(0,90),motion_recipe_id:String(shot.motion_recipe_id||'').slice(0,90),
+      overlay_text:String(shot.overlay_text||'').slice(0,100),evidence_ref:String(shot.evidence_ref||'').slice(0,100),
+      sfx_cue:String(shot.sfx_cue||'').slice(0,100),notes:String(shot.notes||'').slice(0,140),reviewed:shot.reviewed===true
+    };})
+  };
+};
 Object.assign(window,{shotbookLoad,shotbookGenerate,shotbookSave,shotbookApplyRecipe,shotbookApplyMotion,shotbookPreviewScene,shotbookLocate,shotbookReloadConflict,shotbookOpenSfx,shotbookAddSfx,shotbookSfxModalClose});

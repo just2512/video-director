@@ -3,6 +3,26 @@ import json
 from pathlib import Path
 
 
+def test_react_build_uses_film_authority_safe_director_plan_handoff():
+    root = Path(__file__).resolve().parents[1]
+    studio = (root / "webui/static/js/film-studio.js").read_text(encoding="utf-8")
+    shotbook = (root / "webui/static/js/shotbook.js").read_text(encoding="utf-8")
+    creative = (root / "webui/static/js/creative-plan.js").read_text(encoding="utf-8")
+    index = (root / "webui/static/index.html").read_text(encoding="utf-8")
+
+    assert "planningIds.push('shotbook-details','creative-plan-panel')" in studio
+    assert "function installFilmAuthorityPlanningWriteGate()" in studio
+    assert "currentFilmAuthorityProjectId()" in studio
+    assert "window.filmStudioProposeFromDirectorPlan=async function()" in studio
+    assert "'director-propose-plan': () => window.filmStudioProposeFromDirectorPlan()" in studio
+    assert "window.shotbookExportForFilmDirector=function()" in shotbook
+    assert "window.creativePlanExportForFilmDirector = function ()" in creative
+    assert "按现有分镜 / 语义计划生成提案" in index
+    assert "shotbook-film-authority-note" in index
+    assert "creative-plan-film-authority-note" in index
+    assert "当前项目使用 film.html" in studio
+
+
 def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "studio-ui-build.yml").read_text(encoding="utf-8")

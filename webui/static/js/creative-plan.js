@@ -9,7 +9,7 @@
   const splitValues = (value) => String(value || "").split(/[，,;；、]/)
     .map((item) => item.trim()).filter(Boolean);
   const seconds = (ms) => (Number(ms || 0) / 1000).toFixed(2) + "s";
-  const projectId = () => (window.ED && ED.pid) || "";
+  const projectId = () => (document.getElementById("editor-project") || {}).value || (window.ED && ED.pid) || "";
   const statusText = (value) => ({
     PASS: "PASS", REJECT: "REJECT", MISSING: "MISSING", NEEDS_REVIEW: "NEEDS_REVIEW",
     ALIGNED: "已对齐", PARTIAL: "部分插值 / 需复核"
@@ -219,6 +219,27 @@
     renderStatus("已保存 v" + state.plan.version + "。创作计划已持久化，CompositionIR 尚未被直接改写。");
     if (!quiet) render();
     return true;
+  };
+
+  window.creativePlanExportForFilmDirector = function () {
+    if (!state.plan) return null;
+    return {
+      project_id:state.plan.project_id,version:state.plan.version,stale:state.stale===true,
+      stale_reasons:(state.staleReasons||[]).slice(0,4),
+      semantic_beats:(state.plan.semantic_beats||[]).slice(0,8).map((beat) => ({
+        sentence_id:String(beat.sentence_id||'').slice(0,100),text:String(beat.text||'').slice(0,160),
+        intent:String(beat.intent||'').slice(0,120),entities:(beat.entities||[]).slice(0,4),
+        visual_need:(beat.visual_need||[]).slice(0,4),shot_id:String(beat.shot_id||'').slice(0,100)
+      })),
+      shots:(state.plan.shots||[]).slice(0,6).map((shot) => ({
+        shot_id:String(shot.shot_id||'').slice(0,100),intent:String(shot.intent||'').slice(0,140),
+        unresolved_items:(shot.unresolved_items||[]).slice(0,4),
+        layers:(shot.layers||[]).slice(0,2).map((layer) => ({
+          role:String(layer.role||'').slice(0,60),recipe_id:String(layer.recipe_id||'').slice(0,90),
+          asset_ids:(layer.asset_ids||[]).slice(0,4),evidence_refs:(layer.evidence_refs||[]).slice(0,4)
+        }))
+      }))
+    };
   };
 
   window.creativePlanValidate = async function () {

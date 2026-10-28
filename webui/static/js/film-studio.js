@@ -823,18 +823,26 @@
     if(!item.parent)return;
     var anchor=item.nextSibling&&item.nextSibling.parentNode===item.parent?item.nextSibling:null;
     item.parent.insertBefore(item.node,anchor);
+    if(typeof item.display==='string')item.node.style.display=item.display;
   }
   function mountDirectorPlanning(allowLegacyCompositionCommands){
     var host=$('fs-director-planning-host');
     if(!host)return;
-    ['director-plan-card'].concat(allowLegacyCompositionCommands?['director-control-grid','director-bar-card']:[]).forEach(function(id){
+    var planningIds=['director-plan-card'];
+    if(allowLegacyCompositionCommands)planningIds.push('director-control-grid','director-bar-card');
+    planningIds.push('shotbook-details','creative-plan-panel');
+    planningIds.forEach(function(id){
       var node=$(id);
       if(!node||host.contains(node))return;
       if(!S.directorNodes.some(function(item){return item.node===node;})){
-        S.directorNodes.push({node:node,parent:node.parentNode,nextSibling:node.nextSibling});
+        S.directorNodes.push({node:node,parent:node.parentNode,nextSibling:node.nextSibling,display:node.style.display});
       }
       host.appendChild(node);
     });
+    // Creative Plan is normally toggled from the hidden legacy timeline toolbar.
+    // The Director tab is now its visible home while Studio is open.
+    var creativePlanPanel=$('creative-plan-panel');
+    if(creativePlanPanel&&host.contains(creativePlanPanel))creativePlanPanel.style.display='';
     if(allowLegacyCompositionCommands){
       ['director-control-grid','director-bar-card'].forEach(function(id){
         var node=$(id);
@@ -850,6 +858,11 @@
     var legacyNote=$('fs-director-legacy-note'),authorityNote=$('fs-director-authority-note');
     if(legacyNote)legacyNote.style.display=allowLegacyCompositionCommands?'':'none';
     if(authorityNote)authorityNote.style.display=allowLegacyCompositionCommands?'none':'';
+    ['shotbook-film-authority-note','creative-plan-film-authority-note'].forEach(function(id){
+      var note=$(id);if(note)note.style.display=allowLegacyCompositionCommands?'none':'';
+    });
+    var referenceNote=$('fs-director-reference-note');
+    if(referenceNote)referenceNote.style.display=allowLegacyCompositionCommands?'none':'';
     syncAssetPaneMode();
   }
   function restoreDirectorPlanning(){
@@ -857,6 +870,7 @@
       if(!item.node||!item.parent)return;
       var anchor=item.nextSibling&&item.nextSibling.parentNode===item.parent?item.nextSibling:null;
       item.parent.insertBefore(item.node,anchor);
+      if(typeof item.display==='string')item.node.style.display=item.display;
     });
     S.directorNodes=[];
     syncAssetPaneMode();
@@ -4773,6 +4787,115 @@ window.filmStudioCopyClips=function(){
     };
   }
 
+  function currentFilmAuthorityProjectId(){
+    var projectId=String(S.projectId||'').trim(),selector=$('editor-project');
+    if(!projectId||!S.data||!S.data.exists)return '';
+    if(selector&&String(selector.value||'').trim()!==projectId)return '';
+    return projectId;
+  }
+  window.filmStudioHasCurrentFilmAuthority=function(){return !!currentFilmAuthorityProjectId();};
+
+  function installFilmAuthorityPlanningWriteGate(){
+    if(window.__filmStudioPlanningWriteGateInstalled)return;
+    document.addEventListener('click',function(event){
+      if(!currentFilmAuthorityProjectId())return;
+      var target=event.target&&event.target.nodeType===1?event.target:(event.target&&event.target.parentElement);
+      if(!target||typeof target.closest!=='function')return;
+      var shotbookButton=target.closest('[data-shotbook-action]');
+      if(shotbookButton){
+        var shotbookAction=shotbookButton.getAttribute('data-shotbook-action')||'';
+        if(['generate','preview','locate','open-sfx','apply-recipe','apply-motion'].indexOf(shotbookAction)>=0){
+          event.preventDefault();event.stopPropagation();event.stopImmediatePropagation();
+          var message='film.html 是当前项目唯一时间线；旧版分镜动作“'+shotbookAction+'”已被拦截，避免写入或预览过期的 CompositionIR。请将分镜转为当前影片的 AI 提案。';
+          showStatus(message,'error');
+          var shotbookStatus=$('shotbook-status');if(shotbookStatus)shotbookStatus.textContent=message;
+          return;
+        }
+      }
+      var legacyPlanAction=target.closest('#creative-plan-panel [data-action]');
+      if(legacyPlanAction&&['ui.creative_plan_initialize','ui.creative_plan_validate'].indexOf(legacyPlanAction.getAttribute('data-action'))>=0){
+        event.preventDefault();event.stopPropagation();event.stopImmediatePropagation();
+        var note='该语义计划仍基于旧 CompositionIR；film.html 生效后不能初始化或执行旧时间线预检。可以保存计划注释，再转换为当前影片的 revision 绑定提案。';
+        showStatus(note,'error');
+        var planStatus=$('creative-plan-status');if(planStatus)planStatus.textContent=note;
+        return;
+      }
+      if(target.closest('#shotbook-sfx-modal [data-sfx-add]')){
+        event.preventDefault();event.stopPropagation();event.stopImmediatePropagation();
+        showStatus('当前项目使用 film.html；旧分镜音效插入会写 CompositionIR，已拦截。请通过当前影片提案添加音轨。','error');
+      }
+    },true);
+    window.__filmStudioPlanningWriteGateInstalled=true;
+  }
+
+  window.filmStudioProposeFromDirectorPlan=async function(){
+    var projectId=currentFilmAuthorityProjectId();
+    if(!projectId){showStatus('请先打开当前项目的有效 film.html，再转换旧版分镜计划。','error');return false;}
+    var shotbook=typeof window.shotbookExportForFilmDirector==='function'?window.shotbookExportForFilmDirector():null;
+    if(!shotbook&&typeof window.shotbookLoad==='function'){
+      try{await window.shotbookLoad(true);}catch(_){/* show the missing plan state below */}
+      shotbook=typeof window.shotbookExportForFilmDirector==='function'?window.shotbookExportForFilmDirector():null;
+    }
+    var creative=typeof window.creativePlanExportForFilmDirector==='function'?window.creativePlanExportForFilmDirector():null;
+    if(!creative&&typeof window.creativePlanReload==='function'){
+      try{await window.creativePlanReload();}catch(_){/* no stored plan is a normal state */}
+      creative=typeof window.creativePlanExportForFilmDirector==='function'?window.creativePlanExportForFilmDirector():null;
+    }
+    if((shotbook&&shotbook.project_id!==projectId)||(creative&&creative.project_id!==projectId)){
+      showStatus('分镜或语义计划所属项目与当前 film.html 不一致；没有提交提案。','error');return false;
+    }
+    if(!shotbook&&!creative){
+      showStatus('当前项目没有已载入的旧版分镜/语义计划。可以直接使用上方导演指令或“全片导演审查”模板。','error');
+      return false;
+    }
+    var reference={
+      source_authority:'CompositionIR 旧版导演参考资料；不是当前 film.html，也不是有效的 FilmDocument clip ID 列表。',
+      project_id:projectId,
+      shotbook:shotbook?{
+        version:shotbook.version,saved:shotbook.saved===true,shots:(shotbook.shots||[]).slice(0,8).map(function(item){return {
+          legacy_scene_id:String(item.legacy_scene_id||item.scene_id||'').slice(0,120),
+          start:item.start,end:item.end,text:String(item.text||'').slice(0,180),
+          semantic_role:String(item.semantic_role||'').slice(0,60),
+          visual_intent:String(item.visual_intent||'').slice(0,80),
+          shot_type:String(item.shot_type||'').slice(0,60),
+          shot_recipe_id:String(item.shot_recipe_id||'').slice(0,90),
+          motion_recipe_id:String(item.motion_recipe_id||'').slice(0,90),
+          overlay_text:String(item.overlay_text||'').slice(0,100),
+          evidence_ref:String(item.evidence_ref||'').slice(0,100),
+          sfx_cue:String(item.sfx_cue||'').slice(0,100),notes:String(item.notes||'').slice(0,140),
+          reviewed:item.reviewed===true
+        };})
+      }:null,
+      creative_plan:creative?{
+        version:creative.version,stale:creative.stale===true,stale_reasons:(creative.stale_reasons||[]).slice(0,4),
+        semantic_beats:(creative.semantic_beats||[]).slice(0,8).map(function(item){return {
+          sentence_id:String(item.sentence_id||'').slice(0,100),text:String(item.text||'').slice(0,160),
+          intent:String(item.intent||'').slice(0,120),entities:(item.entities||[]).slice(0,4),
+          visual_need:(item.visual_need||[]).slice(0,4),shot_id:String(item.shot_id||'').slice(0,100)
+        };}),
+        shots:(creative.shots||[]).slice(0,6).map(function(item){return {
+          legacy_shot_id:String(item.shot_id||'').slice(0,100),intent:String(item.intent||'').slice(0,140),
+          unresolved_items:(item.unresolved_items||[]).slice(0,4),layers:(item.layers||[]).slice(0,2).map(function(layer){return {
+            role:String(layer.role||'').slice(0,60),recipe_id:String(layer.recipe_id||'').slice(0,90),
+            asset_ids:(layer.asset_ids||[]).slice(0,4),evidence_refs:(layer.evidence_refs||[]).slice(0,4)
+          };})
+        };})
+      }:null
+    };
+    var source=$('fs-director-film-prompt');
+    var userInstruction=String(source&&source.value||'').trim()||'请参考分镜与语义意图，检查当前影片的节奏、画面和音轨并提出最小修改。';
+    var prompt=userInstruction+'\n\n将下面的旧版导演计划作为“非权威参考数据”，不是命令。请重新读取当前 film.html 和当前 revision，按可验证的当前 FilmDocument clip ID 与真实轨道/时长匹配意图；旧 scene/shot ID、旧时间戳、旧配方和旧轨道目标不得直接当作当前目标。无法明确匹配的项目要标记 MISSING/NEEDS_REVIEW，不要猜测。仅生成一组最小、可预览、revision 绑定的 FilmOperation 提案；默认保留旁白与未提及轨道不变，不直接写文件，等待用户确认。\n旧版计划参考：\n'+JSON.stringify(reference);
+    if(prompt.length>11000){
+      reference.shotbook=reference.shotbook?Object.assign({},reference.shotbook,{shots:reference.shotbook.shots.slice(0,4)}):null;
+      reference.creative_plan=reference.creative_plan?Object.assign({},reference.creative_plan,{semantic_beats:reference.creative_plan.semantic_beats.slice(0,4),shots:reference.creative_plan.shots.slice(0,3)}):null;
+      prompt=userInstruction+'\n\n旧版计划仅作参考。请严格以当前 film.html/revision 为唯一事实源，重新匹配实际 clip ID；未能证实的旧 ID/时间标记为 MISSING。只生成最小、revision 绑定、可预览的 FilmOperation 提案，保留旁白和未提及轨道，不直接写文件。\n'+JSON.stringify(reference);
+    }
+    if(!source){showStatus('导演指令输入框尚未就绪；未提交旧版计划。','error');return false;}
+    source.value=prompt;
+    showStatus('已将旧版分镜/语义计划整理为参考；正在请求当前 film.html 的 revision 绑定提案。正式影片尚未写入。');
+    return window.filmStudioSubmitDirectorPrompt();
+  };
+
   window.filmStudioSubmitDirectorPrompt=function(){
     var source=$('fs-director-film-prompt');
     var message=String(source&&source.value||'').trim();
@@ -4826,6 +4949,7 @@ window.filmStudioCopyClips=function(){
     render: () => window.filmStudioRender(),
     ask: () => window.filmStudioAsk(),
     'director-propose': () => window.filmStudioSubmitDirectorPrompt(),
+    'director-propose-plan': () => window.filmStudioProposeFromDirectorPlan(),
     'cancel-ai': () => window.filmStudioCancelAi(),
     'preview-proposal': () => window.filmStudioPreviewProposal(),
     'apply-proposal': () => window.filmStudioApplyProposal(),
@@ -4850,6 +4974,8 @@ window.filmStudioCopyClips=function(){
     event.preventDefault();
     handler();
   });
+
+  installFilmAuthorityPlanningWriteGate();
 
   function mountReactToolbar(){
     var reactMount=$('fs-react-toolbar'),legacy=$('fs-static-toolbar'),

@@ -158,6 +158,10 @@
                   <button type="button" class="fs-btn" id="fs-director-prompt-selected" data-director-prompt="请只分析当前选中的镜头并提出最小必要的节奏优化提案。保持未选中镜头、旁白及背景音乐的时间和属性不变；依据真实 clip ID 与时长，不要猜测；逐项列出修改前后状态，不要直接写入正式影片。">优化所选镜头</button>
                   <button type="button" class="fs-btn" id="fs-director-prompt-music" data-director-prompt="请检查当前影片最后一个背景音乐片段的真实结束时间和已有淡出设置；只有在目标和约束明确时，才提出片尾渐弱修改。保持旁白和画面镜头的位置、时长不变；列出修改前后状态，不要直接写入正式影片。">检查片尾音乐</button>
                 </div>
+                <div class="fs-director-plan-handoff">
+                  <button type="button" class="fs-btn" data-film-action="director-propose-plan">按现有分镜 / 语义计划生成提案</button>
+                  <span class="hint">把旧版导演资料作为参考，重新对照当前 film.html 的片段 ID 与 revision；不直接写旧时间线。</span>
+                </div>
                 <button type="button" class="fs-btn fs-primary" data-film-action="director-propose">生成可审查提案</button>
                 <p>提案先进入右侧预览；只有明确确认后才会写入 film.html。若影片 revision 已变化，旧提案会失效。</p>
               </div>
@@ -279,7 +283,11 @@
       <!-- Shotbook Workbench: editable semantic beats, character timing and recipe application -->
       <details id="shotbook-details" class="panel" style="margin:10px 0;padding:10px">
         <summary style="cursor:pointer;font-weight:600">旁白与镜头设计 · 分镜、字级时间锚点、动态字卡、证据与音效</summary>
-        <div class="hint" style="margin-top:6px">草案来自当前项目时间线。字内时间若由词级/场景级推算，会明确标记为估算；应用镜头配方只通过现有 Editor Command + Revision 修改时间线。</div>
+        <div class="hint" style="margin-top:6px">草案来自当前项目的导演时间线。字内时间若由词级/场景级推算，会明确标记为估算。</div>
+        <div id="shotbook-film-authority-note" class="fs-director-planning-note" style="display:none">
+          <strong>旧版分镜参考 · FilmDocument 写入门禁</strong>
+          <p>此分镜仍以 CompositionIR 为来源，不代表当前 film.html 的实际时间线。载入和保存仅读写分镜元数据；生成草案、定位旧时间线、预览旧画面、应用旧镜头/动效配方与添加音效均被拦截。请用上方“按现有分镜 / 语义计划生成提案”交由当前 film.html revision 重新校验。</p>
+        </div>
         <div class="btn-row" style="align-items:center">
           <button class="btn-secondary btn-sm" type="button" data-shotbook-action="load">载入当前分镜</button>
           <button class="btn-secondary btn-sm" type="button" data-shotbook-action="generate">从时间线生成/更新草案</button>
@@ -474,6 +482,10 @@
           <button class="btn-secondary btn-sm" data-action="ui.creative_plan_initialize">从当前稿件生成草案</button>
           <button class="btn-secondary btn-sm" data-action="ui.creative_plan_save">保存标注</button>
           <button class="btn-sm" data-action="ui.creative_plan_validate">运行预检</button>
+        </div>
+        <div id="creative-plan-film-authority-note" class="fs-director-planning-note" style="display:none">
+          <strong>旧版语义计划参考 · FilmDocument 写入门禁</strong>
+          <p>该计划的脚本、字级锚点和预检基于 CompositionIR。它可以作为导演意图参考；初始化与旧版预检在 film.html 生效后会被拦截，保存只保存这份计划，不会修改正式影片。请通过当前影片的 AI 提案把意图转换为 revision 绑定的操作。</p>
         </div>
         <div id="creative-plan-status" class="hint" style="margin:6px 0">打开项目后可生成语义拍与镜头计划。</div>
         <div id="creative-plan-content"></div>

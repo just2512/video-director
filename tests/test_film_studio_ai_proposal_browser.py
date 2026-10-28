@@ -989,8 +989,46 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
                 assert "导演审查" in prompt and "当前 revision" in prompt
                 assert page.locator("#fs-director-planning-host #director-bar-card").count() == 0
                 assert page.locator("#fs-director-planning-host #director-control-grid").count() == 0
+                assert page.locator("#fs-director-planning-host #shotbook-details").count() == 1
+                assert page.locator("#fs-director-planning-host #creative-plan-panel").count() == 1
+                assert page.locator("#shotbook-film-authority-note").is_visible()
+                assert page.locator("#creative-plan-film-authority-note").is_visible()
 
-                page.locator('[data-film-action="director-propose"]').click()
+                legacy_post_requests: list[str] = []
+                def record_legacy_post(request):
+                    if request.method == "POST" and any(path in request.url for path in (
+                        "/api/editor/shotbook", "/api/editor/creative-plan", "/api/commands", "/api/editor/command"
+                    )):
+                        legacy_post_requests.append(request.url)
+                page.on("request", record_legacy_post)
+                page.evaluate("""() => {
+                  const button=document.createElement('button');
+                  button.type='button';button.dataset.shotbookAction='generate';button.textContent='legacy generate probe';
+                  document.querySelector('#shotbook-details').appendChild(button);
+                  button.click();button.remove();
+                }""")
+                page.locator('#creative-plan-panel [data-action="ui.creative_plan_initialize"]').click()
+                assert legacy_post_requests == [], legacy_post_requests
+                assert fd.read_project_film(project_id)["rev"] == before["rev"]
+
+                page.evaluate("""pid => {
+                  window.shotbookExportForFilmDirector = () => ({
+                    project_id:pid,version:4,saved:true,
+                    shots:[{legacy_scene_id:'old-scene-2',start:4,end:7.5,text:'第二个镜头讲清认知转折',
+                      semantic_role:'turn',visual_intent:'contrast',shot_type:'footage',
+                      shot_recipe_id:'old-shot-recipe',motion_recipe_id:'old-motion-recipe',
+                      overlay_text:'旧版强调字卡',evidence_ref:'old-evidence',sfx_cue:'old-sfx',
+                      notes:'旧分镜备注必须作为参考重新核对。',reviewed:true}]
+                  });
+                  window.creativePlanExportForFilmDirector = () => ({
+                    project_id:pid,version:2,stale:true,stale_reasons:['旧 CompositionIR 时间线可能已变化'],
+                    semantic_beats:[{sentence_id:'old-sentence-2',text:'第二句旁白',intent:'解释转折',entities:['主角'],
+                      visual_need:['对比画面'],shot_id:'old-shot-2'}],
+                    shots:[{shot_id:'old-shot-2',intent:'用一个可验证画面解释转折',
+                      unresolved_items:['素材仍需复核'],layers:[{role:'主视觉',recipe_id:'old-recipe',asset_ids:['old-asset'],evidence_refs:['old-ref']}]}]
+                  });
+                }""", project_id)
+                page.locator('[data-film-action="director-propose-plan"]').click()
                 page.locator('#fs-proposal-panel[data-react-ai-proposal="true"]').wait_for(
                     state="visible", timeout=10_000
                 )
@@ -998,8 +1036,13 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
                 request = command_requests[0]
                 assert request["project_id"] == project_id, request
                 assert request["base"] == before["rev"], request
-                assert request["message"] == prompt, request
+                assert prompt in request["message"], request
+                assert "旧分镜备注必须作为参考重新核对" in request["message"], request
+                assert "旧 CompositionIR 时间线可能已变化" in request["message"], request
+                assert "CompositionIR 旧版导演参考资料" in request["message"], request
+                assert "当前 film.html" in request["message"] and "revision" in request["message"], request
                 assert request["stream"] is True, request
+                assert legacy_post_requests == [], legacy_post_requests
                 assert fd.read_project_film(project_id)["rev"] == before["rev"], (
                     "generating a director proposal must not write the authoritative film"
                 )
