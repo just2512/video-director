@@ -373,7 +373,8 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     assert "function cancelReactTimelineGestureAfterContractLoss(e,reason)" in legacy
     assert "var context=snapshot&&snapshot.timelineGestureContext;" in legacy
     assert "if(!context||!e||context.pointerId!==e.pointerId)return false;" in legacy
-    assert "cancelReactTimelineGestureAfterContractLoss(e);" in legacy
+    assert "cancelReactTimelineGestureAfterContractLoss(e,'missing runtime bridge/controller contract');" in legacy
+    assert "cancelReactTimelineGestureAfterContractLoss(e,'prepareClipGestureCommit returned '" in legacy
 
 
 def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
@@ -397,3 +398,12 @@ def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
     assert "if(!Array.isArray(preparedOperations))return onUp(e);" in legacy
     assert "async function onUp(e)" in legacy
 
+def test_self_hosted_workflows_share_runner_checkout_concurrency_lock():
+    root = Path(__file__).resolve().parents[1]
+    ai_workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
+    studio_workflow = (root / ".github" / "workflows" / "studio-ui-build.yml").read_text(encoding="utf-8")
+    expected_group = "group: video-director-self-hosted-${{ github.repository }}"
+    assert expected_group in ai_workflow
+    assert expected_group in studio_workflow
+    assert "cancel-in-progress: false" in studio_workflow
+    assert "contains(github.event.head_commit.message, '[unblock-runner]')" in ai_workflow
