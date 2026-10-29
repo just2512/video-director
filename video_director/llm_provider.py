@@ -164,7 +164,12 @@ class OpenAICompatibleProvider:
         if effort not in {"low", "high", "max"}:
             raise ValueError("VD_LLM_REASONING_EFFORT must be low, high, or max")
         return {
+            # NVIDIA documents that GLM-5.3-Flash reasoning tokens consume the
+            # same max_tokens budget as the visible answer. Its endpoint defaults
+            # this budget to 1024; set the documented 8192 floor so the reasoning
+            # phase cannot consume the entire response budget before JSON begins.
             "reasoning_effort": effort,
+            "max_tokens": 8192,
             "extra_body": {"chat_template_kwargs": {"clear_thinking": True}},
         }
 
@@ -235,7 +240,18 @@ class OpenAICompatibleProvider:
                 raise RuntimeError("LLM stream 已取消")
         except Exception as exc:
             reason = "已取消" if cancel_event is not None and cancel_event.is_set() else f"失败: {exc}"
-            logger.warning(f"LLM stream {reason} (model={self._model})")
+            # Preserve useful transport diagnostics without logging request bodies,
+            # credentials, or exception messages that may contain sensitive details.
+            chain = []
+            current = exc
+            seen = set()
+            while current is not None and id(current) not in seen and len(chain) < 5:
+                seen.add(id(current))
+                chain.append(type(current).__name__)
+                current = current.__cause__ or current.__context__
+            logger.warning(
+                f"LLM stream {reason} (model={self._model}, exception_chain={'->'.join(chain)})"
+            )
             raise RuntimeError(f"LLM stream {reason}") from exc
         finally:
             closer = getattr(stream, "close", None)

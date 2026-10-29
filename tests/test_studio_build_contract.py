@@ -149,6 +149,7 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert 'max_tokens=8' in provider_probe
     assert 'endpoint_host == "integrate.api.nvidia.com" and config["model"].strip().lower() == "z-ai/glm-5.3-flash"' in provider_probe
     assert '"reasoning_effort": effort' in provider_probe
+    assert '"max_tokens": 8192' in provider_probe
     assert '"chat_template_kwargs": {"clear_thinking": True}' in provider_probe
     assert "type(exc).__name__" in provider_probe
     live_smoke_step = ai_workflow.split(

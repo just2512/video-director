@@ -14,6 +14,11 @@ class FakeCompletions:
         self.calls.append(kwargs)
         if kwargs.get("stream"):
             return iter([
+                # Hidden reasoning is deliberately discarded: only visible content
+                # may reach the UI token callback.
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(
+                    content=None, reasoning_content="private reasoning must never be streamed"
+                ))]),
                 SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="O"))]),
                 SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="K"))]),
             ])
@@ -37,11 +42,16 @@ def test_nvidia_glm_flash_uses_low_reasoning_and_hides_reasoning_by_default(monk
         "z-ai/glm-5.3-flash",
     )
 
-    result = provider.generate_stream("reply OK") if stream else provider.generate("reply OK")
+    fragments = []
+    result = provider.generate_stream("reply OK", on_delta=fragments.append) if stream else provider.generate("reply OK")
 
     assert result == "OK"
+    if stream:
+        assert fragments == ["O", "K"]
+        assert "private reasoning must never be streamed" not in "".join(fragments)
     kwargs = fake.calls[0]
     assert kwargs["reasoning_effort"] == "low"
+    assert kwargs["max_tokens"] == 8192
     assert kwargs["extra_body"] == {"chat_template_kwargs": {"clear_thinking": True}}
     assert kwargs.get("stream", False) is stream
 
@@ -55,6 +65,7 @@ def test_nvidia_glm_flash_reasoning_effort_can_be_overridden(monkeypatch):
 
     assert provider.generate("reply OK") == "OK"
     assert fake.calls[0]["reasoning_effort"] == "high"
+    assert fake.calls[0]["max_tokens"] == 8192
 
 
 def test_other_openai_compatible_models_keep_existing_request_shape(monkeypatch):
