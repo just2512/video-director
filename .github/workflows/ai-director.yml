@@ -359,6 +359,8 @@ jobs:
                   messages=[{"role":"user","content":"Reply with exactly OK."}],
                   stream=True,
                   max_tokens=8,
+                  reasoning_effort=os.environ.get("VD_LLM_REASONING_EFFORT", "low"),
+                  extra_body={"chat_template_kwargs": {"clear_thinking": True}},
               )
               first = None
               for event in stream:
@@ -386,7 +388,10 @@ jobs:
 
       - name: Run isolated real-model token-stream acceptance test
         id: live_stream_smoke
-        if: steps.live_stream_config.outcome == 'success'
+        # A failed minimal probe already proves the provider path is unavailable.
+        # Do not spend another four minutes waiting on the same endpoint; the
+        # acceptance reporter still rejects the explicit live gate and blocks publish.
+        if: steps.live_stream_config.outcome == 'success' && steps.live_provider_probe.outcome == 'success'
         shell: bash
         continue-on-error: true
         run: |

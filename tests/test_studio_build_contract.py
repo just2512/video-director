@@ -147,7 +147,10 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
     assert 'timeout --signal=TERM --kill-after=5s 75s' in provider_probe
     assert 'max_tokens=8' in provider_probe
+    assert 'reasoning_effort=os.environ.get("VD_LLM_REASONING_EFFORT", "low")' in provider_probe
+    assert '"chat_template_kwargs": {"clear_thinking": True}' in provider_probe
     assert "type(exc).__name__" in provider_probe
+    assert "steps.live_provider_probe.outcome == 'success'" in ai_workflow
     assert "id: live_stream_smoke" in ai_workflow
     live_smoke_step = ai_workflow.split(
         "      - name: Run isolated real-model token-stream acceptance test", 1

@@ -26,6 +26,7 @@ import math
 import os
 import re
 from typing import List, Optional, Protocol, runtime_checkable
+from urllib.parse import urlparse
 
 from loguru import logger
 
@@ -137,6 +138,30 @@ class OpenAICompatibleProvider:
     def base_url(self) -> str:
         return self._base_url
 
+    def _model_request_options(self) -> dict:
+        """Use NVIDIA's documented low-latency settings for GLM-5.3-Flash.
+
+        NVIDIA documents reasoning_effort=max and clear_thinking=false as
+        defaults for this model. Long hidden reasoning can delay user-facing
+        content deltas, so the Flash model uses low effort by default. The
+        setting is narrowly scoped to NVIDIA's official endpoint and this exact
+        model; other OpenAI-compatible providers are not changed.
+        """
+        endpoint = self._base_url.strip()
+        if "://" not in endpoint:
+            endpoint = "https://" + endpoint
+        host = (urlparse(endpoint).hostname or "").lower().rstrip(".")
+        if host != "integrate.api.nvidia.com" or self._model.strip().lower() != "z-ai/glm-5.3-flash":
+            return {}
+
+        effort = os.environ.get("VD_LLM_REASONING_EFFORT", "low").strip().lower() or "low"
+        if effort not in {"low", "high", "max"}:
+            raise ValueError("VD_LLM_REASONING_EFFORT must be low, high, or max")
+        return {
+            "reasoning_effort": effort,
+            "extra_body": {"chat_template_kwargs": {"clear_thinking": True}},
+        }
+
     def generate(self, prompt: str, system: Optional[str] = None) -> str:
         """调用 chat.completions 生成文本。
 
@@ -151,6 +176,7 @@ class OpenAICompatibleProvider:
             resp = self._client.chat.completions.create(
                 model=self._model,
                 messages=messages,
+                **self._model_request_options(),
             )
         except Exception as exc:
             logger.warning(f"LLM generate 失败 (model={self._model}): {exc}")
@@ -176,6 +202,7 @@ class OpenAICompatibleProvider:
         try:
             stream = self._client.chat.completions.create(
                 model=self._model, messages=messages, stream=True,
+                **self._model_request_options(),
             )
             if callable(on_stream_open):
                 on_stream_open(stream)
