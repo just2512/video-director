@@ -2843,11 +2843,18 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 target_row = page.locator(
                     '#fs-timeline .fs-track[data-track="' + destination_track_id + '"]'
                 )
+                target_row.scroll_into_view_if_needed()
                 target_box = target_row.bounding_box()
+                source_box = clip.bounding_box()
                 assert source_box and target_box, {"source": source_box, "target": target_box}
                 source_x = source_box["x"] + source_box["width"] * 0.5
                 source_y = source_box["y"] + source_box["height"] * 0.5
-                target_y = target_box["y"] + target_box["height"] * 0.72
+                # Use the row center after bringing a potentially clipped track into view.
+                target_y = target_box["y"] + target_box["height"] * 0.5
+                assert page.evaluate(
+                    "([x,y,id]) => document.elementFromPoint(x,y)?.closest('.fs-track')?.getAttribute('data-track') === id",
+                    [source_x, target_y, destination_track_id],
+                ), {"target": target_box, "track": destination_track_id}
                 page.mouse.move(source_x, source_y)
                 page.mouse.down()
                 page.mouse.move(source_x, target_y, steps=8)

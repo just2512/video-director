@@ -2682,7 +2682,7 @@ def test_react_clip_gesture_cancels_if_bridge_contract_disappears_midgesture(
                 assert fd.read_project_film(project_id)["rev"] == original["rev"]
                 assert page.evaluate("window.filmStudioStore.getSnapshot().revision") == revision_before
                 assert page.locator("#film-studio-alert").inner_text().find(
-                    "本次拖动已取消，未回退到旧版编辑路径。"
+                    "未回退到旧版编辑路径。"
                 ) >= 0
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
