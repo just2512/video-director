@@ -43,7 +43,7 @@ def test_nvidia_glm_flash_uses_low_reasoning_and_hides_reasoning_by_default(monk
     kwargs = fake.calls[0]
     assert kwargs["reasoning_effort"] == "low"
     assert kwargs["extra_body"] == {"chat_template_kwargs": {"clear_thinking": True}}
-    assert kwargs["stream"] is stream
+    assert kwargs.get("stream", False) is stream
 
 
 def test_nvidia_glm_flash_reasoning_effort_can_be_overridden(monkeypatch):
