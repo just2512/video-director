@@ -348,6 +348,8 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     ):
         assert call in component
     assert "reactTimeline.previewClipGesture(e)" in legacy
+    assert "if(reactTimeline&&document.querySelector('.fs-react-timeline-surface')){" in legacy
+    assert "React 时间线手势上下文丢失；本次操作已取消，未回退到旧版编辑路径。" in legacy
     # Native click follows pointerup in a later browser task on Chromium. Keep
     # the one-shot suppression alive through that event; a zero-delay reset
     # can race Ctrl/Shift selection and undo the pointerdown selection.

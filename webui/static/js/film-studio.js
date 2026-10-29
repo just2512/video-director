@@ -131,7 +131,7 @@
     // The snap guide and drop-target classes are React-owned Portal output. The
     // FilmStore fields above are their source of truth; never remove or mutate
     // React-owned timeline nodes imperatively during cancellation.
-    showStatus('React 时间线手势过程中，类型化控制器或桥接接口失效；本次拖动已取消，未回退到旧版编辑路径。','error');
+    showStatus('React 时间线手势已取消（'+String(reason||'类型化控制器或桥接接口失效')+'）；瞬态预览已清理，未回退到旧版编辑路径。','error');
     flushPendingExternalRevision();
     return true;
   }
@@ -2866,6 +2866,22 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       try{reactTimeline.previewClipGesture(e);}catch(error){
         cancelReactTimelineGestureAfterContractLoss(e,'previewClipGesture threw: '+String(error&&error.stack||error));
       }
+      return;
+    }
+    // A mounted React surface owns the current pointer even if an invalid Store
+    // update has accidentally dropped its context. Never route that pointer into
+    // the legacy DOM gesture implementation: clear transient state and fail closed.
+    if(reactTimeline&&document.querySelector('.fs-react-timeline-surface')){
+      if(S.drag&&S.drag.pointerId!==e.pointerId)return;
+      S.drag=null;
+      gestureDomRefs=null;
+      envelopeDomCanvas=null;
+      setTimelineActiveDragIds(null);
+      showTimelineSnapGuide(null);
+      setTimelineDropTarget(null,false);
+      clearTimelineGesturePreview();
+      showStatus('React 时间线手势上下文丢失；本次操作已取消，未回退到旧版编辑路径。','error');
+      flushPendingExternalRevision();
       return;
     }
     onMove(e);
