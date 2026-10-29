@@ -217,7 +217,7 @@ def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path,
     extracted = subprocess.run(
         [
             renderer._ffmpeg(), "-y", "-loglevel", "error", "-i", str(output),
-            "-vf", r"select=between(n\,0\,3)", "-vsync", "0", "-frames:v", "4",
+            "-vf", r"select=between(n\,0\,3)", "-fps_mode", "passthrough", "-frames:v", "4",
             str(exported_pattern),
         ],
         capture_output=True, text=True, timeout=45,
@@ -343,7 +343,7 @@ def test_adjacent_clip_fades_match_browser_look_and_exported_mp4_frames(tmp_path
         [
             renderer._ffmpeg(), "-y", "-loglevel", "error", "-i", str(output),
             "-vf", r"select=eq(n\,1)+eq(n\,3)+eq(n\,5)+eq(n\,7)",
-            "-vsync", "0", "-frames:v", "4", str(pattern),
+            "-fps_mode", "passthrough", "-frames:v", "4", str(pattern),
         ],
         capture_output=True, text=True, timeout=45,
     )
@@ -443,7 +443,7 @@ def test_visual_crossfade_overlap_matches_browser_look_and_exported_mp4_frames(t
         [
             renderer._ffmpeg(), "-y", "-loglevel", "error", "-i", str(output),
             "-vf", r"select=eq(n\,2)+eq(n\,7)+eq(n\,12)+eq(n\,14)",
-            "-vsync", "0", "-frames:v", "4", str(pattern),
+            "-fps_mode", "passthrough", "-frames:v", "4", str(pattern),
         ],
         capture_output=True, text=True, timeout=45,
     )
