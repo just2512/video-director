@@ -2799,6 +2799,17 @@ window.filmStudioReactTimeline = {
     resolveReactClipGesturePreview(event);
   },
   prepareClipGestureCommit(event) {
+    const state = filmStore.getSnapshot();
+    const gesture = state.timelineGestureContext;
+    if (!gesture || gesture.pointerId !== event.pointerId) return undefined;
+    const scroll = document.getElementById("fs-timeline-scroll");
+    if (!scroll) return undefined;
+    const scrollDelta = scroll.scrollLeft-gesture.startScrollLeft;
+    const pointerDelta = event.clientX-gesture.startX;
+    // A native pointerup also follows a plain click. That is a valid no-op edit,
+    // not a missing bridge contract; let the subsequent click-to-seek handler run.
+    if (!gesture.active &&
+        Math.hypot(pointerDelta+scrollDelta,event.clientY-gesture.startY) < 5) return [];
     return resolveReactClipGesturePreview(event,true);
   },
   zoom(direction,anchorClientX) {

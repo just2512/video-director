@@ -2595,6 +2595,18 @@ def test_react_clip_gesture_cancels_if_bridge_contract_disappears_midgesture(
                 )
                 edits_before = len(edit_requests)
 
+                # A plain clip click is a valid no-op gesture followed by click-to-seek.
+                # It must not be misreported as a missing prepare/commit bridge.
+                page.evaluate("window.filmStudioSeek(2)")
+                clip.click()
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getSnapshot()?.timelineGestureContext === null"
+                )
+                assert abs(float(page.evaluate("window.filmStudioStore.getSnapshot().playhead"))) < 0.001
+                assert page.locator("#film-studio-alert").inner_text().find("React 时间线手势已取消") < 0
+                assert fd.read_project_film(project_id)["rev"] == original["rev"]
+                assert len(edit_requests) == edits_before, edit_requests
+
                 # Case 1: controller disappears during pointermove. Reject and clear
                 # the active FilmStore context instead of calling legacy onMove().
                 clip = page.locator(clip_selector)
