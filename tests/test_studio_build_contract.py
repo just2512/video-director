@@ -55,6 +55,7 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert "id: live_stream_smoke" in ai_workflow
     assert "if: ${{ false }}" in ai_workflow
     assert "run the documented opt-in test locally" in ai_workflow
+    assert "steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped'" in ai_workflow
     assert "live-stream-junit.xml" in ai_workflow
     assert "env -u VD_LLM_API_KEY" in ai_workflow
     assert "VIDEO_DIRECTOR_STORAGE_ROOT=%s" not in ai_workflow

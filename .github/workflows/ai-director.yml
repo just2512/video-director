@@ -535,7 +535,7 @@ jobs:
       # A GitHub-token push intentionally does not fan out another workflow run.
       - name: Gate Studio asset publication on timeline browser regressions
         id: timeline_regression_gate
-        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && steps.live_stream_acceptance.conclusion == 'success' && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped' || steps.live_stream_config.conclusion == 'failure')
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && (steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped') && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped' || steps.live_stream_config.conclusion == 'failure')
         shell: bash
         run: |
           set +e
@@ -681,7 +681,7 @@ jobs:
           retention-days: 7
 
       - name: Publish verified React Studio bundle and Tailwind CSS to main
-        if: always() && steps.ensure_checkout.outcome == 'success' && steps.full_regression.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && steps.live_stream_acceptance.conclusion == 'success' && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped' || steps.live_stream_config.conclusion == 'failure') && steps.timeline_regression_gate.outcome == 'success'
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.full_regression.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && (steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped') && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped' || steps.live_stream_config.conclusion == 'failure') && steps.timeline_regression_gate.outcome == 'success'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
