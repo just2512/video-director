@@ -226,3 +226,47 @@ Marker IDs are stable and unique; names are 1–120 characters and times are non
 - [独立 Studio `40696547133`](https://github.com/just2512/video-director/actions/runs/40696547133) SUCCESS：**331 passed、2 warnings、0 failed**。
 - CLI 的 `film look` 现在要求 `--revision`，`film render` 要求 `--expected-revision`；缺失、空值和过期 revision 都在产生预览缓存/导出文件前拒绝。完整成片 E2E 也使用 `film status` 读出的同一 revision。
 - 本轮普通 CI 的 `LIVE_STREAM_ACCEPTANCE=MISSING` 是有意不发起付费模型请求；此前真实请求 `40689393487` 的上游返回 HTTP 410，指出配置模型 `z-ai/glm-5.3` 已退役。真实 token 流仍未通过当前配置的端点验收，需要运维侧更新当前受支持的模型/endpoint 并重新 opt-in；没有读取或修改 API key/保存配置。
+
+
+## Real-model token-stream acceptance (local opt-in)
+
+The real-provider acceptance is intentionally excluded from default CI. Mocked tests prove the SSE protocol and cancellation contract; only a local run against the configured NVIDIA endpoint can establish that the selected model actually streams generated text. Do not report mocked tests as evidence of real token streaming.
+
+### Run
+
+Run from the repository root in the same Python environment used by Studio. Confirm that the configured endpoint and model are the intended NVIDIA endpoint and `z-ai/glm-5.3-flash`. Do not paste API keys into command history, issue comments, logs, or this manual.
+
+PowerShell:
+
+```powershell
+$env:VD_LLM_LIVE_STREAM_TEST = "1"
+python -m pytest -q -vv --tb=short tests/test_film_studio_live_ai_streaming.py::test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film
+```
+
+After the run, clear only the opt-in flag; keep existing model settings intact:
+
+```powershell
+Remove-Item Env:VD_LLM_LIVE_STREAM_TEST -ErrorAction SilentlyContinue
+```
+
+### Acceptance criteria — all required
+
+1. **Correct endpoint and model:** use the explicitly configured `VD_LLM_BASE_URL` and `VD_LLM_MODEL`; verify locally that these point to the intended NVIDIA endpoint and `z-ai/glm-5.3-flash`. Never print the API key.
+2. **HTTP/SSE contract:** HTTP 200 and `Content-Type: text/event-stream`; response framing is valid and parseable.
+3. **Real incremental output:** at least two non-empty `token` events arrive before terminal `result`. `progress`, keepalive, task lifecycle and status events do not count. Token events must contain generated model text, not echoed prompt or canned progress messages.
+4. **Ordering and completion:** first token precedes result; a valid `result` exists with `ok: true` and a proposal containing at least one valid operation. No `error` event may appear.
+5. **Proposal correctness:** proposal `base_revision` exactly equals the requested FilmDocument revision; the operation targets stable ID `clip-b` and proposes moving it to 8.5 seconds without changing unrelated clips.
+6. **Read-only proposal generation:** FilmDocument revision after the request equals the initial revision and `film.html` bytes are byte-for-byte unchanged. AI planning must not commit edits before user confirmation.
+7. **Latency evidence:** record time to first non-empty token and from first token to terminal result. A progress heartbeat alone is not model streaming. Timeout, progress-only output, fewer than two non-empty token events, or invalid result means `REJECT`.
+8. **No credential leakage:** logs and failure messages must not contain API key, Authorization header, or secret-bearing configuration.
+
+### Result labels
+
+- **PASS:** all eight criteria are met in one run against the intended live model.
+- **REJECT:** provider responded but protocol, token, ordering, proposal, revision-integrity, or no-write assertions failed.
+- **BLOCKED_PROVIDER:** billing/balance/access issue. Not PASS; does not by itself prove a code defect.
+- **BLOCKED_MODEL:** model retired, unavailable, or unsupported by endpoint. Not PASS.
+- **UNKNOWN:** evidence missing/uninterpretable, or run interrupted before assertions completed.
+- **MISSING:** opt-in flag was not set; no live-model claim may be made.
+
+A local PASS applies only to this provider/model/configuration and fixture. It does not replace browser regressions or render/export tests. Repeat after changing provider, model, proxy, streaming implementation, or proposal schema.
