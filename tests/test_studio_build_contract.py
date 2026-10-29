@@ -502,6 +502,8 @@ def test_film_ai_progress_events_are_distinct_from_model_tokens():
     assert 'emit("progress", progress_payload)' in server
     assert 'emit("token", {"fragment": fragment})' in server
     assert "eventName==='progress'" in runtime
+    progress_branch = runtime.split("if(eventName==='progress')", 1)[1].split("else if(eventName==='token')", 1)[0]
+    assert "if(!S.aiStreamText)" in progress_branch
     assert "cancel_upstream_on_disconnect" in server
     assert "cancel_event.set()" in server
     assert "AI 指令正在处理，模型尚未返回可预览文本。" in server

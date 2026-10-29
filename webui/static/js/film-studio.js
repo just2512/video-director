@@ -4397,7 +4397,9 @@ window.filmStudioCopyClips=function(){
       var data;
       try{data=JSON.parse(dataLines.join('\n'));}catch(_){throw new Error('AI 流式响应不是合法 JSON。');}
       if(eventName==='progress'){
-        updateAiLiveMessage(String(data.message||'AI 指令正在处理，模型尚未返回可预览文本。'));
+        // Keep heartbeat status visible only until the first real model text arrives.
+        // Progress events must never overwrite a partial token-stream response.
+        if(!S.aiStreamText)updateAiLiveMessage(String(data.message||'AI 指令正在处理，模型尚未返回可预览文本。'));
       }else if(eventName==='token'){
         var fragment=String(data.fragment||'');
         S.aiStreamText+=fragment;
