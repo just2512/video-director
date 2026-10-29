@@ -2590,6 +2590,7 @@ def test_react_clip_gesture_cancels_if_bridge_contract_disappears_midgesture(
                     "&& !!document.querySelector('.fs-react-timeline-surface')"
                 )
                 clip_selector = '#fs-timeline .fs-clip[data-clip="clip-a"]'
+                clip = page.locator(clip_selector)
                 revision_before = page.evaluate(
                     "window.filmStudioStore.getSnapshot().revision"
                 )

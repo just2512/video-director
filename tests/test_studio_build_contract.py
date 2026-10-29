@@ -414,3 +414,12 @@ def test_self_hosted_workflows_share_runner_checkout_concurrency_lock():
     assert "\n  workflow_dispatch:\n" in trigger_block
     assert "\n  push:\n" not in trigger_block
     assert "contains(github.event.head_commit.message, '[unblock-runner]')" in ai_workflow
+
+
+def test_ai_director_workflow_retains_regression_diagnostics():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
+    assert "actions/upload-artifact@v4" in workflow
+    assert "timeline-junit.xml" in workflow
+    assert "timeline-regression-output.log" in workflow
+    assert "pytest-output.log" in workflow

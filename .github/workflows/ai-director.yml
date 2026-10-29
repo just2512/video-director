@@ -516,8 +516,9 @@ jobs:
         if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && steps.live_stream_acceptance.conclusion == 'success' && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped' || steps.live_stream_config.conclusion == 'failure')
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
           timeout --signal=TERM --kill-after=10s 12m "$PY311_BIN/python3.11" -m pytest -q --tb=short \
+            --junitxml=timeline-junit.xml \
             tests/test_film_document_contract.py \
             tests/test_film_studio_external_watch_browser.py \
             tests/test_film_studio_migration_preview_browser.py \
@@ -541,7 +542,29 @@ jobs:
             tests/test_film_variant_transform_keyframes.py \
             tests/test_film_volume_keyframe_migration.py \
             tests/test_film_runtime_mask_keyframes_browser.py \
-            tests/test_studio_build_contract.py
+            tests/test_studio_build_contract.py > timeline-regression-output.log 2>&1
+          test_exit=$?
+          set -e
+          if [ -f timeline-regression-output.log ]; then
+            echo "---- focused timeline/export regression output (last 240 lines) ----"
+            tail -n 240 timeline-regression-output.log
+          fi
+          exit "$test_exit"
+
+      - name: Retain regression diagnostics
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            junit.xml
+            pytest-output.log
+            live-stream-junit.xml
+            timeline-junit.xml
+            timeline-regression-output.log
+            test-results/**
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Publish verified React Studio bundle and Tailwind CSS to main
         if: always() && steps.ensure_checkout.outcome == 'success' && steps.full_regression.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && steps.live_stream_acceptance.conclusion == 'success' && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped' || steps.live_stream_config.conclusion == 'failure') && steps.timeline_regression_gate.outcome == 'success'

@@ -775,6 +775,14 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 target = page.locator('#fs-timeline .fs-clip[data-clip="video-target"]')
                 target.wait_for(state="visible", timeout=5000)
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!state && state.busy === false && state.pendingTransaction === null
+                    && state.broken === false && !state.pendingExternalRevision;
+                }""", timeout=10000)
+                assert film_path.read_text(encoding="utf-8") == initial_text, (
+                    "Opening Studio changed film.html before the first edit"
+                )
                 page.evaluate("window.confirm = () => true")
 
                 # Lift: remove only the selected clip and retain the following clip's original time.

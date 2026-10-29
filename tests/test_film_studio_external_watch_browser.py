@@ -1385,7 +1385,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
-            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            context = browser.new_context(viewport={"width": 1440, "height": 1600})
             tracing = False
             page = context.new_page()
             page_errors: list[str] = []
@@ -2849,6 +2849,16 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert source_box and target_box, {"source": source_box, "target": target_box}
                 source_x = source_box["x"] + source_box["width"] * 0.5
                 source_y = source_box["y"] + source_box["height"] * 0.5
+                source_hit = page.evaluate(
+                    "([x,y]) => { const hit = document.elementFromPoint(x,y)?.closest('.fs-clip'); "
+                    "return {inViewport:x>=0 && y>=0 && x<innerWidth && y<innerHeight, "
+                    "clipId:hit?.getAttribute('data-clip') || null}; }",
+                    [source_x, source_y],
+                )
+                assert source_hit == {"inViewport": True, "clipId": "clip-b"}, {
+                    "source": source_box, "source_hit": source_hit, "target": target_box,
+                    "viewport": page.evaluate("({width:innerWidth,height:innerHeight,scrollY})"),
+                }
                 # Use the row center after bringing a potentially clipped track into view.
                 target_y = target_box["y"] + target_box["height"] * 0.5
                 assert page.evaluate(
