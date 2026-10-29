@@ -320,8 +320,8 @@ def test_react_timeline_owns_move_target_hit_testing_and_legacy_fallback_is_gate
     assert "timelineHost.replaceChildren()" in no_react_gate
     assert "setAttribute('role','alert')" in no_react_gate
     assert "return;" in no_react_gate
-    assert no_react_gate.index("return;") < renderer.index("var laneWidth=")
-    gesture_entry = legacy.split("function beginClipGesture(e,context,el)", 1)[1].split("function", 1)[0]
+    assert renderer.index("return;") < renderer.index("var laneWidth=")
+    gesture_entry = legacy.split("function beginClipGesture(e,context,el)", 1)[1].split("window.filmStudioBeginClipGesture=function", 1)[0]
     assert "S.data&&S.data.exists&&(!reactGestureBridge||typeof reactGestureBridge.renderSurface!=='function')" in gesture_entry
     assert "没有回退到旧版时间线" in gesture_entry
 
