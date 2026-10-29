@@ -193,6 +193,7 @@ def test_stream_disconnect_after_last_token_discards_undelivered_proposal(
 
     web_server = importlib.reload(web_server)
     web_server.COMPOSER_ROOT = storage_root
+    monkeypatch.setattr(web_server, "FILM_AI_STREAM_PROGRESS_INTERVAL_SECONDS", 0.05)
 
     project_id = "film-disconnect-stream-" + uuid.uuid4().hex[:12]
     request_id = "disconnect-stream-" + uuid.uuid4().hex
@@ -212,6 +213,7 @@ def test_stream_disconnect_after_last_token_discards_undelivered_proposal(
     }, ensure_ascii=False)
     allow_provider_return = threading.Event()
     provider_returned = threading.Event()
+    upstream_closed = threading.Event()
 
     class DisconnectAwareLLM:
         supports_stream_cancellation = True
@@ -220,11 +222,17 @@ def test_stream_disconnect_after_last_token_discards_undelivered_proposal(
             self, _prompt, *, on_delta=None, on_stream_open=None, cancel_event=None
         ):
             assert callable(on_delta) and callable(on_stream_open) and cancel_event is not None
-            on_stream_open(type("ClosableStream", (), {"close": lambda _self: None})())
-            # One final token makes the disconnect happen at the boundary between the
-            # last model delta and the terminal result packet.
+            class ClosableStream:
+                def close(self):
+                    upstream_closed.set()
+
+            on_stream_open(ClosableStream())
+            # One final visible token is followed by a simulated client reset. The
+            # periodic safe progress write must notice the disconnect and cancel the
+            # upstream even though no further text delta is generated.
             on_delta(model_output)
-            assert allow_provider_return.wait(timeout=5), "test client did not close the stream"
+            if not cancel_event.wait(timeout=5):
+                allow_provider_return.wait(timeout=0.1)
             provider_returned.set()
             return model_output
 
@@ -288,7 +296,7 @@ def test_stream_disconnect_after_last_token_discards_undelivered_proposal(
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("hh" if os.name == "nt" else "ii", 1, 0))
         response.close()
         response = None
-        allow_provider_return.set()
+        assert upstream_closed.wait(timeout=3), "heartbeat disconnect detection did not close the active upstream"
         assert provider_returned.wait(timeout=3), "provider did not finish after simulated client disconnect"
 
         key = (project_id, request_id)

@@ -1433,23 +1433,39 @@ class Handler(BaseHTTPRequestHandler):
                                 disconnected["value"] = True
                                 return False
 
+                    def cancel_upstream_on_disconnect():
+                        cancel_event.set()
+                        with _FILM_AI_STREAM_LOCK:
+                            current = _FILM_AI_ACTIVE_STREAMS.get(key)
+                            upstream = current.get("stream") if current is active_stream else None
+                        closer = getattr(upstream, "close", None)
+                        if callable(closer):
+                            try:
+                                closer()
+                            except Exception:
+                                pass
+
                     def emit_progress():
                         interval = max(0.05, float(FILM_AI_STREAM_PROGRESS_INTERVAL_SECONDS))
                         while not progress_stop.wait(interval):
                             if cancel_event.is_set() or disconnected["value"]:
                                 return
                             if not emit("progress", progress_payload):
+                                cancel_upstream_on_disconnect()
                                 return
 
                     # Flush one safe progress frame immediately. Some models emit
                     # private analysis before visible answer text; never forward it.
-                    emit("progress", progress_payload)
+                    initial_progress_delivered = emit("progress", progress_payload)
                     progress_thread = threading.Thread(
                         target=emit_progress,
                         name="film-ai-progress-" + request_id,
                         daemon=True,
                     )
-                    progress_thread.start()
+                    if initial_progress_delivered:
+                        progress_thread.start()
+                    else:
+                        cancel_upstream_on_disconnect()
 
                     def stop_progress():
                         progress_stop.set()
@@ -1478,6 +1494,8 @@ class Handler(BaseHTTPRequestHandler):
                     phase_after_result = None
                     pending_proposal = None
                     try:
+                        if disconnected["value"] or cancel_event.is_set():
+                            raise ConnectionAbortedError("AI 客户端已取消或客户端已断开")
                         operations = fd.plan_film_command(
                             llm, state, str(payload.get("message") or ""),
                             selected_clip_id, summary_out=plan_summary,
