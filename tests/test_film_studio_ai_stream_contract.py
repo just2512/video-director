@@ -470,6 +470,9 @@ def test_stream_cancel_stops_cancellable_provider_without_creating_proposal(
             assert response.status == 200
             assert response.headers.get_content_type() == "text/event-stream"
             first_event = read_sse_event(response)
+            while first_event and first_event[0] == "progress":
+                events.append(first_event)
+                first_event = read_sse_event(response)
             assert first_event and first_event[0] == "token", first_event
             events.append(first_event)
             assert provider_entered.wait(timeout=3), "provider never entered generation"
