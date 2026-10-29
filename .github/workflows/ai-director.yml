@@ -638,7 +638,7 @@ jobs:
                   pid = int(cmdline_path.parent.name)
                   if pid in {1, current_pid}:
                       continue
-                  argv = [part.decode("utf-8", "replace") for part in cmdline_path.read_bytes().split(b"\\0") if part]
+                  argv = [part.decode("utf-8", "replace") for part in cmdline_path.read_bytes().split(b"\0") if part]
                   if "tools/http_connect_socks_proxy.py" not in argv:
                       continue
                   if os.path.realpath(f"/proc/{pid}/cwd") != workspace:
@@ -656,7 +656,7 @@ jobs:
               survivors = []
               for pid in candidates:
                   try:
-                      cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\\0")
+                      cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
                       if b"tools/http_connect_socks_proxy.py" in cmdline:
                           survivors.append(pid)
                   except OSError:
@@ -667,7 +667,7 @@ jobs:
               time.sleep(0.1)
           for pid in candidates:
               try:
-                  cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\\0")
+                  cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
                   if b"tools/http_connect_socks_proxy.py" in cmdline and os.path.realpath(f"/proc/{pid}/cwd") == workspace:
                       os.kill(pid, signal.SIGKILL)
               except (OSError, ProcessLookupError):
