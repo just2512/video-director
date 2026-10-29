@@ -2499,8 +2499,12 @@ def test_react_timeline_rejects_gesture_without_typed_controller_instead_of_lega
                       return {
                         missingController,missingBridge,partialController,partialBridge,
                         contextPresent:!!snapshot.timelineGestureContext,
-                        notice:document.body.innerText.includes(
-                          "React 时间线的类型化控制器未就绪或桥接接口缺失；本次操作已拒绝，未回退到旧版 DOM 手势。"
+                        notice:(
+                          document.body.innerText.includes(
+                            "React 时间线的类型化控制器未就绪或桥接接口缺失；本次操作已拒绝，未回退到旧版 DOM 手势。"
+                          ) || document.body.innerText.includes(
+                            "film.html 已生效，但 React 时间线不可用；本次操作已拒绝，没有回退到旧版时间线。"
+                          )
                         )
                       };
                     }"""

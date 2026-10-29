@@ -147,11 +147,17 @@ class OpenAICompatibleProvider:
         setting is narrowly scoped to NVIDIA's official endpoint and this exact
         model; other OpenAI-compatible providers are not changed.
         """
-        endpoint = self._base_url.strip()
+        # Some callers/tests construct the provider via __new__ to isolate the
+        # streaming loop. Missing endpoint state must preserve generic OpenAI
+        # compatibility rather than turning a stream/cancel path into AttributeError.
+        endpoint = str(getattr(self, "_base_url", "") or "").strip()
+        model = str(getattr(self, "_model", "") or "").strip().lower()
+        if not endpoint or not model:
+            return {}
         if "://" not in endpoint:
             endpoint = "https://" + endpoint
         host = (urlparse(endpoint).hostname or "").lower().rstrip(".")
-        if host != "integrate.api.nvidia.com" or self._model.strip().lower() != "z-ai/glm-5.3-flash":
+        if host != "integrate.api.nvidia.com" or model != "z-ai/glm-5.3-flash":
             return {}
 
         effort = os.environ.get("VD_LLM_REASONING_EFFORT", "low").strip().lower() or "low"
