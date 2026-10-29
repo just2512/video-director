@@ -99,14 +99,16 @@
     // generic warning concealed whether the bridge disappeared, preview threw,
     // or commit preparation returned an invalid result.
     try{
-      console.error('REACT_TIMELINE_GESTURE_CANCEL='+JSON.stringify({
+      var diagnostic={
         reason:String(reason||'unspecified'),
         pointerId:e&&e.pointerId,
         bridgeMethods:window.filmStudioReactTimeline?Object.keys(window.filmStudioReactTimeline).sort():[],
         controllerMethods:window.filmStudioTimelineController?Object.keys(window.filmStudioTimelineController).sort():[],
         context:(window.filmStudioStore&&window.filmStudioStore.getSnapshot
           ?window.filmStudioStore.getSnapshot().timelineGestureContext:null)
-      }));
+      };
+      window.__filmStudioTimelineGestureCancellation=diagnostic;
+      console.error('REACT_TIMELINE_GESTURE_CANCEL='+JSON.stringify(diagnostic));
     }catch(_){/* diagnostic output must never prevent gesture cleanup */}
     var store=window.filmStudioStore;
     var snapshot=store&&typeof store.getSnapshot==='function'?store.getSnapshot():null;

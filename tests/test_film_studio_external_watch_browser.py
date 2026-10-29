@@ -1462,6 +1462,9 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                               };
                             })(),
                             envelopePointerTrace: window.__envelopePointerTrace || null,
+                            gestureCancellation: window.__filmStudioTimelineGestureCancellation || null,
+                            reactTimelineBridgeMethods: window.filmStudioReactTimeline ? Object.keys(window.filmStudioReactTimeline).sort() : [],
+                            timelineControllerMethods: window.filmStudioTimelineController ? Object.keys(window.filmStudioTimelineController).sort() : [],
                             film: (() => {
                               const film = store?.getSnapshot()?.film;
                               return film ? {
