@@ -177,7 +177,7 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "tools/http_connect_socks_proxy.py" in proxy_bridge_step
     assert "ACTION_ARTIFACT_PROXY=REAPED_ORPHANS" in proxy_bridge_step
     assert 'Path("/proc").glob("[0-9]*/cmdline")' in proxy_bridge_step
-    assert 'split(b"\\0")' not in proxy_bridge_step
+    assert r'split(b"\\0")' not in proxy_bridge_step
     assert r'split(b"\0")' in proxy_bridge_step
     assert 'os.path.realpath(f"/proc/{pid}/cwd") != workspace' in proxy_bridge_step
     assert "HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy" in proxy_bridge_step
