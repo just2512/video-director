@@ -141,6 +141,13 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
     assert "continue-on-error: true" in live_config_step
     assert "raise SystemExit(1)" in live_config_step
+    assert "id: live_provider_probe" in ai_workflow
+    provider_probe = ai_workflow.split(
+        "      - name: Probe NVIDIA streaming endpoint with a minimal prompt", 1
+    )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
+    assert 'timeout --signal=TERM --kill-after=5s 75s' in provider_probe
+    assert 'max_tokens=8' in provider_probe
+    assert "type(exc).__name__" in provider_probe
     assert "id: live_stream_smoke" in ai_workflow
     live_smoke_step = ai_workflow.split(
         "      - name: Run isolated real-model token-stream acceptance test", 1

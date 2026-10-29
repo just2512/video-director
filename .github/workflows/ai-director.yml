@@ -335,6 +335,55 @@ jobs:
           PY
           printf 'VD_LLM_LIVE_CONFIG_FILE=%s\n' "$live_config" >> "$GITHUB_ENV"
 
+      - name: Probe NVIDIA streaming endpoint with a minimal prompt
+        id: live_provider_probe
+        if: steps.live_stream_config.outcome == 'success'
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=5s 75s "$PY311_BIN/python3.11" - <<'PY'
+          import json
+          import os
+          import time
+          from pathlib import Path
+          from openai import OpenAI
+
+          config_path = Path(os.environ["VD_LLM_LIVE_CONFIG_FILE"])
+          config = json.loads(config_path.read_text(encoding="utf-8"))
+          started = time.monotonic()
+          try:
+              client = OpenAI(api_key=config["api_key"], base_url=config["base_url"], timeout=60, max_retries=0)
+              stream = client.chat.completions.create(
+                  model=config["model"],
+                  messages=[{"role":"user","content":"Reply with exactly OK."}],
+                  stream=True,
+                  max_tokens=8,
+              )
+              first = None
+              for event in stream:
+                  choices = getattr(event, "choices", None) or []
+                  if not choices:
+                      continue
+                  fragment = getattr(getattr(choices[0], "delta", None), "content", None)
+                  if isinstance(fragment, str) and fragment.strip():
+                      first = time.monotonic() - started
+                      break
+              close = getattr(stream, "close", None)
+              if callable(close):
+                  close()
+              if first is None:
+                  print("LIVE_PROVIDER_PROBE=REJECT reason=no_nonempty_token")
+                  raise SystemExit(1)
+              print(f"LIVE_PROVIDER_PROBE=PASS first_token_seconds={first:.2f}")
+          except SystemExit:
+              raise
+          except Exception as exc:
+              # Do not print exception text; some providers echo request metadata.
+              print(f"LIVE_PROVIDER_PROBE=REJECT error_type={type(exc).__name__} elapsed_seconds={time.monotonic()-started:.2f}")
+              raise SystemExit(1)
+          PY
+
       - name: Run isolated real-model token-stream acceptance test
         id: live_stream_smoke
         if: steps.live_stream_config.outcome == 'success'
