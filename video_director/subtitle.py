@@ -9,7 +9,6 @@ from __future__ import annotations
 import re
 from typing import List, Optional
 
-
 def time_to_srt(seconds: float) -> str:
     """秒 → SRT 时间戳 HH:MM:SS,mmm。"""
     ms = int(round(seconds * 1000))
@@ -17,7 +16,6 @@ def time_to_srt(seconds: float) -> str:
     m, rem = divmod(rem, 60000)
     s, ms = divmod(rem, 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
 
 def build_srt_from_words(
     word_timeline: List[dict],
@@ -47,7 +45,6 @@ def build_srt_from_words(
         cursor += durl
     return "\n".join(lines)
 
-
 def build_srt_from_scenes(scenes: List[dict]) -> str:
     """直接由 narration/scene 结构生成 SRT（scenes 带 start/duration/text）。"""
     lines: List[str] = []
@@ -63,7 +60,6 @@ def build_srt_from_scenes(scenes: List[dict]) -> str:
         lines.append("")
     return "\n".join(lines)
 
-
 def srt_entries(scenes: List[dict]) -> List[dict]:
     """字幕条目（供 validator 边界检查），[{start,end,text}]。"""
     return [
@@ -71,12 +67,10 @@ def srt_entries(scenes: List[dict]) -> List[dict]:
         for s in scenes
     ]
 
-
 # ---------------------------------------------------------------------------
 # 分句（对照 MPT subtitle.py：按标点断句，句级字幕而非整段）
 # ---------------------------------------------------------------------------
 _SENTENCE_SPLIT = re.compile(r"([。！？!?；;，,、])")
-
 
 def split_sentences(text: str) -> List[str]:
     """按中文/英文标点把一段旁白切成句子（保留句末标点）。空段过滤。
@@ -112,7 +106,6 @@ def split_sentences(text: str) -> List[str]:
             out.append(s)
     return out
 
-
 #: 普通字幕 ASS 样式（白字 + 黑描边 + 底部安全区，字号按画幅，对照 MPT 生产级）
 ASS_PLAIN_HEADER = """[Script Info]
 ScriptType: v4.00+
@@ -128,7 +121,6 @@ Style: Sub,Microsoft YaHei,{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H640000
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-
 
 def _scene_sentence_times(scene: dict, sentences: List[str]) -> List[tuple]:
     """句级时间：按句子字符占比在场景 [start,end] 内线性分配。
@@ -151,7 +143,6 @@ def _scene_sentence_times(scene: dict, sentences: List[str]) -> List[tuple]:
     if times:
         times[-1] = (times[-1][0], round(start + dur, 3))
     return times
-
 
 def build_ass_plain(
     scenes: List[dict],
@@ -193,7 +184,6 @@ def _ass_time(seconds: float) -> str:
     s, cs = divmod(rem, 100)
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
-
 def build_ass_bilingual(
     cues: List[dict],
     width: int = 1080,
@@ -220,7 +210,6 @@ def build_ass_bilingual(
         )
     return header + "\n".join(events) + "\n"
 
-
 #: 卡拉OK默认样式（ASS Style 行参数；与普通字幕的烧录位置保持一致：底部安全区）
 ASS_KARAOKE_HEADER = """[Script Info]
 ScriptType: v4.00+
@@ -236,7 +225,6 @@ Style: Karaoke,Microsoft YaHei,{font_size},&H00FFFFFF,&H0000C6FF,&H00000000,&H64
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-
 
 #: 双语字幕样式（中文主行 + 英文次行：英文约 70% 字号、更贴底、浅灰字带描边）
 ASS_BILINGUAL_HEADER = """[Script Info]
@@ -254,59 +242,6 @@ Style: SubEn,Microsoft YaHei,{en_font_size},&H00E0E0E0,&H00E0E0E0,&H00000000,&H6
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-
-
-def build_ass_bilingual(
-    scenes: List[dict],
-    translations: dict,
-    width: int = 1080,
-    height: int = 1920,
-    font_size: int = 64,
-) -> str:
-    """双语字幕 ASS：中文主行（句级，同 plain 的分句与断行规则）+ 英文次行。
-
-    translations: {scene_id 或 索引(字符串/整数): 英文文本}；缺翻译的场景只出中文行。
-    英文行按场景整段显示（场景起止时间），字号约主行 70%、位置在主行下方
-    （更贴底的 MarginV）、浅灰字带描边，与主行视觉分层。
-    """
-    en_font_size = max(12, int(round(font_size * 0.7)))
-    margin_v = max(40, int(height * 0.08))
-    # 主行高约 font_size×1.35（含描边行距），英文行贴其下方，最低不下探出画
-    en_margin_v = max(12, margin_v - int(font_size * 1.35))
-    header = ASS_BILINGUAL_HEADER.format(
-        width=width, height=height, font_size=font_size, margin_v=margin_v,
-        en_font_size=en_font_size, en_margin_v=en_margin_v,
-    )
-    events: List[str] = []
-    for i, sc in enumerate(scenes):
-        text = str(sc.get("text", "")).strip()
-        if not text:
-            continue
-        en = ""
-        for key in (sc.get("id"), str(i), i):
-            if key is not None and key in translations:
-                en = str(translations[key]).strip()
-                break
-        # 译文来自 LLM 输出（边界输入）：换行折叠，剥掉 {}\\ 防 ASS 覆写标签注入
-        en = re.sub(r"[\r\n]+", " ", en)
-        en = re.sub(r"[{}\\]", "", en)
-        if en:
-            start, end = float(sc["start"]), float(sc["start"]) + float(sc["duration"])
-            events.append(
-                f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},SubEn,,0,0,0,,{en}"
-            )
-        sentences = split_sentences(text)
-        times = _scene_sentence_times(sc, sentences)
-        for (s_start, s_end), sent in zip(times, sentences):
-            # ASS 文本内换行：>16 字手动折行（\N），与 plain 同规则
-            disp = sent
-            if len(disp) > 16:
-                mid = len(disp) // 2
-                disp = disp[:mid] + "\\N" + disp[mid:]
-            events.append(
-                f"Dialogue: 0,{_ass_time(s_start)},{_ass_time(s_end)},Sub,,0,0,0,,{disp}"
-            )
-    return header + "\n".join(events) + "\n"
 
 
 def build_ass_karaoke(

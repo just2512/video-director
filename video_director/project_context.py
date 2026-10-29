@@ -315,6 +315,33 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
     if any(scene.selections for scene in ir.scenes):
         active.append("subtitle")
 
+    # §二十六/二十七 依赖五态（本地功能回迁）：每个 IR asset 判
+    # SATISFIED/MISSING/INVALID，前端据此展示「原素材 MISSING → 重新上传/换素材」。
+    mpt = _mpt_context(project_id)
+    dep_states: list = []
+    try:
+        from pathlib import Path as _P
+        for asset in ir.assets:
+            f = str(getattr(asset, "file", "") or "")
+            aid = str(getattr(asset, "id", "") or "")
+            if not f:
+                dep_states.append({"asset_id": aid, "file": "", "state": "MISSING",
+                                   "reason": "无 file 字段"})
+                continue
+            p = _P(f)
+            if not p.exists():
+                dep_states.append({"asset_id": aid, "file": f, "state": "MISSING",
+                                   "reason": "文件不存在（可能用户未重新上传/已移动）"})
+            elif p.stat().st_size == 0:
+                dep_states.append({"asset_id": aid, "file": f, "state": "INVALID",
+                                   "reason": "文件存在但大小为 0（损坏）"})
+            else:
+                dep_states.append({"asset_id": aid, "file": f, "state": "SATISFIED",
+                                   "reason": "依赖满足"})
+        mpt["asset_dependency_states"] = dep_states
+    except Exception:
+        pass
+
     return {
         "authority": "composition.json",
         "revision": version,
@@ -331,6 +358,6 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
         "assets": {"video": video, "image": image, "audio": audio_count},
         "activeFeatures": active,
         "providers": _provider_availability(),
-        "mpt": _mpt_context(project_id),
+        "mpt": mpt,
         "film": {"exists": False, "valid": None, "revision": None},
     }
