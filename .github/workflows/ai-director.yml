@@ -368,7 +368,7 @@ jobs:
                   "VD_LLM_BASE_URL": config["base_url"],
                   "VD_LLM_MODEL": config["model"],
                   "VD_LLM_LIVE_STREAM_TEST": "1",
-                  "VD_LLM_REQUEST_TIMEOUT_SECONDS": "120",
+                  "VD_LLM_REQUEST_TIMEOUT_SECONDS": "240",
                   "VD_LLM_MAX_RETRIES": "0",
               })
               command = [

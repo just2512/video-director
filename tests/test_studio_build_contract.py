@@ -142,6 +142,11 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "continue-on-error: true" in live_config_step
     assert "raise SystemExit(1)" in live_config_step
     assert "id: live_stream_smoke" in ai_workflow
+    live_smoke_step = ai_workflow.split(
+        "      - name: Run isolated real-model token-stream acceptance test", 1
+    )[1].split("      - name: Install Remotion rendering runtime dependencies", 1)[0]
+    assert '"VD_LLM_REQUEST_TIMEOUT_SECONDS": "240"' in live_smoke_step
+    assert 'timeout --signal=TERM --kill-after=10s 6m' in live_smoke_step
     assert "steps.live_stream_config.outcome" in ai_workflow
     assert "steps.live_stream_acceptance.conclusion == 'success'" in ai_workflow
     live_report_step = ai_workflow.split(
