@@ -635,19 +635,34 @@ jobs:
           if [ -s "$proxy_log" ]; then tail -n 20 "$proxy_log"; fi
           exit 0
 
-      # actions/upload-artifact's Node/undici proxy only accepts HTTP(S) proxy URLs.
-      # When a SOCKS upstream exists, scope the localhost bridge to this step only.
-      - name: Retain regression diagnostics
-        if: always() && steps.ensure_checkout.outcome == 'success'
+      # Node/undici does not accept SOCKS URLs; use the loopback HTTP bridge when ready.
+      - name: Retain regression diagnostics through local HTTP proxy
+        if: always() && steps.ensure_checkout.outcome == 'success' && env.VD_ACTIONS_HTTP_PROXY != ''
         continue-on-error: true
         uses: actions/upload-artifact@v4
         env:
-          HTTP_PROXY: ${{ env.VD_ACTIONS_HTTP_PROXY || env.HTTP_PROXY }}
-          HTTPS_PROXY: ${{ env.VD_ACTIONS_HTTP_PROXY || env.HTTPS_PROXY }}
-          ALL_PROXY: ${{ env.VD_ACTIONS_HTTP_PROXY || env.ALL_PROXY }}
-          http_proxy: ${{ env.VD_ACTIONS_HTTP_PROXY || env.http_proxy }}
-          https_proxy: ${{ env.VD_ACTIONS_HTTP_PROXY || env.https_proxy }}
-          all_proxy: ${{ env.VD_ACTIONS_HTTP_PROXY || env.all_proxy }}
+          HTTP_PROXY: ${{ env.VD_ACTIONS_HTTP_PROXY }}
+          HTTPS_PROXY: ${{ env.VD_ACTIONS_HTTP_PROXY }}
+          ALL_PROXY: ${{ env.VD_ACTIONS_HTTP_PROXY }}
+          http_proxy: ${{ env.VD_ACTIONS_HTTP_PROXY }}
+          https_proxy: ${{ env.VD_ACTIONS_HTTP_PROXY }}
+          all_proxy: ${{ env.VD_ACTIONS_HTTP_PROXY }}
+        with:
+          name: regression-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            junit.xml
+            pytest-output.log
+            live-stream-junit.xml
+            timeline-junit.xml
+            timeline-regression-output.log
+            test-results/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Retain regression diagnostics using runner proxy
+        if: always() && steps.ensure_checkout.outcome == 'success' && env.VD_ACTIONS_HTTP_PROXY == ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
         with:
           name: regression-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
