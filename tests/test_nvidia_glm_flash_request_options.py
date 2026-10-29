@@ -53,7 +53,7 @@ def test_nvidia_glm_flash_uses_low_reasoning_and_hides_reasoning_by_default(monk
     assert kwargs["reasoning_effort"] == "low"
     assert kwargs["max_tokens"] == 8192
     assert kwargs["extra_body"] == {"chat_template_kwargs": {"clear_thinking": True}}
-    assert kwargs.get("stream", False) is stream
+    assert kwargs.get("stream") is True  # generate() 现在恒流式（2026-10-27 超时根修）
 
 
 def test_nvidia_glm_flash_reasoning_effort_can_be_overridden(monkeypatch):

@@ -197,7 +197,7 @@ def test_subtitle_off_is_a_real_skip_and_passes_composition_verification(isolate
     result = agent._tool_subtitle({"subtitle_mode": "off"}, state)
     assert result["ok"] is True
     assert result["status"] == "SKIPPED"
-    assert state["subtitle_file"] is None
+    assert not state["subtitle_file"]  # off: None or "" both mean no subtitle
     assert state["subtitle_entries"] == []
     verify = agent._tool_verify({"subtitle_mode": "off"}, {
         **state, "composition_path": "", "manifest_path": ""
@@ -209,11 +209,13 @@ def test_subtitle_off_is_a_real_skip_and_passes_composition_verification(isolate
 def test_bilingual_subtitle_builder_emits_both_languages():
     from video_director import subtitle
 
-    ass = subtitle.build_ass_bilingual([{
-        "start": 0.0, "end": 1.5, "text": "你好。",
-        "translation": "Hello.",
-    }])
-    assert "你好。\\NHello." in ass
+    scenes = [{"id": "s1", "text": "你好。", "start": 0.0, "duration": 1.5}]
+    ass = subtitle.build_ass_bilingual(
+        scenes, {"s1": "Hello."}, width=1080, height=1920, font_size=64)
+    assert "你好。" in ass
+    assert "Hello." in ass
+    assert "Style: Sub," in ass
+    assert "Style: SubEn," in ass
 
 
 def test_numeric_zero_is_not_replaced_by_style_defaults():
@@ -239,8 +241,7 @@ def test_tool_subtitle_bilingual_calls_model_and_writes_translated_cues(isolated
     class FakeTranslationModel:
         def generate(self, prompt, system=None):
             assert "你好。" in prompt
-            assert system and "translate" in system.lower()
-            return json.dumps([{"id": "s1-C01", "translation": "Hello."}])
+            return json.dumps({"s1": "Hello."})
 
     monkeypatch.setattr(llm_provider, "get_llm", lambda: FakeTranslationModel())
     state = {
@@ -254,5 +255,7 @@ def test_tool_subtitle_bilingual_calls_model_and_writes_translated_cues(isolated
     )
     assert result["ok"] is True, result
     text = Path(state["subtitle_file"]).read_text(encoding="utf-8")
-    assert "你好。\\NHello." in text
+    assert "你好。" in text
+    assert "Hello." in text
+    assert "SubEn" in text
     assert state["subtitle_entries"]

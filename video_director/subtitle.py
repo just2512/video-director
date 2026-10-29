@@ -184,47 +184,6 @@ def _ass_time(seconds: float) -> str:
     s, cs = divmod(rem, 100)
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
-def build_ass_bilingual(
-    cues: List[dict],
-    width: int = 1080,
-    height: int = 1920,
-    font_size: int = 56,
-) -> str:
-    """双语字幕 ASS：每条 cue 用相同时间显示原文与译文两行。"""
-    bilingual_size = max(20, int(round(font_size * 0.82)))
-    header = ASS_PLAIN_HEADER.format(
-        width=width, height=height, font_size=bilingual_size,
-        margin_v=max(40, int(height * 0.08)),
-    )
-    events: List[str] = []
-    for cue in cues:
-        start = float(cue.get("start", 0))
-        end = float(cue.get("end", start))
-        original = str(cue.get("text") or "").replace("\r", " ").replace("\n", " ").strip()
-        translation = str(cue.get("translation") or "").replace("\r", " ").replace("\n", " ").strip()
-        if not original or not translation or end <= start:
-            continue
-        display = f"{original}\\N{translation}"
-        events.append(
-            f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Sub,,0,0,0,,{display}"
-        )
-    return header + "\n".join(events) + "\n"
-
-#: 卡拉OK默认样式（ASS Style 行参数；与普通字幕的烧录位置保持一致：底部安全区）
-ASS_KARAOKE_HEADER = """[Script Info]
-ScriptType: v4.00+
-PlayResX: {width}
-PlayResY: {height}
-WrapStyle: 0
-ScaledBorderAndShadow: yes
-
-[V4+ Styles]
-Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Karaoke,Microsoft YaHei,{font_size},&H00FFFFFF,&H0000C6FF,&H00000000,&H64000000,1,0,0,0,100,100,0,0,1,2.4,0,2,60,60,{margin_v},1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-"""
 
 #: 双语字幕样式（中文主行 + 英文次行：英文约 70% 字号、更贴底、浅灰字带描边）
 ASS_BILINGUAL_HEADER = """[Script Info]
@@ -242,6 +201,59 @@ Style: SubEn,Microsoft YaHei,{en_font_size},&H00E0E0E0,&H00E0E0E0,&H00000000,&H6
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+
+
+def build_ass_bilingual(
+    scenes: List[dict],
+    translations: dict,
+    width: int = 1080,
+    height: int = 1920,
+    font_size: int = 64,
+) -> str:
+    """双语字幕 ASS：中文主行（句级，同 plain 的分句与断行规则）+ 英文次行。
+
+    translations: {scene_id 或 索引(字符串/整数): 英文文本}；缺翻译的场景只出中文行。
+    英文行按场景整段显示（场景起止时间），字号约主行 70%、位置在主行下方
+    （更贴底的 MarginV）、浅灰字带描边，与主行视觉分层。
+    """
+    en_font_size = max(12, int(round(font_size * 0.7)))
+    margin_v = max(40, int(height * 0.08))
+    # 主行高约 font_size×1.35（含描边行距），英文行贴其下方，最低不下探出画
+    en_margin_v = max(12, margin_v - int(font_size * 1.35))
+    header = ASS_BILINGUAL_HEADER.format(
+        width=width, height=height, font_size=font_size, margin_v=margin_v,
+        en_font_size=en_font_size, en_margin_v=en_margin_v,
+    )
+    events: List[str] = []
+    for i, sc in enumerate(scenes):
+        text = str(sc.get("text", "")).strip()
+        if not text:
+            continue
+        en = ""
+        for key in (sc.get("id"), str(i), i):
+            if key is not None and key in translations:
+                en = str(translations[key]).strip()
+                break
+        # 译文来自 LLM 输出（边界输入）：换行折叠，剥掉 {}\\ 防 ASS 覆写标签注入
+        en = re.sub(r"[\r\n]+", " ", en)
+        en = re.sub(r"[{}\\]", "", en)
+        if en:
+            start, end = float(sc["start"]), float(sc["start"]) + float(sc["duration"])
+            events.append(
+                f"Dialogue: 0,{_ass_time(start)},{_ass_time(end)},SubEn,,0,0,0,,{en}"
+            )
+        sentences = split_sentences(text)
+        times = _scene_sentence_times(sc, sentences)
+        for (s_start, s_end), sent in zip(times, sentences):
+            # ASS 文本内换行：>16 字手动折行（\N），与 plain 同规则
+            disp = sent
+            if len(disp) > 16:
+                mid = len(disp) // 2
+                disp = disp[:mid] + "\\N" + disp[mid:]
+            events.append(
+                f"Dialogue: 0,{_ass_time(s_start)},{_ass_time(s_end)},Sub,,0,0,0,,{disp}"
+            )
+    return header + "\n".join(events) + "\n"
 
 
 def build_ass_karaoke(
