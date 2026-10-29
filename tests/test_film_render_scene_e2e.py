@@ -740,3 +740,63 @@ def test_film_render_rejects_missing_or_blank_expected_revision_before_side_effe
     assert raised.value.code == "INVALID_REVISION"
     assert not (project / "render").exists(), "invalid revision must fail before creating export artifacts"
 
+
+def test_export_during_external_edit_marks_rendered_revision_as_stale(tmp_path, monkeypatch):
+    """A real browser/FFmpeg render must identify its source revision if the film changes mid-export."""
+    pytest.importorskip("playwright.sync_api")
+    from video_director import config, film_document as fd, film_render, renderer
+
+    try:
+        renderer._ffmpeg()
+    except Exception as exc:  # pragma: no cover - environment-dependent binary
+        pytest.skip(f"FFmpeg is unavailable in this environment: {exc}")
+
+    project_id, original_revision = _write_html_film_project(tmp_path, monkeypatch)
+    film_path = config.project_dir(project_id) / fd.FILM_NAME
+    original_bytes = film_path.read_bytes()
+    original_run_ffmpeg = film_render._run_ffmpeg
+    mutation = {"done": False, "revision": None}
+
+    def change_document_after_encode(*args, **kwargs):
+        result = original_run_ffmpeg(*args, **kwargs)
+        if not mutation["done"]:
+            before = fd.read_project_film(project_id)
+            assert before["rev"] == original_revision
+            changed = fd.edit_project_film(
+                project_id,
+                original_revision,
+                [{"op": "set", "clip": "moving-red", "field": "at", "value": "0.1"}],
+                require_base=True,
+                source="concurrent-render-revision-test",
+            )
+            assert changed.get("ok") is True, changed
+            mutation["done"] = True
+            mutation["revision"] = changed["rev"]
+        return result
+
+    # Mutate only after a real FFmpeg encoding pass has completed. The frame
+    # render and MP4 therefore represent the initial revision, while the final
+    # QC read observes a newer valid film document.
+    monkeypatch.setattr(film_render, "_run_ffmpeg", change_document_after_encode)
+    result = film_render.render_project_film(project_id, expected_revision=original_revision, fps=2)
+
+    assert mutation["done"] is True
+    assert mutation["revision"] and mutation["revision"] != original_revision
+    assert result["ok"] is True
+    assert result["rendered_revision"] == original_revision
+    assert result["current_revision"] == mutation["revision"]
+    assert result["current"] is False
+    assert result["revision_status"] == "STALE"
+    assert Path(result["mp4_path"]).name == f"film-final-{original_revision}.mp4"
+    assert Path(result["mp4_path"]).is_file()
+    assert film_path.read_bytes() != original_bytes
+
+    qc_path = Path(result["qc_report_path"])
+    assert qc_path.is_file()
+    qc = json.loads(qc_path.read_text(encoding="utf-8"))
+    assert qc["status"] == "PASS"  # technical media QC remains separate from freshness
+    assert qc["revision_status"] == "STALE"
+    assert qc["source_revision"] == original_revision
+    assert qc["current_revision"] == mutation["revision"]
+    assert qc["current_revision_match"] is False
+    assert any("导出期间影片文档已变化" in warning for warning in qc["warnings"])

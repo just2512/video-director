@@ -922,9 +922,11 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
             warnings.append("导出期间影片文档已变化；成片对应 rendered_revision，不对应当前最新 revision。")
         if audio_specs and audio_qc["status"] in {"SILENT", "NEAR_SILENT", "UNKNOWN"}:
             warnings.append("时间线包含音频，但音频信号检测为 " + audio_qc["status"] + "；请人工试听并检查增益。")
+        revision_status = "CURRENT" if current_match else "STALE"
         qc_report = {
             "schema_version": 1,
             "status": "PASS",
+            "revision_status": revision_status,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "project_id": pid,
             "source_revision": revision,
@@ -965,7 +967,8 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
         return {
             "ok": True, "project_id": pid, "mp4_path": str(output),
             "rendered_revision": revision, "current_revision": after.get("rev"),
-            "current": current_match, "fps": fps, "width": width, "height": height,
+            "current": current_match, "revision_status": revision_status,
+            "fps": fps, "width": width, "height": height,
             "duration": duration, "frame_count": frame_count,
             "audio_tracks_mixed": len(audio_specs),
             "determinism_status": "PASS", "determinism_samples": determinism_samples,
