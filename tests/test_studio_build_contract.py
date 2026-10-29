@@ -177,6 +177,16 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "tools/http_connect_socks_proxy.py" in proxy_bridge_step
     assert "HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy" in proxy_bridge_step
     assert "127.0.0.1" in proxy_bridge_step
+    assert "video-director-artifact-http-proxy-pid" in proxy_bridge_step
+    proxy_cleanup = ai_workflow.split(
+        "      - name: Stop local HTTP bridge for SOCKS-backed artifact upload", 1
+    )[1]
+    assert "grep -Fq 'tools/http_connect_socks_proxy.py'" in proxy_cleanup
+    assert 'kill "$proxy_pid"' in proxy_cleanup
+    assert 'rm -f "$proxy_pid_file" "$proxy_file" "$proxy_log"' in proxy_cleanup
+    assert ai_workflow.index("      - name: Stop local HTTP bridge") > ai_workflow.index(
+        "      - name: Publish verified React Studio bundle"
+    )
     diagnostic_upload = ai_workflow.split(
         "      - name: Retain regression diagnostics", 1
     )[1].split("      - name: Publish verified React Studio bundle", 1)[0]
