@@ -159,9 +159,11 @@ The selector-based `overrides` subset supports text and bounded style properties
 
 常规 CI 的 `tests/test_film_studio_ai_stream_contract.py` 使用确定性上游替身，验证生产 HTTP/SSE 路由逐段转发 token、token 先于 result 到达以及提案生成不写盘；这不能证明真实提供方或代理没有缓冲。真实验收由 `tests/test_film_studio_live_ai_streaming.py` 完成：它调用当前配置的 OpenAI-compatible 模型，要求至少两个非空 token 片段在 result 前到达，检查首 token 与最终 result 的时间间隔，并核实提案 revision 和原始文档字节未变化。
 
-普通全量回归不会自动调用付费模型。需要真实提供方验证时，使用 AI Director workflow dispatch 的 `run_live_llm=true`，或让主线提交说明包含 `[live-stream-smoke]`。此模式优先使用 GitHub Actions secret `VD_LLM_API_KEY` 与 variables `VD_LLM_BASE_URL`、`VD_LLM_MODEL`；也可在自托管 runner 环境设置同名变量。如果 runner 的 `VIDEO_DIRECTOR_STORAGE_ROOT` 指向持久目录，workflow 会在清理 checkout 前只复制其中 `model_config.json` 到权限受限的 per-run 临时目录。配置步骤只向后续步骤传递临时配置文件路径，不把模型密钥写入 `GITHUB_ENV`；真实模型测试在隔离子进程中运行，普通全量 pytest 会清除模型密钥、存储根目录和 live-test 开关，避免意外消耗真实 provider 额度。缺少完整配置时 workflow 应 fail closed，不发起模型请求。密钥不得写入日志或提交。成功的模拟 SSE 测试与成功的真实模型流式 smoke 必须分开报告。
+普通 CI 默认不调用真实模型，并且当前 workflow 中完整真实模型 token-stream acceptance 步骤固定为 `skipped`。较早历史记录里提到的 `run_live_llm=true` 和 `[live-stream-smoke]` 属于旧的 Actions 验收入口，不应再用它们声称本轮真实模型验收通过；不要为了更新状态而触发付费探测请求。当前真实模型验收只在本地执行：先确认本机 Studio 实际使用的 OpenAI-compatible endpoint/model 是预期配置，再按本节末尾的 PowerShell 命令设置 `VD_LLM_LIVE_STREAM_TEST=1`，只运行 `tests/test_film_studio_live_ai_streaming.py::test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film`。该测试应使用现有本地配置，不要把密钥写入命令参数、仓库或日志；运行结束只清除临时 opt-in 环境变量。缺少配置、额度、模型不可用或网络受阻时，结果必须为 `BLOCKED_PROVIDER`、`BLOCKED_MODEL`、`MISSING` 或 `UNKNOWN`，不得记为 PASS。模拟 SSE 契约通过不等于真实模型流式通过。完整目标与逐项通过标准见下方“Real-model token-stream acceptance (local opt-in)”。
 
-### 真实模型流式验收记录（2026-10-27）
+### 历史真实模型验收记录（2026-10-27；触发方式已过期）
+
+以下 Actions 记录仅用于追溯当时的 provider / 配置故障。它们不是当前执行步骤；当前唯一的真实模型验收命令见文末“Real-model token-stream acceptance (local opt-in)”。
 
 - 完整主线回归 `40489889122` 为 SUCCESS：`1357 passed, 1 skipped`，时间线浏览器发布门禁通过；但 `Configure opt-in live model token-stream smoke` 步骤是 SKIPPED，工作流报告 `LIVE_STREAM_ACCEPTANCE=MISSING`。这只证明普通回归通过，真实模型 token 流仍为 MISSING，不能记作 PASS。
 - 随后由提交 `5cab55793917b03b72f4e98d9134c9068461dbd9`（`[live-stream-smoke]`）显式触发的运行 `40493603938` 已执行配置检查，但 `Configure opt-in live model token-stream smoke` 在模型请求前失败。该次增加了读取 checkout 外持久存储 `model_config.json` 的回退路径，仍未取得完整配置；没有真实模型请求，也没有 token 增量传输证据。当前验收状态继续保持 `BLOCKED / MISSING`，不得记录为 PASS。只有真实模型步骤与 `test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film` 实际通过后才可验收。记录只保存 workflow URL、非敏感事件统计和错误类别，禁止保存 API key 或完整授权头。

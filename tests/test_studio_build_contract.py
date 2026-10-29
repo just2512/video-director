@@ -216,6 +216,9 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert 'LIVE_STREAM_ACCEPTANCE={status}' in live_acceptance
     assert 'if config_outcome != "skipped" and status != "PASS":' in live_acceptance
     assert 'python3.11" -m video_director.live_stream_acceptance --junit live-stream-junit.xml' in ai_workflow
+    manual = (root / "docs" / "FILM_AGENT_MANUAL.md").read_text(encoding="utf-8")
+    assert "当前真实模型验收只在本地执行" in manual
+    assert "Real-model token-stream acceptance (local opt-in)" in manual
 
 
 
