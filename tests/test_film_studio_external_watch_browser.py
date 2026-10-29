@@ -1430,6 +1430,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                             zoomScale: store?.getField("pixelsPerSecond") ?? null,
                             revision: store?.getSnapshot()?.revision ?? null,
                             selectedIds: store?.getSnapshot()?.selectedIds ?? null,
+                            gestureContext: store?.getSnapshot()?.timelineGestureContext ?? null,
                             envelopeMode: store?.getField("envelopeMode") ?? null,
                             envelopeGesture: store?.getSnapshot()?.timelineEnvelopeGesture ?? null,
                             envelopePreview: store?.getSnapshot()?.timelineEnvelopePreview ?? null,
@@ -1477,6 +1478,8 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                             })(),
                             trackRows: [...document.querySelectorAll("#fs-timeline .fs-track")].map(node => ({
                               id: node.getAttribute("data-track"),
+                              label: node.querySelector(".fs-track-label")?.textContent?.trim() || null,
+                              className: node.className,
                               clips: node.querySelectorAll(".fs-clip[data-clip]").length
                             })),
                             timelineHTML: document.querySelector("#fs-timeline")?.innerHTML.slice(0, 1200) ?? null,
