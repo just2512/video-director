@@ -165,6 +165,12 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "continue-on-error: true" not in live_report_step
     assert "LIVE_STREAM_CONFIG_OUTCOME" in live_report_step and "steps.live_stream_config.outcome" in live_report_step
     assert "LIVE_STREAM_TEST_OUTCOME" in live_report_step and "steps.live_stream_smoke.outcome" in live_report_step
+    proxy_bridge_step = ai_workflow.split(
+        "      - name: Prepare local HTTP bridge for SOCKS-backed artifact upload", 1
+    )[1].split("      - name: Retain regression diagnostics", 1)[0]
+    assert "tools/http_connect_socks_proxy.py" in proxy_bridge_step
+    assert "HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy" in proxy_bridge_step
+    assert "127.0.0.1" in proxy_bridge_step
     diagnostic_upload = ai_workflow.split(
         "      - name: Retain regression diagnostics", 1
     )[1].split("      - name: Publish verified React Studio bundle", 1)[0]
