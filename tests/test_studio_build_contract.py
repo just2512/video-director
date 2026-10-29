@@ -311,6 +311,20 @@ def test_react_timeline_owns_move_target_hit_testing_and_legacy_fallback_is_gate
     assert "updateReactGestureTarget(pointerEvent)" in component
     assert "if(d.mode==='move'&&gestureDomRefs){" in legacy
 
+    # FilmDocument is a hard authority boundary: missing React must not rebuild
+    # the native DOM timeline or leave stale native clips interactive.
+    renderer = legacy.split("function renderTimeline() {", 1)[1].split("var fallbackWaveformSources", 1)[0]
+    assert "if(!reactTimeline){" in renderer
+    no_react_gate = renderer.split("if(!reactTimeline){", 1)[1].split("if(reactTimeline){", 1)[0]
+    assert "fs-timeline-react-required" in no_react_gate
+    assert "timelineHost.replaceChildren()" in no_react_gate
+    assert "setAttribute('role','alert')" in no_react_gate
+    assert "return;" in no_react_gate
+    assert no_react_gate.index("return;") < renderer.index("var laneWidth=")
+    gesture_entry = legacy.split("function beginClipGesture(e,context,el)", 1)[1].split("function", 1)[0]
+    assert "S.data&&S.data.exists&&(!reactGestureBridge||typeof reactGestureBridge.renderSurface!=='function')" in gesture_entry
+    assert "没有回退到旧版时间线" in gesture_entry
+
 def test_clip_inspector_does_not_rerender_on_playhead_updates():
     """Playback updates the keyframe playhead marker without rebuilding the full inspector."""
     root = Path(__file__).resolve().parents[1]

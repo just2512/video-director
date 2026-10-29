@@ -1302,6 +1302,13 @@
         context=context||{};
         var clipId=String(context.clipId||(el&&el.getAttribute('data-clip'))||'');
         if(e.button!==0||context.targetIsButton)return;
+        var reactGestureBridge=window.filmStudioReactTimeline;
+        if(S.data&&S.data.exists&&(!reactGestureBridge||typeof reactGestureBridge.renderSurface!=='function')){
+          e.preventDefault();
+          if(typeof e.stopPropagation==='function')e.stopPropagation();
+          showStatus('film.html 已生效，但 React 时间线不可用；本次操作已拒绝，没有回退到旧版时间线。','error');
+          return false;
+        }
         if(S.busy){e.preventDefault();showStatus('上一项编辑仍在保存，暂时不能开始下一次拖动。');return;}
         if(S.previewProposalActive){e.preventDefault();showStatus('AI 候选时间线预览期间，请先应用或拒绝提案，再直接编辑时间线。');return;}
         var clip=findClip(clipId);if(!clip)return;
@@ -1524,6 +1531,27 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
   function renderTimeline() {
     if(!S.data||!S.data.exists)return;
     var reactTimeline=window.filmStudioReactTimeline&&typeof window.filmStudioReactTimeline.renderSurface==='function';
+    if(!reactTimeline){
+      // FilmDocument is authoritative. Never render the legacy DOM timeline if
+      // the verified React surface is missing; fail closed instead of diverging.
+      var timelineHost=$('fs-timeline');
+      if(timelineHost&&!timelineHost.querySelector('.fs-timeline-react-required')){
+        timelineHost.replaceChildren();
+        var unavailable=document.createElement('div');
+        unavailable.className='fs-migrate-action fs-timeline-react-required';
+        unavailable.setAttribute('role','alert');
+        var heading=document.createElement('strong');
+        heading.textContent='React 时间线资源未加载';
+        var explanation=document.createElement('p');
+        explanation.textContent='当前影片已由 film.html 管理。为防止旧时间线产生不一致编辑，时间线已停止渲染。请刷新工作台或检查 React Studio 构建产物。';
+        unavailable.appendChild(heading);
+        unavailable.appendChild(explanation);
+        timelineHost.appendChild(unavailable);
+      }
+      var unavailableMeta=$('fs-timeline-meta');
+      if(unavailableMeta)unavailableMeta.textContent='React 时间线未加载';
+      return;
+    }
     if(reactTimeline){
       var timelineBridge=window.filmStudioReactTimeline;
       // React must remount after migration/error placeholders were written outside its root.

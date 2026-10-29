@@ -3927,3 +3927,77 @@ window.film={{ready:Promise.resolve(),frame:function(t){{document.body.dataset.f
         server.server_close()
         thread.join(timeout=5)
 
+
+def test_film_document_never_falls_back_to_legacy_timeline_when_react_bundle_is_missing(tmp_path, monkeypatch):
+    """A missing React asset blocks timeline rendering and editing for film.html."""
+    storage_root = tmp_path / "storage-react-hard-gate"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-react-timeline-hard-gate"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    (project_root / fd.FILM_NAME).write_text(SNAP_GESTURE_SAMPLE, encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"] and initial["rev"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page.route("**/static/js/film-studio-react.js", lambda route: route.abort())
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); return !!select && select.options.length>0; }"
+                )
+                page.evaluate("""pid => {
+                  const select=document.querySelector('#editor-project');
+                  let option=[...select.options].find(item=>item.value===pid);
+                  if(!option){option=new Option(pid,pid);select.add(option);}
+                  select.value=pid;
+                  select.dispatchEvent(new Event('change',{bubbles:true}));
+                }""", project_id)
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                alert = page.locator("#fs-timeline .fs-timeline-react-required[role='alert']")
+                alert.wait_for(state="visible", timeout=10000)
+                state = page.evaluate("""() => {
+                  const store=window.filmStudioStore;
+                  const film=store?.getField("film");
+                  return {
+                    filmExists:film?.exists===true,
+                    revision:store?.getField("revision")||"",
+                    hasReactBridge:typeof window.filmStudioReactTimeline?.renderSurface==="function",
+                    alertText:document.querySelector("#fs-timeline .fs-timeline-react-required")?.innerText||"",
+                    legacyClipCount:document.querySelectorAll("#fs-timeline .fs-clip[data-clip]").length,
+                    legacyRuler:!!document.querySelector("#fs-timeline #fs-ruler-body"),
+                  };
+                }""")
+                assert state["filmExists"] is True, state
+                assert state["revision"] == initial["rev"], state
+                assert state["hasReactBridge"] is False, state
+                assert "film.html" in state["alertText"], state
+                assert "旧时间线" in state["alertText"], state
+                assert state["legacyClipCount"] == 0, state
+                assert state["legacyRuler"] is False, state
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
