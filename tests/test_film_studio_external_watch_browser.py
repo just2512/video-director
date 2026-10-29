@@ -2853,7 +2853,10 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.mouse.move(source_x, target_y, steps=8)
                 page.wait_for_function("""id => {
                   const row = document.querySelector('#fs-timeline .fs-track[data-track="' + id + '"]');
-                  return !!row && row.classList.contains('fs-track-drop-invalid');
+                  const gesture = window.filmStudioStore?.getSnapshot()?.timelineGestureContext;
+                  return !!row && row.classList.contains('fs-track-drop-invalid') &&
+                    gesture?.targetTrackId === id &&
+                    String(gesture?.invalidTargetMessage || '').includes('已锁定');
                 }""", arg=destination_track_id, timeout=5000)
                 page.mouse.up()
                 page.wait_for_function("""() => {
