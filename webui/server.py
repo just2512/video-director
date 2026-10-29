@@ -96,6 +96,7 @@ _FILM_PROPOSALS = FilmProposalStore()
 _FILM_AI_ACTIVE_STREAMS: dict[tuple[str, str], dict] = {}
 _FILM_AI_CANCELLED_REQUESTS: dict[tuple[str, str], float] = {}
 _FILM_AI_STREAM_LOCK = threading.Lock()
+FILM_AI_STREAM_PROGRESS_INTERVAL_SECONDS = 10.0
 
 
 # §三十四：通用 Registry 类别（shots/motions/templates/provenance 之外的 8 类）。
@@ -1409,19 +1410,51 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_header("X-Accel-Buffering", "no")
                     self.end_headers()
                     disconnected = {"value": False}
+                    emit_lock = threading.Lock()
+                    progress_stop = threading.Event()
+                    progress_payload = {
+                        "phase": "planning",
+                        "message": "AI 指令正在处理，模型尚未返回可预览文本。",
+                    }
 
                     def emit(event_name, data):
-                        if disconnected["value"]:
-                            return False
-                        packet = ("event: " + event_name + "\n" +
-                                  "data: " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n\n")
-                        try:
-                            self.wfile.write(packet.encode("utf-8"))
-                            self.wfile.flush()
-                            return True
-                        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
-                            disconnected["value"] = True
-                            return False
+                        # The heartbeat and model callback can emit concurrently. Keep
+                        # each SSE frame atomic so progress never interleaves with tokens.
+                        with emit_lock:
+                            if disconnected["value"]:
+                                return False
+                            packet = ("event: " + event_name + "\n" +
+                                      "data: " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n\n")
+                            try:
+                                self.wfile.write(packet.encode("utf-8"))
+                                self.wfile.flush()
+                                return True
+                            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+                                disconnected["value"] = True
+                                return False
+
+                    def emit_progress():
+                        interval = max(0.05, float(FILM_AI_STREAM_PROGRESS_INTERVAL_SECONDS))
+                        while not progress_stop.wait(interval):
+                            if cancel_event.is_set() or disconnected["value"]:
+                                return
+                            if not emit("progress", progress_payload):
+                                return
+
+                    # Flush one safe progress frame immediately. Some models emit
+                    # private analysis before visible answer text; never forward it.
+                    emit("progress", progress_payload)
+                    progress_thread = threading.Thread(
+                        target=emit_progress,
+                        name="film-ai-progress-" + request_id,
+                        daemon=True,
+                    )
+                    progress_thread.start()
+
+                    def stop_progress():
+                        progress_stop.set()
+                        if progress_thread.is_alive() and threading.current_thread() is not progress_thread:
+                            progress_thread.join(timeout=1.0)
 
                     def on_stream_open(stream):
                         with _FILM_AI_STREAM_LOCK:
@@ -1493,6 +1526,7 @@ class Handler(BaseHTTPRequestHandler):
                             if pending_proposal is not None:
                                 stored_proposal_id = pending_proposal["id"]
                                 _FILM_PROPOSALS.put(stored_proposal_id, pid, state["rev"], normalized)
+                        stop_progress()
                         delivered = emit("result", response)
                         if delivered:
                             if phase_after_result is not None:
@@ -1504,6 +1538,7 @@ class Handler(BaseHTTPRequestHandler):
                             sse_publish("film_ai", {"phase": "cancelled" if cancel_event.is_set() else "disconnected",
                                                     "project_id": pid, "base_revision": state["rev"]})
                     except Exception as exc:
+                        stop_progress()
                         cancelled = cancel_event.is_set()
                         if stored_proposal_id:
                             _FILM_PROPOSALS.discard(pid, stored_proposal_id)
@@ -1517,6 +1552,7 @@ class Handler(BaseHTTPRequestHandler):
                         sse_publish("film_ai", {"phase": failure_phase,
                                                 "project_id": pid, "base_revision": state["rev"]})
                     finally:
+                        stop_progress()
                         with _FILM_AI_STREAM_LOCK:
                             if _FILM_AI_ACTIVE_STREAMS.get(key) is active_stream:
                                 _FILM_AI_ACTIVE_STREAMS.pop(key, None)

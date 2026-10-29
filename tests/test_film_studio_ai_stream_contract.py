@@ -38,6 +38,8 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
 
     web_server = importlib.reload(web_server)
     web_server.COMPOSER_ROOT = storage_root
+    # Speed up the heartbeat in this deterministic test to prove ongoing activity.
+    monkeypatch.setattr(web_server, "FILM_AI_STREAM_PROGRESS_INTERVAL_SECONDS", 0.05)
     # Patched below with a deterministic streaming fake; no provider is contacted.
 
     project_id = "film-mock-stream-" + uuid.uuid4().hex[:12]
@@ -132,6 +134,18 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+    progress_events = [item for item in events if item["event"] == "progress"]
+    assert progress_events, {"events": [(e["event"], e["data"]) for e in events]}
+    assert events[0]["event"] == "progress", {"events": [(e["event"], e["data"]) for e in events]}
+    assert len(progress_events) >= 2, {"progress_event_count": len(progress_events)}
+    assert all(item["data"].get("phase") == "planning" for item in progress_events)
+    assert all(
+        set(item["data"]) == {"phase", "message"}
+        and "fragment" not in item["data"]
+        and "reasoning_content" not in json.dumps(item["data"], ensure_ascii=False)
+        for item in progress_events
+    ), {"progress_events": progress_events}
 
     result_indexes = [i for i, item in enumerate(events) if item["event"] == "result"]
     token_events = [
@@ -240,7 +254,9 @@ def test_stream_disconnect_after_last_token_discards_undelivered_proposal(
             if not line:
                 break
             if line in (b"\n", b"\r\n"):
-                if event_name:
+                # Progress frames do not contain model text. Continue until the
+                # actual token event before forcing the client connection closed.
+                if event_name == "token":
                     break
                 event_name, event_data = None, []
             elif line.startswith(b"event:"):

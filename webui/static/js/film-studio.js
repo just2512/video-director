@@ -4396,7 +4396,9 @@ window.filmStudioCopyClips=function(){
       if(!dataLines.length)return;
       var data;
       try{data=JSON.parse(dataLines.join('\n'));}catch(_){throw new Error('AI 流式响应不是合法 JSON。');}
-      if(eventName==='token'){
+      if(eventName==='progress'){
+        updateAiLiveMessage(String(data.message||'AI 指令正在处理，模型尚未返回可预览文本。'));
+      }else if(eventName==='token'){
         var fragment=String(data.fragment||'');
         S.aiStreamText+=fragment;
         var summary=decodeSummaryPrefix(S.aiStreamText);

@@ -491,3 +491,17 @@ def test_ai_director_workflow_retains_regression_diagnostics():
     assert "timeline-junit.xml" in workflow
     assert "timeline-regression-output.log" in workflow
     assert "pytest-output.log" in workflow
+
+
+def test_film_ai_progress_events_are_distinct_from_model_tokens():
+    root = Path(__file__).resolve().parent.parent
+    server = (root / "webui" / "server.py").read_text(encoding="utf-8")
+    runtime = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+
+    assert "FILM_AI_STREAM_PROGRESS_INTERVAL_SECONDS = 10.0" in server
+    assert 'emit("progress", progress_payload)' in server
+    assert 'emit("token", {"fragment": fragment})' in server
+    assert "eventName==='progress'" in runtime
+    assert "AI 指令正在处理，模型尚未返回可预览文本。" in server
+    assert "AI 指令正在处理，模型尚未返回可预览文本。" in runtime
+
