@@ -922,6 +922,7 @@ def test_studio_export_result_exposes_pinned_revision_mp4_and_qc_links(tmp_path,
                     "rendered_revision": before["rev"],
                     "current_revision": "external-revision-after-render",
                     "current": False,
+                    "revision_status": "STALE",
                     "width": 1920,
                     "height": 1080,
                     "duration": 5.0,
@@ -1003,7 +1004,8 @@ def test_studio_export_result_exposes_pinned_revision_mp4_and_qc_links(tmp_path,
                 assert "1920×1080" in result_text, result_text
                 assert "5.00 秒" in result_text, result_text
                 assert before["rev"] in result_text, result_text
-                assert "QC PASS" in result_text, result_text
+                assert "QC PASS" in result_text
+                assert "版本状态 STALE" in result_text, result_text
 
                 mp4_link = page.locator("#fs-render-download")
                 assert mp4_link.is_visible()

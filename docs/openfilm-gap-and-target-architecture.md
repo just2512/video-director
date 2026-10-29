@@ -6,7 +6,7 @@
 
 目标不是把 OpenFilm 的代码逐文件复制进来，而是吸收它的**工程契约**：可读的影片文件、稳定 ID、文件系统作为 agent 与 Studio 的连接层、可验证的时间函数、按 ID 操作、确定性预览/导出。Video Director 已经有 FilmDocument、`film.html`、场景 `frame(t)` 契约、版本化操作、undo/redo、外部文件 watcher、AI 提案预览/确认和渲染验收，不能再另建一套平行影片模型。
 
-最重要的剩余差距不是按钮数量，而是产品入口与完整回归验收：导演创作流程仍分布在 CompositionIR 工作台与 Film Studio 之间；FilmDocument 是唯一最终时间线，React/FilmStore 已拥有多轨时间线显示、选择、波形/音量曲线、右键菜单、吸附/跨轨提示，以及 move/trim/roll/slide/slip 与音量包络的类型化 ID-only 手势上下文；React 路径的 `gestureDomRefs` 为空，DOM 引用只留给原生 fallback。共享适配器仍负责剪辑数学、FilmOperation 组合与 revision 检查；外部 revision 在包络手势期间到达时拒绝旧预览、保留外部文件并重载的真实 Chromium 回归已补齐。2026-10-28 的显式真实模型烟测 [Actions 40637515525](https://github.com/just2512/video-director/actions/runs/40637515525) 已通过真实 token 流门禁；同一旧提交的完整回归仍失败，不能把这个单项 PASS 扩大为整套回归 PASS。`frame(t)` 的确定性范围仍小于任意网页；系统也不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。
+最重要的剩余差距不是缺少共同工作壳，而是旧 CompositionIR 导演动作与 FilmDocument 操作之间仍有明确能力边界，并且需要扩大真实用户路径回归：核心导演规划/素材/预览/时间线/Inspector/AI 提案/导出已进入同一 Studio；未映射为 FilmDocument 操作的旧动作仍只能作为只读参考或转成 revision 绑定提案；FilmDocument 是唯一最终时间线，React/FilmStore 已拥有多轨时间线显示、选择、波形/音量曲线、右键菜单、吸附/跨轨提示，以及 move/trim/roll/slide/slip 与音量包络的类型化 ID-only 手势上下文；React 路径的 `gestureDomRefs` 为空，DOM 引用只留给原生 fallback。共享适配器仍负责剪辑数学、FilmOperation 组合与 revision 检查；外部 revision 在包络手势期间到达时拒绝旧预览、保留外部文件并重载的真实 Chromium 回归已补齐。2026-10-28 的显式真实模型烟测 [Actions 40637515525](https://github.com/just2512/video-director/actions/runs/40637515525) 已通过真实 token 流门禁；同一旧提交的完整回归仍失败，不能把这个单项 PASS 扩大为整套回归 PASS。`frame(t)` 的确定性范围仍小于任意网页；系统也不提供多人 CRDT 协作或同一模型会话中的 token 级 steering。
 
 ## 目前已有的可复用基础
 

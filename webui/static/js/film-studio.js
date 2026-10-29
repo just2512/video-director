@@ -3998,7 +3998,7 @@ window.filmStudioCopyClips=function(){
             link.href='/file?path='+encodeURIComponent(path);
             link.textContent=out.current===false?'打开该版本 MP4（文档已更新）':'打开 MP4';
             var resultText=$('fs-render-result-text');
-            if(resultText)resultText.textContent=(out.width||'—')+'×'+(out.height||'—')+' · '+(Number(out.duration||0).toFixed(2))+' 秒 · revision '+(out.rendered_revision||revision)+' · QC '+(out.qc_status||'UNKNOWN');
+            var revisionStatus=String(out.revision_status||(out.current===false?'STALE':'CURRENT')).toUpperCase();if(revisionStatus!=='CURRENT'&&revisionStatus!=='STALE')revisionStatus=out.current===false?'STALE':'CURRENT';if(resultText)resultText.textContent=(out.width||'—')+'×'+(out.height||'—')+' · '+(Number(out.duration||0).toFixed(2))+' 秒 · revision '+(out.rendered_revision||revision)+' · 版本状态 '+revisionStatus+' · QC '+(out.qc_status||'UNKNOWN');
             var qcLink=$('fs-qc-download'),qcPath=out.qc_report_path||'';
             if(qcLink){
               qcLink.hidden=!qcPath;
