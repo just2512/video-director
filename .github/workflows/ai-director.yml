@@ -398,62 +398,15 @@ jobs:
               raise SystemExit(1)
           PY
 
-      - name: Run isolated real-model token-stream acceptance test
+      - name: Run isolated real-model token-stream acceptance test (local opt-in)
         id: live_stream_smoke
-        # The probe is diagnostic, not a substitute for the requested live acceptance.
-        # A timeout may be a cold start or transient transport delay; always attempt the
-        # full token-stream test when an explicit live configuration was prepared.
-        if: steps.live_stream_config.outcome == 'success'
+        # The developer explicitly runs this against their local NVIDIA credentials.
+        # CI validates the harness and mocked protocol only; never make normal CI
+        # depend on live-provider latency, billing, network availability or model retirement.
+        if: ${{ false }}
         shell: bash
-        continue-on-error: true
         run: |
-          set -euo pipefail
-          # GLM-5.3-Flash can spend several minutes before its first visible text
-          # token on the full structured planning prompt. A safe SSE progress
-          # heartbeat keeps the browser responsive; the model read timeout is
-          # bounded separately below and the whole acceptance remains capped at 9 minutes.
-          timeout --signal=TERM --kill-after=10s 9m "$PY311_BIN/python3.11" - <<'PY'
-          import json
-          import os
-          import subprocess
-          import sys
-          from pathlib import Path
-
-          config_path = Path(os.environ["VD_LLM_LIVE_CONFIG_FILE"])
-          result = None
-          try:
-              with config_path.open(encoding="utf-8") as stream:
-                  config = json.load(stream)
-              test_env = os.environ.copy()
-              # Strip credentials and local model storage from this wrapper first,
-              # then inject them only into the one pytest subprocess that calls the provider.
-              for key in (
-                  "VD_LLM_API_KEY", "VD_LLM_BASE_URL", "VD_LLM_MODEL",
-                  "VD_LLM_LIVE_STREAM_TEST", "VD_LLM_REQUEST_TIMEOUT_SECONDS",
-                  "VD_LLM_MAX_RETRIES", "VIDEO_DIRECTOR_STORAGE_ROOT",
-              ):
-                  test_env.pop(key, None)
-              test_env.update({
-                  "VD_LLM_API_KEY": config["api_key"],
-                  "VD_LLM_BASE_URL": config["base_url"],
-                  "VD_LLM_MODEL": config["model"],
-                  "VD_LLM_LIVE_STREAM_TEST": "1",
-                  "VD_LLM_REQUEST_TIMEOUT_SECONDS": "420",
-                  "VD_LLM_MAX_RETRIES": "0",
-              })
-              command = [
-                  sys.executable, "-m", "pytest", "-q", "--tb=short",
-                  "--junitxml=live-stream-junit.xml",
-                  "tests/test_film_studio_live_ai_streaming.py::test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film",
-              ]
-              result = subprocess.run(command, env=test_env, check=False)
-          finally:
-              try:
-                  config_path.unlink()
-              except FileNotFoundError:
-                  pass
-          raise SystemExit(result.returncode if result is not None else 1)
-          PY
+          echo "LIVE_STREAM_ACCEPTANCE=MISSING (run the documented opt-in test locally)"
 
       - name: Install Remotion rendering runtime dependencies
         if: always() && steps.ensure_checkout.outcome == 'success'

@@ -53,6 +53,8 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert "resolve_live_provider_override" in live_config_step
     assert "resolve_live_model_override" in live_config_step
     assert "id: live_stream_smoke" in ai_workflow
+    assert "if: ${{ false }}" in ai_workflow
+    assert "run the documented opt-in test locally" in ai_workflow
     assert "live-stream-junit.xml" in ai_workflow
     assert "env -u VD_LLM_API_KEY" in ai_workflow
     assert "VIDEO_DIRECTOR_STORAGE_ROOT=%s" not in ai_workflow
