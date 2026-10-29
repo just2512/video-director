@@ -114,4 +114,3 @@ def test_nvidia_glm_stream_error_reports_sanitized_transport_diagnostics(monkeyp
     assert "visible_chunks=0" in message
     assert private_reasoning not in message
     assert "raw upstream detail must not leak" not in message
-\n
