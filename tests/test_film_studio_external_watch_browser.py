@@ -3974,25 +3974,26 @@ def test_film_document_never_falls_back_to_legacy_timeline_when_react_bundle_is_
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 alert = page.locator("#fs-timeline .fs-timeline-react-required[role='alert']")
                 alert.wait_for(state="visible", timeout=10000)
-                state = page.evaluate("""() => {
-                  const store=window.filmStudioStore;
-                  const film=store?.getField("film");
-                  return {
-                    filmExists:film?.exists===true,
-                    revision:store?.getField("revision")||"",
+                state = page.evaluate("""() => ({
                     hasReactBridge:typeof window.filmStudioReactTimeline?.renderSurface==="function",
                     alertText:document.querySelector("#fs-timeline .fs-timeline-react-required")?.innerText||"",
                     legacyClipCount:document.querySelectorAll("#fs-timeline .fs-clip[data-clip]").length,
                     legacyRuler:!!document.querySelector("#fs-timeline #fs-ruler-body"),
-                  };
-                }""")
-                assert state["filmExists"] is True, state
-                assert state["revision"] == initial["rev"], state
+                })""")
                 assert state["hasReactBridge"] is False, state
                 assert "film.html" in state["alertText"], state
                 assert "旧时间线" in state["alertText"], state
                 assert state["legacyClipCount"] == 0, state
                 assert state["legacyRuler"] is False, state
+                current_response = page.request.get(
+                    f"http://127.0.0.1:{server.server_port}/api/editor/film?project_id={project_id}"
+                )
+                assert current_response.status == 200
+                current_payload = current_response.json()
+                assert current_payload["exists"] is True, current_payload
+                assert current_payload["rev"] == initial["rev"], current_payload
+                assert fd.read_project_film(project_id)["rev"] == initial["rev"]
+                assert fd._history_read(project_id)["past"] == []
             finally:
                 context.close()
                 browser.close()
