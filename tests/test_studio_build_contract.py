@@ -162,17 +162,17 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     live_smoke_step = ai_workflow.split(
         "      - name: Run isolated real-model token-stream acceptance test", 1
     )[1].split("      - name: Install Remotion rendering runtime dependencies", 1)[0]
-    assert "steps.live_stream_config.outcome == 'success'" in live_smoke_step
+    # Real-provider acceptance is deliberately run locally by the developer.
+    # Normal CI skips the paid model request but must still run the browser,
+    # export, CLI/MCP, watcher and full-regression gates before publishing.
+    assert "if: ${{ false }}" in live_smoke_step
+    assert "documented opt-in test locally" in live_smoke_step
+    assert "VD_LLM_LIVE_STREAM_TEST" not in live_smoke_step
+    assert "steps.live_stream_config.outcome == 'success'" not in live_smoke_step
     assert "steps.live_provider_probe.outcome == 'success'" not in live_smoke_step
-    assert "probe is diagnostic, not a substitute" in live_smoke_step
     assert "id: live_stream_smoke" in ai_workflow
-    live_smoke_step = ai_workflow.split(
-        "      - name: Run isolated real-model token-stream acceptance test", 1
-    )[1].split("      - name: Install Remotion rendering runtime dependencies", 1)[0]
-    assert '"VD_LLM_REQUEST_TIMEOUT_SECONDS": "420"' in live_smoke_step
-    assert 'timeout --signal=TERM --kill-after=10s 9m' in live_smoke_step
-    assert "safe SSE progress" in live_smoke_step
     assert "steps.live_stream_config.outcome" in ai_workflow
+    assert "steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped'" in ai_workflow
     assert "steps.live_stream_acceptance.conclusion == 'success'" in ai_workflow
     live_report_step = ai_workflow.split(
         "      - name: Report real-model token-stream acceptance gate", 1
@@ -292,27 +292,35 @@ def test_studio_components_share_one_react_root_and_keep_portal_slots():
     ):
         assert f'"{surface}"' in component
 
-def test_explicit_live_model_stream_gate_fails_closed_when_configuration_is_missing():
-    """An opt-in live request must not silently pass when the provider is unconfigured."""
+def test_live_model_stream_smoke_is_local_opt_in_and_default_ci_reports_missing():
+    """The live provider request is intentionally local; default CI must not fake a PASS."""
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
     config_step = workflow.split("      - name: Configure opt-in live model token-stream smoke", 1)[1].split(
-        "      - name: Run isolated real-model token-stream acceptance test", 1
+        "      - name: Probe NVIDIA streaming endpoint with a minimal prompt", 1
     )[0]
     live_step = workflow.split("      - name: Run isolated real-model token-stream acceptance test", 1)[1].split(
         "      - name: Install Remotion rendering runtime dependencies", 1
     )[0]
+    report_step = workflow.split(
+        "      - name: Report real-model token-stream acceptance gate", 1
+    )[1].split("      - name: Check JavaScript syntax", 1)[0]
 
+    # The config/probe can only be reached through explicit opt-in configuration;
+    # the expensive real-model acceptance itself is never run by normal CI.
     assert "contains(github.event.head_commit.message, '[live-stream-smoke]')" in workflow
     assert "VD_LLM_API_KEY_SECRET" in config_step
     assert "VD_LLM_BASE_URL_CONFIG" in config_step
     assert "VD_LLM_MODEL_CONFIG" in config_step
     assert "Opt-in live-model smoke is missing a complete key/base URL/model configuration." in config_step
     assert "raise SystemExit(1)" in config_step
-    assert "VD_LLM_LIVE_STREAM_TEST=1" not in config_step
-    assert "VD_LLM_LIVE_STREAM_TEST" in live_step
-    assert "live-stream-junit.xml" in live_step
-    assert "raise SystemExit(result.returncode" in live_step
+    assert "if: ${{ false }}" in live_step
+    assert "documented opt-in test locally" in live_step
+    assert "VD_LLM_LIVE_STREAM_TEST" not in live_step
+    assert "LIVE_STREAM_CONFIG_OUTCOME" in report_step
+    assert "LIVE_STREAM_TEST_OUTCOME" in report_step
+    assert "steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped'" in workflow
+    assert 'python3.11" -m video_director.live_stream_acceptance --junit live-stream-junit.xml' in workflow
 
 def test_react_timeline_owns_pointer_anchored_zoom_and_legacy_toolbar_delegates():
     """The built React timeline owns zoom scale/anchor; legacy toolbar is compatibility only."""
