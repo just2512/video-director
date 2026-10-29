@@ -25,7 +25,8 @@ import json
 import math
 import os
 import re
-from typing import List, Optional, Protocol, runtime_checkable
+import time
+from typing import Callable, List, Optional, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 from loguru import logger
@@ -39,6 +40,43 @@ ENV_MODEL = "VD_LLM_MODEL"
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_MODEL = "gpt-4o-mini"
+
+# 2026-10-20 用户裁决：LLM 调用失败给 10 次重试机会。
+# 2026-10-25 用户裁决修正：递增等待（15/30/45/60s）在网关静默挂死场景下
+# 把 10 次重试拖成 8-15 分钟假卡死；改固定 10s 间隔。
+# 2026-10-27 用户裁决：重试次数 10 → 3（10 次太久）。
+LLM_MAX_RETRIES = 3
+LLM_RETRY_WAIT_S = 10.0       # 固定重试间隔（用户裁决 2026-10-25）
+LLM_ATTEMPT_TIMEOUT_S = 120   # 单次尝试超时：正常长生成 60~150s，挂死网关 120s 内暴露
+
+# 进程级 LLM 重试状态（诊断）：最近一次 generate 的重试进度——健康检查/
+# 状态查询读它区分「长时间生成」与「LLM 正在重试」。
+_last_retry_state: dict = {"attempt": 0, "max": LLM_MAX_RETRIES, "last_error": "", "ts": 0.0}
+
+# 进程级取消钩子（2026-10-26 用户裁决「停止就停止」）：由 workflow_run 在
+# worker 线程启动前注入。generate 的重试循环每次尝试前、以及每秒等待间隙
+# 都会调用它——返回 True 则立即抛 GenerationCancelled，让正在执行的 LLM 节点
+# 也能被停止打断（不再等整个节点跑完）。
+_cancel_check: Optional[Callable[[], bool]] = None
+
+
+def set_cancel_check(fn: Optional[Callable[[], bool]]) -> None:
+    """注入/清除 LLM 取消检测回调（workflow_run worker 调用，进程级单值）。"""
+    global _cancel_check
+    _cancel_check = fn
+
+
+class GenerationCancelled(Exception):
+    """LLM 调用因用户停止创作被中断（重试循环内检测到取消标志）。"""
+
+
+class _EmptyGeneration(Exception):
+    """LLM 返回空内容（可重试的瞬时故障信号）。"""
+
+
+def retry_state() -> dict:
+    """最近一次 generate 的重试进度快照（只读诊断）。"""
+    return dict(_last_retry_state)
 
 
 # ---------------------------------------------------------------------------
@@ -124,11 +162,20 @@ class OpenAICompatibleProvider:
                 raise ValueError("VD_LLM_MAX_RETRIES must be an integer from 0 to 5")
             client_options["max_retries"] = max_retries
 
+        # 默认值：SDK 内部重试必须点掉（max_retries=0，重试纪律由本模块显式
+        # 循环独占），单次超时默认 120s（流式=相邻块间隔、非流式=首字节前总时长）。
+        # env 已设则保留覆盖（VD_LLM_REQUEST_TIMEOUT_SECONDS / VD_LLM_MAX_RETRIES，
+        # 供 live smoke / 测试调大超时或显式控制 SDK 重试）。
+        client_options.setdefault("timeout", LLM_ATTEMPT_TIMEOUT_S)
+        client_options.setdefault("max_retries", 0)
         self._client = OpenAI(
             api_key=self._api_key,
             base_url=self._base_url,
             **client_options,
         )
+        # 换供应商前清理旧 client：worker 可能在旧 client 克隆后仍持有引用，
+        # 这里记录创建时间戳便于诊断「重试还在打旧供应商还是新供应商」。
+        self._created_at = time.time()
 
     @property
     def model(self) -> str:
@@ -173,30 +220,147 @@ class OpenAICompatibleProvider:
             "extra_body": {"chat_template_kwargs": {"clear_thinking": True}},
         }
 
-    def generate(self, prompt: str, system: Optional[str] = None) -> str:
-        """调用 chat.completions 生成文本。
+    def _refresh_runtime_config(self) -> bool:
+        """重试前刷新当前生效配置（前端/环境变量变更）；有变化返回 True。
 
-        失败抛 RuntimeError（调用方降级到规则路径）。
+        2026-10-26 用户报障「换供应商救不了正在跑的节点」——provider 实例
+        构造时固化 base_url/model/api_key，用户设置页改配置后，实例内字段仍是
+        旧的。重试时读一次运行时配置，变了就更新字段。
+        """
+        try:
+            cfg = get_llm_config()
+        except Exception:  # noqa: BLE001 刷新失败保持原配置重试
+            return False
+        if not cfg.get("enabled"):
+            return False
+        new_base = cfg.get("base_url") or self._base_url
+        new_model = cfg.get("model") or self._model
+        changed = (new_base != self._base_url) or (new_model != self._model)
+        if changed:
+            self._base_url = new_base
+            self._model = new_model
+        return changed
+
+    def generate(self, prompt: str, system: Optional[str] = None) -> str:
+        """调用 chat.completions 生成文本（流式接收）。
+
+        2026-10-27 用户裁决：重试 3 次（10 次太久），固定 10s 间隔。
+        每次单次超时 LLM_ATTEMPT_TIMEOUT_S（流式语义=相邻数据块间隔）。
+        重试覆盖网络抖动/超时/5xx/429（限流等待后重试）；4xx 参数类错误
+        不重试（重试也无用，快速失败）。全部失败抛 RuntimeError（调用方
+        降级到规则路径）。
         """
         self._ensure_client()
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        try:
-            resp = self._client.chat.completions.create(
-                model=self._model,
-                messages=messages,
-                **self._model_request_options(),
-            )
-        except Exception as exc:
-            logger.warning(f"LLM generate 失败 (model={self._model}): {exc}")
-            raise RuntimeError(f"LLM generate 失败: {exc}") from exc
-        # openai 2.x: resp.choices[0].message.content
-        try:
-            return resp.choices[0].message.content or ""
-        except (AttributeError, IndexError) as exc:
-            raise RuntimeError(f"LLM 返回结构异常: {exc}") from exc
+        last_exc: Optional[Exception] = None
+        _last_retry_state.update({"attempt": 0, "last_error": "", "ts": time.time()})
+        for attempt in range(1, LLM_MAX_RETRIES + 1):
+            # 2026-10-26 用户裁决「停止就停止」：每次尝试前检测取消标志，
+            # 让停止在 LLM 节点内部立即生效（不等节点跑完整个重试循环）。
+            if _cancel_check is not None and _cancel_check():
+                raise GenerationCancelled("创作已停止，文本模型调用被中断")
+            try:
+                # 2026-10-27 根修（用户实证「换供应商仍超时」对照矩阵）：
+                # 大 prompt 长生成（scene_plan 完整 JSON）非流式请求下，
+                # 模型全部生成完才返回首字节——httpx 120s 读超时在最后一
+                # 块数据到达前先打穿（11KB 无 max_tokens 实测 121.5s 超时；
+                # 同请求 stream=True 58.5s 成功）。改流式接收：超时语义变成
+                # 「两块之间 ≤120s」而非「总时长 ≤120s」，长生成不再误判
+                # 超时；取消检测也能在流式间隙生效。消费点签名零改动。
+                stream = None
+                try:
+                    stream = self._client.chat.completions.create(
+                        model=self._model,
+                        messages=messages,
+                        stream=True,
+                        **self._model_request_options(),
+                    )
+                    pieces: list = []
+                    for chunk in stream:
+                        if _cancel_check is not None and _cancel_check():
+                            # 流式间隙同样响应停止（不等整段生成完）
+                            try:
+                                stream.close()
+                            except Exception:
+                                pass
+                            raise GenerationCancelled("创作已停止，文本模型调用被中断")
+                        try:
+                            delta = chunk.choices[0].delta.content
+                        except (AttributeError, IndexError):
+                            delta = None
+                        if delta:
+                            pieces.append(delta)
+                    content = "".join(pieces)
+                except GenerationCancelled:
+                    raise
+                except (TypeError, AttributeError, StopIteration) as stream_exc:
+                    # 仅「流式不兼容」降级非流式（网关不支持 stream/响应结构
+                    # 异常）。网络/HTTP 错误（连接超时/4xx/5xx）不重复请求，
+                    # 直接向上抛走统一重试——避免一次失败打两发。
+                    content = ""
+                    logger.debug(f"LLM 流式不兼容，降级非流式: {stream_exc}")
+                if not content:
+                    # 2026-10-27：空流/流式失败兜底——部分 OpenAI 兼容网关
+                    # 对 stream 支持不完整。降级同请求非流式一次；仍空则
+                    # 走正常重试循环（可能是瞬时故障）。
+                    resp = self._client.chat.completions.create(
+                        model=self._model,
+                        messages=messages,
+                        **self._model_request_options(),
+                    )
+                    try:
+                        content = resp.choices[0].message.content or ""
+                    except (AttributeError, IndexError) as exc:
+                        raise RuntimeError(f"LLM 返回结构异常: {exc}") from exc
+                    if content:
+                        return content
+                    # 空内容走可重试路径（瞬时故障可能下轮恢复）
+                    raise _EmptyGeneration("LLM 返回空内容")
+                return content
+            except RuntimeError:
+                raise  # 结构异常类，不重试
+            except Exception as exc:
+                last_exc = exc
+                status = getattr(exc, "status_code", None)
+                # 4xx（除 429 限流）是参数/鉴权类错误，重试无意义
+                if status is not None and 400 <= status < 500 and status != 429:
+                    logger.warning(
+                        f"LLM generate 客户端错误 {status}，不重试: {str(exc)[:160]}")
+                    raise RuntimeError(f"LLM generate 失败: {exc}") from exc
+                if attempt < LLM_MAX_RETRIES:
+                    # 2026-10-26 用户报障「已经更换了供应商还在超时」：正在跑的
+                    # 节点持有启动时的 provider 实例（旧 base_url/model），用户
+                    # 在设置页换供应商救不了它。重试时刷新当前生效配置——变了就
+                    # 换用新供应商的端点/key/model，下一次尝试立即生效。
+                    if self._refresh_runtime_config():
+                        logger.info(
+                            f"LLM 重试前检测到配置变更，改用 base_url={self._base_url} "
+                            f"model={self._model}")
+                    # 2026-10-25 生产事故：nvidia 网关上游挂死时 TCP 连接被
+                    # 静默挂起（models 200 但 chat 无响应）。重试必须丢弃旧
+                    # client——httpx 连接池里的死连接会让后续重试全挂在同一条
+                    # 连接上，10 次重试全部 Connection error（生产 7 连败实录）。
+                    self._client = None
+                    self._ensure_client()
+                    _last_retry_state.update({
+                        "attempt": attempt, "last_error": str(exc)[:160],
+                        "ts": time.time(),
+                    })
+                    logger.warning(
+                        f"LLM generate 第 {attempt}/{LLM_MAX_RETRIES} 次失败"
+                        f"（{LLM_RETRY_WAIT_S:.0f}s 后重试）: {str(exc)[:160]}")
+                    # 2026-10-26 用户裁决「停止就停止」：等待间隙按 1s 粒度
+                    # 轮询取消标志——停止请求在重试等待期间也能立即生效，
+                    # 不再被固定 time.sleep(10) 阻塞满 10s。
+                    for _ in range(int(LLM_RETRY_WAIT_S)):
+                        if _cancel_check is not None and _cancel_check():
+                            raise GenerationCancelled("创作已停止，文本模型调用被中断")
+                        time.sleep(1.0)
+        raise RuntimeError(
+            f"LLM generate 失败（重试 {LLM_MAX_RETRIES} 次后）: {last_exc}") from last_exc
 
     supports_stream_cancellation = True
 
@@ -421,6 +585,8 @@ def enhance_script(script: str) -> str:
     prompt = ENHANCE_USER_TEMPLATE.format(script=script)
     try:
         enhanced = provider.generate(prompt, system=ENHANCE_SYSTEM)
+    except GenerationCancelled:
+        raise  # 用户停止创作：穿透，不降级原样返回
     except Exception as exc:
         logger.warning(f"enhance_script LLM 调用失败，原样返回: {exc}")
         return script
@@ -508,6 +674,8 @@ def storyboard_hints(scene_texts: List[str]) -> List[dict]:
     prompt = STORYBOARD_USER_TEMPLATE.format(lines=lines)
     try:
         raw = provider.generate(prompt, system=STORYBOARD_SYSTEM)
+    except GenerationCancelled:
+        raise  # 用户停止创作：穿透，不降级空兜底
     except Exception as exc:
         logger.warning(f"storyboard_hints LLM 调用失败，走空兜底: {exc}")
         return [

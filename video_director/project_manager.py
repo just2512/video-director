@@ -237,7 +237,8 @@ def _actions_for(status: str, editable: bool, legacy: bool,
         return a
     a["rename"] = True
     a["archive"] = True
-    a["delete"] = not active_job
+    # 2026-10-26 用户裁决：任何状态无条件可删（RUNNING 由 delete 内部先取消）
+    a["delete"] = True
     a["preview"] = True
     a["duplicate"] = not active_job
     if status == "DONE":
@@ -307,6 +308,16 @@ def _workflow_snapshot(pid: str) -> dict:
     return {}
 
 
+def _latest_run_id(pid: str) -> str:
+    """项目最近 run 的 run_id（取消/查看进度用；无 run 返回空串）。"""
+    try:
+        from video_director import workflow_run as vd_wf
+        runs = vd_wf.list_runs(project_id=pid, limit=1)
+        return runs[0]["run_id"] if runs else ""
+    except Exception:
+        return ""
+
+
 def _studio_active(pid: str) -> bool:
     try:
         return any(j.get("status") in ("waiting", "running") for j in store.jobs_of_project(pid))
@@ -327,11 +338,15 @@ def _entry(pid: str, row: Optional[dict]) -> dict:
     wf_status = wf.get("status") or ""
     studio_active = _studio_active(pid)
     active_job = wf_status == "RUNNING" or studio_active
-    interrupted = stage in ACTIVE_STAGES and not active_job and wf_status not in ("WAITING_CONFIRMATION",)
+    interrupted = stage in ACTIVE_STAGES and not active_job and wf_status not in ("WAITING_CONFIRMATION", "CANCELLED")
     if wf_status == "WAITING_CONFIRMATION":
         status = "AWAITING_CONFIRM"
     elif wf_status == "FAILED":
         status = "FAILED"
+    elif wf_status == "CANCELLED":
+        # 2026-10-26：用户主动停止 ≠ 失败/中断——显式标 CANCELLED，
+        # 不再被 interrupted 推导吞成 FAILED。
+        status = "CANCELLED"
     elif wf_status == "COMPLETED" and stage in ACTIVE_STAGES:
         status = "DONE"
     elif interrupted:
@@ -502,18 +517,31 @@ def delete(project_id: str) -> dict:
     """§6.3 删除硬规则（全序执行）：
 
     1. pid 合法性 + 路径越界检查
-    2. active job → REJECT（没有任务取消能力时不假装能删）
+    2. RUNNING → 先自动取消（用户裁决 2026-10-26：任何状态无条件可删——
+       删除意图明确包含放弃正在执行的任务，取消是删除的一部分而非前置条件）
     3. DB row → 项目目录（plans/output/assets/logs 随目录走）
     4. §69 五层验证：DB/目录/composition 全 MISSING 才算删除完成
     """
     d = _safe_dir(project_id)
     row = store.get_project(project_id)
-    if _studio_active(project_id):
-        raise ProjectActionError(
-            "ACTIVE_JOB", "项目正在排队或执行任务，当前不能删除（请先等待任务结束）")
+    # 用户裁决：删除无条件化。RUNNING 先请求取消（节点边界收口），
+    # 等 run 离开 RUNNING 再删（最长 3s——正在执行的节点不可硬中断，
+    # 3s 未收口就标记删除中直接清数据，孤儿线程收口时发现项目已删会自行结束）。
     if _workflow_snapshot(project_id).get("status") == "RUNNING":
-        raise ProjectActionError(
-            "ACTIVE_JOB", "项目正在执行任务，当前不能删除（请先等待任务结束）")
+        try:
+            from video_director import workflow_run as vd_wf
+            vd_wf.request_cancel(project_id) if False else vd_wf.request_cancel(
+                _latest_run_id(project_id))
+            import time as _time
+            for _ in range(6):  # 最多等 3s
+                _time.sleep(0.5)
+                if _workflow_snapshot(project_id).get("status") != "RUNNING":
+                    break
+        except Exception:
+            pass  # 取消失败不阻塞删除（删除继续，孤儿 run 线程自然结束）
+    if _studio_active(project_id):
+        # 自动化 job 队列残留：不再拒绝删除（用户裁决无条件），只清理
+        store.delete_jobs_of_project(project_id)
     if not d.is_dir() and not row:
         raise ProjectActionError("NOT_FOUND", "项目不存在")
     # 3a. DB row 先删

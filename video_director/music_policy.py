@@ -58,13 +58,26 @@ class MusicPolicy:
         }
 
     def availability(self) -> dict:
-        """六档执行可用性（诚实）：无 provider 的档不伪造可用。"""
+        """六档执行可用性（诚实）：无 provider 的档不伪造可用。
+
+        返回 {"available": bool, "reason": str}，reason 标注真实状态供
+        Inspector/台账展示「为什么这个档不可用」。
+        """
         from video_director import model_config as mc
-        return {
-            "none": True,
-            "local_random": True,       # audio.scan_library（本地库）
-            "local_selected": True,     # 显式 asset
-            "stock": False,             # §25 Stock 音乐导入通道（音乐类目未开）
-            "generated": mc.is_role_enabled("llm"),  # 配乐生成 provider（llm 角色参与判定）
-            "video_matched": False,      # §68 Reference→风格匹配链（音乐维度未开）
-        }.get(self.policy, False)
+        if self.policy == "none":
+            return {"available": True, "reason": "无 BGM（纯旁白/原声）"}
+        if self.policy == "local_random":
+            return {"available": True, "reason": "本地库随机（audio.scan_library）"}
+        if self.policy == "local_selected":
+            return {"available": True, "reason": "本地库指定曲目"}
+        if self.policy == "stock":
+            # §25 Stock 音乐导入通道（音乐类目未开）
+            return {"available": False, "reason": "Stock 音乐导入通道未开（音乐类目）"}
+        if self.policy == "generated":
+            ok = mc.is_role_enabled("llm")
+            return {"available": bool(ok),
+                    "reason": "AI 配乐 provider 可用" if ok else "配乐生成 provider 未配置"}
+        if self.policy == "video_matched":
+            # §68 Reference→风格匹配链（音乐维度未开）
+            return {"available": False, "reason": "参考视频→风格匹配链（音乐维度）未开"}
+        return {"available": False, "reason": f"未知 policy {self.policy!r}"}

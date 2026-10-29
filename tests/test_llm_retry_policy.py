@@ -1,0 +1,196 @@
+# -*- coding: utf-8 -*-
+"""2026-10-20 用户裁决：LLM 调用统一 10 次重试 + 单次超时 ≥3 分钟。
+
+三通道全覆盖：文本（llm_provider.OpenAICompatibleProvider）、
+视觉（vision.FrameVisionProvider）、视觉QA（visual_qa.frame_vision_visual_qa）。
+"""
+import json
+from pathlib import Path
+
+from video_director import llm_provider
+
+
+class _Flaky:
+    """前 N-1 次抛超时，第 N 次成功。"""
+
+    def __init__(self, fail_times, exc_factory):
+        self.calls = 0
+        self.fail_times = fail_times
+        self.exc_factory = exc_factory
+
+    def chat_completions_create(self, **kwargs):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise self.exc_factory()
+        return _ok_response()
+
+
+def _ok_response():
+    class _Msg:
+        class message:
+            content = "好的"
+    class _Resp:
+        choices = [_Msg()]
+    return _Resp()
+
+
+class TestTextChannelRetry:
+    """文本通道：10 次重试、可恢复错误重试、4xx 快速失败。"""
+
+    def _provider(self):
+        p = llm_provider.OpenAICompatibleProvider.__new__(
+            llm_provider.OpenAICompatibleProvider)
+        p._api_key = "k"
+        p._base_url = "https://example.com/v1"
+        p._model = "test-model"
+        return p
+
+    @staticmethod
+    def _fake_client(flaky):
+        """带 flaky.create 的假 client。"""
+        class _C:
+            chat = type("chat", (), {})()
+        _C.chat.completions = type("completions", (), {
+            "create": staticmethod(flaky.chat_completions_create)})()
+        return _C()
+
+    def _wire(self, p, flaky, monkeypatch):
+        """client 接线 + 重建语义：生产代码重试时 _client=None 后调
+        _ensure_client 重建——注入的重建函数返回同款 flaky client，
+        成败节奏由 _Flaky 全局计数控制（跨 client 对象）。"""
+        p._client = self._fake_client(flaky)
+
+        def _rebuild(self):
+            self._client = self._fake_client(flaky)
+
+        p._fake_client = self._fake_client  # 实例上挂同款工厂
+        monkeypatch.setattr(llm_provider.OpenAICompatibleProvider,
+                            "_ensure_client", _rebuild)
+        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
+
+    def test_retry_until_success(self, monkeypatch):
+        p = self._provider()
+        flaky = _Flaky(fail_times=2, exc_factory=lambda: TimeoutError("read timeout"))
+        self._wire(p, flaky, monkeypatch)
+        out = p.generate("hi")
+        assert out == "好的"
+        # 2026-10-27 用户裁决 LLM_MAX_RETRIES 10→3：流式根修后 mock 非流式
+        # 结构 → 流式 TypeError → 降级非流式。2 次网络失败 + 流式第 3 次
+        # TypeError 降级 + 非流式第 4 次成功 = 4 次调用。
+        assert flaky.calls == 4
+
+    def test_gives_up_after_3(self, monkeypatch):
+        # 2026-10-27 用户裁决契约翻转：重试 10 次 → 3 次（10 次太久）。
+        p = self._provider()
+        flaky = _Flaky(fail_times=99, exc_factory=lambda: TimeoutError("t"))
+        self._wire(p, flaky, monkeypatch)
+        try:
+            p.generate("hi")
+            raise AssertionError("应抛 RuntimeError")
+        except RuntimeError as exc:
+            assert "重试 3 次" in str(exc) or "3 次" in str(exc)
+        # 2026-10-27 LLM_MAX_RETRIES 10→3。mock create 不区分 stream——流式
+        # create 直接 raise TimeoutError（不进 TypeError 降级分支），每次尝试
+        # 1 发：3 次尝试 = 3 发后放弃。
+        assert flaky.calls == 3
+
+    def test_4xx_no_retry(self, monkeypatch):
+        p = self._provider()
+        class _ApiErr(Exception):
+            status_code = 401
+        flaky = _Flaky(fail_times=99, exc_factory=_ApiErr)
+        self._wire(p, flaky, monkeypatch)
+        try:
+            p.generate("hi")
+            raise AssertionError("应抛 RuntimeError")
+        except RuntimeError:
+            pass  # 4xx 快速失败（错误文本随真实异常，mock 异常 str 为空）
+        assert flaky.calls == 1  # 不重试
+
+    def test_constants_meet_user_ruling(self):
+        # 2026-10-27 用户裁决契约翻转：重试 10 → 3 次（10 次太久）。
+        # 2026-10-25 用户裁决保持：固定 10s 重试间隔（不再递增）。
+        assert llm_provider.LLM_MAX_RETRIES == 3
+        assert llm_provider.LLM_RETRY_WAIT_S == 10.0
+        # 单次尝试超时 120s：流式语义=相邻数据块间隔（长生成不再误杀）。
+        assert llm_provider.LLM_ATTEMPT_TIMEOUT_S == 120
+
+    def test_retry_drops_dead_client_connection(self, monkeypatch):
+        """2026-10-25 生产事故回归锁：网关挂死时 httpx 连接池里的死连接
+        必须在重试时被丢弃（self._client = None + 重建），不能复用。"""
+        p = self._provider()
+        calls = {"n": 0, "clients": []}
+
+        def _make_client():
+            client_id = object()
+
+            class _C:
+                chat = type("chat", (), {})()
+            _C.chat.completions = type("completions", (), {
+                "create": staticmethod(
+                    lambda **kw: _attempt(client_id))})()
+            _C._id = client_id
+            return _C()
+
+        def _attempt(client_id):
+            calls["n"] += 1
+            calls["clients"].append(client_id)
+            if calls["n"] == 1:
+                raise ConnectionError("网关挂死")
+            return _ok_response()
+
+        p._client = _make_client()
+        # _ensure_client 记录重建：证明重试真的丢弃旧 client
+        rebuilt = {"n": 0}
+        monkeypatch.setattr(llm_provider.OpenAICompatibleProvider,
+                            "_ensure_client",
+                            lambda self: (rebuilt.__setitem__("n", rebuilt["n"] + 1),
+                                          setattr(self, "_client", _make_client())))
+        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
+        out = p.generate("hi")
+        assert out == "好的"
+        assert rebuilt["n"] >= 1                     # 重试触发了 client 重建
+        assert calls["clients"][0] is not calls["clients"][1]  # 两次尝试用不同 client
+
+    def test_retry_state_snapshot(self, monkeypatch):
+        """进程级重试状态：retry_state() 透出重试进度（诊断可查）。"""
+        p = self._provider()
+        flaky = _Flaky(fail_times=1, exc_factory=lambda: TimeoutError("t"))
+        self._wire(p, flaky, monkeypatch)
+        p.generate("hi")
+        st = llm_provider.retry_state()
+        assert st["attempt"] == 1 and "t" in st["last_error"]
+
+
+class TestVisionChannelRetry:
+    """视觉通道：同样 10 次重试（mock urlopen 层）。"""
+
+    def test_vision_retries(self, monkeypatch, tmp_path):
+        calls = {"n": 0}
+        class _TimeoutErr(Exception):
+            pass
+        def fake_urlopen(req, timeout=None):
+            calls["n"] += 1
+            assert timeout == 180, f"单次超时应为180s, got {timeout}"
+            if calls["n"] < 3:
+                raise _TimeoutErr("read timed out")
+            return _FakeCtx(json.dumps({"choices": [{"message": {"content": "{}"}}]}).encode())
+        class _FakeCtx:
+            def __init__(self, data): self._d = data
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return self._d
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        import time as _t
+        monkeypatch.setattr(_t, "sleep", lambda s: None)
+        from video_director import vision
+        # 直接测 analyze 的 HTTP 段：绕过 provider_matrix 与抽帧
+        from video_director.models import AssetRef
+        a = AssetRef(id="v1", type="video", file=str(tmp_path / "x.mp4"), duration=5.0)
+        monkeypatch.setattr(vision, "extract_frames", lambda *a, **k: ["f1.jpg"])
+        monkeypatch.setattr(Path, "read_bytes", lambda self: b"x")
+        monkeypatch.setattr("video_director.provider_matrix.require", lambda *a, **k: None)
+        p = vision.FrameVisionProvider(api_key="k", base_url="https://example.com/v1", model="m")
+        result = p.analyze(a, tmp_path)
+        assert result["description"] == ""
+        assert calls["n"] == 3

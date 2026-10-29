@@ -63,14 +63,13 @@ class NarrationConfig:
 
 
 #: §13 TTSProvider Registry：{provider: {label, requires_key, available}}
-#: edge-tts 免费零 key；其余需 key（缺 key → supported=False 不枚举）。
+#: 2026-10-26 用户裁决：只保留有真实执行器的 provider——gemini/siliconflow/
+#: kokoro 无公开稳定直连协议或无本地推理执行器，挂着假名字比没有更糟，删除。
+#: edge-tts 免费零 key；azure/elevenlabs 有真实 REST 执行器（synth_preview）。
 TTS_PROVIDERS = {
     "edge-tts": {"label": "Edge TTS（免费，无需 key）", "requires_key": False},
-    "azure": {"label": "Azure Speech", "requires_key": True},
-    "gemini": {"label": "Google Gemini TTS", "requires_key": True},
-    "elevenlabs": {"label": "ElevenLabs", "requires_key": True},
-    "siliconflow": {"label": "SiliconFlow TTS", "requires_key": True},
-    "kokoro": {"label": "Kokoro（本地）", "requires_key": False},
+    "azure": {"label": "Azure Speech（微软云）", "requires_key": True},
+    "elevenlabs": {"label": "ElevenLabs（付费商用）", "requires_key": True},
 }
 
 #: 现有 VOICES 白名单（edge-tts provider，从 webui.server.VOICES 语义迁移而来）。
@@ -114,14 +113,18 @@ def list_providers() -> List[dict]:
 
 
 def list_voices(provider: str = "edge-tts") -> List[dict]:
-    """§14：VoiceProfile 清单。非 edge-tts provider 需 key，缺 key 返回空（诚实）。"""
-    import os
-    if provider != "edge-tts":
-        # 需 key 的 provider：缺 key 不枚举（不伪造可用音色）
-        if not os.environ.get(f"{provider.upper()}_API_KEY"):
+    """§14：VoiceProfile 清单（真实目录）。缺 key 的付费 provider 返回空（诚实）。"""
+    if provider == "edge-tts":
+        return [v.to_dict() for v in _EDGE_VOICES]
+    if provider == "elevenlabs":
+        if not _tts_key("elevenlabs"):
             return []
-        return []  # 非 edge-tts 的具体 voice 目录尚未接入（诚实，不编造）
-    return [v.to_dict() for v in _EDGE_VOICES]
+        return [v.to_dict() for v in _ELEVENLABS_VOICES]
+    if provider == "azure":
+        if not _tts_key("azure"):
+            return []
+        return [v.to_dict() for v in _AZURE_VOICES]
+    return []
 
 
 def get_voice(voice_id: str) -> Optional[dict]:
@@ -151,3 +154,88 @@ def is_silent_legal(cfg: NarrationConfig) -> dict:
         "sfx_allowed": True,
         "visual_allowed": True,
     }
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-26 用户裁决：TTS 供应商可自主配置。真实执行器（纯标准库 REST，
+# 零新依赖）——只实现有公开稳定 API 的 provider；其余从 Registry 删除
+# （挂着假名字比没有更糟）。
+# ---------------------------------------------------------------------------
+import json as _json
+import urllib.request as _urlreq
+
+
+def _tts_key(provider: str) -> str:
+    """provider 的 API key（设置页 model_config 或环境变量）。"""
+    import os
+    try:
+        from video_director import model_config
+        cfg = model_config.get_role_config(f"tts_{provider}")
+        k = str(cfg.get("api_key") or "").strip()
+        if k:
+            return k
+    except Exception:
+        pass
+    return str(os.environ.get(f"{provider.upper()}_API_KEY") or "").strip()
+
+
+def synth_preview(provider: str, voice_id: str, text: str) -> bytes:
+    """多 provider 试听合成：返回 mp3 bytes。失败抛异常（前端 toast）。
+
+    - edge-tts：走现有缓存端点（server 内直调，不在此实现）
+    - elevenlabs：REST /v1/text-to-speech/{voice_id}（官方公开协议）
+    - azure：SSML + REST TTS endpoint（需 region + key）
+    """
+    if provider == "elevenlabs":
+        key = _tts_key("elevenlabs")
+        if not key:
+            raise RuntimeError("ElevenLabs 未配置 API Key（设置 → 模型 → tts_elevenlabs）")
+        req = _urlreq.Request(
+            f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+            data=_json.dumps({"text": text, "model_id": "eleven_multilingual_v2"}).encode(),
+            headers={"xi-api-key": key, "Content-Type": "application/json"},
+            method="POST",
+        )
+        with _urlreq.urlopen(req, timeout=30) as resp:
+            return resp.read()
+    if provider == "azure":
+        key = _tts_key("azure")
+        if not key:
+            raise RuntimeError("Azure Speech 未配置 API Key（设置 → 模型 → tts_azure）")
+        # region 从 tts_azure 的 model 字段读（设置页 model 输入框即 region）
+        region = "eastasia"
+        try:
+            from video_director import model_config
+            region = str(model_config.get_role_config("tts_azure").get("model") or "eastasia").strip() or "eastasia"
+        except Exception:
+            pass
+        ssml = (f"<speak version='1.0' xml:lang='zh-CN'>"
+                f"<voice name='{voice_id}'>{text}</voice></speak>")
+        req = _urlreq.Request(
+            f"https://{region}.tts.speech.microsoft.com/cognitiveservices/v1",
+            data=ssml.encode("utf-8"),
+            headers={"Ocp-Apim-Subscription-Key": key,
+                     "Content-Type": "application/ssml+xml",
+                     "X-Microsoft-OutputFormat": "audio-16khz-32kbitrate-mono-mp3"},
+            method="POST",
+        )
+        with _urlreq.urlopen(req, timeout=30) as resp:
+            return resp.read()
+    raise RuntimeError(f"provider {provider!r} 没有真实合成执行器")
+
+
+#: elevenlabs 精选音色目录（官方公开清单；试听/选择用，非伪造）
+_ELEVENLABS_VOICES: List[VoiceProfile] = [
+    VoiceProfile("elevenlabs", "21m00Tcm4TlvDq8ikWAM", "Rachel（女·沉稳）", language="multi"),
+    VoiceProfile("elevenlabs", "EXAVITQu4vr4xnSDxMaL", "Sarah（女·温柔）", language="multi"),
+    VoiceProfile("elevenlabs", "ErXwobaYiN019PkySvjV", "Antoni（男·浑厚）", language="multi"),
+    VoiceProfile("elevenlabs", "TxGEqnHWrfWFTfGW9XjX", "Josh（男·年轻）", language="multi"),
+]
+
+#: azure zh-CN 精选音色（Azure 公开 Neural 目录）
+_AZURE_VOICES: List[VoiceProfile] = [
+    VoiceProfile("azure", "zh-CN-XiaoxiaoNeural", "晓晓（女·温柔）"),
+    VoiceProfile("azure", "zh-CN-YunxiNeural", "云希（男·阳光）"),
+    VoiceProfile("azure", "zh-CN-YunjianNeural", "云健（男·沉稳）"),
+    VoiceProfile("azure", "zh-CN-XiaoyiNeural", "晓伊（女·活泼）"),
+]

@@ -215,7 +215,8 @@ def download_sfx(candidate: dict, category: str, base_url: str = "") -> Optional
         with urllib.request.urlopen(req, timeout=60) as resp:
             payload = resp.read()
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        logger.warning(f"openverse: 音效下载失败 {cand.get('title')!r}: {exc}")
+        # 修 cand→candidate NameError：下载失败分支本就会崩，异常路径不可用
+        logger.warning(f"openverse: 音效下载失败 {candidate.get('title')!r}: {exc}")
         return None
     if not payload:
         return None

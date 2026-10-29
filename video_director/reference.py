@@ -616,8 +616,16 @@ def reference_analyzer(
     # typography 默认 unknown（启发式无法从 scene 检测推出字体信息，
     # 需要 Vision LLM 看帧才能推断，本版不实现）
     # audio_language 默认空（参考视频音频转写/分类留到后续 vision 链路）
+    # video_fingerprint：源视频内容哈希（审计差距 3：导演链用它判定报告
+    # 是否对应当前视频；流式读避免大文件整载）。
+    import hashlib as _hashlib
+    _digest = _hashlib.sha256()
+    with open(video_path, "rb") as _vf:
+        for _chunk in iter(lambda: _vf.read(1024 * 1024), b""):
+            _digest.update(_chunk)
     report: Dict[str, Any] = {
         "video": os.path.abspath(video_path),
+        "video_fingerprint": _digest.hexdigest(),
         "duration_s": round(total_dur, 3),
         "shot_count": len(shots),
         "visual_language": {

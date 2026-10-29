@@ -180,8 +180,26 @@ async function _startRenderWorkflow(actionId, pid){
           }
           const meta2 = document.getElementById('ed-preview-meta');
           if (meta2 && path) meta2.textContent = (kind === 'render_draft' ? '草稿已完成' : '成片已完成');
+          // 成片完成 = 交付（方案节点24）：载入预览 + 给出下载入口。
+          // 此前 final 分支只改状态文字，成片既不进预览也无下载按钮——用户
+          // 渲染完成后找不到视频在哪（2026-10-19 生产反馈）。
+          if (kind === 'render_final' && path) {
+            previewShowVideo(path, '成片 · 已完成');
+            const box = document.getElementById('editor-preflight-box');
+            if (box) {
+              // P1 定格出口：下载链接旁给「定格+2s」小按钮（POST /api/export_freeze
+              // → 生成 final_freeze.mp4 并换成新下载链接）。
+              box.innerHTML =
+                `<div class="panel ok-box">成片渲染完成：<a class="dl" href="/file?path=${encodeURIComponent(path)}" download="final.mp4">下载 final.mp4</a>` +
+                `<button class="btn-secondary btn-sm" style="margin-left:8px" onclick="editorExportFreeze('${encodeURIComponent(pid)}', 2)">定格+2s</button>` +
+                `<button class="btn-secondary btn-sm" style="margin-left:8px" onclick="edGenerateMetadata('${encodeURIComponent(pid)}')">生成发布文案</button></div>`;
+              // §66 交付元数据：若项目 params 里已有历史发布文案，直接展示
+              // （成片完成就能看到上次生成结果，不必重复点击）。
+              edMetadataMaybeShow(pid);
+            }
+          }
           if (typeof taskRefresh === 'function') taskRefresh();
-          editorToast(kind === 'render_draft' ? '草稿渲染完成，已载入预览' : '成片渲染完成');
+          editorToast(kind === 'render_draft' ? '草稿渲染完成，已载入预览' : '成片渲染完成，已载入预览');
           return;
         }
         if (['FAILED','INTERRUPTED','CANCELLED'].includes(st)) {
@@ -201,6 +219,31 @@ async function _startRenderWorkflow(actionId, pid){
   } catch (e) {
     editorToast('渲染任务提交失败：' + (e.message || e), true);
     return {ok:false,error:e.message || String(e)};
+  }
+}
+
+/** P1 定格出口：POST /api/export_freeze → 成片尾帧定格 N 秒 → 换下载链接。 */
+async function editorExportFreeze(encodedPid, freezeSeconds){
+  const pid = decodeURIComponent(encodedPid || '');
+  if (!pid) { editorToast('缺少项目 ID', true); return; }
+  const btn = document.querySelector('#editor-preflight-box button[onclick*="editorExportFreeze"]');
+  if (btn) { btn.disabled = true; btn.textContent = '定格中…'; }
+  try {
+    const r = await apiPost('/api/export_freeze', {project_id: pid, freeze_seconds: freezeSeconds});
+    if (!r || !r.ok) throw new Error((r && r.error) || '定格失败');
+    const box = document.getElementById('editor-preflight-box');
+    const link = box ? box.querySelector('a.dl') : null;
+    if (link) {
+      link.href = '/file?path=' + encodeURIComponent(r.final_path);
+      link.setAttribute('download', 'final_freeze.mp4');
+      link.textContent = '下载 final_freeze.mp4（定格+' + freezeSeconds + 's）';
+    }
+    editorToast('已生成定格版本（+' + freezeSeconds + 's）');
+    // 同步刷新预览信息，让 PV.finalPath 指向定格版
+    if (typeof previewLoadDraft === 'function') await previewLoadDraft();
+  } catch (e) {
+    editorToast('定格失败：' + (e.message || e), true);
+    if (btn) { btn.disabled = false; btn.textContent = '定格+' + freezeSeconds + 's'; }
   }
 }
 async function executeAction(actionId, params={}, target=null, selection=null){
@@ -279,4 +322,60 @@ document.addEventListener('click', (ev) => {
   actionDispatch(el, ev);
 });
 
-Object.assign(window, {actionDispatch, executeAction, UI_BEHAVIORS});
+/**
+ * §66 交付元数据：生成发布文案（标题/简介/话题标签）。
+ * 走 Action 通路 delivery.generate_metadata → tool_executor LLM 生成 →
+ * params_json.delivery_metadata 落盘；失败诚实降级显示原因。
+ */
+async function edGenerateMetadata(encodedPid){
+  const pid = decodeURIComponent(encodedPid || '');
+  if (!pid) { editorToast('缺少项目 ID', true); return; }
+  const btn = document.querySelector('#editor-preflight-box button[onclick*="edGenerateMetadata"]');
+  if (btn) { btn.disabled = true; btn.textContent = '生成中…'; }
+  try {
+    const r = await executeAction('delivery.generate_metadata', {project_id: pid}, 'project');
+    if (!r || !r.ok) throw new Error((r && r.error) || '生成失败');
+    // execute_action_request 返回 {ok, result: {artifactType, metadata}}——
+    // tool_executor 的 result 字段在顶层 r.result 里。
+    const meta = (r.result && r.result.metadata) || null;
+    if (!meta) throw new Error('未返回文案内容');
+    edMetadataRender(meta);
+    editorToast('发布文案已生成并保存到项目参数');
+  } catch (e) {
+    editorToast('发布文案生成失败：' + (e.message || e), true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '生成发布文案'; }
+  }
+}
+
+/** 把发布文案渲染到成片完成框下方（可复制文本块）。 */
+function edMetadataRender(meta){
+  const box = document.getElementById('editor-preflight-box');
+  if (!box) return;
+  let panel = document.getElementById('ed-metadata-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'ed-metadata-panel';
+    panel.className = 'panel';
+    panel.style.marginTop = '6px';
+    box.appendChild(panel);
+  }
+  const tags = (meta.tags || []).map(t => '#' + String(t).replace(/^#/, '')).join(' ');
+  panel.innerHTML =
+    `<div style="font-weight:600;margin-bottom:4px">发布文案（已存入项目参数）</div>` +
+    `<div style="margin:4px 0"><b>标题：</b>${esc(String(meta.title || ''))}</div>` +
+    `<div style="margin:4px 0"><b>简介：</b>${esc(String(meta.description || ''))}</div>` +
+    `<div style="margin:4px 0"><b>标签：</b>${esc(tags)}</div>`;
+}
+
+/** 项目已有历史发布文案（params_json.delivery_metadata）时直接展示。 */
+async function edMetadataMaybeShow(pid){
+  try {
+    const d = await apiGet('/api/project_detail?project_id=' + encodeURIComponent(pid));
+    const meta = d && d.delivery_metadata;
+    if (meta && meta.title) edMetadataRender(meta);
+  } catch (e) { /* 详情读取失败不阻塞成片展示 */ }
+}
+
+Object.assign(window, {actionDispatch, executeAction, UI_BEHAVIORS,
+                       editorExportFreeze, edGenerateMetadata, edMetadataMaybeShow});

@@ -106,7 +106,10 @@ def create_director_run(payload: dict) -> dict:
     # The current WebUI sends select defaults too; _explicit_fields distinguishes defaults
     # from settings the user deliberately changed.
     from video_director import director_intent
-    intent = director_intent.resolve_director_intents(brief)
+    # 2026-10-27 用户裁决：create HTTP 线程只跑规则层（毫秒级秒回），LLM 泛化层
+    # 由后台 run 的 understand 节点 merge_llm_intents 补齐——同步 resolve_director_intents
+    # 在网关挂死时把 create 拖到 15s+（前端 TypeError: Failed to fetch，任务提交不出）。
+    intent = director_intent.resolve_rule_intents(brief)
     raw_explicit_fields = payload.get("_explicit_fields")
     explicit_fields_known = isinstance(raw_explicit_fields, list)
     explicit_fields = {

@@ -55,6 +55,22 @@ STEP_LABEL_CN = {
     "render": "渲染成片",
 }
 
+#: 2026-10-26 用户裁决「每一步动态展示在干什么」：每个节点的进行中动作说明，
+#: RUNNING 时前端显示它而非只有「执行中」三个字。get_run 动态注入到步骤 detail。
+NODE_ACTION_CN = {
+    "script": "正在让 AI 理解你的剪辑要求，并把文案按句拆成分镜素材",
+    "scene_plan": "正在调用文本大模型设计分镜方案（镜头/检索词/画面候选），网络慢时会自动重试",
+    "narration": "正在为每句文案生成旁白配音",
+    "material_match": "正在为每个镜头匹配画面素材（你的素材优先）",
+    "subtitle": "正在生成字幕",
+    "music": "正在配背景音乐",
+    "watermark": "正在叠加品牌元素",
+    "composition": "正在把镜头/字幕/配乐搭进时间线",
+    "preview": "正在生成草稿预览",
+    "verify": "正在自动检查成片质量（黑帧/时长/转场）",
+    "render": "正在渲染成片（这一步最耗时，取决于视频长度与机器性能）",
+}
+
 #: §20 链路的标称步骤序（一键创作链：CreativeBrief→…→Render）
 DEFAULT_STEPS = ["script", "scene_plan", "narration", "material_match",
                  "subtitle", "music", "watermark", "composition",
@@ -63,6 +79,33 @@ DEFAULT_STEPS = ["script", "scene_plan", "narration", "material_match",
 
 def _db_path() -> "config.Path":
     return config.composer_storage_root() / "studio.db"
+
+
+# 2026-10-25 用户裁决：停止创作——用户必须能随时叫停，不能后端偷偷跑完。
+# 进程内取消标志（单进程 webui，run→flag）；节点循环每步之间检查。
+_RUN_CANCEL_FLAGS: set = set()
+_RUN_CANCEL_LOCK = __import__("threading").Lock()
+
+
+def request_cancel(run_id: str) -> bool:
+    """用户请求停止创作：设置标志位；节点循环在下一步边界检测并收口 CANCELLED。"""
+    with _RUN_CANCEL_LOCK:
+        _RUN_CANCEL_FLAGS.add(run_id)
+    return True
+
+
+class RunCancelled(Exception):
+    """用户主动停止创作（区别于失败：已完成节点保留在检查点）。"""
+
+
+def _cancel_requested(run_id: str) -> bool:
+    with _RUN_CANCEL_LOCK:
+        return run_id in _RUN_CANCEL_FLAGS
+
+
+def _clear_cancel(run_id: str) -> None:
+    with _RUN_CANCEL_LOCK:
+        _RUN_CANCEL_FLAGS.discard(run_id)
 
 
 def _ensure_table(conn: sqlite3.Connection) -> None:
@@ -127,7 +170,12 @@ def _emit(run_id: str, event: str, data: dict) -> None:
 
 def step_update(run_id: str, step: str, status: str,
                 detail: Optional[str] = None) -> None:
-    """更新单步状态（PENDING/RUNNING/DONE/FAILED/SKIPPED）+ 事件。"""
+    """更新单步状态（PENDING/RUNNING/DONE/FAILED/SKIPPED）+ 事件。
+
+    detail（2026-10-25 用户报障）：步骤级人话说明（降级原因/失败原因）。
+    存进 steps_status[step] 的结构化值；get_run 兼容读出（str=旧格式）。
+    前端步骤面板据此展示「为什么这一步降级了」。
+    """
     now = time.time()
     with _DB_LOCK, _conn() as conn:
         _ensure_table(conn)
@@ -137,7 +185,16 @@ def step_update(run_id: str, step: str, status: str,
         if row is None:
             return
         steps_status = json.loads(row["steps_status_json"] or "{}")
-        steps_status[step] = status
+        if detail:
+            steps_status[step] = {"status": status, "detail": str(detail)[:240]}
+        else:
+            # 无 detail 用纯 status（保持旧格式，前端兼容读）
+            prev = steps_status.get(step)
+            if isinstance(prev, dict):
+                steps_status[step] = {"status": status,
+                                     "detail": prev.get("detail") or ""}
+            else:
+                steps_status[step] = status
         current = step if status == "RUNNING" else _next_pending(steps_status)
         conn.execute(
             "UPDATE workflow_runs SET steps_status_json=?, current=?, updated_at=? "
@@ -151,7 +208,9 @@ def step_update(run_id: str, step: str, status: str,
 
 def _next_pending(steps_status: dict) -> Optional[str]:
     for s, st in steps_status.items():
-        if st in ("PENDING", "RUNNING"):
+        # 2026-10-25：兼容新结构 {status, detail} 与旧纯 status 字符串
+        v = st.get("status") if isinstance(st, dict) else st
+        if v in ("PENDING", "RUNNING"):
             return s
     return None
 
@@ -182,12 +241,42 @@ def get_run(run_id: str) -> Optional[dict]:
         return None
     d = dict(row)
     steps_status = json.loads(d.pop("steps_status_json") or "{}")
-    steps = [{"id": s, "status": st} for s, st in steps_status.items()]
+    # 2026-10-25：steps_status[step] 新结构 {status, detail}（降级/失败人话原因）；
+    # 兼容旧纯 status 字符串。
+    steps = []
+    for s, st in steps_status.items():
+        if isinstance(st, dict):
+            detail = st.get("detail") or ""
+            # 2026-10-26 用户裁决「每一步动态展示在干什么」：RUNNING 节点无
+            # 具体 detail 时，注入该节点的进行中动作说明（而非只显示「执行中」）。
+            if st.get("status") == "RUNNING" and not detail:
+                detail = NODE_ACTION_CN.get(s, "正在执行…")
+            steps.append({"id": s, "status": st.get("status") or "PENDING",
+                          "detail": detail})
+        else:
+            # 旧纯 status 字符串格式：RUNNING 同样注入动作说明
+            detail = NODE_ACTION_CN.get(s, "正在执行…") if st == "RUNNING" else ""
+            steps.append({"id": s, "status": st, "detail": detail})
     result = json.loads(d.pop("result_json") or "{}")
+    # 2026-10-26 用户裁决「每一步动态展示在干什么」：把 llm_provider 进程级
+    # 重试进度快照合并进响应。前端 RUNNING 步骤据此显示「LLM 第 N/10 次尝试
+    # 失败：xxx（X 秒前）」，而非只显示「执行中」三个字。快照过旧（>180s）视为
+    # 无活跃重试不返回（进程级单值，仅单跑场景精确）。
+    llm_retry = {}
+    try:
+        from video_director import llm_provider as _lp
+        rs = _lp.retry_state()
+        if rs.get("attempt", 0) > 0 and (time.time() - rs.get("ts", 0)) < 180:
+            llm_retry = {"attempt": rs["attempt"], "max": rs["max"],
+                         "last_error": rs["last_error"],
+                         "ts": rs["ts"], "age_s": int(time.time() - rs["ts"])}
+    except Exception:  # noqa: BLE001 诊断字段失败不影响主响应
+        llm_retry = {}
     d.update({
         "steps": steps,
         "result": result,
         "labels": {s: STEP_LABEL_CN.get(s, s) for s in steps_status},
+        "llm_retry": llm_retry,
     })
     return d
 
@@ -413,6 +502,23 @@ def run_director_continue_async(project_id: str, target: str = "preview") -> Opt
     return run_director_create_async(spec, plan=plan)
 
 
+def _load_persisted_director_spec(project_id: str) -> dict:
+    """读 execute() 落盘的完整 spec（plans/director_spec.json）。
+
+    director_agent.execute 持久化时剔除 api_key/token/secret——这里只做读，
+    不再做字段过滤（调用方按名取白名单字段）。文件缺失/损坏 → {}（诚实降级）。
+    """
+    try:
+        path = config.project_dir(project_id) / "plans" / "director_spec.json"
+        if not path.is_file():
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(f"director spec 持久化读取失败（{project_id}）: {exc}")
+        return {}
+
+
 def run_director_retry_async(project_id: str) -> Optional[str]:
     """FAILED 导演项目「重新执行」：从持久化 bundle + params 重建 spec → 新 run。
 
@@ -438,12 +544,28 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
         logger.warning(f"director retry rejected: {project_id} has no persisted bundle")
         return None
 
+    # params 先解析（R1 修复：此前意图解析引用 params 时它还没定义，
+    # NameError 被 except 吞掉 → retry 意图回填全灭，447165d 被架空）
     try:
         params = json.loads(proj.get("params_json") or "{}")
         if not isinstance(params, dict):
             params = {}
     except json.JSONDecodeError:
         params = {}
+
+    # 2026-10-20 意图链修复：retry 重建 spec 必须重跑意图解析——否则 brief 里的
+    # 自然语言要求（水印/时长/字幕开关）在「重试」入口被丢（生产实锚：
+    # web-cf64b359 三次 retry 后 watermark 丢失、_intent_duration_s=None）。
+    # 2026-10-27 用户报障「15s 超时一直报」：retry 路径与 create 同分层——
+    # 同步只跑规则层（毫秒级，不烧 LLM 15s），LLM 泛化层由 understand 节点
+    # 的 merge_llm_intents 后台补齐（understand 本来就会做这件事）。
+    try:
+        from video_director import director_intent
+        _intent = director_intent.resolve_rule_intents(
+            bundle.get("brief") or params.get("creative_brief") or "")
+    except Exception:
+        _intent = {}
+
     spec = {
         "project_id": project_id,
         # 重试沿用初次参数；script 覆盖：bundle 里可能有 director 生成稿
@@ -451,14 +573,56 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
                  or proj.get("script") or "",
         "brief": (bundle.get("brief") or params.get("creative_brief") or ""),
         "director_inputs": bundle,
-        "voice": params.get("voice") or "zh-CN-XiaoxiaoNeural",
-        "voice_rate": params.get("voice_rate") or "+0%",
+        "voice": params.get("voice") or _intent.get("voice") or "zh-CN-XiaoxiaoNeural",
+        "voice_rate": params.get("voice_rate") or _intent.get("voice_rate") or "+0%",
         "width": params.get("width"), "height": params.get("height"),
         "fps": params.get("fps"),
-        "bgm": params.get("bgm") or "auto",
-        "subtitle_mode": params.get("subtitle_mode") or "plain",
+        "bgm": params.get("bgm") or _intent.get("bgm") or "auto",
+        "subtitle_mode": params.get("subtitle_mode") or _intent.get("subtitle_mode") or "plain",
+        "watermark": params.get("watermark") or _intent.get("watermark") or "",
+        "title": params.get("title") or _intent.get("title") or "",
+        "transition_mode": params.get("transition_mode") or _intent.get("transition_mode") or "cut",
+        "clip_duration": params.get("clip_duration") or _intent.get("clip_duration"),
+        "clip_speed": params.get("clip_speed") or _intent.get("clip_speed"),
         "match_materials_to_script": params.get("match_materials_to_script", True),
     }
+    if _intent.get("duration"):
+        spec["_intent_duration_s"] = _intent["duration"]
+
+    # R3（2026-10-21 终审）：retry 重建 spec 丢字段修复。run_director_continue_async
+    # 会往 spec 写 stop_at/confirm_mode，director_service 创建时写 auto_sfx_search/
+    # sfx_density 相关/lower_third_*——这些不在 params_json 也不在 bundle，
+    # 只有 execute() 落盘的 plans/director_spec.json（完整 spec）持有。
+    # 回填顺序：params_json（当前机读现值）优先，spec 历史值兜底——
+    # 用户改过的以 DB 为准，DB 没有的才认上次运行。
+    persisted = _load_persisted_director_spec(project_id)
+    for key in ("stop_at", "confirm_mode", "auto_sfx_search", "lower_third_name",
+                "lower_third_role", "sfx", "sfx_density"):
+        if spec.get(key) in (None, ""):
+            if key in params:
+                spec[key] = params[key]
+            elif key in persisted:
+                spec[key] = persisted[key]
+
+    # R3b（2026-10-21 终审）：白名单只有 7 键，director_service 初建 spec 时设置的
+    # 其余字段（voice_mode/bgm_volume/narration_volume/fit_mode/concat_mode/
+    # visual_source/narration_upload/sfx_plan…）retry 后全丢——voice_mode=silent
+    # 的用户 retry 后变 auto 合成，真实意图丢失。改为全量兜底：spec 仍未持有的键
+    # 才从持久化 spec 补，spec 已有值一律不覆盖（params/意图解析现值优先）。
+    # 排除两类键：
+    #   1）execute() 落盘时虽剔除 api_key/token/secret，但 run_director_continue_async
+    #      等内链会往 spec 写 _run_kind，project_id 会话内已有正确值——都不回填；
+    #   2）_intent/_unresolved 是解析中间产物，回填会把陈旧解析结果当现值。
+    # 空串 "" 视为缺值；False/0/[] 是合法值（voice/fit/sfx_plan 决策分支依赖）。
+    _NO_BACKFILL = {"api_key", "token", "secret", "project_id", "_run_kind",
+                    "_intent_duration_s", "_unresolved"}
+    for key, value in persisted.items():
+        if key in spec or key in _NO_BACKFILL:
+            continue
+        if value is None or value == "":
+            continue
+        spec[key] = value
+
     try:
         store.set_stage(project_id, store.Stage.CREATED)
     except Exception as exc:
@@ -468,19 +632,38 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
 
 def _compose_worker(run_id: str, spec: dict) -> None:
     """compose/director 工作线程：Director 创建走统一 Agent；旧 compose 保持原执行链。"""
+    # 2026-10-26 用户裁决「停止就停止」：把本 run 的取消标志注入 llm_provider，
+    # 让 LLM 重试循环在每次尝试前 + 每秒等待间隙都能检测到停止请求——
+    # 停止不再等整个节点跑完，正在执行的 LLM 调用也能被打断。
+    # 进程级单值，worker 结束时清除（单 run 场景；多 run 并发时为最后注册的 run）。
+    from video_director import llm_provider as _lp
+    _lp.set_cancel_check(lambda: _cancel_requested(run_id))
     try:
-        if spec.get("_run_kind") == "director_create":
-            result = _execute_director_create(spec, run_id)
-        else:
-            result = _execute_compose(spec, run_id)
-        pending = bool(result.get("pending_confirm"))
-        director_verify_ok = result.get("director_verify_ok", True)
-        if spec.get("_run_kind") == "director_create" and not director_verify_ok:
-            finish_run(run_id, FAILED, result=result,
-                       error="AI Director 创建链验证未通过")
-            return
-        finish_run(run_id, WAITING_CONFIRMATION if pending else COMPLETED,
-                   result=result)
+        try:
+            if spec.get("_run_kind") == "director_create":
+                result = _execute_director_create(spec, run_id)
+            else:
+                result = _execute_compose(spec, run_id)
+            pending = bool(result.get("pending_confirm"))
+            director_verify_ok = result.get("director_verify_ok", True)
+            if spec.get("_run_kind") == "director_create" and not director_verify_ok:
+                finish_run(run_id, FAILED, result=result,
+                           error="AI Director 创建链验证未通过")
+                return
+            finish_run(run_id, WAITING_CONFIRMATION if pending else COMPLETED,
+                       result=result)
+        except _lp.GenerationCancelled as exc:
+            # 2026-10-26 用户裁决「停止就停止」：LLM 调用中断收口 CANCELLED
+            #（与 RunCancelled 同语义——已完成节点保留，非失败）。
+            logger.info(f"workflow {run_id} cancelled (LLM aborted): {exc}")
+            finish_run(run_id, CANCELLED, result={},
+                       error=str(exc)[:400])
+    except RunCancelled as exc:
+        # 2026-10-25 用户裁决：停止创作收口 CANCELLED（非失败）——
+        # 已完成节点保留在检查点，用户可修改要求后重新创作。
+        logger.info(f"workflow {run_id} cancelled by user: {exc}")
+        finish_run(run_id, CANCELLED, result={},
+                   error=str(exc)[:400])
     except Exception as exc:  # noqa: BLE001 失败落 run，前端能看到失败阶段
         logger.exception(f"workflow compose {run_id} failed")
         failed_plan = (spec.get("director_plan") or {})
@@ -509,13 +692,20 @@ def _compose_worker(run_id: str, spec: dict) -> None:
         finish_run(run_id, FAILED,
                    result={"director_plan": failed_plan} if failed_plan else {},
                    error=str(exc)[:800])
+    finally:
+        # 2026-10-26：worker 收口后清除取消标志与 LLM 取消钩子，避免下一个
+        # run 复用到本 run 的残留状态。
+        _clear_cancel(run_id)
+        _lp.set_cancel_check(None)
 
 
 def _director_update_node(run_id: str, project_id: str, plan: dict, node_id: str,
                           status: str, **kwargs) -> None:
     from video_director import director_inputs as _di
+    # detail 是步骤层人话说明（2026-10-25），不进 plan 节点结构——剥出后传 step。
+    detail = kwargs.pop("detail", None) or kwargs.get("error") or None
     _di.update_node(project_id, plan, node_id, status, **kwargs)
-    step_update(run_id, node_id, status, detail=kwargs.get("error") or None)
+    step_update(run_id, node_id, status, detail=detail)
 
 
 def _director_scene_plan(bundle: dict, script: str) -> dict:
@@ -526,8 +716,11 @@ def _director_scene_plan(bundle: dict, script: str) -> dict:
     if provider is None:
         from video_director.pipeline import split_script_scenes
         scenes = split_script_scenes(script)
+        # 2026-10-25 用户报障：rule 兜底必须记录 brief（未被理解，仅原样保留）
         return {
             "source": "rule_fallback",
+            "creative_brief": str(bundle.get("brief") or "").strip(),
+            "brief_acknowledged": False,
             "scenes": [{"text": s, "visual_intent": s, "source_preference": "user_asset"} for s in scenes],
         }
     context = di.build_agent_scene_context(bundle, script)

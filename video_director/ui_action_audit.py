@@ -36,6 +36,13 @@ UI_ONLY_PREFIXES = (
     "cfVoiceModeSync(", "createPlatformSync(", "setCreateSource(",
     "createLoadDefaults(", "createEnhance(", "createAcceptEnhanced(",
     "edVoiceLoadOptions(",  # 数据装载
+    # 2026-10-25 创作要求面板（表单收集器：读 textarea → 后端 brief/retry 端点）
+    "directorLoadBrief(", "directorSaveBrief(", "directorRerunFromBrief(",
+    # 2026-10-25 创作流程窗口（进度视图切换/取消返回表单/预填装载）
+    "cfEnterProgressMode(", "cfCancelAndEdit(", "cfDismissProgress(", "cfPrefillFromProject(",
+    "cfStopCreation(",
+    # 2026-10-26 项目列表观看/停止创作进度（读 run → 步骤面板；停→cancel 端点）
+    "pmShowProgress(", "_pmRenderProgress(", "_pmStop(",
     # 表单收集器（读输入框 → 内部走 executeAction / 后端链）
     "editorApplyDuration(", "editorApplyTrim(", "editorApplySpeed(",
     "editorSetVisualTransform(", "editorAddKeyframe(", "editorRemoveKeyframe(",
@@ -45,9 +52,12 @@ UI_ONLY_PREFIXES = (
     "editorVerifyContinuity(", "editorOriginalAudioVolume(", "editorLayerOriginalVolume(",
     "editorMultiOriginalVolume(", "edVoicePreview(", "edVoiceFullPreview(",
     "edVoiceRegenerate(", "edVoiceReplaceUpload(", "edVoiceReplaceApply(",
-    "edVoiceTry(", "edLibAudioTry(", "edLibStockSearch(", "assetPickerStockSearch(",
+    "edVoiceTry(", "edVoiceApply(",  # 2026-10-21 音色应用（内部 executeAction('voice.change')）
+    "edLibAudioTry(", "edLibStockSearch(", "assetPickerStockSearch(",
     "assetPickerStockDownload(", "edLibOpenTemplate(", "instantiateTemplate(", "renderTemplateSample(",
     "pickerPreviewStage(", "pickerApply(", "pickerCancel(",
+    "editorExportFreeze(",  # 2026-10-21 定格导出（POST /api/export_freeze 收集器）
+    "edGenerateMetadata(",  # 2026-10-23 发布文案（内部 executeAction('delivery.generate_metadata')）
     "maskEditorSave(", "maskEditorCancel(", "maskEditorUndo(", "maskEditorRedo(",
     "editorToggleLock(", "editorRunMatting(", "editorRemoveKeyframe(",
     "editorApplyPip(", "editorRemovePip(", "editorPreviewMotionParam(",
@@ -69,7 +79,7 @@ UI_ONLY_PREFIXES = (
     # Inspector 表单收集器（读输入框收集 → 内部 executeAction）
     "editorApplyMask(", "editorSubtitleWhiteOnBlack(",
     # Library Picker 采用按钮（收集器：内部 executeAction）
-    "edLibApplyAsset(", "edLibAudioApply(",
+    "edLibApplyAsset(", "edLibAutoMatchBgm(", "edLibAudioApply(",
     # 项目域 ··· 菜单/发布变体/版本对比（UI 状态，无 Composition 业务）
     "pmRowMenu(", "publishVariants(", "verCompareSelected(",
     # ··· 菜单项 = pmCloseRowMenu() + 已白名单项目域动作（关闭浮层 + 委托）
@@ -149,6 +159,11 @@ def audit_ui() -> dict:
 
     report = {"pass": 0, "missing_action": [], "missing_executor": [],
               "orphan_button": [], "scanned_files": len(files)}
+    # §82 附注观测：前端直连 executeCommand( 的调用点分布（含定义处 commands.js 自身）。
+    # 纯增字段，不动 orphan_button / missing_action 语义——executeCommand 是
+    # 命令级 Action 通道（ActionSpec.command 直发），不是旁路，故不判违规，
+    # 只回答「命令级通道还被哪些模块在用」。
+    direct_command_callsites = {}
 
     # The film-document editor has its own document-transaction dispatcher. Its
     # action IDs are audited explicitly rather than exempted as inline onclicks.
@@ -198,6 +213,13 @@ def audit_ui() -> dict:
                 continue
             report["orphan_button"].append(f"{rel}: onclick={call[:60]}")
 
+        # §82 观测：本文件内 executeCommand( 调用点数（定义处 commands.js 自身也计入，
+        # 由文件名单列自解释，不做特判——统计全部静态调用点）
+        _n_cmd_calls = len(re.findall(r"executeCommand\(", src))
+        if _n_cmd_calls:
+            direct_command_callsites[rel] = _n_cmd_calls
+
+    report["direct_command_callsites"] = direct_command_callsites
     return report
 
 
@@ -210,6 +232,13 @@ def format_report(r: dict) -> str:
         lines.append(f"  {label}: {len(items)}")
         for x in items[:20]:
             lines.append(f"    - {x}")
+    # §82 附注观测（不影响 PASS/违规语义）：命令级 Action 通道调用点分布
+    callsites = r.get("direct_command_callsites") or {}
+    if callsites:
+        total = sum(callsites.values())
+        lines.append(f"  DIRECT_COMMAND_CALLSITES（§82 观测，非违规）: {len(callsites)} 文件 / {total} 处")
+        for f, n in sorted(callsites.items(), key=lambda kv: -kv[1])[:20]:
+            lines.append(f"    - {f}: {n}")
     return "\n".join(lines)
 
 

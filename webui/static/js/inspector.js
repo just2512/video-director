@@ -232,6 +232,31 @@ async function _loadMptSceneContext(sceneId){
         sourcePreference: candidate.source_preference || '',
       }).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#39;');
     }
+    // §七.2 契约展示：必须/禁止呈现要素（场景级，material_intents 透传）
+    const sceneShow = (intent.must_show || []).filter(function(x){ return x; });
+    const sceneNotShow = (intent.must_not_show || []).filter(function(x){ return x; });
+    const contractHtml = (sceneShow.length || sceneNotShow.length)
+      ? '<div style="margin:3px 0 6px;font-size:12px">' +
+        (sceneShow.length ? '<div>必须呈现：' + sceneShow.map(function(x){ return esc(x); }).join('、') + '</div>' : '') +
+        (sceneNotShow.length ? '<div>禁止呈现：' + sceneNotShow.map(function(x){ return esc(x); }).join('、') + '</div>' : '') +
+        '</div>'
+      : '';
+    // §二十六/二十七 依赖状态五态：本场景用到的 asset 若 MISSING/INVALID，展示告知+操作
+    const depStates = mpt.asset_dependency_states || [];
+    const stateCn = {SATISFIED:'依赖满足', MISSING:'素材缺失', REPLACED:'已替换', CHANGED:'已变更', INVALID:'损坏'};
+    const sceneAssetIds = usage.map(function(u){ return u.asset_id; });
+    const problemDeps = depStates.filter(function(d){
+      return sceneAssetIds.indexOf(d.asset_id) >= 0 &&
+        (d.state === 'MISSING' || d.state === 'INVALID');
+    });
+    const depStateHtml = problemDeps.length
+      ? '<div style="margin-top:5px;color:var(--danger,#c33);font-size:12px">依赖告警：' +
+        problemDeps.map(function(d){
+          return esc(d.asset_id) + ' ' + (stateCn[d.state]||d.state) + '（' + esc(d.reason||'') + '）' +
+            ' <button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">换素材</button>' +
+            ' <button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">重新上传</button>';
+        }).join('；') + '</div>'
+      : '';
     const candidateHtml = candidates.map(function(candidate){
       const selected = candidate.id === selectedCandidate;
       const sourceText = {
@@ -248,8 +273,12 @@ async function _loadMptSceneContext(sceneId){
         INTENT_ONLY: '方案已生成，待执行',
         APPLIED: '已采用',
         FAILED: '执行失败',
+        NEEDS_HUMAN: '需人工处理（所有自动生产路线失败，请在生成面板手动补位或换素材）',
+        FALLBACK_USED: '已用替代路线（首选路线未执行，见原因说明）',
       }[candidate.status] || candidate.status || '待执行';
-      const executeHtml = candidate.source_preference === 'stock'
+      // 镜头锁定（差距6 人工介入）：锁定后 AI 自动重算不碰该镜头
+      const lockHtml = '<button class="btn-secondary btn-sm" data-action="scene.lock" data-target="scene" data-params=\'{"locked": true}\' title="锁定后 AI 自动重算不改动该镜头">锁定镜头</button>';
+      const executeHtml = lockHtml + (candidate.source_preference === 'stock'
         ? '<button class="btn-secondary btn-sm" data-action="asset.search_stock" data-target="scene" data-params=\'' +
           JSON.stringify({query: (candidate.search_terms || [])[0] || ''}).replace(/&/g, '&amp;').replace(/'/g, '&#39;') + '\'>找素材</button>'
         : candidate.source_preference === 'generated'
@@ -258,7 +287,7 @@ async function _loadMptSceneContext(sceneId){
               prompt: candidate.generation_prompt || candidate.visual_intent || '',
               type: candidate.generation_type || 'image'
             }).replace(/&/g, '&amp;').replace(/'/g, '&#39;') + '\'>准备生成</button>'
-          : '<button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">选我的素材</button>';
+          : '<button class="btn-secondary btn-sm" data-action="ui.open_asset_picker">选我的素材</button>');
       return '<div style="border:1px solid ' + (selected ? 'var(--accent)' : 'var(--border)') +
         ';border-radius:6px;padding:8px;margin:6px 0;background:var(--panel)">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
@@ -277,8 +306,11 @@ async function _loadMptSceneContext(sceneId){
     }).join('');
     const windows = usage.length
       ? usage.map(function(u){
+          // §三十八 usage_index 展示：素材被消费的累计次数（MPT source-level usage）
+          const idx = (typeof u.usage_index === 'number' && u.usage_index >= 1)
+            ? ' · 使用：第' + u.usage_index + '次' : '';
           return esc(u.asset_id) + ' · ' + Number(u.source_in || 0).toFixed(1) + 's → ' +
-            Number(u.source_out || 0).toFixed(1) + 's';
+            Number(u.source_out || 0).toFixed(1) + 's' + idx;
         }).join('<br>')
       : '尚未形成 source-window 使用记录';
     box.innerHTML =
@@ -289,11 +321,13 @@ async function _loadMptSceneContext(sceneId){
       '<div style="margin:3px 0 6px">' + (terms || '<span class="hint">未记录</span>') + '</div>' +
       '<div>目标时长：' + Number(intent.target_duration || 0).toFixed(1) + 's' +
       ' · 单段上限：' + (intent.max_clip_duration ? Number(intent.max_clip_duration).toFixed(1) + 's' : '自动') + '</div>' +
+      contractHtml +
       '<div>策略：' + esc(intent.source_preference || 'user_first') +
       ' · ' + esc(intent.diversity_policy || 'prefer_unique_source') +
       ' · ' + esc(intent.reuse_policy || 'reuse_when_needed') + '</div>' +
       '<div style="margin-top:5px">实际消费：</div><div>' + windows + '</div>' +
-      (intent.selection_reason ? '<div style="margin-top:5px">选择依据：' + esc(intent.selection_reason) + '</div>' : '');
+      (intent.selection_reason ? '<div style="margin-top:5px">选择依据：' + esc(intent.selection_reason) + '</div>' : '') +
+      depStateHtml;
   } catch (e) {
     box.textContent = '素材依据暂不可读，不影响编辑。';
   }
@@ -310,6 +344,7 @@ function _sceneGenBox(sceneId){
             <option value="graphic">图形（程序化）</option>
             <option value="video">视频</option>
             <option value="motion">艺术动画</option>
+            <option value="sfx">音效（搜索）</option>
           </select>
           <select id="gen-grammar" style="width:150px;display:none"
                   onchange="onMotionGrammarChanged()"></select>
@@ -713,13 +748,14 @@ function editorVoiceOpen(){
     <b>配音</b>${voicesHtml}<span class="hint" id="ed-voice-status"></span></div>`);
   const host = document.getElementById('ed-voice-sel-host');
   if (host && !host.querySelector('select')) {
-    // §46 旁白操作面四按钮：试听 / 完整试听 / 重新生成 / 替换音频
+    // §46 旁白操作面：试听 / 完整试听 / 应用此音色 / 重新生成 / 替换音频
     host.innerHTML = `<div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
       <select id="ed-voice-sel" style="flex:1;min-width:120px"></select>
       <button class="btn-secondary btn-sm" onclick="edVoicePreview()" title="单句试听当前音色">试听</button>
       <button class="btn-secondary btn-sm" onclick="edVoiceFullPreview()" title="整段旁白合成试听">完整试听</button>
     </div>
     <div class="btn-row" style="margin-top:4px;flex-wrap:wrap">
+      <button class="btn-secondary btn-sm" onclick="edVoiceApply()" title="把下拉选中音色写入项目配音参数（应用后再重新生成旁白）">应用此音色</button>
       <button class="btn-secondary btn-sm" onclick="edVoiceRegenerate()" title="按当前音色重新生成全部旁白（渲染草稿后生效）">重新生成旁白</button>
       <button class="btn-secondary btn-sm" onclick="edVoiceReplaceUpload()" title="上传配音文件替换 AI 旁白（mp3/wav/m4a）">替换音频</button>
     </div>
@@ -734,6 +770,26 @@ function editorVoiceOpen(){
     edVoiceLoadOptions();
   }
   document.getElementById('ed-voice-panel').scrollIntoView({behavior: 'smooth', block: 'center'});
+}
+
+/**
+ * §46 应用此音色：把下拉选中值写回项目配音参数（Action 通路 voice.change）。
+ * 此前只有试听没有提交——下拉选了音色就静默丢失，重新生成旁白仍用旧音色。
+ * executeAction 内部已有 toast/失败提示，这里只补状态行的进度反馈。
+ */
+async function edVoiceApply(){
+  const sel = document.getElementById('ed-voice-sel');
+  const st = document.getElementById('ed-voice-status');
+  if (!ED.pid) { editorToast('先打开项目', true); return; }
+  if (!sel || !sel.value) { if (st) st.textContent = '先选音色'; return; }
+  const chosen = sel.value;
+  if (st) st.textContent = '正在应用音色……';
+  try {
+    await executeAction('voice.change', {voice_id: chosen}, 'project');
+    if (st) st.textContent = '已应用音色：' + chosen + '（重新生成旁白后生效）';
+  } catch (e) {
+    if (st) st.textContent = '应用失败：' + (e.message || e);
+  }
 }
 
 /** §46 重新生成旁白：换音色后点此 → WorkflowRun 重渲（真链路，非静默）。 */
@@ -1602,7 +1658,7 @@ Object.assign(window, {
   renderKeyframeList, editorAddKeyframe, editorRemoveKeyframe,
   maskShapeCn, editorApplyMask, editorRunMatting,
   editorToggleLock, uiInlineInput, _ensureInlineHost, editorAudioVolume,
-  edVoiceLoadOptions, edVoicePreview, editorOriginalAudio, editorOriginalAudioVolume,
+  edVoiceLoadOptions, edVoicePreview, edVoiceApply, editorOriginalAudio, editorOriginalAudioVolume,
   editorWatermarkAdd, editorWatermarkRemove, renderWatermarkList,
   editorWatermarkMove, editorWatermarkOpacity,
   editorSubtitleStyleApply, editorSubtitleGenerate, editorBgmVolume,

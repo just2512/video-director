@@ -637,8 +637,10 @@ def compose_project(
             logger.warning(f"QC 未过，进入修复轮 {repair_rounds}/{config.MAX_REPAIR_ROUNDS}")
             ir = _repair(ir, report, asset_map, order)
             # 修复后的 IR 必须重新校验再渲染（禁止带伤进渲染器）
+            # 预算与首轮校验（577 行）同源：修复不应改变转场上限语义
             recheck = validator.validate_composition(
-                ir, render_assets, narration_duration, subtitle_entries
+                ir, render_assets, narration_duration, subtitle_entries,
+                transition_budget=transition_budget,
             )
             if not recheck.ok:
                 _save_error(dirs, "VALIDATION_" + recheck.verdict.value,

@@ -425,6 +425,17 @@
         </div>
         <div id="director-plan-nodes" style="display:flex;gap:8px;overflow-x:auto;padding:8px 0 2px"></div>
         <div id="director-plan-detail" class="hint"></div>
+        <!-- 2026-10-25 用户报障：创作要求可见可改可重跑（弹窗关闭后要求不再消失） -->
+        <details style="margin-top:8px" id="director-brief-details">
+          <summary class="hint" style="cursor:pointer">我的创作要求（可修改后重新生成）</summary>
+          <div id="director-brief-warn" style="display:none;color:var(--danger,#c33);font-size:12px;margin-top:4px"></div>
+          <textarea id="director-brief-text" class="rev-input" style="width:100%;min-height:56px;margin-top:4px" placeholder="你的创作要求"></textarea>
+          <div class="btn-row" style="margin-top:4px">
+            <button class="btn-sm" onclick="directorSaveBrief()">保存要求</button>
+            <button class="btn-secondary btn-sm" onclick="directorRerunFromBrief()">按此要求重新创作</button>
+            <span class="hint" id="director-brief-status"></span>
+          </div>
+        </details>
       </div>
       <div id="director-control-grid" class="panel" style="padding:0"></div>
       <!-- AI Command Bar：当前对象的修改器（上下文行 + 输入 + 结果区） -->
@@ -512,8 +523,13 @@
       </div>
     </div>
     <div class="panel" style="margin-top:12px">
-      <b>配音来源</b> <span class="hint" id="voice-providers-line">检测中……</span>
-      <div class="hint">文本/视觉/生图模型在「模型」配置；这里显示当前实际可用的配音服务。</div>
+      <b>配音</b> <span class="hint">引擎：Edge TTS（免费）默认可用；Azure / ElevenLabs 在下方配置 Key 后音色库即出现其音色并可试听。</span>
+      <div id="tts-roles" style="margin-top:8px"></div>
+      <div class="btn-row" style="margin-top:6px">
+        <button class="btn-secondary btn-sm" onclick="saveModelConfig()">保存配音配置</button>
+        <button class="btn-secondary btn-sm" onclick="switchTab('editor'); edLibDomain('sound','voice')">去音色库试听</button>
+        <span class="hint" id="tts-save-status"></span>
+      </div>
     </div>
     <div class="panel" style="margin-top:12px">
       <b>素材（图库）</b>
@@ -528,7 +544,6 @@
     <div class="panel" style="margin-top:12px">
       <b>输出</b>
       <div class="hint">默认在「新建项目」里按次选择：画幅（9:16 / 16:9 / 1:1）· 分辨率（1080p / 4K）· 帧率（24 / 30 / 60）。</div>
-      <div class="hint" id="settings-output-defaults">—</div>
     </div>
     <div class="panel" style="margin-top:12px">
       <b>配置管理</b>
@@ -588,6 +603,7 @@
 <script src="/static/js/action-dispatcher.js"></script>
 <script src="/static/js/selection.js"></script>
 <script src="/static/js/preview.js"></script>
+<script src="/static/js/editor-live-audio.js"></script>
 <script src="/static/js/workspace.js"></script>
 <script src="/static/js/timeline.js"></script>
 <script src="/static/js/timeline-edit-math.js"></script>

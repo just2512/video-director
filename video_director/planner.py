@@ -123,6 +123,9 @@ class RulePlanner:
         if concat_mode == "random":
             asset_order = list(asset_order)
             random.Random(len(asset_order) * 1009 + len(scenes) * 917).shuffle(asset_order)
+            # MPT §4 _prioritize_unique_source_clips：按源文件分组，每源先取
+            # primary clip，剩余作 overflow 后置，降低同一源视频连续重复概率。
+            asset_order = self._prioritize_unique_source(asset_order, assets)
         scene_irs: List[SceneIR] = []
 
         # 素材全利用（用户诉求：上传 N 个素材全部进时间线）：
@@ -212,6 +215,39 @@ class RulePlanner:
         )
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _prioritize_unique_source(
+        asset_ids: List[str], assets: Dict[str, "AssetRef"]
+    ) -> List[str]:
+        """MPT §4 _prioritize_unique_source_clips：按源文件分组重排候选。
+
+        同一 source_file（AssetRef.file）的多个素材：每源先取一个 primary，
+        剩余作 overflow 后置。效果：random 模式下相邻场景命中的源尽量不同，
+        避免「30s 长视频切成多段后被 random 反复取中同一源」的连续重复。
+        无 file 字段或全唯一时退化为原序（不改变行为）。
+        """
+        if not asset_ids:
+            return asset_ids
+        groups: Dict[str, List[str]] = {}
+        order: List[str] = []  # 首次出现的源顺序（稳定）
+        for aid in asset_ids:
+            ref = assets.get(aid)
+            src = (getattr(ref, "file", None) or aid) if ref else aid
+            if src not in groups:
+                groups[src] = []
+                order.append(src)
+            groups[src].append(aid)
+        # 每源只一个 → 已天然分散，无需重排
+        if len(groups) == len(asset_ids):
+            return list(asset_ids)
+        primary: List[str] = []
+        overflow: List[str] = []
+        for src in order:
+            members = groups[src]
+            primary.append(members[0])
+            overflow.extend(members[1:])
+        return primary + overflow
+
     @staticmethod
     def _candidates(scene_index: int, asset_order: List[str]) -> List[str]:
         """场景素材候选（V1 §16 优先级：场景对应 → 相邻 ±1/±2）。"""

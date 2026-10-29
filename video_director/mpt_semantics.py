@@ -50,6 +50,10 @@ class MaterialIntent:
     diversity_policy: str = "prefer_unique_source"
     selection_reason: str = ""
     selected_asset_id: str = ""
+    # §七.2 场景级生产契约（2026-10-23 落地）：镜头存在理由 + 必须/禁止呈现
+    purpose: str = ""
+    must_show: tuple[str, ...] = ()
+    must_not_show: tuple[str, ...] = ()
 
 def _parse_pause_value(raw: Optional[str]) -> Optional[float]:
     if raw is None or not raw.strip():
@@ -158,6 +162,19 @@ def build_material_intent(
     text = remove_pause_markup(str(scene.get("text") or ""))
     duration = float(scene.get("duration") or 0.0)
     terms = normalize_search_terms(search_terms, text, amount=8)
+    # §七.2 场景级生产契约三字段：LLM/rule 落在 scene_plan，这里清洗透传，
+    # 供 material_intents.json 交接面（总导演↔素材生成↔审核）可见。
+    purpose = str(scene.get("purpose") or "").strip()[:200]
+    must_show = [
+        str(x or "").strip()[:100] for x in (scene.get("must_show") if
+                                             isinstance(scene.get("must_show"), (list, tuple)) else [])
+        if str(x or "").strip()
+    ]
+    must_not_show = [
+        str(x or "").strip()[:100] for x in (scene.get("must_not_show") if
+                                             isinstance(scene.get("must_not_show"), (list, tuple)) else [])
+        if str(x or "").strip()
+    ]
     return MaterialIntent(
         scene_id=scene_id,
         text=text,
@@ -167,6 +184,9 @@ def build_material_intent(
         source_preference=source_preference,
         selected_asset_id=selected_asset_id,
         selection_reason=selection_reason,
+        purpose=purpose,
+        must_show=tuple(must_show),
+        must_not_show=tuple(must_not_show),
     )
 
 def material_usage_from_ir(ir: Any) -> List[MaterialUsage]:
@@ -194,6 +214,39 @@ def material_usage_from_ir(ir: Any) -> List[MaterialUsage]:
                 usage_index=index,
             ))
     return out
+
+# ---------------------------------------------------------------------------
+# §四十#2 PlayableSegment / #4 VariantSet 语义映射（裁决：不硬造新对象，
+# 记录已有能力到契约，杜绝「看到 image layer 就以为与 video layer 同语义」
+# 的假一致性）。这两个函数是纯映射契约，供 Inspector / 未来计时轴消费，
+# 不引入新的 IR 类型。
+# ---------------------------------------------------------------------------
+
+_PLAYABLE_KIND_BY_LAYER = {
+    "video": "video",        # speed/source_in/out 完整消费语义（等价 MPT clip）
+    "image": "image",        # image layer：renderer 内 slow_zoom 才成可播放段
+    "generated": "generated",  # 生成产物（图/视频），落地后归 video/image 层
+}
+
+_VARIANT_KIND_BY_STAGE = {
+    # MPT VariantSet =「一个创意 → 多个完整变体各自产物」；当前真实等价物是
+    # 生成阶段的 A/B/C media variant（generation.py）——scene 级创作候选
+    # （creative_candidates.py）是「表达方式」变体，不是「完整产物」变体。
+    # 诚实边界：无跨阶段 VariantSet 结构；映射记录两级变体的真实归属。
+    "generation": "media_variant",       # A/B/C：一个 prompt → 3 视觉变体
+    "creative_candidate": "creative_variant",  # 一个场景 → 3 表达方式候选
+}
+
+
+def playable_segment_kind(layer_type: str) -> str:
+    """§四十#2 层类型 → 可播放段语义键（纯映射，不造 PlayableSegment 类）。"""
+    return _PLAYABLE_KIND_BY_LAYER.get(str(layer_type or "").lower(), "unknown")
+
+
+def variant_set_kind(stage: str) -> str:
+    """§四十#4 变体阶段 → 变体语义键（纯映射，不造 VariantSet 类）。"""
+    return _VARIANT_KIND_BY_STAGE.get(str(stage or "").lower(), "unknown")
+
 
 def build_artifact_fingerprint(parts: Mapping[str, Any]) -> str:
     def stable(v: Any) -> Any:
@@ -253,6 +306,10 @@ def material_intent_snapshot(
             "diversity_policy": i.diversity_policy,
             "selected_asset_id": i.selected_asset_id,
             "selection_reason": i.selection_reason,
+            # §七.2 契约透传：交接面（素材生成/审核 Agent）可见
+            "purpose": i.purpose,
+            "must_show": list(i.must_show),
+            "must_not_show": list(i.must_not_show),
             "selected_candidate_id": selected_candidate,
             "candidates": [dict(x) for x in candidates if isinstance(x, Mapping)],
         })

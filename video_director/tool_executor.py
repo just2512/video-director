@@ -78,6 +78,10 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
             return _execute_music_match(project_id)
         if _is_content(tool):
             return _execute_content(project_id, tool, payload, target_id)
+        if _is_tts_voice(tool):
+            return _execute_tts_voice(project_id, tool, payload)
+        if _is_delivery_metadata(tool):
+            return _execute_delivery_metadata(project_id, tool, payload)
         return _execute_editor_command(project_id, tool, payload, target_id)
     except ToolExecutorError as exc:
         return _result(tool, False, exc.code, error=str(exc))
@@ -153,9 +157,26 @@ _RENDER = {"render.draft", "render.final"}
 #: §37/§57 项目管理能力（Variant 快照 / 重开 / 保存）
 _PROJECT_MGMT = {"version.create", "project.reopen", "project.save", "project.create"}
 
+# 音色应用（写项目级参数，非编辑域命令）——必须走 _execute_tts_voice，
+# 不能落到 _execute_editor_command（那里按 _COMMAND_MAP 查表会 KeyError）。
+_TTS_VOICE = {"tts.set_voice"}
+# 发布文案生成（读项目文案 → LLM 一次生成 title/description/tags）——
+# 同样不是编辑域命令，必须走 _execute_delivery_metadata。曾长期占位：
+# capability 误指 system.capabilities.list，Agent/前端调它只拿到能力列表、
+# 返回 ok=True 却什么都没生成——比静默丢失更糟的假成功。
+_DELIVERY_METADATA = {"delivery.generate_metadata"}
+
 _CONTENT = {"content.generate_script", "content.rewrite_script"}
 
 _VERIFY = {"timeline.verify", "audio.verify", "asset.verify", "render.verify", "composition.verify"}
+
+
+def _is_tts_voice(tool: str) -> bool:
+    return tool in _TTS_VOICE
+
+
+def _is_delivery_metadata(tool: str) -> bool:
+    return tool in _DELIVERY_METADATA
 
 
 def _is_verify(tool: str) -> bool:
@@ -197,6 +218,147 @@ def _is_content(tool: str) -> bool:
 def _result(tool: str, ok: bool, status: str, result=None, error=None, verify=None) -> dict:
     return {"tool": tool, "ok": ok, "status": status,
             "result": result or {}, "error": error, "verify": verify or {}}
+
+
+def _execute_tts_voice(project_id: str, tool: str, payload: dict) -> dict:
+    """应用音色：写 projects.params_json["voice"]。
+
+    音色是渲染期参数（workflow_run 读 params_json.voice 组 NarrationConfig），
+    不住 Composition IR，因此不能走 editor 命令域。
+    此前 voice.change 的 capability 误指只读的 tts.list_voices，前端
+    「应用音色」只拿到音色列表、返回 ok=True 却什么都没落盘——比
+    「选择静默丢失」更糟的假成功。
+    """
+    from video_director import store as store_mod
+    from video_director.voice import list_voices, make_narration_config
+
+    voice_id = str(payload.get("voiceId") or payload.get("voice_id") or "").strip()
+    if not voice_id:
+        return _result(tool, False, "MISSING_REQUIREMENT",
+                       error="缺 voiceId（要应用的音色）")
+    # 音色必须真实存在：假 id 写进去只会在渲染期才炸（更晚、更难查）
+    known = {str(v.get("voiceId") or v.get("id") or "")
+             for v in list_voices()}
+    if voice_id not in known:
+        return _result(tool, False, "VOICE_NOT_FOUND",
+                       error=f"音色 {voice_id!r} 不在可用列表中")
+    # 读-改-写：只动 voice 键，其余 params 原样保留
+    params = store_mod.read_project_params(project_id)
+    params["voice"] = voice_id
+    store_mod.write_project_params(project_id, params)
+    logger.info(f"tool_executor: {project_id} 配音音色 → {voice_id}")
+    cfg = make_narration_config(voice=voice_id)
+    return _result(tool, True, "OK",
+                   result={"voice": voice_id, "narration_config": cfg.to_dict()})
+
+
+def _execute_delivery_metadata(project_id: str, tool: str, payload: dict) -> dict:
+    """发布文案：读项目 script/scene 文本 → LLM 一次生成 title/description/tags。
+
+    输入 project_id（payload 或 tool_call 已带），输出三字段：
+      {"title": str, "description": str, "tags": [str, ...]}
+    写 projects.params_json["delivery_metadata"]（发布期参数，不住 IR，
+    与 tts.set_voice 的 params_json.voice 同构）。
+
+    LLM 不可用/调用失败/解析失败 → 诚实降级（ok=False + 稳定 code），
+    不返回假成功、不用空串伪装已生成。
+    """
+    import json as _json
+
+    from video_director import config as _cfg
+    from video_director import llm_provider
+    from video_director import store as store_mod
+
+    base = _cfg.project_dir(project_id)
+    # 1) 文案来源：优先 script.txt（用户脚本），回落 scenes.json 的旁白文本
+    script = ""
+    script_path = base / "input" / "script.txt"
+    if script_path.is_file():
+        script = script_path.read_text(encoding="utf-8", errors="replace").strip()
+    if not script:
+        scenes_path = base / "plans" / "scenes.json"
+        if scenes_path.is_file():
+            try:
+                scenes = _json.loads(scenes_path.read_text(encoding="utf-8"))
+                script = " ".join(
+                    str(s.get("text") or "") for s in scenes if s.get("text")).strip()
+            except Exception as exc:  # noqa: BLE001 读坏不猜，继续走缺文案分支
+                logger.info(f"delivery_metadata: scenes.json 读取失败: {exc}")
+    if not script:
+        return _result(tool, False, "MISSING_REQUIREMENT",
+                       error="项目还没有可用的文案（script.txt 与 scenes.json 均为空）")
+
+    # 2) LLM 可用性：无 key → 诚实降级（不生成、不伪造）
+    try:
+        provider = llm_provider.get_llm()
+    except Exception as exc:  # noqa: BLE001 构造期异常同等于不可用
+        logger.warning(f"delivery_metadata: LLM 获取失败，降级: {exc}")
+        provider = None
+    if provider is None:
+        return _result(tool, False, "METADATA_LLM_UNAVAILABLE",
+                       error="未配置文本大模型，无法生成发布文案（配置后重试）")
+
+    # 3) 一次调用生成三字段（JSON 契约，禁止 LLM 输出解释/markdown 代码块）
+    system = (
+        "你是短视频发布文案撰写器。根据给定文案，只输出一个 JSON 对象，"
+        '键为 "title"（20 字以内标题，不带标号/话题前缀）、'
+        '"description"（100 字以内简介，口语化，不含链接）、'
+        '"tags"（5-8 个话题标签字符串，不带 # 号）。'
+        "不要输出解释，不要输出 markdown 代码块。"
+    )
+    prompt = "视频文案：\n" + script[:2000]
+    try:
+        raw = provider.generate(prompt, system=system)
+    except Exception as exc:  # noqa: BLE001 网络/限额等一律降级
+        logger.warning(f"delivery_metadata: LLM 调用失败，降级: {exc}")
+        return _result(tool, False, "METADATA_LLM_UNAVAILABLE",
+                       error=f"大模型调用失败，无法生成发布文案：{str(exc)[:120]}")
+
+    # 4) 解析：去 fence → {…} 切片 → json.loads（与 director_intent 同构）
+    raw = (raw or "").strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+        raw = raw.rsplit("```", 1)[0]
+    raw = raw.strip()
+    start, end = raw.find("{"), raw.rfind("}")
+    if start < 0 or end <= start:
+        logger.warning(f"delivery_metadata: LLM 返回非 JSON（前80字符）: {raw[:80]}")
+        return _result(tool, False, "METADATA_PARSE_FAILED",
+                       error="大模型返回的不是 JSON，未能解析出发布文案")
+    try:
+        parsed = _json.loads(raw[start:end + 1])
+    except (ValueError, TypeError):
+        logger.warning(f"delivery_metadata: JSON 解析失败（前80字符）: {raw[:80]}")
+        return _result(tool, False, "METADATA_PARSE_FAILED",
+                       error="大模型返回的 JSON 无法解析，未能生成发布文案")
+    if not isinstance(parsed, dict):
+        return _result(tool, False, "METADATA_PARSE_FAILED",
+                       error="大模型返回不是 JSON 对象，未能生成发布文案")
+
+    # 5) 字段清洗：类型不对/缺失 → 降级，不用空串掩盖
+    title = str(parsed.get("title") or "").strip()
+    description = str(parsed.get("description") or "").strip()
+    tags_raw = parsed.get("tags")
+    tags = ([str(t).lstrip("#").strip() for t in tags_raw
+             if str(t).strip()] if isinstance(tags_raw, list) else [])
+    if not title:
+        return _result(tool, False, "METADATA_PARSE_FAILED",
+                       error="大模型返回缺少 title 字段，未能生成发布文案")
+    metadata = {"title": title, "description": description, "tags": tags}
+
+    # 6) 落盘（读-改-写，只动 delivery_metadata 键）
+    params = store_mod.read_project_params(project_id)
+    params["delivery_metadata"] = metadata
+    try:
+        store_mod.write_project_params(project_id, params)
+    except Exception as exc:  # noqa: BLE001 落盘失败要报，不能假装已保存
+        logger.warning(f"delivery_metadata: params 落盘失败: {exc}")
+        return _result(tool, False, "METADATA_PERSIST_FAILED",
+                       error=f"文案已生成但保存失败：{str(exc)[:120]}")
+    logger.info(f"tool_executor: {project_id} 发布文案已生成（title={title[:20]}…）")
+    return _result(tool, True, "OK",
+                   result={"artifactType": "DeliveryMetadata",
+                           "metadata": metadata})
 
 
 def _execute_editor_command(project_id: str, tool: str, payload: dict, target_id) -> dict:
@@ -395,11 +557,32 @@ def _execute_material_motion(project_id: str, tool: str, payload: dict, target_i
 
 def _execute_generation(project_id: str, tool: str, payload: dict, target_id) -> dict:
     """生成域能力：统一走 generation.generate（§28 单一 Generation Provider）。"""
+    # 差距 2a：generation.sfx 没有合成音 provider（generation.py 诚实不可用），
+    # 但 openverse_sfx 有真实搜索+下载+入库链（freesound CC0，免 Key）。
+    # sfx 走这条已上生产链的通道实现「搜索音效」，不伪造 AI 生成；
+    # 网络/限频失败如实报错，前端文案明确写「搜索」不写「AI 生成」。
+    if tool == "generation.sfx":
+        return _execute_sfx_search(project_id, payload)
     from video_director import generation as gen
     gen_type = tool.split(".")[-1]  # image / video / sfx / music
     prompt = payload.get("prompt", "")
     if not prompt:
         raise ToolExecutorError("INVALID_PAYLOAD", "generation 缺 prompt")
+    # §十八 付费 Provider 确认门禁：video/image 生成产生真实费用，
+    # payload 未带 confirmed=True 时拒绝调用，前端须先获用户「本镜头需付费
+    # 视频生成」确认。未配置 provider 时由下方 gen.generate 诚实报错，
+    # 这里只拦「已配置但未确认」的付费调用。
+    if gen_type in ("image", "video"):
+        try:
+            from video_director import provider_matrix
+            st = provider_matrix.state(gen_type, f"{gen_type}.generate")
+            if st.status == "READY" and st.is_paid and not payload.get("confirmed"):
+                return _result(tool, False, "NEEDS_CONFIRMATION",
+                               error=f"本镜头需付费{gen_type}生成，请先确认后再执行",
+                               result={"requires_confirmation": True,
+                                       "operation": f"{gen_type}.generate"})
+        except Exception:
+            pass  # provider_matrix 不可用时不阻塞既有生成链
     try:
         results = gen.generate(
             project_id, prompt, gen_type=gen_type,
@@ -446,6 +629,54 @@ def _execute_generation(project_id: str, tool: str, payload: dict, target_id) ->
                            error=f"生成成功，但采用到时间线失败：{exc}")
     return _result(tool, True, "APPLIED",
                    result={"results": records, "adopted": adopted})
+
+
+def _execute_sfx_search(project_id: str, payload: dict) -> dict:
+    """差距 2a：音效「生成」→ Openverse CC0 真实搜索下载入库（诚实边界）。
+
+    系统没有音效合成 provider（generation.py SUPPORTED_TYPES 不含 sfx），
+    这里的实现是搜索（freesound CC0，免 Key），不是 AI 生成——前端/Agent
+    声明一律写「搜索音效」。查询词走 payload.prompt（如「whoosh 转场」），
+    语义类别映射沿用 openverse_sfx.CATEGORY_QUERY（whoosh/impact/click），
+    命中已知类别词时走 ensure_sfx_for_category 的既有入库链。
+    """
+    from video_director import openverse_sfx as ov
+    prompt = str(payload.get("prompt") or "").strip()
+    if not prompt:
+        return _result("generation.sfx", False, "INVALID_PAYLOAD",
+                       error="搜索音效缺关键词（prompt）")
+    # 提示词 → 已知语义类别（英文类别词直接命中；中文提示词原样作为自由查询
+    # 交给 search_sfx——Openverse 索引以英文为主，中文无结果时诚实报无结果）
+    lowered = prompt.lower()
+    category = None
+    for known in ov.CATEGORY_QUERY:
+        if known in lowered:
+            category = known
+            break
+    matched_id = None
+    try:
+        if category:
+            matched_id = ov.ensure_sfx_for_category(category)
+        else:
+            candidates = ov.search_sfx(prompt)
+            usable = [c for c in candidates
+                      if c["duration_sec"] is None or 0.2 <= c["duration_sec"] <= 15.0]
+            for cand in (usable or candidates)[:3]:
+                # 自由查询没有语义类别，category 位置放提示词首词作 manifest tag
+                tag = (prompt.split()[0] if prompt.split() else "sfx")[:20]
+                matched_id = ov.download_sfx(cand, tag)
+                if matched_id:
+                    break
+    except ov.OpenverseError as exc:
+        return _result("generation.sfx", False, "SFX_SEARCH_UNAVAILABLE",
+                       error=f"音效搜索不可用（免 Key 限频/网络）：{exc}")
+    if not matched_id:
+        return _result("generation.sfx", False, "NO_RESULT",
+                       error=f"未搜到可用 CC0 音效：{prompt}")
+    return _result("generation.sfx", True, "APPLIED",
+                   result={"asset_id": matched_id, "query": prompt,
+                           "searched": True, "note": "来自 Openverse/freesound CC0 搜索，非 AI 合成"},
+                   verify={"ok": True, "note": f"音效已入库：{matched_id}"})
 
 
 def _execute_render(project_id: str, tool: str, payload: dict, target_id) -> dict:

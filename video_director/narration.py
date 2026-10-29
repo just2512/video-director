@@ -301,6 +301,122 @@ def _write_concat_list(audio_paths: List[str], work_dir: Path) -> str:
     return list_file
 
 
+def apply_duration_budget(
+    audio_path: str,
+    word_timeline: List[dict],
+    narration_scenes: List[dict],
+    work_dir: Path,
+    intent_duration: str,
+) -> Tuple[str, List[dict], List[dict], List[str]]:
+    """意图时长预算填充（方案节点 08「时间计算程序检查总时长 vs 目标」的执行点）。
+
+    旁白时间轴是全链唯一主时间轴：scene.duration 照抄这里，planner 再把素材
+    拉伸去填满它。所以「40 秒以上只给 38 秒」的根修点在此——文案 LLM 只收到
+    prompt 提示（ director_agent._tool_script 的 duration_hint），念完就短；
+    这里按真实 TTS 时长做确定性补足：
+
+    - ``N+``（下限）且实际 < N：缺口均摊到各场景 duration，旁白尾部补静音
+      （ffmpeg apad）。planner 随后自动拉伸素材填满建长后的 target，成片即达标。
+    - ``N-``（上限）：TTS 无法压缩已有音频——不缩，返回缺口供上游诚实警告。
+    - 精确目标 ``N``：仅在下限时向上补齐（宁长勿短同理不缩）。
+    - 未提供意图：原样返回，不改变任何时间轴。
+
+    返回 (audio_path, word_timeline, narration_scenes, warnings)。
+    """
+    warnings: List[str] = []
+    s = str(intent_duration or "").strip()
+    if not s:
+        return audio_path, word_timeline, narration_scenes, warnings
+    floor = ceil = None
+    if s.endswith("+"):
+        floor = float(s[:-1])
+    elif s.endswith("-"):
+        ceil = float(s[:-1])
+    else:
+        try:
+            target = float(s)
+        except ValueError:
+            warnings.append(f"目标时长无法解析: {s}（忽略时长预算）")
+            return audio_path, word_timeline, narration_scenes, warnings
+        floor = ceil = target
+    total = sum(float(sc.get("duration") or 0.0) for sc in narration_scenes)
+    if not narration_scenes or total <= 0:
+        return audio_path, word_timeline, narration_scenes, warnings
+
+    # 上限超了：无法压缩，诚实警告（交上游转用户提示），不动时间轴。
+    if ceil is not None and total > ceil + 0.5:
+        warnings.append(
+            f"成片总时长 {total:.1f}s 超过目标上限 {ceil:.0f}s；旁白音频已合成无法压缩，"
+            f"如需更短请精简文案后重新生成"
+        )
+        return audio_path, word_timeline, narration_scenes, warnings
+
+    # 下限不足：均摊缺口补足（下限模式 floor=N, ceil=None；精确模式 floor=ceil=N
+    # 只在下限不足时进入本分支，向上补齐）。
+    if floor is not None and total < floor - 0.5:
+        gap = floor - total
+        per = gap / len(narration_scenes)
+        # 填充前先按旧时间轴记录每个词的场景归属（改 start 后再归属会错位）
+        old_starts = {sc["id"]: float(sc.get("start") or 0.0) for sc in narration_scenes}
+        scene_of_word = {}
+        for w in word_timeline:
+            best = narration_scenes[0]["id"]
+            for sc in narration_scenes:
+                if w["start"] >= old_starts[sc["id"]] - 0.001:
+                    best = sc["id"]
+            scene_of_word[id(w)] = best
+        cursor = 0.0
+        for sc in narration_scenes:
+            sc["duration"] = round(float(sc.get("duration") or 0.0) + per, 3)
+            sc["start"] = round(cursor, 3)
+            cursor += sc["duration"]
+        # 词级时间轴同步：场景内偏移不变（补的是场景尾部静音，音频内容没动），
+        # 全局 start = 新场景起点 + 原场景内偏移。
+        scene_start_by_id = {sc["id"]: sc["start"] for sc in narration_scenes}
+        for w in word_timeline:
+            sid = scene_of_word.get(id(w))
+            if sid:
+                offset_in_scene = w["start"] - old_starts[sid]
+                new_scene_start = scene_start_by_id[sid]
+                w["start"] = round(new_scene_start + offset_in_scene, 3)
+                span = w["end"] - w["start"]
+                w["end"] = round(w["start"] + span, 3)
+        # 旁白尾部补静音到新总长
+        from video_director import renderer
+        new_total = cursor
+        renderer._run([
+            renderer._ffmpeg(), "-y", "-loglevel", "error",
+            "-i", audio_path,
+            "-af", f"apad=whole_dur={new_total:.3f}",
+            "-c:a", "libmp3lame", "-b:a", "128k",
+            str(Path(audio_path).with_suffix(".padded.mp3")),
+        ])
+        padded = str(Path(audio_path).with_suffix(".padded.mp3"))
+        if Path(padded).is_file() and Path(padded).stat().st_size > 1024:
+            import shutil
+            shutil.move(padded, audio_path)
+        else:
+            warnings.append("时长补足静音段写入失败，成片可能仍短于目标（时长 QC 会拦截）")
+            return audio_path, word_timeline, narration_scenes, warnings
+        warnings.append(
+            f"按目标时长已自动补足 {gap:.1f}s（尾部静音由画面/音乐填充），成片总长 {new_total:.1f}s"
+        )
+        return audio_path, word_timeline, narration_scenes, warnings
+    return audio_path, word_timeline, narration_scenes, warnings
+
+
+def _scene_id_for_offset(offset: float, narration_scenes: List[dict]) -> str:
+    """旧偏移→场景 id 前驱归属（apply_duration_budget 主路径已内联同逻辑，
+    此辅助保留供测试直接验证归属规则）。"""
+    if not narration_scenes:
+        return ""
+    best = narration_scenes[0]["id"]
+    for sc in narration_scenes:
+        if offset >= float(sc.get("start") or 0.0) - 0.001:
+            best = sc["id"]
+    return best
+
+
 def estimate_word_timeline(scene_texts: List[str], scene_durations: List[float]) -> List[dict]:
     """Gate 1 无 TTS 时的词级估算（供字幕/对齐兜底），按场景字数比例分布。"""
     words = []

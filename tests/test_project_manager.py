@@ -120,16 +120,16 @@ class TestListIndex:
         assert orphan["status"] == "UNKNOWN"
         assert orphan["editable"] is False
 
-    def test_active_job_delete_rejected_in_actions(self):
-        # §四（PR #5 后）：WorkflowRun=运行态事实源。stage 活跃 + 真实 RUNNING run
-        # 才算活跃任务；只有 stage 没有对应 run = 中断残留（不再误锁删除）。
+    def test_active_job_delete_always_available(self):
+        # 2026-10-26 用户裁决契约翻转：任何状态无条件可删——RUNNING 也不在
+        # 前端禁用删除按钮（delete 内部先自动取消再删）。
         from video_director import workflow_run as vd_wf
         _mk_project("web-run-01", stage="RENDERING")
         vd_wf.start_run("compose", project_id="web-run-01", steps=["render"])
         idx = {p["project_id"]: p for p in pm.list_index()}
         p = idx["web-run-01"]
         assert p["active_job"] is True
-        assert p["actions"]["delete"] is False  # §5 RUNNING：删除禁用
+        assert p["actions"]["delete"] is True  # 用户裁决：无条件可删
         assert p["actions"]["open"] is True     # 可查看进度
         # stage 活跃但 run 已终态（服务重启收敛后）→ 已中断，可删
         _mk_project("web-run-02", stage="RENDERING")
@@ -253,16 +253,17 @@ class TestDelete:
         assert all(v.values()), f"删除后残留: {v}"
         assert store.jobs_of_project(pid) == []
 
-    def test_delete_active_job_rejected(self):
-        # §四：删除保护的依据是真实 RUNNING WorkflowRun（不是 stage 快照）
+    def test_delete_active_job_auto_cancels_then_deletes(self):
+        # 2026-10-26 用户裁决契约翻转：RUNNING 项目的删除不再 REJECT——
+        # delete 内部先 request_cancel（≤3s 等收口）再删。孤儿 run 线程
+        # 收口时发现项目已删自然结束。§60 禁止 4 仍成立：删除是全序操作。
         from video_director import workflow_run as vd_wf
         _mk_project("web-del-run", stage="TTS")
         vd_wf.start_run("compose", project_id="web-del-run", steps=["narration"])
-        with pytest.raises(ProjectActionError) as e:
-            pm.delete("web-del-run")
-        assert e.value.code == "ACTIVE_JOB"
-        # §60 禁止 4：REJECT 后项目原样（未删半截）
-        assert store.get_project("web-del-run") is not None
+        r = pm.delete("web-del-run")
+        assert r["ok"] is True
+        # 删除完成后项目与目录全清
+        assert store.get_project("web-del-run") is None
 
     def test_delete_path_traversal_rejected(self):
         for evil in ("../evil", "..\\evil", "a/b/c", "x" * 65, ""):

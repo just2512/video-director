@@ -53,6 +53,33 @@ import queue as _queue_mod
 #: 全局 SSE 事件队列（多订阅者各持一个 Queue；无订阅者时事件即丢，不积压）
 _SSE_SUBSCRIBERS: list = []
 _SSE_LOCK = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# §82 Action 通路统一治理：命令级 Action 通道计数（后端视角）
+# ---------------------------------------------------------------------------
+#: 前端 executeCommand（= ActionSpec.command 直发）经 /api/editor/command 落到此处的
+#: 进程级计数。回答「哪些 command 通道在被谁用」，与前端 window.__cmdChannelStats
+#: 同源不同侧：前端是窗口级快照，这里是进程级累计。只观测，不拦截，不影响写路径。
+_CMD_CHANNEL_STATS: dict = {"total": 0, "byCommand": {}}
+_CMD_CHANNEL_LOCK = threading.Lock()
+
+
+def _bump_command_stat(cmd) -> None:
+    """命令通道计数 +1（byCommand 按 command 名分桶）。线程安全，永不抛错。"""
+    key = cmd if isinstance(cmd, str) and cmd else "unknown"
+    with _CMD_CHANNEL_LOCK:
+        _CMD_CHANNEL_STATS["total"] += 1
+        _CMD_CHANNEL_STATS["byCommand"][key] = (
+            _CMD_CHANNEL_STATS["byCommand"].get(key, 0) + 1)
+
+
+def _command_stats() -> dict:
+    """计数快照副本（调用方改动不影响内部状态）。"""
+    with _CMD_CHANNEL_LOCK:
+        return {"total": _CMD_CHANNEL_STATS["total"],
+                "byCommand": dict(_CMD_CHANNEL_STATS["byCommand"])}
+
+
 # §23/§46 前端 Selection 上报（Command Bar 上下文；单机单用户内存态）
 _DIRECTOR_SELECTION: dict = {}
 
@@ -1784,12 +1811,37 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_bytes(data, "audio/mpeg")
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/voice/voices":
+            # 2026-10-26：多 provider 音色目录（按 provider 拉；缺 key 返回空）
+            qs = parse_qs(parsed.query)
+            provider = (qs.get("provider", [""]) or [""])[0] or "edge-tts"
+            try:
+                from video_director import voice as vd_voice
+                self._send_json({"voices": vd_voice.list_voices(provider)})
+            except Exception as exc:
+                self._send_json({"error": str(exc)[:200]}, 500)
         elif route == "/api/voice_preview":
-            # 配音试听：?voice=zh-CN-XiaoxiaoNeural → edge-tts 合成固定短句（缓存）
+            # 配音试听：?voice=…&provider=edge-tts|azure|elevenlabs
+            # 2026-10-26 用户裁决：多 provider 可配可试听。edge-tts 走原缓存链；
+            # azure/elevenlabs 走 voice.synth_preview 真实 REST 执行器。
             qs = parse_qs(parsed.query)
             voice = qs.get("voice", [""])[0]
+            provider = (qs.get("provider", [""]) or [""])[0] or "edge-tts"
             if not voice:
                 self._send_json({"error": "缺少 voice"}, 400)
+                return
+            if provider not in ("edge-tts", "azure", "elevenlabs"):
+                self._send_json({"error": f"未知配音供应商 {provider}"}, 400)
+                return
+            if provider != "edge-tts":
+                try:
+                    from video_director import voice as vd_voice
+                    data = vd_voice.synth_preview(provider, voice, "这是一段配音试听，检查音色是否合适。")
+                    if not data:
+                        raise RuntimeError("合成产物为空")
+                    self._send_bytes(data, "audio/mpeg")
+                except Exception as exc:
+                    self._send_json({"error": f"试听失败: {str(exc)[:200]}"}, 502)
                 return
             cache_dir = COMPOSER_ROOT / "voice_previews"
             cache_dir.mkdir(parents=True, exist_ok=True)
@@ -1837,6 +1889,10 @@ class Handler(BaseHTTPRequestHandler):
                 } for r in results])
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/action_channel_stats":
+            # §82 命令级 Action 通道计数（后端视角）。只读观测端点：
+            # 与前端 window.__cmdChannelStats 同源不同侧（进程级累计 vs 窗口级快照）。
+            self._send_json(_command_stats())
         elif route == "/api/capabilities":
             try:
                 caps = vd_caps.registry()
@@ -1960,6 +2016,9 @@ class Handler(BaseHTTPRequestHandler):
                     "draft_path": str(draft) if draft else "",
                     "draft_exists": draft is not None,
                     "final_path": str(final) if final else "",
+                    # final_exists 是前端/消费者依赖的显式布尔（此前缺失，
+                    # 只能靠 final_path 非空推断——幽灵字段，2026-10-20 补齐）
+                    "final_exists": final is not None,
                 })
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
@@ -2013,6 +2072,29 @@ class Handler(BaseHTTPRequestHandler):
                 script_file = pdir / "input" / "script.txt"
                 if script_file.is_file():
                     detail["script"] = script_file.read_text(encoding="utf-8")[:2000]
+                # 2026-10-21 指纹核查补落地：intent_report.json 落盘后必须有
+                # 用户可见出口——「系统如实告知」不能只活在文件里。详情抽屉
+                # 消费 warnings + intent_fields（缺失=旧项目/未跑导演链，不显示）。
+                intent_file = pdir / "plans" / "intent_report.json"
+                if intent_file.is_file():
+                    try:
+                        irpt = json.loads(intent_file.read_text(encoding="utf-8"))
+                        if isinstance(irpt, dict):
+                            detail["intent_report"] = {
+                                "warnings": list(irpt.get("warnings") or []),
+                                "intent_fields": dict(irpt.get("intent_fields") or {}),
+                            }
+                    except (OSError, json.JSONDecodeError):
+                        pass
+                # §66 交付元数据出口：params_json.delivery_metadata（成片完成框
+                # edMetadataMaybeShow 消费——有历史文案直接展示，不必重复生成）。
+                try:
+                    from video_director import store as _vd_store
+                    _params = _vd_store.read_project_params(pid)
+                    if isinstance(_params.get("delivery_metadata"), dict):
+                        detail["delivery_metadata"] = _params["delivery_metadata"]
+                except Exception:
+                    pass
                 self._send_json(detail)
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
@@ -2620,9 +2702,81 @@ class Handler(BaseHTTPRequestHandler):
             self._style_sample_render()
             return
 
+        if parsed.path == "/api/export_freeze":
+            # P1 视频定格出口：成片生成后追加「定格最后一帧 N 秒」副本。
+            # 不改 confirm 导出链（动主链风险大），复用 draft_info 同源的
+            # final 定位（render/final.mp4 优先，output/final.mp4 兼容）。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"error": "请求体不是合法 JSON（需 UTF-8）"}, 400)
+                return
+            pid = (payload.get("project_id") or "").strip()
+            if not pid:
+                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                return
+            try:
+                freeze_seconds = float(payload.get("freeze_seconds") or 0)
+            except (TypeError, ValueError):
+                self._send_json({"ok": False, "error": "freeze_seconds 不是合法数字"}, 400)
+                return
+            if freeze_seconds <= 0:
+                self._send_json({"ok": False, "error": "freeze_seconds 需大于 0"}, 400)
+                return
+            pdir = COMPOSER_ROOT / pid
+            final = next((c for c in (pdir / "render" / "final.mp4",
+                                      pdir / "output" / "final.mp4") if c.is_file()), None)
+            if final is None:
+                self._send_json({"ok": False, "error": "项目尚未生成成片，先确认导出"}, 409)
+                return
+            out_path = final.parent / "final_freeze.mp4"
+            try:
+                from video_director import renderer as vd_renderer
+                vd_renderer.freeze_last_frame(str(final), str(out_path), freeze_seconds)
+            except Exception as exc:
+                self._send_json({"ok": False, "error": f"定格失败：{exc}"}, 500)
+                return
+            self._send_json({"ok": True, "project_id": pid,
+                             "freeze_seconds": freeze_seconds,
+                             "final_path": str(out_path)})
+            return
+
         # §52 POST /api/workflows：发起 WorkflowRun → 立即返回 run_id（不阻塞）。
         #   kind: compose（spec 同 /api/compose 字段）| render_draft | render_final
         #   前端轮询 GET /api/workflows/{run_id} 或走 SSE workflow.* 事件。
+        if parsed.path == "/api/workflows/cancel":
+            # 2026-10-26 用户裁决「停止就停止」：request_cancel 设置标志后，
+            # 正在执行的 LLM 调用在重试循环内每秒检测，立即中断收口 CANCELLED
+            # （不再等当前节点跑完）。已完成节点保留在检查点。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(
+                    self.rfile.read(length).decode("utf-8", errors="replace") or "{}"
+                )
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            run_id = str(payload.get("run_id") or "").strip()
+            if not run_id:
+                self._send_json({"ok": False, "error": "缺少 run_id"}, 400)
+                return
+            try:
+                from video_director import workflow_run as vd_wf
+                run = vd_wf.get_run(run_id)
+                if run is None:
+                    self._send_json({"ok": False, "error": "run 不存在"}, 404)
+                    return
+                if run.get("status") != "RUNNING":
+                    self._send_json({"ok": True, "status": run.get("status"),
+                                     "note": "任务已不在执行中，无需停止"})
+                    return
+                vd_wf.request_cancel(run_id)
+                self._send_json({"ok": True,
+                                 "note": "已请求停止：正在立即中断（当前 LLM 调用会在数秒内停止，不再开启下一步）"})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)[:200]}, 500)
+            return
         if parsed.path == "/api/workflows":
             length = int(self.headers.get("Content-Length", 0))
             try:
@@ -3446,6 +3600,40 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, 500)
             return
 
+        if parsed.path == "/api/director/brief":
+            # 2026-10-25 用户报障：创作后 brief 消失不可改。GET 读、PUT 写
+            # bundle.brief（写回 director_inputs.json，retry 重建 spec 时消费）。
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(
+                    self.rfile.read(length).decode("utf-8", errors="replace") or "{}"
+                )
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = str(payload.get("project_id") or "")
+            if not pid:
+                self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                return
+            try:
+                from video_director import director_inputs as _di
+                bundle = _di.load_bundle(pid)
+                if not bundle:
+                    self._send_json(
+                        {"ok": False, "error": "项目没有创作要求记录（可能来自旧流程）"},
+                        404)
+                    return
+                if self.command == "PUT":
+                    new_brief = str(payload.get("brief") or "").strip()
+                    if not new_brief:
+                        self._send_json({"ok": False, "error": "创作要求不能为空"}, 400)
+                        return
+                    bundle["brief"] = new_brief
+                    _di.persist_bundle(pid, bundle)
+                self._send_json({"ok": True, "brief": str(bundle.get("brief") or "")})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)[:200]}, 500)
+            return
         if parsed.path == "/api/director/retry":
             length = int(self.headers.get("Content-Length", 0))
             try:
@@ -3761,8 +3949,8 @@ class Handler(BaseHTTPRequestHandler):
                         "style": draft.get("style", ""),
                         "scene_count": draft.get("scene_count", 0),
                         "total_duration": round(
-                            float(final.narration_duration or 0), 2),
-                        "final_path": str(final.final_path),
+                            float(final.narration_duration if hasattr(final, "narration_duration") else 0), 2),
+                        "final_path": str(final.final_path if hasattr(final, "final_path") else final),
                     }
                     case = CreationCase(
                         case_id=pid,
@@ -3786,13 +3974,43 @@ class Handler(BaseHTTPRequestHandler):
                         "project_id": pid, "final_path": str(final.final_path)})
                 except Exception:  # noqa: BLE001 run 收尾失败不阻塞响应
                     pass
+                # finalize_after_review 两种返回：pipeline 路径=FinalizeResult
+                # 对象；编辑器导出路径（无 edits）=str 路径。str 时从落盘产物
+                # 读 QC/时长兜底，不再 AttributeError 500（成片其实已渲染成功，
+                # 2026-10-20 生产实测：QC 全 PASS 后 500 在响应组装）。
+                if hasattr(final, "final_path"):
+                    final_payload = {
+                        "final_path": final.final_path,
+                        "narration_duration": final.narration_duration,
+                        "qc": final.qc_report,
+                        "warnings": final.warnings,
+                    }
+                else:
+                    final_path = str(final)
+                    qc_data = {}
+                    try:
+                        qc_file = vd_config.project_dir(pid) / "qc" / "deterministic.json"
+                        if qc_file.is_file():
+                            qc_data = json.loads(qc_file.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+                    narr_dur = 0.0
+                    try:
+                        from video_director import prober as _pb
+                        pr = _pb.probe_media(final_path)
+                        narr_dur = float(pr.duration or 0)
+                    except Exception:
+                        pass
+                    final_payload = {
+                        "final_path": final_path,
+                        "narration_duration": narr_dur,
+                        "qc": qc_data,
+                        "warnings": [],
+                    }
                 self._send_json({
                     "ok": True,
                     "case_id": case_id,
-                    "final_path": final.final_path,
-                    "narration_duration": final.narration_duration,
-                    "qc": final.qc_report,
-                    "warnings": final.warnings,
+                    **final_payload,
                 })
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
@@ -4583,6 +4801,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if self._reject_legacy_composition_access(str(pid).strip(), "执行旧 CompositionIR Editor Command"):
                 return
+            # §82 命令通道计数：集中分发点（所有 editor command 必经此处）
+            _bump_command_stat(payload.get("command"))
             try:
                 from video_director import editor as vd_editor
                 result = vd_editor.execute_command(pid, {
@@ -4675,11 +4895,47 @@ class Handler(BaseHTTPRequestHandler):
             if not pid:
                 self._send_json({"error": "缺少 project_id"}, 400)
                 return
+            # 差距 2a：音效类型 → 走 Openverse CC0 搜索链（tool_executor
+            # _execute_sfx_search），generation.generate 对 sfx 诚实不可用。
+            # 诚实边界：这是搜索下载，不是 AI 合成——前端文案同为「搜索音效」。
+            if payload.get("type") == "sfx":
+                from video_director import tool_executor as vd_te
+                res = vd_te.execute_tool(pid, {
+                    "tool": "generation.sfx",
+                    "targetId": "",
+                    "payload": {"prompt": payload.get("prompt", "")},
+                })
+                if res.get("ok"):
+                    self._send_json({"ok": True, "results": [{
+                        "asset_id": (res.get("result") or {}).get("asset_id", ""),
+                        "variant": "A", "type": "sfx",
+                        "file": "", "input_fingerprint": "",
+                        "output_fingerprint": "", "provider_id": "openverse-search",
+                    }], "note": (res.get("result") or {}).get("note", "")})
+                else:
+                    self._send_json({"ok": False, "error": res.get("error") or "音效搜索失败",
+                                     "code": res.get("status")}, 503)
+                return
             try:
                 from video_director import generation as vd_generation
+                # §十八 付费 Provider 确认门禁（与 tool_executor._execute_generation 同口径）：
+                # image/video READY+付费 且 payload 未带 confirmed → NEEDS_CONFIRMATION，
+                # 不擅自调用付费 API。前端收到后弹确认框，确认后带 confirmed:true 重发。
+                gtype = payload.get("type", "image")
+                if gtype in ("image", "video") and not payload.get("confirmed"):
+                    try:
+                        from video_director import provider_matrix
+                        st = provider_matrix.state(gtype, f"{gtype}.generate")
+                        if st.status == "READY" and st.is_paid:
+                            self._send_json({"ok": False, "status": "NEEDS_CONFIRMATION",
+                                             "error": f"本镜头需付费{gtype}生成，请先确认后再执行"},
+                                            402)
+                            return
+                    except Exception:
+                        pass
                 results = vd_generation.generate(
                     project_id=pid, prompt=payload.get("prompt", ""),
-                    gen_type=payload.get("type", "image"),
+                    gen_type=gtype,
                     width=int(payload.get("width") or 1080),
                     height=int(payload.get("height") or 1920),
                     model=payload.get("model") or None,

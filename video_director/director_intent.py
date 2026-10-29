@@ -20,8 +20,11 @@ duration 用秒等），避免「解析出来但下游不认识」的二次断�
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 # 系统能力目录：用户自然语言要求 → 导演 spec 字段。
 # label 给 LLM 看；aliases 给规则层用；kind 决定归一化。
@@ -219,14 +222,62 @@ def _rule_resolve(brief: str) -> Tuple[Dict[str, str], List[str]]:
         out.setdefault("bgm", "off")
     if any(w in text for w in ("不要音效", "无音效")):
         out.setdefault("sfx", "off")
+    # clip_speed：显式「N 倍速」或快/慢方向词（审计：规则层原本完全没有提取分支）
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:倍速|倍)", text)
+    if m:
+        v = float(m.group(1))
+        if 0.25 <= v <= 4.0:
+            out["clip_speed"] = str(v)
+    elif any(w in text for w in ("画面快进", "加速播放", "画面快一点")):
+        out.setdefault("clip_speed", "1.5")
+    elif any(w in text for w in ("慢动作", "画面慢一点", "慢镜头")):
+        out.setdefault("clip_speed", "0.8")
     return out, []
 
 
+def _llm_resolve_call(provider, prompt: str, system: str):
+    """意图增强层的独立短耐心调用：15s 硬超时 + 单次不重试。
+
+    generate 不可中断（openai client 无 cancel），用守护线程 + join(timeout)
+    丢弃法——超时后放弃该线程（网关挂死时它自己会按主链重试策略终态），
+    调用方立刻降规则层。15s 对「小 prompt 意图抽取」绰绰有余。
+    """
+    import threading
+    box: dict = {}
+
+    def _worker():
+        try:
+            box["raw"] = provider.generate(prompt, system=system).strip()
+        except Exception as exc:
+            box["exc"] = exc
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+    t.join(timeout=15.0)
+    if t.is_alive():
+        logger.warning("意图解析 LLM 层 15s 超时，仅规则层解析生效（网关可能挂死）")
+        return None
+    if "exc" in box:
+        logger.warning(f"意图解析 LLM 层失败，仅规则层解析生效: {box['exc']}")
+        return None
+    return box.get("raw") or ""
+
+
 def _llm_resolve(brief: str) -> Dict[str, str]:
-    """LLM 泛化层：目录驱动，把规则层没命中的语义意图映射到字段。"""
+    """LLM 泛化层：目录驱动，把规则层没命中的语义意图映射到字段。
+
+    诚实可观测：provider 缺失/调用失败/解析失败都在日志留痕（INFO/WARNING），
+    不再静默吞掉——用户在后台日志必须能看到「意图 LLM 层为什么没生效」。
+
+    2026-10-25 生产事故：本函数在 /api/director/create 的 HTTP 线程内同步
+    执行——网关挂死时若共享主链 10 次重试，创建请求 20 分钟不返回 run_id，
+    前端「点了没反应」。增强层必须有独立短耐心：单次尝试 + 15s 硬超时，
+    失败立刻降规则层（规则层兜底完整，损失仅泛化解析）。
+    """
     from video_director import llm_provider
     provider = llm_provider.get_llm()
     if provider is None:
+        logger.info("意图解析 LLM 层跳过：未配置文本大模型，仅规则层解析")
         return {}
     catalog = "\n".join(
         f"- {item['field']}（{item['label']}）；别名：{'、'.join(item['aliases'])}"
@@ -242,21 +293,25 @@ def _llm_resolve(brief: str) -> Dict[str, str]:
         "只输出 JSON，不要解释、不要 markdown 代码块。"
     )
     prompt = "可映射字段：\n" + catalog + "\n\n用户要求：\n" + brief
-    try:
-        raw = provider.generate(prompt, system=system).strip()
-    except Exception:
+    raw = _llm_resolve_call(provider, prompt, system)
+    if raw is None:
         return {}
     start, end = raw.find("{"), raw.rfind("}")
     if start < 0:
+        logger.warning(f"意图解析 LLM 层返回非 JSON（前80字符）: {str(raw)[:80]}")
         return {}
     try:
         parsed = json.loads(raw[start:end + 1])
     except (json.JSONDecodeError, ValueError):
+        logger.warning(f"意图解析 LLM 层 JSON 解析失败（前80字符）: {str(raw)[:80]}")
         return {}
     if not isinstance(parsed, dict):
+        logger.warning(f"意图解析 LLM 层返回非对象（{type(parsed).__name__}），忽略")
         return {}
     known = {item["field"] for item in INTENT_FIELDS}
-    return {str(k): v for k, v in parsed.items() if k in known and v not in (None, "")}
+    accepted = {str(k): v for k, v in parsed.items() if k in known and v not in (None, "")}
+    logger.info(f"意图解析 LLM 层命中 {len(accepted)} 个字段: {sorted(accepted)}")
+    return accepted
 
 
 def _normalize_voice(value: str) -> Optional[str]:
@@ -351,6 +406,43 @@ def _normalize_value(field: str, value: str) -> Optional[str]:
         except (TypeError, ValueError):
             return None
     return v
+
+
+def resolve_rule_intents(brief: str) -> Dict[str, str]:
+    """规则层意图解析（毫秒级、零 LLM、零网络）——create HTTP 线程专用。
+
+    LLM 泛化层由后台 run 的 understand 节点补跑（merge_llm_intents），
+    结果写回 spec 供下游节点消费。规则层命中的意图（时长/音量/镜头秒数
+    等确定性模式）create 时即生效。
+    """
+    rule, unresolved = _rule_resolve(brief or "")
+    merged = dict(rule)
+    if unresolved:
+        merged["_unresolved"] = ",".join(unresolved)
+    return merged
+
+
+def merge_llm_intents(spec: dict, brief: str) -> dict:
+    """后台 understand 节点：LLM 泛化层补解析并合并进 spec（规则层已给的优先）。
+
+    返回合并后的 spec（原地更新）。LLM 层失败只记 warning——规则层结果
+    已在，创作链不受阻。
+    """
+    llm = _llm_resolve(brief or "")
+    if not llm:
+        return spec
+    _RULE_OWNED = ("duration", "clip_duration", "voice_rate", "bgm_volume",
+                   "narration_volume", "resolution")
+    filled = {}
+    for k, v in llm.items():
+        if k in _RULE_OWNED and spec.get(k):
+            continue  # 规则层确定性值优先
+        if not spec.get(k):
+            spec[k] = v
+            filled[k] = v
+    if filled:
+        logger.info(f"意图 LLM 泛化层补齐字段: {list(filled.keys())}")
+    return spec
 
 
 def resolve_director_intents(brief: str) -> Dict[str, str]:

@@ -287,6 +287,31 @@ def _write_params_json(conn: sqlite3.Connection, project_id: str, params: dict) 
                  (json.dumps(params, ensure_ascii=False), time.time(), project_id))
 
 
+def read_project_params(project_id: str) -> dict:
+    """读 projects.params_json（无行/损坏 → 空 dict）。项目级参数的公开读口。"""
+    init_db()
+    with _conn() as conn:
+        return _read_params_json(conn, project_id)
+
+
+def write_project_params(project_id: str, params: dict) -> None:
+    """整份覆写 projects.params_json。项目级参数的公开写口（读-改-写两步式）。
+
+    与既有 save_storyboard_snapshot/confirm_project 同模式：先读后合并再写，
+    避免调用方各自拼 SQL；只改一个键时务必先 read_project_params 再回写。
+    """
+    init_db()
+    with DB_LOCK, _conn() as conn:
+        # 目录存在但 DB 无行时先 upsert，否则 UPDATE 静默影响 0 行
+        conn.execute(
+            "INSERT OR IGNORE INTO projects "
+            "(project_id, script, params_json, stage, progress, created_at, updated_at) "
+            "VALUES (?, '', '{}', 'UNKNOWN', 0, ?, ?)",
+            (project_id, time.time(), time.time()),
+        )
+        _write_params_json(conn, project_id, params)
+
+
 def ensure_project_row(project_id: str, script: str = "", stage: str = "UNKNOWN") -> None:
     """目录存在但 DB 无行的项目做动作前 upsert（不覆盖已有 stage）。"""
     init_db()

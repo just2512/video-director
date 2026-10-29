@@ -164,10 +164,54 @@ async function edLibSaveSemantics(assetId){
 // ---------------------------------------------------------------------------
 // 各子入口装载
 // ---------------------------------------------------------------------------
+/** 声音域「配音」子域渲染（全局能力，不依赖项目——设置页入口可达）。
+ * 音色试听走 /api/voice_preview 全局合成；配音设置（音色/语速/音量入轨）
+ * 在项目 Inspector，无项目时如实提示。 */
+async function _edLibLoadVoice(box){
+  // 2026-10-26 用户裁决：多 provider 可配可试听——按已配置 provider 分组展示
+  // 音色（azure/elevenlabs 配了 key 才出现，缺 key 不显示）；设置页可配 key。
+  const groups = [];
+  for (const prov of ['edge-tts', 'azure', 'elevenlabs']) {
+    try {
+      const r = await apiGet('/api/voice/providers');
+      const avail = ((r && r.providers) || []).find(p => p.id === prov && p.available);
+      if (!avail) continue;
+      // 各 provider 音色目录
+      const vr = await apiGet('/api/voice/providers');  // 一次拿全；voices 按 provider 拉
+      let voices = [];
+      if (prov === 'edge-tts') voices = (vr && vr.voices) || [];
+      else {
+        const pr = await apiGet('/api/voice/voices?provider=' + encodeURIComponent(prov));
+        voices = (pr && pr.voices) || (Array.isArray(pr) ? pr : []);
+      }
+      if (voices.length) groups.push({prov: prov, label: avail.label, voices: voices});
+    } catch (e) { /* provider 拉取失败跳过 */ }
+  }
+  const engineLine = '<div class="hint">配音引擎：' +
+    (groups.length ? groups.map(g => esc(g.label)).join('、') : '无可用引擎（设置 → 模型 可配置 Azure / ElevenLabs）') +
+    '</div>';
+  box.innerHTML = engineLine +
+    (ED.pid
+      ? '<div class="hint">配音在项目 Inspector「声音策略 → 配音设置」；此处试听。</div>'
+      : '<div class="hint">当前未打开项目：可试听音色；配音入轨请先打开项目。</div>')+
+    groups.map(g =>
+      (g.prov !== 'edge-tts' ? '<div class="hint" style="margin-top:8px"><b>' + esc(g.label) + '</b></div>' : '') +
+      g.voices.slice(0, 12).map(v =>
+        `<div class="proj-row"><span><b>${esc(v.name || v.voiceId || v.voice_id || v)}</b></span>`+
+        `<button class="btn-secondary btn-sm" onclick="edVoiceTry('${esc(v.voiceId || v.voice_id || v)}', '${esc(g.prov)}', this)">试听</button></div>`).join('')
+    ).join('') || '<div class="hint">无可用音色</div>';
+}
+
 async function edLibLoad(){
   const box = document.getElementById('ed-lib-list');
   if (!box) return;
   if (!ED.comp || !ED.pid) {
+    // 声音域「配音」子域不依赖项目（音色试听是全局合成），无项目也可用——
+    // 否则设置页「去音色库试听」在未开项目时点进去是一个死面板。
+    if (ED_LIB.domain === 'sound' && ED_LIB.sub === 'voice') {
+      await _edLibLoadVoice(box);
+      return;
+    }
     box.innerHTML = '<div class="hint">先打开一个项目（上方选择项目）。</div>';
     return;
   }
@@ -320,24 +364,23 @@ async function edLibLoad(){
     }
     // ---- 声音域 ----
     else if (sub === 'voice') {
-      const r = await apiGet('/api/voice/providers');
-      const provs = (r && r.providers) || [];
-      const voices = (r && r.voices) || [];
-      box.innerHTML = `<div class="hint">配音来源：${provs.map(p => esc(p.name || p.id) + (p.available ? '' : '（不可用）')).join('、') || '无'}</div>`+
-        `<div class="hint">配音在项目 Inspector「声音策略 → 配音设置」；此处试听。</div>`+
-        voices.slice(0, 12).map(v =>
-          `<div class="proj-row"><span><b>${esc(v.name || v.voice_id || v)}</b></span>`+
-          `<button class="btn-secondary btn-sm" onclick="edVoiceTry('${esc(v.voice_id || v.id || v)}')">试听</button></div>`).join('');
+      await _edLibLoadVoice(box);
     } else if (sub === 'bgm' || sub === 'sfx') {
       const kind = sub;
       const lib = await apiGet(kind === 'bgm' ? '/api/bgm' : '/api/sfx');
       const list = Array.isArray(lib) ? lib : [];
-      box.innerHTML = list.length ? list.map(a =>
+      // 差距 2a：BGM 面板接「自动配乐」→ music.auto_match Action（后端
+      // _execute_music_match 真实存在：按项目风格选本地 BGM 入轨）。
+      const autoMatchBtn = kind === 'bgm'
+        ? '<div class="btn-row" style="margin-bottom:6px"><button class="btn-sm" onclick="edLibAutoMatchBgm()">自动配乐</button>' +
+          '<span class="hint">按项目风格从本地音乐库自动选一首并加入时间线</span></div>'
+        : '';
+      box.innerHTML = autoMatchBtn + (list.length ? list.map(a =>
         `<div class="proj-row"><span><b>${esc(a.label || a.id)}</b><span class="hint">${esc(a.id)}</span></span>`+
         `<span class="btn-row">`+
-        `<button class="btn-secondary btn-sm" onclick="edLibAudioTry('${esc(a.id)}')">试听</button>`+
+        `<button class="btn-secondary btn-sm" onclick="edLibAudioTry('${esc(a.id)}', this)">试听</button>`+
         `<button class="btn-sm" onclick="edLibAudioApply('${kind}','${esc(a.id)}')">应用</button></span></div>`).join('')
-        : '<div class="hint">音频库为空（可在设置上传本地音乐）</div>';
+        : '<div class="hint">音频库为空（可在设置上传本地音乐）</div>');
     }
     // ---- 参考域 ----
     else if (sub === 'references') {
@@ -384,6 +427,15 @@ async function edLibBulkDeleteAssets(){
   editorToast('已删除 '+(r.deleted||ids).length+' 个未使用素材');
 }
 
+async function edLibAutoMatchBgm(){
+  // 差距 2a：BGM 面板「自动配乐」→ music.auto_match（后端 _execute_music_match
+  // 按项目风格选本地 BGM 入轨）；音乐库为空时后端返回 MUSIC_UNAVAILABLE 诚实报错。
+  const r = await executeAction('music.auto_match', {}, 'project');
+  if (r && r.ok) {
+    const aid = ((r.result || {}).asset_id) || '';
+    if (aid) editorToast('已自动配乐：' + aid + '（可在「整体调音」调整音量）');
+  }
+}
 function edLibApplyAsset(assetId){
   // §82 唯一通路：Asset Picker「应用到选中层」→ executeAction(asset.replace)
   if (!SEL.selection || SEL.selection.type !== 'layer') {
@@ -644,15 +696,26 @@ function directorRenderPlan(run, detail){
   if (goal) goal.textContent = plan.goal ? '· ' + String(plan.goal).slice(0, 90) : '';
   if (status) status.textContent = run.status === 'COMPLETED' ? '已完成' : run.status === 'WAITING_CONFIRMATION' ? '等待确认' : run.status === 'FAILED' ? '失败' : '进行中';
   const stepState = {};
-  (detail && detail.steps || []).forEach(s => { stepState[s.id] = s.status; });
+  const stepDetail = {};
+  (detail && detail.steps || []).forEach(s => { stepState[s.id] = s.status; stepDetail[s.id] = s.detail || ''; });
   const labelFor = {understand:'理解', script:'文案', scene_plan:'分镜', narration:'配音', material_match:'画面', subtitle:'字幕', music:'音乐', watermark:'品牌', composition:'时间线', preview:'预览', verify:'预检', render:'成片'};
-  const stateText = s => s === 'DONE' ? '完成' : s === 'RUNNING' ? '执行中' : s === 'FAILED' ? '失败' : '待处理';
+  const stateText = s => s === 'DONE' ? '完成' : s === 'RUNNING' ? '执行中' : s === 'FAILED' ? '失败' : s === 'SKIPPED' ? '跳过' : '待处理';
+  // 2026-10-25 用户报障：步骤 detail（降级/失败人话说明）必须可见——
+  // 后端偷偷降级、前端不展示 = 用户永远不知道要求没被执行。
+  const warnSteps = Object.keys(stepDetail).filter(k => stepDetail[k]);
+  const warnHtml = warnSteps.length
+    ? '<div style="margin-top:6px;color:var(--danger,#c33);font-size:12px">' +
+      warnSteps.map(k => '⚠ ' + esc(labelFor[k] || k) + '：' + esc(stepDetail[k])).join('<br>') + '</div>'
+    : '';
   nodesBox.innerHTML = plan.nodes.map(n => {
     let st = stepState[n.id] || 'PENDING';
     if (n.id === 'understand') st = detail ? 'DONE' : 'PENDING';
     if (n.id === 'render' && run.status === 'COMPLETED') st = 'DONE';
-    return `<button class="btn-secondary btn-sm" data-director-node="${esc(n.id)}" style="min-width:78px;text-align:left;white-space:nowrap"><b>${esc(labelFor[n.id] || n.label || n.id)}</b><br><span class="hint">${stateText(st)}</span></button>`;
+    return `<button class="btn-secondary btn-sm" data-director-node="${esc(n.id)}" style="min-width:78px;text-align:left;white-space:nowrap"><b>${esc(labelFor[n.id] || n.label || n.id)}</b><br><span class="hint">${stateText(st)}${stepDetail[n.id] ? ' ⚠' : ''}</span></button>`;
   }).join('<span style="align-self:center;color:var(--muted)">→</span>');
+  if (detailBox && warnHtml) {
+    detailBox.insertAdjacentHTML('beforeend', warnHtml);
+  }
   nodesBox.querySelectorAll('[data-director-node]').forEach(btn => {
     btn.onclick = () => {
       const n = plan.nodes.find(x => x.id === btn.dataset.directorNode);
@@ -685,9 +748,78 @@ function directorRenderPlan(run, detail){
   }
 }
 
+let _directorRunPollTimer = null;
+
+// 2026-10-25 用户报障：创作要求可见/可改/重跑。
+// GET /api/director/brief 读 bundle.brief；PUT 写回；重跑走既有 retry。
+async function directorLoadBrief(){
+  if (!ED.pid) return;
+  const warn = document.getElementById('director-brief-warn');
+  const ta = document.getElementById('director-brief-text');
+  try {
+    const r = await apiPost('/api/director/brief', {project_id: ED.pid});
+    if (r && r.ok && ta && ta.value === '') {
+      ta.value = r.brief || '';
+    }
+  } catch (e) { /* 端点读失败不阻塞面板 */ }
+  if (warn && ta) {
+    // scene_plan 降级标注：规则模式=要求未被 AI 理解
+    fetch('/api/director/context?project_id=' + encodeURIComponent(ED.pid))
+      .then(r => r.json()).then(ctx => {
+        const scenePlan = ctx && ctx.mpt && ctx.mpt.scene_plan;
+        if (scenePlan && (scenePlan.source === 'rule_fallback'
+                          || scenePlan.brief_acknowledged === false)) {
+          warn.style.display = '';
+          warn.textContent = '⚠ 上次创作时文本大模型不可用：AI 未理解你的要求（规则模式剪辑）。'
+            + '修改要求并点「按此要求重新创作」。';
+        } else {
+          warn.style.display = 'none';
+        }
+      }).catch(() => {});
+  }
+}
+
+async function directorSaveBrief(){
+  const ta = document.getElementById('director-brief-text');
+  const st = document.getElementById('director-brief-status');
+  if (!ta || !ta.value.trim()) { if (st) st.textContent = '要求不能为空'; return; }
+  if (st) st.textContent = '保存中……';
+  const r = await apiPost('/api/director/brief', {project_id: ED.pid, brief: ta.value.trim()});
+  if (st) st.textContent = r && r.ok ? '已保存（点「按此要求重新创作」生效）'
+    : '保存失败：' + ((r && r.error) || '未知');
+}
+
+async function directorRerunFromBrief(){
+  const st = document.getElementById('director-brief-status');
+  const ta = document.getElementById('director-brief-text');
+  if (ta && ta.value.trim()) await directorSaveBrief();
+  if (st) st.textContent = '正在按新要求重新创作……（创作过程中下方节点实时更新）';
+  const r = await apiPost('/api/director/retry', {project_id: ED.pid});
+  if (!r || !r.ok) {
+    if (st) st.textContent = '重新创作失败：' + ((r && r.error) || '项目可能正在执行中');
+    return;
+  }
+  if (st) st.textContent = '已开始重新创作（run：' + String(r.run_id || '').slice(0, 8) + '）';
+  directorLoadRun(r.run_id);
+}
+
 async function directorLoadRun(runId){
   if (!runId) return;
   try { const d = await apiGet('/api/workflows/' + encodeURIComponent(runId)); if (d && !d.error) directorRenderPlan(d, d); } catch (e) {}
+  // 2026-10-25 用户报障：RUNNING 期间自动轮询——创作中打开工作台能看到
+  // 每步实时变化，而不是打开瞬间的死快照。终态（COMPLETED/FAILED/
+  // WAITING_CONFIRMATION）停止轮询。
+  if (_directorRunPollTimer) { clearInterval(_directorRunPollTimer); _directorRunPollTimer = null; }
+  _directorRunPollTimer = setInterval(async () => {
+    try {
+      const d = await apiGet('/api/workflows/' + encodeURIComponent(runId));
+      if (!d || d.error) return;
+      directorRenderPlan(d, d);
+      if (d.status && d.status !== 'RUNNING') {
+        clearInterval(_directorRunPollTimer); _directorRunPollTimer = null;
+      }
+    } catch (e) { /* 下次轮询再试 */ }
+  }, 5000);
 }
 
 async function directorLoadLatestRun(projectId){
@@ -869,10 +1001,11 @@ async function editorApplyShot(sceneId, recipeId){
 Object.assign(window, {
   LIB_DOMAINS, edLibDomain, edLibSub, edLibNav, edLibLoad,
   pickerOpen, pickerPreviewStage, pickerCancel, pickerApply,
-  edLibApplyAsset, edLibApplyMotion, applyTransitionToPair, applyRegistryStyle,
+  edLibAutoMatchBgm, edLibApplyAsset, edLibApplyMotion, applyTransitionToPair, applyRegistryStyle,
   edLibStockSearch,
   edLibOpenTemplate, instantiateTemplate, AP,
   directorRefreshContext, directorLoadCapCount, directorRenderPlan, directorLoadRun, directorLoadLatestRun, directorExecute,
+  directorLoadBrief, directorSaveBrief, directorRerunFromBrief,
   editorCmd, editorBatchCmd, editorApplyDuration, editorMovePrompt, editorAddBrollPrompt,
   editorOpenMotionPicker, editorOpenShotPicker, editorApplyShot, edLibApplyMotionTo,
 });

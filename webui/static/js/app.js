@@ -27,7 +27,7 @@ function switchTab(tab){
   }
   if (tab === 'home') { loadProjects(); loadSeries(); loadInbox(); }
   if (tab === 'editor') { editorInit(); devShowBuildId(); }
-  if (tab === 'settings') { loadSettings(); devShowBuildId(); loadStockStatusLine(); }
+  if (tab === 'settings') { loadSettings(); devShowBuildId(); loadStockStatusLine(); refreshLLMBadge(); }
 }
 
 /** §42 build_id 显示（Developer Mode）：源码契约与运行态一致性。 */
@@ -111,6 +111,7 @@ function esc(s){ return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>
 // ===========================================================================
 let MODEL_ROLES = [];
 let STOCK_ROLES = [];
+let TTS_ROLES = [];
 async function refreshLLMBadge(){
   // 徽章内联进设置页（§28：不再漂浮在主工作区）
   const cfg = await apiGet('/api/llm_status');
@@ -124,12 +125,34 @@ async function refreshLLMBadge(){
     MODEL_ROLES = await apiGet('/api/model_config');
     if (!Array.isArray(MODEL_ROLES)) MODEL_ROLES = [];
     STOCK_ROLES = MODEL_ROLES.filter(r => r.kind === 'stock' || String(r.role || '').startsWith('stock_'));
-    MODEL_ROLES = MODEL_ROLES.filter(r => r.kind !== 'stock' && !String(r.role || '').startsWith('stock_'));
+    TTS_ROLES = MODEL_ROLES.filter(r => r.kind === 'tts' || String(r.role || '').startsWith('tts_'));
+    MODEL_ROLES = MODEL_ROLES.filter(r => r.kind !== 'stock' && !String(r.role || '').startsWith('stock_')
+                                    && r.kind !== 'tts' && !String(r.role || '').startsWith('tts_'));
     window.MODEL_ROLES = MODEL_ROLES;
     window.STOCK_ROLES = STOCK_ROLES;
+    window.TTS_ROLES = TTS_ROLES;
     if (document.getElementById('llm-panel')?.style.display !== 'none') renderModelRoles();
     if (document.getElementById('stock-roles')) renderStockRoles();
+    if (document.getElementById('tts-roles')) renderTtsRoles();
   } catch (e) { /* 面板未开时静默 */ }
+}
+
+// 2026-10-26 用户裁决：TTS 供应商自主配置（设置页配音面板）
+function renderTtsRoles(){
+  const box = document.getElementById('tts-roles');
+  if (!box || !Array.isArray(TTS_ROLES)) return;
+  box.innerHTML = TTS_ROLES.map(r => `
+    <div class="role-block">
+      <div class="role-head">
+        <b>${esc(r.label)}</b>
+        <span class="${r.enabled ? 'cap-ok' : 'cap-warn'}">${r.enabled ? '已配置' : '未配置（不可用）'}</span>
+      </div>
+      <div class="hint">${esc(r.hint)}</div>
+      <label>API Key</label>
+      <input type="password" id="mc-${r.role}-key" placeholder="留空=未配置" value="${r.enabled && r.source === 'file' ? '（已保存）' : ''}">
+      <label>${r.role === 'tts_azure' ? 'Region（如 eastasia）' : '模型'}</label>
+      <input type="text" id="mc-${r.role}-model" value="${esc(r.model || '')}" placeholder="${esc(r.default_model)}">
+    </div>`).join('');
 }
 
 function renderModelRoles(){
@@ -160,7 +183,7 @@ async function saveModelConfig(){
   const status = document.getElementById('llm-save-status');
   status.textContent = '保存中……';
   const configs = {};
-  for (const r of [...MODEL_ROLES, ...STOCK_ROLES]) {
+  for (const r of [...MODEL_ROLES, ...STOCK_ROLES, ...TTS_ROLES]) {
     const keyEl = document.getElementById(`mc-${r.role}-key`);
     const urlEl = document.getElementById(`mc-${r.role}-url`);
     const modelEl = document.getElementById(`mc-${r.role}-model`);
@@ -175,13 +198,17 @@ async function saveModelConfig(){
   }
   const r2 = await apiPost('/api/model_config', {configs});
   if (!r2.ok) { status.textContent = '保存失败：' + (r2.error || '未知'); return; }
-  const allRoles = Array.isArray(r2.roles) ? r2.roles : [...MODEL_ROLES, ...STOCK_ROLES];
+  const allRoles = Array.isArray(r2.roles) ? r2.roles : [...MODEL_ROLES, ...STOCK_ROLES, ...TTS_ROLES];
   STOCK_ROLES = allRoles.filter(r => r.kind === 'stock' || String(r.role || '').startsWith('stock_'));
-  MODEL_ROLES = allRoles.filter(r => r.kind !== 'stock' && !String(r.role || '').startsWith('stock_'));
+  TTS_ROLES = allRoles.filter(r => r.kind === 'tts' || String(r.role || '').startsWith('tts_'));
+  MODEL_ROLES = allRoles.filter(r => r.kind !== 'stock' && !String(r.role || '').startsWith('stock_')
+                                  && r.kind !== 'tts' && !String(r.role || '').startsWith('tts_'));
   window.MODEL_ROLES = MODEL_ROLES;
   window.STOCK_ROLES = STOCK_ROLES;
+  window.TTS_ROLES = TTS_ROLES;
   renderModelRoles();
   renderStockRoles();
+  renderTtsRoles();
   status.textContent = '已保存并立即生效';
   const stockStatus = document.getElementById('stock-save-status');
   if (stockStatus) stockStatus.textContent = '已保存并立即生效';
@@ -217,22 +244,8 @@ function toggleLLMPanel(){
   p.style.display = p.style.display === 'none' ? 'block' : 'none';
 }
 
-// §46 配音来源：voice providers 真实可用性（设置页消费 /api/voice/providers）
-async function loadVoiceProviders(){
-  const el = document.getElementById('voice-providers-line');
-  if (!el) return;
-  try {
-    const r = await apiGet('/api/voice/providers');
-    if (r.error) { el.textContent = '检测失败：' + r.error; return; }
-    const provs = (r.providers || []).map(p =>
-      `${p.name || p.id}${p.available ? '' : '（不可用）'}`).join('、');
-    el.textContent = provs
-      ? `当前可用：${provs} · 共 ${r.voices ? r.voices.length : 0} 个音色`
-      : '无可用配音服务';
-  } catch (e) {
-    el.textContent = '检测失败：' + String(e);
-  }
-}
+// §46 配音：设置页不再做孤立文字披露（引擎只有 Edge TTS，配置无意义），
+// 入口改「去音色库试听」（edLibDomain('sound','voice')，那里有真实试听交互）。
 
 // §28 环境自检（人话 + 需要时怎么办）
 async function loadSettings(){
@@ -271,7 +284,6 @@ function toggleCapPanel(){
 // ===========================================================================
 switchTab('home');
 refreshLLMBadge();
-loadVoiceProviders();
 if (typeof devInit === 'function') devInit();
 
 Object.assign(window, {
@@ -280,8 +292,8 @@ Object.assign(window, {
   renderModelRoles,
   saveModelConfig,
   toggleLLMPanel,
-  loadVoiceProviders,
   loadSettings,
+  renderTtsRoles,
   toggleCapPanel,
   devShowBuildId, loadStockStatusLine, settingsExport, settingsImport,
   switchTab,

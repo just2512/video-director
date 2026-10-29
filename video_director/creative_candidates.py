@@ -20,6 +20,17 @@ APPROACH_LABELS = {
 
 SOURCE_PREFERENCES = {"user_asset", "stock", "generated", "reference_style", "software_evidence"}
 
+#: 生成类型 → 补位兜底链（镜头级 fallback_routes 的默认来源）。
+#: 原先散落在 director_agent._tool_material 内部；上移到这里作为候选契约的
+#: 一部分——候选在构造时就带上自己的兜底链，_tool_material 只按候选走，
+#: 旧数据（无该字段）仍回落这份全局表，不新建两份事实源。
+GEN_FALLBACK_ROUTES: Dict[str, tuple] = {
+    "video": ("video", "image", "graphic"),
+    "image": ("image", "graphic"),
+    "graphic": ("graphic",),
+    "motion": ("motion", "graphic"),
+}
+
 
 def _terms(value: Any, fallback: str = "") -> List[str]:
     if isinstance(value, str):
@@ -59,13 +70,32 @@ def _clean_candidate(scene_id: str, index: int, raw: Mapping[str, Any], scene_te
         source = {"direct": "user_asset", "broll": "stock", "concept": "generated"}[approach]
 
     generation_type = str(raw.get("generation_type") or "").strip().lower()
-    if generation_type not in {"", "image", "video"}:
+    # 2026-10-19 架构审计修复：白名单原先只有 ""/image/video，LLM 输出的
+    # graphic/motion 被静默清空 → _GEN_FALLBACK 对应分支永远到不了（死分支）。
+    # generation.py 已支持 graphic/motion 生成，纯白名单收窄，放开。
+    if generation_type not in {"", "image", "video", "graphic", "motion"}:
         generation_type = ""
     if not generation_type and source == "generated":
         generation_type = "image"
 
     terms = _terms(raw.get("search_terms") or raw.get("searchTerms"), visual_intent)
     prompt = str(raw.get("generation_prompt") or raw.get("generationPrompt") or visual_intent).strip()
+
+    # 镜头级 fallback_routes（差距 5）：LLM 可按镜头指定降级链（如只要 image
+    # 兜底、禁用 graphic）；缺失/非法时按 generation_type 填默认链，
+    # 全局字典兜底保证旧行为不变。
+    routes_raw = raw.get("fallback_routes")
+    if isinstance(routes_raw, str):
+        routes_raw = [x.strip() for x in routes_raw.replace("，", ",").split(",")]
+    fallback_routes = [
+        str(x or "").strip().lower()
+        for x in (routes_raw if isinstance(routes_raw, (list, tuple)) else [])
+        if str(x or "").strip()
+    ]
+    known_types = set(GEN_FALLBACK_ROUTES.keys())
+    fallback_routes = [x for x in fallback_routes if x in known_types]
+    if not fallback_routes and generation_type in GEN_FALLBACK_ROUTES:
+        fallback_routes = list(GEN_FALLBACK_ROUTES[generation_type])
 
     return {
         "id": str(raw.get("id") or f"{scene_id}-C{index + 1}"),
@@ -76,6 +106,7 @@ def _clean_candidate(scene_id: str, index: int, raw: Mapping[str, Any], scene_te
         "source_preference": source,
         "generation_type": generation_type,
         "generation_prompt": prompt[:800],
+        "fallback_routes": fallback_routes,
         "status": str(raw.get("status") or "INTENT_ONLY"),
         "asset_id": str(raw.get("asset_id") or raw.get("assetId") or ""),
     }

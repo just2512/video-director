@@ -99,6 +99,10 @@ async function workspaceOpen(pid, target, options){
     if (typeof directorLoadLatestRun === 'function') {
       await directorLoadLatestRun(pid);
     }
+// 2026-10-25：创作要求面板装载（brief 可见/可改/重跑）
+    if (typeof directorLoadBrief === 'function') {
+      directorLoadBrief();
+    }
     // Locate actions target CompositionIR only in the opt-in compatibility editor.
     // Never apply an old scene/layer selection against stale ED state while Film Studio owns the project.
     if (target && legacyCompositionMode) {

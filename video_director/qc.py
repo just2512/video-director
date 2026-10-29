@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -53,6 +54,7 @@ def run_qc(
     narration_duration: float,
     expect_subtitle: bool = True,
     expect_audio: bool = True,
+    intent_duration: str = "",
 ) -> QCReport:
     """对最终产物跑确定性 QC 全清单（V2 §45）。"""
     report = QCReport(verdict="PASS")
@@ -86,6 +88,26 @@ def run_qc(
     _check(report, "fps", probe.fps is not None and probe.fps >= 24,
            f"fps={probe.fps}")
 
+    # 5b. 成片总时长 vs 用户意图目标（方案节点 20/21：总时长是确定性校验项，
+    # 不是 prompt 提示项）。方向语义与意图解析一致：N+=下限、N-=上限、N=精确。
+    _s = str(intent_duration or "").strip()
+    if _s and probe.duration is not None:
+        try:
+            if _s.endswith("+"):
+                _target, _ok = float(_s[:-1]), probe.duration >= float(_s[:-1]) - 1.0
+                _want = f">= {_s[:-1]}s"
+            elif _s.endswith("-"):
+                _target, _ok = float(_s[:-1]), probe.duration <= float(_s[:-1]) + 1.0
+                _want = f"<= {_s[:-1]}s"
+            else:
+                _target, _ok = float(_s), abs(probe.duration - float(_s)) <= 1.0
+                _want = f"≈ {_s}s"
+            _check(report, "duration_vs_intent", _ok,
+                   f"final {probe.duration:.1f}s vs 用户目标 {_want}"
+                   + ("" if _ok else "（预算补足未能达成，见 narration 节点警告）"))
+        except ValueError:
+            pass
+
     # 6. 音轨（预期有旁白时）
     if expect_audio:
         _check(report, "audio_stream", probe.has_audio_stream,
@@ -97,6 +119,23 @@ def run_qc(
     _check(report, "no_black_frames", blackframe_ok, black_detail)
 
     return report
+
+
+def _scene_at(ir: Optional[CompositionIR], t: float) -> Optional[str]:
+    """采样点 t 落在哪个 IR 场景（按 scene.start+duration 区间判断）。
+
+    返回 scene.id（缺失时退化为 "scene[<序号>]"）；不在任何场景（如 IR 声明的
+    gap 空隙）返回 None。供黑帧定位：知道坏在哪个场景才能修对应镜头。
+    """
+    if ir is None:
+        return None
+    for index, scene in enumerate(ir.scenes):
+        start = scene.start
+        if start is None:
+            continue
+        if start - 0.001 <= t < start + (scene.duration or 0.0) - 0.001:
+            return scene.id or f"scene[{index}]"
+    return None
 
 
 def _is_expected_empty_gap(ir: Optional[CompositionIR], at: float) -> bool:
@@ -136,14 +175,13 @@ def _detect_black_frames(
 
     均值 < 8（0-255 域）判黑帧。避开首尾 5% 容易出 fade 边缘的区域。
     """
-    import subprocess
-
     probe = prober.probe_media(video_path)
     dur = probe.duration or 0
     if dur <= 0:
         return False, "无法探测时长"
     w, h = 32, 32  # 缩到 32x32 灰度足以判断黑帧
     bad, checked, expected_gaps = 0, 0, 0
+    bad_t: Optional[float] = None  # 首个黑帧采样点，失败时定位到 IR 场景
     for i in range(samples):
         # 采样点落在 5%~95% 区间
         t = dur * 0.05 + (dur * 0.9) * (i + 0.5) / samples
@@ -169,12 +207,17 @@ def _detect_black_frames(
         checked += 1
         if mean < 8:
             bad += 1
+            if bad_t is None:
+                bad_t = t  # 只记首个坏点，detail 定位用
     if checked == 0:
         if expected_gaps:
             return False, f"{expected_gaps} 个采样点均位于 IR 声明的 gap；没有非 gap 样本，不能证明画面可用"
         return False, "无有效采样帧"
     if bad:
+        # 黑帧定位到 IR 场景：知道坏在哪个镜头，修复才有落点
+        loc = _scene_at(ir, bad_t) if bad_t is not None else None
+        where = f" {loc} {bad_t:.1f}s-{bad_t + dur * 0.9 / samples:.1f}s" if loc else ""
         suffix = f"；另有 {expected_gaps} 个抽样点落在 IR 声明的空隙内" if expected_gaps else ""
-        return False, f"{bad}/{checked} 个非 gap 采样点为黑帧(灰度均值<8){suffix}"
+        return False, f"{bad}/{checked} 个非 gap 采样点为黑帧(灰度均值<8{where}){suffix}"
     suffix = f"；跳过 {expected_gaps} 个 IR 明确声明的空隙点" if expected_gaps else ""
     return True, f"{checked} 个非 gap 采样点无意外黑帧{suffix}"

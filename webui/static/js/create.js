@@ -55,7 +55,7 @@ document.addEventListener('click', function(event) {
 });
 
 /** 打开创建面板（顶栏「+ 新建项目」唯一入口 §3.1）。 */
-function openCreate(){
+function openCreate(projectId){
   closeCreate();
   const mask = document.createElement('div');
   mask.id = 'cf-mask';
@@ -72,10 +72,40 @@ function openCreate(){
   CF.explicitFields = new Set();
   createLoadDefaults();
   cfRestoreArticleSourceUI();
+  // 2026-10-25 用户裁决：随时可回到新建项目对话框——带 projectId 时回填
+  // 该项目的创作要求/文案（素材在项目里保留，file input 无法回填但清单提示）。
+  if (projectId) cfPrefillFromProject(projectId);
   const ta = document.getElementById('cf-script');
   if (ta) ta.focus();
 }
+
+/** 从已有项目回填表单（修改要求重新创作的入口）。 */
+async function cfPrefillFromProject(pid){
+  const status = document.getElementById('cf-status');
+  try {
+    const brief = await apiPost('/api/director/brief', {project_id: pid});
+    if (brief && brief.ok && brief.brief) {
+      const el = document.getElementById('cf-director-brief');
+      if (el) el.value = brief.brief;
+    }
+    const detail = await apiGet('/api/project_detail?project_id=' + encodeURIComponent(pid));
+    if (detail && !detail.error) {
+      if (detail.script) {
+        const ta = document.getElementById('cf-script');
+        if (ta) ta.value = detail.script;
+      }
+      if (status) status.textContent =
+        '已载入项目「' + (detail.name || pid) + '」的创作要求与文案；' +
+        '该项目的已入库素材会保留。修改后点「AI 开始创作」将创建新版本。';
+    } else if (status) {
+      status.textContent = '已载入该项目的创作要求；修改后重新创作。';
+    }
+  } catch (e) {
+    if (status) status.textContent = '项目信息载入部分失败（要求/文案仍可手动填写）。';
+  }
+}
 function closeCreate(){
+  if (_cfProgressTimer) { clearInterval(_cfProgressTimer); _cfProgressTimer = null; }
   const m = document.getElementById('cf-mask');
   if (m) m.remove();
   // 创建页是模板/风格画廊的宿主：创建页关闭时子画廊的 fixed 全屏遮罩必须一并
@@ -89,6 +119,7 @@ function closeCreate(){
 
 function _createPanelHtml(){
   return `
+  <div id="cf-form">
   <div style="display:flex;align-items:center;gap:10px">
     <h3 style="font-size:17px;margin:0">新建项目</h3>
     <span style="flex:1"></span>
@@ -242,6 +273,7 @@ function _createPanelHtml(){
             <option value="subtitle">先生成字幕</option>
             <option value="audio">先生成旁白</option>
             <option value="script">先完成文案</option>
+            <option value="terms">先完成分镜（审分镜后再继续）</option>
           </select>
         </div>
       </div>
@@ -349,6 +381,7 @@ function _createPanelHtml(){
   <div class="btn-row" style="margin-top:18px">
     <button id="cf-go" onclick="createProject()">AI 开始创作</button>
     <span class="hint" id="cf-status"></span>
+  </div>
   </div>`;
 }
 
@@ -703,6 +736,17 @@ async function createProject(){
   const referenceEl = document.getElementById('cf-reference');
   const selectedReference = !!(referenceEl && referenceEl.files && referenceEl.files.length);
   const referenceFile = selectedReference ? referenceEl.files[0] : null;
+  // 差距 1（终审 R1）：已选参考文件但分析结果为空（_cfReference=null）——
+  // 旧代码只在「换了文件」时触发自动分析，首次选中直接提交时静默走无参考分支，
+  // 用户以为参考生效了，成片里却没有任何参考风格输入。
+  // 阻止提交并让用户先点「分析参考视频」——比这里自动触发分析更可控
+  // （自动触发会把 10-40 秒分析塞进提交流程，引入时序竞态与取消歧义）。
+  if (referenceFile && !window._cfReference) {
+    CF.state = 'failed';
+    status.textContent = '已选择参考视频但尚未分析：请先点「分析参考视频」并等待分析完成（约 10-40 秒），再提交创作任务。';
+    btn.disabled = false;
+    return;
+  }
   if (selectedReference && window._cfReferenceFileObject !== referenceFile) {
     btn.disabled = true;
     status.textContent = '检测到参考视频尚未分析，正在自动分析；分析成功后才会提交创作任务……';
@@ -884,42 +928,138 @@ async function createProject(){
     btn.disabled = false;
     return;
   }
-  // §53 真实事件流：轮询 WorkflowRun 步骤（持久化状态，不是动画短语）
+  // 2026-10-25 用户裁决：点击创作后弹窗不关、变身「创作流程窗口」——
+  // 步骤清单实时可见（在干什么/有什么问题），出问题可取消并返回修改要求。
   const runId = wfResp.run_id;
-  const pollTimer = setInterval(async () => {
+  cfEnterProgressMode(runId);
+}
+
+/** 创作流程窗口模式：表单隐藏，弹窗变成进度面板（步骤+警告+取消返回修改）。 */
+let _cfProgressTimer = null;
+function cfEnterProgressMode(runId){
+  window._cfActiveRunId = runId;
+  const form = document.getElementById('cf-form');
+  const status = document.getElementById('cf-status');
+  if (!form || !status) return;
+  // 流程面板注入（表单之后）
+  let panel = document.getElementById('cf-progress');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'cf-progress';
+    panel.style.cssText = 'margin-top:10px;border-top:1px solid var(--border);padding-top:10px;max-height:46vh;overflow-y:auto';
+    form.parentNode.insertBefore(panel, form.nextSibling);
+  }
+  form.style.display = 'none';
+  panel.innerHTML = '<div class="hint">创作已开始，正在执行……每一步做什么都列在下面；<b>停止创作</b>会立即中断（已完成步骤保留在检查点）。</div>' +
+    '<div id="cf-progress-steps"></div>' +
+    '<div class="btn-row" style="margin-top:8px">' +
+    '<button class="btn-sm" style="background:var(--danger,#c33);color:#fff" onclick="cfStopCreation()">停止创作</button>' +
+    '<button class="btn-secondary btn-sm" onclick="cfCancelAndEdit()">停止并返回修改要求</button>' +
+    '<button class="btn-secondary btn-sm" onclick="cfDismissProgress()">后台继续，关闭窗口</button>' +
+    '</div>';
+  if (_cfProgressTimer) clearInterval(_cfProgressTimer);
+  _cfProgressTimer = setInterval(async () => {
     try {
       const run = await apiGet('/api/workflows/' + encodeURIComponent(runId));
       if (!run || run.error) return;
-      const labels = run.labels || {};
-      const cur = run.current ? (labels[run.current] || run.current) : '';
-      const doneSteps = (run.steps || []).filter(s => s.status === 'DONE').length;
-      const totalSteps = (run.steps || []).length;
-      status.textContent = run.status === 'RUNNING' || run.status === 'WAITING_CONFIRMATION'
-        ? `${cur ? cur + '……' : '处理中……'}（${doneSteps}/${totalSteps} 步）`
-        : status.textContent;
-      if (run.status === 'COMPLETED' || run.status === 'WAITING_CONFIRMATION') {
-        clearInterval(pollTimer);
-        const result = run.result || {};
-        CF.state = run.status === 'WAITING_CONFIRMATION' ? 'awaiting_confirm' : 'editing';
-        closeCreate();
-        if (run.status === 'WAITING_CONFIRMATION' && result.project_id) {
-          editorToast('方案已生成，正在打开工作台……');
-          await workspaceOpen(result.project_id);
-          await directorLoadRun(runId);
-        } else if (result.project_id) {
-          await workspaceOpen(result.project_id);
-          await directorLoadRun(runId);
-          editorToast('创作完成，已打开工作台');
+      const stepsBox = document.getElementById('cf-progress-steps');
+      if (stepsBox) stepsBox.innerHTML = cfRenderProgressSteps(run);
+      if (run.status !== 'RUNNING') {
+        clearInterval(_cfProgressTimer); _cfProgressTimer = null;
+        const st = document.getElementById('cf-progress');
+        if (st) st.querySelector('.hint').textContent =
+          run.status === 'COMPLETED' || run.status === 'WAITING_CONFIRMATION'
+            ? '创作完成，正在打开工作台……'
+            : run.status === 'CANCELLED'
+              ? '已停止创作。已完成步骤保留在检查点；可点「停止并返回修改要求」调整后重新创作。'
+              : '创作失败：' + (run.error || '未知') + '。可点「停止并返回修改要求」调整后重试。';
+        if (run.status === 'COMPLETED' || run.status === 'WAITING_CONFIRMATION') {
+          const result = run.result || {};
+          CF.state = run.status === 'WAITING_CONFIRMATION' ? 'awaiting_confirm' : 'editing';
+          closeCreate();
+          if (result.project_id) {
+            editorToast(run.status === 'WAITING_CONFIRMATION' ? '方案已生成，正在打开工作台……' : '创作完成，已打开工作台');
+            await workspaceOpen(result.project_id);
+            await directorLoadRun(runId);
+          }
+          loadProjects();
+        } else if (run.status === 'CANCELLED') {
+          CF.state = 'idle';  // 已停止：表单可改可重提
+        } else {
+          CF.state = 'failed';
         }
-        loadProjects();
-      } else if (run.status === 'FAILED') {
-        clearInterval(pollTimer);
-        CF.state = 'failed';
-        status.textContent = '生成失败：' + (run.error || '未知') + '（内容未保存，可调整后重试）';
-        btn.disabled = false;
       }
-    } catch (e) { /* 轮询失败下次再试 */ }
+    } catch (e) { /* 下次轮询再试 */ }
   }, 1500);
+}
+
+function cfRenderProgressSteps(run){
+  const labels = run.labels || {};
+  const stCn = {DONE: '✅ 完成', RUNNING: '⏳ 执行中', FAILED: '❌ 失败',
+                SKIPPED: '⚪ 跳过', PENDING: '· 待处理', INSPECTED: '✅ 完成'};
+  // 2026-10-26 用户裁决「每一步动态展示在干什么」：RUNNING 节点若正处 LLM
+  // 重试，实时显示「第 N/10 次尝试失败：xxx（X 秒前）」；否则显示该节点正在
+  // 做的事（动作说明）。后端 get_run 已在 RUNNING 步骤的 detail 里写入动作。
+  const llmRetry = run.llm_retry || {};
+  const liveLine = (llmRetry.attempt || 0) > 0
+    ? '<div style="color:#c77700;font-size:12px;margin:2px 0 6px 14px">'
+      + '⏳ 文本模型正在重试：第 ' + esc(llmRetry.attempt) + '/' + esc(llmRetry.max)
+      + ' 次失败（' + esc(llmRetry.last_error || '未知') + '，'
+      + esc(llmRetry.age_s || 0) + ' 秒前更新）</div>'
+    : '';
+  return (run.steps || []).map(s => {
+    const line = '<div style="margin:4px 0"><b>' + esc(labels[s.id] || s.id) + '</b> ' +
+      (stCn[s.status] || s.status) + '</div>';
+    // RUNNING 节点挂实时 LLM 重试进度（橙字=进行中）；FAILED/降级 detail 红字=问题
+    const live = (s.status === 'RUNNING' && (llmRetry.attempt || 0) > 0) ? liveLine : '';
+    // RUNNING 的动作说明是中性灰（正在做什么），FAILED/完成后降级原因才是红⚠
+    let warn = '';
+    if (s.detail) {
+      if (s.status === 'RUNNING') {
+        warn = '<div style="color:var(--muted,#889);font-size:12px;margin:2px 0 6px 14px">'
+          + esc(s.detail) + '</div>';
+      } else {
+        warn = '<div style="color:var(--danger,#c33);font-size:12px;margin:2px 0 6px 14px">⚠ '
+          + esc(s.detail) + '</div>';
+      }
+    }
+    return line + live + warn;
+  }).join('');
+}
+
+/** 停止创作：请求服务端取消（run→CANCELLED，正在执行的 LLM 调用立即中断）。 */
+async function cfStopCreation(){
+  const rid = window._cfActiveRunId;
+  if (!rid) { editorToast('没有正在进行的创作'); return; }
+  const r = await apiPost('/api/workflows/cancel', {run_id: rid});
+  if (r && r.ok) {
+    editorToast(r.note || '已请求停止：正在立即中断，请稍候……');
+    const hint = document.querySelector('#cf-progress .hint');
+    if (hint) hint.textContent = '已请求停止——正在立即中断（已完成步骤保留在检查点）。';
+  } else {
+    editorToast('停止失败：' + ((r && r.error) || '未知'), true);
+  }
+}
+
+/** 取消创作并返回修改要求：停止轮询，弹窗还原表单（用户要求原样保留）。 */
+function cfCancelAndEdit(){
+  if (_cfProgressTimer) { clearInterval(_cfProgressTimer); _cfProgressTimer = null; }
+  const panel = document.getElementById('cf-progress');
+  if (panel) panel.remove();
+  const form = document.getElementById('cf-form');
+  if (form) form.style.display = '';
+  const status = document.getElementById('cf-status');
+  if (status) status.textContent = '已取消创作。你的要求和素材都保留在表单里，修改后可重新点「AI 开始创作」。';
+  const btn = document.getElementById('cf-go');
+  if (btn) { btn.disabled = false; btn.textContent = 'AI 开始创作'; }
+  CF.state = 'idle';
+}
+
+/** 后台继续：关窗口，创作不停（工作台「AI 导演流程」面板可继续看）。 */
+function cfDismissProgress(){
+  if (_cfProgressTimer) { clearInterval(_cfProgressTimer); _cfProgressTimer = null; }
+  closeCreate();
+  editorToast('创作在后台继续；打开项目后可在「AI 导演流程」面板查看每步进展');
 }
 
 function cfSeriesSync(){
@@ -1024,4 +1164,5 @@ Object.assign(window, {
   openCreate, closeCreate, createLoadDefaults,
   createPlatformSync, createProject, createEnhance, createAcceptEnhanced,
   cfMakeGraphicPlan, cfAnalyzeReference, cfImportArticle, cfClearArticleSource, cfScanRepo, cfVoiceModeSync, cfSeriesSync, createSeriesFromCreatePanel, CF,
+  cfEnterProgressMode, cfRenderProgressSteps, cfCancelAndEdit, cfDismissProgress, cfPrefillFromProject, cfStopCreation,
 });

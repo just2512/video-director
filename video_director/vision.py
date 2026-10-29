@@ -142,6 +142,7 @@ class FrameVisionProvider(VisionProvider):
     def analyze(self, asset: AssetRef, frame_dir: Path) -> dict:
         import base64
         import urllib.request
+        import urllib.error
 
         try:
             from video_director import provider_matrix
@@ -161,7 +162,9 @@ class FrameVisionProvider(VisionProvider):
         payload = json.dumps({
             "model": self._model,
             "messages": [{"role": "user", "content": content}],
-            "max_tokens": 500,
+            # 500 在生产（同窗口两类假阴性）反复截断 description+tags 后的
+            # concepts/usable_for——1500 覆盖四字段全量输出，成本可忽略。
+            "max_tokens": 1500,
         }).encode()
         req = urllib.request.Request(
             f"{self._base_url}/chat/completions",
@@ -172,16 +175,74 @@ class FrameVisionProvider(VisionProvider):
             },
             method="POST",
         )
-        try:
-            with urllib.request.urlopen(req, timeout=90) as resp:
-                data = json.loads(resp.read().decode())
-        except Exception as exc:
-            raise VisionError(f"视觉 LLM 调用失败: {exc}") from exc
-        raw = data["choices"][0]["message"]["content"]
+        # 2026-10-27 用户裁决：重试 3 次（10 次太久）、固定 10s 间隔（视觉通道
+# 此前的递增等待 10→60s 没跟上 10-26 的统一裁决）。
+# 2026-10-20 用户裁决统一策略：LLM 调用失败重试、单次超时≥3 分钟
+# （此前 2 次/120s 生产显示经常边缘超时）。
+        data = None
+        last_exc: Optional[Exception] = None
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=180) as resp:
+                    data = json.loads(resp.read().decode())
+                break
+            except urllib.error.HTTPError as exc:
+                # 2026-10-27 用户报障：4xx 参数类错误立即失败不重试。错误信息
+                # 必须带网关响应体——只报「400 Bad Request」标题无法定位真实
+                # 原因（模型不支持/参数/权限，网关只写在 body 里）。
+                body = ""
+                try:
+                    body = exc.read().decode("utf-8", errors="replace")[:200]
+                except Exception:
+                    pass
+                if 400 <= exc.code < 500 and exc.code != 429:
+                    raise VisionError(
+                        f"视觉 LLM 客户端错误 {exc.code}（不重试）: {body or str(exc)[:160]}。"
+                        "请到「设置 → 模型」检查视觉模型是否可用（大模型测试按钮"
+                        "测的是文本模型，视觉是独立角色）。") from exc
+                last_exc = exc
+                if attempt < max_attempts:
+                    import time as _time
+                    logger.warning(
+                        f"视觉 LLM 调用第 {attempt}/{max_attempts} 次失败"
+                        f"（10s 后重试）: {exc.code} {body}")
+                    _time.sleep(10.0)
+            except Exception as exc:
+                last_exc = exc
+                if attempt < max_attempts:
+                    import time as _time
+                    logger.warning(
+                        f"视觉 LLM 调用第 {attempt}/{max_attempts} 次失败"
+                        f"（10s 后重试）: {exc}")
+                    _time.sleep(10.0)
+        if data is None:
+            raise VisionError(
+                f"视觉 LLM 调用失败（重试 {max_attempts} 次后）: {str(last_exc)[:200]}") from last_exc
+        # 防三连：choices 空（网关错误体）→ IndexError；content 为 None（安全
+        # 过滤/截断）→ NoneType.find；花括号切片非 JSON → 裸 json.loads 崩。
+        # 全部换成带原始响应摘要的诚实报错，调用方仍按 provider 失败降级。
+        choices = data.get("choices") or []
+        # finish_reason=length 是截断的确定性信号（部分供应商截断时还返回
+        # None content），带上它报错才不误导成「无 JSON」。
+        finish_reason = choices[0].get("finish_reason") if choices else None
+        content = (choices[0].get("message") or {}).get("content") if choices else None
+        if content is None or not str(content).strip():
+            err = data.get("error")
+            detail = f"：{str(err)[:160]}" if err else f"（响应键：{sorted(data.keys())[:6]}）"
+            raise VisionError(f"视觉 LLM 返回空内容{detail}")
+        raw = str(content).strip()
         start, end = raw.find("{"), raw.rfind("}")
-        if start < 0:
+        if start < 0 or end <= start:
+            if finish_reason == "length":
+                raise VisionError(
+                    f"视觉 LLM 输出被 max_tokens 截断（finish_reason=length，"
+                    f"响应 key: {sorted(data.keys())[:6]}）: {raw[:160]}")
             raise VisionError(f"视觉 LLM 输出无 JSON: {raw[:200]}")
-        parsed = json.loads(raw[start : end + 1])
+        try:
+            parsed = json.loads(raw[start : end + 1])
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise VisionError(f"视觉 LLM 输出 JSON 解析失败: {raw[:120]}") from exc
         return {
             "description": parsed.get("description", ""),
             "tags": parsed.get("tags", []),

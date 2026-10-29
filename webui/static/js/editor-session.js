@@ -185,6 +185,9 @@
     // CSS 初始 display:none；置空 inline 不会盖过它，必须显式 block（B7：
     // 此前 display='' → Guide 永远不可见，吸附只剩数值生效无视觉反馈）
     line.style.display = 'block';
+    // 吸附命中时播放头 cursor 同步变色（视觉反馈增强，与 Guide 线同生同灭）
+    const playhead = document.getElementById('tl-playhead');
+    if (playhead) playhead.classList.add('ed-playhead-snap');
   }
 
   function clearGuide() {
@@ -192,6 +195,8 @@
     state.snapGuideLabel = '';
     const line = document.getElementById('ed-session-snap-guide');
     if (line) line.style.display = 'none';
+    const playhead = document.getElementById('tl-playhead');
+    if (playhead) playhead.classList.remove('ed-playhead-snap');
   }
 
   function boxHitIds(rect, scope) {

@@ -142,7 +142,7 @@ def test_brief_intent_overrides_untouched_ui_defaults_but_not_manual_choices(mon
         "watermark": "逆时钟认知",
         "_unresolved": "",
     }
-    monkeypatch.setattr(director_intent, "resolve_director_intents", lambda _brief: dict(parsed_intent))
+    monkeypatch.setattr(director_intent, "resolve_rule_intents", lambda _brief: dict(parsed_intent))
     captured = {}
 
     def fake_bundle(merged):

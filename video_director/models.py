@@ -353,6 +353,7 @@ class SceneIR(BaseModel):
     # ---- 视觉语义归一：Scene Contract（§31/§32/§七十二 Continuity，后向兼容）----
     intent: str = ""                      # §31 intent（这个场景要表达什么）
     visual_intent: str = ""               # §31 visualIntent（这个场景视觉上做什么）
+    human_locked: bool = False            # 镜头锁定：AI 自动重算/重规划跳过该场景
     selected_candidate_id: Optional[str] = None  # 当前采用的 Creative Candidate；持久化于 IR
     entrance_state: Optional[SceneState] = None   # 进入状态（可见层/锚点/机位/空间图）
     exit_state: Optional[SceneState] = None       # 退出状态（供连续性一致性检查）

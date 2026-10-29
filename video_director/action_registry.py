@@ -115,7 +115,9 @@ _ACTIONS: List[ActionSpec] = [
                aliases=["混音", "整体声音调整", "原声 20% BGM 10%"],
                payload_defaults={},
                effects=["audio_bus"]),
-    ActionSpec("voice.change", "换配音", "tts.list_voices", "set_narration_voice",
+    # capability 必须是 tts.set_voice（写 params_json.voice）——曾误指只读的
+    # tts.list_voices，导致「应用音色」返回 ok=True 却什么都没落盘（假成功）。
+    ActionSpec("voice.change", "换配音", "tts.set_voice", "set_narration_voice",
                targets=["project"],
                aliases=["换音色", "换个声音", "配音换成男声", "重新配音", "改配音"]),
     ActionSpec("voice.preview", "试听音色", "tts.preview_voice", "preview_voice",
@@ -172,6 +174,11 @@ _ACTIONS: List[ActionSpec] = [
     ActionSpec("creative.select_candidate", "采用创作方案", "creative.candidate.select", "set_scene_intent",
                targets=["scene"],
                aliases=["采用这个方案", "用这个创作方案", "采用候选方案"],
+               preconditions=["has_selection"]),
+    # ---- 镜头锁定（差距6：人工介入不被自动重算覆盖）----
+    ActionSpec("scene.lock", "锁定镜头", "scene.lock", "set_scene_locked",
+               targets=["scene"],
+               aliases=["锁定这个镜头", "锁定镜头", "不要动这个镜头"],
                preconditions=["has_selection"]),
     ActionSpec("asset.replace", "换素材", "asset.replace", "replace_source",
                targets=["scene", "layer"],
@@ -399,7 +406,11 @@ _ACTIONS: List[ActionSpec] = [
                targets=["project"], undo=False,
                aliases=["多条视频", "批量生成"]),
     # ---- §66 交付元数据 ----
-    ActionSpec("delivery.generate_metadata", "生成发布文案", "system.capabilities.list",
+    # 2026-10-22 真实现：tool_executor._execute_delivery_metadata 读项目文案
+    # → LLM 生成 title/description/tags → params_json.delivery_metadata。
+    # 此前 capability 误指 system.capabilities.list（Agent 调它只拿到能力
+    # 列表、假成功）——现改指同名真能力。
+    ActionSpec("delivery.generate_metadata", "生成发布文案", "delivery.generate_metadata",
                "noop", targets=["project"], undo=False,
                aliases=["写标题", "生成描述", "生成标签"]),
     # ---- UI 交互型（§58：本地 UI 行为，无后端执行）----
@@ -987,10 +998,19 @@ def ai_tool_surface() -> dict:
 def system_context() -> dict:
     """§16 System Context：actions/providers/render_profiles/asset_sources/voice_sources/music_sources。"""
     from video_director.capability_registry.manifest import manifest as _mf
+    # 已三层注册（_ACTIONS/capability manifest/workflow）但前端动作面板与服务端
+    # action-dispatcher 均零入口的能力——Agent 读 system_context 会当成可调能力
+    # 派发，实际全部打空。从这里摘掉，等真实接线后再移除本集合。
+    # 注意：_ACTIONS 本身不动（前端面板按 target 索引，过滤只影响 Agent 面）。
+    # 2026-10-22 三能力全部真接线完成，本集合清空（generate.sfx → Openverse
+    # CC0 搜索；music.auto_match → BGM 面板按钮；delivery.generate_metadata →
+    # tool_executor LLM 发布文案 + 成片完成框按钮）。保留过滤机制本身，
+    # 未来新占位能力仍走这里摘除。
+    _FRONTEND_UNWIRED: set = set()
     caps = sorted(_mf().keys())
     return {
         "build_id": BUILD_ID,
-        "actions": [a.id for a in _ACTIONS],
+        "actions": [a.id for a in _ACTIONS if a.id not in _FRONTEND_UNWIRED],
         "capabilities_count": len(caps),
         "workflows": workflow_specs(),       # §67 Workflow Registry
         "ai_tools": ai_tool_surface(),       # §68 AI 高层工具面

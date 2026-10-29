@@ -15,6 +15,7 @@ const PM_STATUS_CN = {
   CREATED: '待处理', TTS: '生成中', ALIGNMENT: '生成中', MATCHING: '生成中',
   PLANNING: '生成中', AWAITING_CONFIRM: '待确认', RENDERING: '生成中', QC: '生成中',
   DONE: '已完成', FAILED: '失败', UNKNOWN: '旧版',
+  CANCELLED: '已停止',  // 2026-10-26：用户主动停止 ≠ 失败
 };
 
 function pmStatusCn(p){
@@ -92,7 +93,7 @@ function renderProjectList(){
       </span>
       <span class="pm-name" onclick="pmOpenDetail('${esc(p.project_id)}')"><b>${esc(name)}</b>
         <span class="hint">${p.scene_count ? p.scene_count + ' 场景' : ''}${p.legacy ? ' · 旧版渲染项目' : (p.archived ? ' · 已归档' : '')}</span></span>
-      <span class="pm-st ${pmStatusCls(p)}">${busyAct ? (busyCn[busyAct] || '处理中……') : pmStatusCn(p)}</span>
+      <span class="pm-st ${pmStatusCls(p)}"${p.active_job ? ` onclick="pmShowProgress('${esc(p.project_id)}')" style="cursor:pointer" title="点击查看创作过程"` : ''}>${busyAct ? (busyCn[busyAct] || '处理中……') : pmStatusCn(p)}</span>
       <span class="pm-dur">${dur}</span>
       <span class="pm-when">${when}</span>
       <span class="pm-ops">${busyAct ? '<span class="hint">处理中……</span>'
@@ -205,6 +206,8 @@ function _pmMenuItems(p){
     p.legacy
       ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmPreviewLegacy('${esc(p.project_id)}')">预览旧成品</button>`
       : (actions.preview && p.has_final ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmPreviewFinal('${esc(p.project_id)}')">预览</button>` : ''),
+    // 2026-10-25 用户裁决：随时回到新建项目对话框——回填该项目的创作要求/文案。
+    p.legacy ? '' : `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();openCreate('${esc(p.project_id)}')">修改要求重新创作</button>`,
     actions.rename ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmAskRename('${esc(p.project_id)}')">重命名</button>` : '',
     actions.duplicate ? `<button class="btn-secondary btn-sm" onclick="pmCloseRowMenu();pmClone('${esc(p.project_id)}')">复制项目</button>` : '',
     p.archived
@@ -423,8 +426,52 @@ function pmShowModal(inner){
   document.body.appendChild(mask);
 }
 function pmCloseModal(){
+  if (_pmProgressTimer) { clearInterval(_pmProgressTimer); _pmProgressTimer = null; }
   const mask = document.getElementById('pm-modal-mask');
   if (mask) mask.remove();
+}
+
+// 2026-10-26 用户报障：创作过程全程可见——项目列表「生成中 N%」点击即可
+// 打开步骤面板（关掉弹窗后也能在这里看/停止），不再只有在笼统百分比。
+let _pmProgressTimer = null;
+async function pmShowProgress(pid){
+  let rid = '';
+  try {
+    const list = await apiGet('/api/workflows?project_id=' + encodeURIComponent(pid));
+    const runs = (list && list.runs) || [];
+    rid = runs.length ? runs[0].run_id : '';
+  } catch (e) { rid = ''; }
+  if (!rid) { editorToast('没有找到创作任务', true); return; }
+  pmCloseModal();
+  await _pmRenderProgress(rid);
+  pmShowModal(
+    '<div><b>创作过程</b> <span class="hint" id="pm-progress-head"></span></div>' +
+    '<div id="pm-progress-steps" style="margin-top:8px;max-height:52vh;overflow-y:auto"></div>' +
+    '<div class="btn-row" style="margin-top:10px">' +
+    '<button class="btn-sm" style="background:var(--danger,#c33);color:#fff" onclick="_pmStop(\'' + esc(rid) + '\')">停止创作</button>' +
+    '<button class="btn-secondary btn-sm" onclick="pmCloseModal()">关闭</button></div>');
+  _pmProgressTimer = setInterval(() => _pmRenderProgress(rid), 2000);
+}
+
+async function _pmRenderProgress(rid){
+  try {
+    const d = await apiGet('/api/workflows/' + encodeURIComponent(rid));
+    if (!d || d.error) return;
+    const stepsBox = document.getElementById('pm-progress-steps');
+    const head = document.getElementById('pm-progress-head');
+    if (stepsBox) stepsBox.innerHTML = (typeof cfRenderProgressSteps === 'function')
+      ? cfRenderProgressSteps(d) : '（步骤加载中）';
+    if (head) head.textContent = d.status === 'RUNNING' ? ' · 运行中'
+      : d.status === 'CANCELLED' ? ' · 已停止' : ' · ' + (d.status || '');
+    if (d.status !== 'RUNNING' && _pmProgressTimer) {
+      clearInterval(_pmProgressTimer); _pmProgressTimer = null;
+    }
+  } catch (e) { /* 轮询失败下次再试 */ }
+}
+
+async function _pmStop(rid){
+  const r = await apiPost('/api/workflows/cancel', {run_id: rid});
+  editorToast(r && r.ok ? (r.note || '已请求停止') : '停止失败：' + ((r && r.error) || '未知'));
 }
 
 /** 项目详情抽屉（行名称点击展开：§5 打开/预览/继续处理）。 */
@@ -439,10 +486,22 @@ async function pmOpenDetail(pid){
     const sb = j.storyboard || {};
     const sceneRows = (sb.scenes || []).map(s =>
       `<div class="pm-detail-scene"><b>${esc(s.scene_id || '')}</b> · ${(s.duration || 0).toFixed(1)}s<div>${esc(s.text || '')}</div></div>`).join('');
+    // 2026-10-21 指纹核查补落地：意图执行报告出用户可见口——警告（降级/预算/
+    // 风格未映射）+ 命中的意图字段（用户能核对「AI 听懂了什么」）。
+    const irpt = j.intent_report || {};
+    const warnRows = (irpt.warnings || []).map(w =>
+      `<div class="pm-detail-warn">⚠ ${esc(w)}</div>`).join('');
+    const fields = irpt.intent_fields || {};
+    const fieldEntries = Object.entries(fields);
+    const fieldRows = fieldEntries.length
+      ? `<div class="hint" style="margin-top:8px">已按你的要求执行：${fieldEntries.map(([k, v]) => `<span class="pm-intent-chip">${esc(k)}=${esc(String(v))}</span>`).join(' ')}</div>`
+      : '';
     box.innerHTML = `
       <h3 style="font-size:15px">${esc(j.name || pid)}</h3>
       <div class="hint">${pmStatusCn(j)} · ${sb.scene_count || '?'} 场景 · ${sb.total_duration || '?'}s
         ${j.has_final ? ' · 有成品' : ''}${j.has_draft ? ' · 有草稿' : ''}</div>
+      ${warnRows ? `<div class="pm-detail-warns">${warnRows}</div>` : ''}
+      ${fieldRows}
       <div class="pm-detail-scenes">${sceneRows || '<div class="hint">无分镜数据</div></div>'}
       <div class="btn-row">
         ${j.editable ? `<button class="btn-sm" onclick="workspaceOpen('${esc(pid)}')">打开工作台</button>` : ''}
@@ -459,6 +518,7 @@ Object.assign(window, {
   projectAction, renameProject, continueProject, pmClone, pmArchive, pmRestore,
   convertLegacyProject, pmReopenFailed, pmShowFailure, pmPreviewFinal, pmPreviewLegacy,
   pmAskDelete, deleteProject, pmAskRename, pmShowModal, pmCloseModal,
+  pmShowProgress, _pmRenderProgress, _pmStop,
   pmShowMore, pmOpenDetail, pmRowMenu, pmCloseRowMenu,
   pmToggleSelected, pmToggleAll, pmRefreshBulkBar, pmAskBulkDelete, pmBulkAction,
   PM, PM_STATUS_CN, PM_PAGE,

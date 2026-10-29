@@ -10,9 +10,13 @@ STATE_KEYS = (
     "script", "scene_texts", "scene_plan", "narration_file", "word_timeline", "narration_scenes",
     "video_files", "image_files", "assets", "asset_order", "assignments",
     "material_intents", "creative_candidates", "subtitle_file", "subtitle_entries", "bgm_asset_id",
-    "bgm_volume", "composition_path", "manifest_path", "style_path",
+    "bgm_volume", "music_policy", "composition_path", "manifest_path", "style_path",
     "transition_proposals_path", "material_usage_path", "build_fingerprint_path",
     "draft_path", "storyboard_path", "final_path", "qc_report",
+    # 音效开关决策（director_agent._apply_sfx_policy 写入）：off→空列表、
+    # 文本意图→单音效列表、auto→None 交 style density；None 是合法值，
+    # 「key 存在即恢复」必须覆盖它，否则 continue 后 sfx 决策静默丢失。
+    "sfx_plan_override", "sfx_auto_search",
 )
 
 

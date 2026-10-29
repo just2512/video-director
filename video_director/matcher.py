@@ -169,7 +169,19 @@ def llm_match(
         for aid, a in assets.items()
         if a.type == "video"
     )
-    scenes_desc = "\n".join(f"- {s['id']}: {s['text']}" for s in scenes)
+    # §七.2 契约：must_show/must_not_show 进匹配上下文——「必须呈现人物停顿」
+    # 或「禁止出现与文案不符的细节」直接影响素材适配判断。
+    def _scene_line(s: dict) -> str:
+        line = f"- {s['id']}: {s['text']}"
+        show = [str(x) for x in (s.get("must_show") or []) if str(x or "").strip()]
+        not_show = [str(x) for x in (s.get("must_not_show") or []) if str(x or "").strip()]
+        if show:
+            line += f"｜必须呈现: {'、'.join(show)}"
+        if not_show:
+            line += f"｜禁止呈现: {'、'.join(not_show)}"
+        return line
+
+    scenes_desc = "\n".join(_scene_line(s) for s in scenes)
     prompt = MATCH_PROMPT.format(assets_desc=assets_desc, scenes_desc=scenes_desc)
     raw = llm_call(prompt)
     start, end = raw.find("{"), raw.rfind("}")
@@ -198,6 +210,7 @@ def match_assets(
     policy_by_scene: Optional[Dict[str, Dict[str, str]]] = None,
     policy_decisions_out: Optional[List[dict]] = None,
     provenance_out: Optional[Dict[str, str]] = None,
+    semantic_verdicts_out: Optional[Dict[str, str]] = None,
 ) -> Dict[str, str]:
     """统一入口：LLM 主路 → 确定性 fallback → 顺序兜底（保证总有结果）。
 
@@ -263,8 +276,44 @@ def match_assets(
             logger.info(
                 f"asset usage policy: 调整 {len(deferred)} 个场景的来源/复用顺序",
             )
+    # §六/§三十四 可选语义增强：Marengo/Pegasus verify_scene_candidates 接入主匹配流。
+    # 这是「可选增强失败 ≠ 核心生产失败」的正确落地——provider 不 READY 时整体跳过
+    # （不降级也不报错）；READY 时对已匹配场景做语义校验，verdict 经独立返回通道
+    # （semantic_verdicts_out）透出，CONFLICT 标记但不擅自改 assignments
+    # （最终采用仍由用户/Director 决定，见 visual_qa.py docstring）。
+    semantic_verdicts: Dict[str, str] = {}
+    try:
+        from video_director import provider_matrix as _pm
+        rerank_ready = _pm.state("semantic_rerank", "visual.semantic_retrieve").status == "READY"
+    except Exception:
+        rerank_ready = False
+    if rerank_ready and assignments:
+        try:
+            from video_director.visual_qa import verify_scene_candidates
+            for s in scenes:
+                sid = s["id"]
+                aid = assignments.get(sid)
+                if not aid or aid not in assets:
+                    continue
+                a = assets[aid]
+                candidates = [{"asset_id": aid, "file": getattr(a, "file", "")}]
+                res = verify_scene_candidates(
+                    sid, str(s.get("text", "")), candidates, max_qa=1,
+                )
+                verdicts = res.get("verdicts") or []
+                if verdicts:
+                    v = str(verdicts[0].get("verdict") or "UNKNOWN")
+                    semantic_verdicts[sid] = v
+                    if v == "CONFLICT":
+                        logger.info(f"asset match: 场景 {sid} 语义校验 CONFLICT（保留匹配，待人工决策）")
+        except Exception as exc:
+            # 可选增强失败：记 warning，不影响核心匹配结果
+            logger.warning(f"asset match: 语义校验增强跳过（不阻塞核心链）: {exc}")
     if provenance_out is not None:
         # 本调用的结果为准：先清空再写入，避免上一轮（如本地预匹配）的陈旧来源残留。
         provenance_out.clear()
         provenance_out.update(provenance)
+    if semantic_verdicts_out is not None:
+        semantic_verdicts_out.clear()
+        semantic_verdicts_out.update(semantic_verdicts)
     return assignments

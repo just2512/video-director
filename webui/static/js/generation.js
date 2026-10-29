@@ -63,8 +63,9 @@ function applyGenerationAvailability(){
     btn.title = unavailable
       ? ((type === 'image' ? CAPS.imageReason : CAPS.videoReason) || '该生成服务未配置')
       : '';
+    // 差距 2a：音效无合成 provider，走 Openverse 搜索——按钮文案诚实写「搜索」。
     btn.textContent = unavailable ? '生成（暂不可用）'
-      : (type === 'motion' ? '生成动画' : '生成 3 变体');
+      : (type === 'motion' ? '生成动画' : (type === 'sfx' ? '搜索音效' : '生成 3 变体'));
   }
   if (status && unavailable) {
     const reason = (type === 'image' ? CAPS.imageReason : CAPS.videoReason)
@@ -122,13 +123,36 @@ async function editorGenerate(){
     if (!found) { status.textContent = `项目无 ${wantType} 素材可作参考`; return; }
     refSel = 'asset:' + found;
   }
-  status.textContent = type === 'motion' ? '动画生成中……（逐帧渲染）' : '生成中……（A/B/C 变体）';
-  const r = await apiPost('/api/editor/generate', {project_id: ED.pid, prompt, type,
+  status.textContent = type === 'motion' ? '动画生成中……（逐帧渲染）'
+    : (type === 'sfx' ? '搜索音效中……（Openverse CC0，免 Key）' : '生成中……（A/B/C 变体）');
+  // §十八 付费 Provider 确认：image/video 生成产生真实费用，首次调用须用户确认。
+  // 后端返回 NEEDS_CONFIRMATION 时弹确认框，确认后带 confirmed:true 重发。
+  let r = await apiPost('/api/editor/generate', {project_id: ED.pid, prompt, type,
     model: modelSel.replace(/^\[(image|video)\] /, ''), reference: refSel,
     width: ED.comp ? (ED.comp.width || 1080) : 1080,
     height: ED.comp ? (ED.comp.height || 1920) : 1920});
+  if (r.status === 'NEEDS_CONFIRMATION' && (type === 'image' || type === 'video')) {
+    status.textContent = '';
+    const confirmed = confirm('本镜头需付费' + (type === 'video' ? '视频' : '图片') +
+      '生成服务。\n点击确定将调用付费生成 API，点击取消则不执行。');
+    if (!confirmed) { return; }
+    status.textContent = type === 'video' ? '生成中……（已确认付费）' : '生成中……（已确认付费）';
+    r = await apiPost('/api/editor/generate', {project_id: ED.pid, prompt, type,
+      model: modelSel.replace(/^\[(image|video)\] /, ''), reference: refSel,
+      width: ED.comp ? (ED.comp.width || 1080) : 1080,
+      height: ED.comp ? (ED.comp.height || 1920) : 1920, confirmed: true});
+  }
   const box = document.getElementById('gen-results');
-  if (!r.ok) { status.textContent = ''; box.innerHTML = `<div class="err-box">生成失败：${esc(r.error||'未知原因')}</div>`; return; }
+  if (!r.ok) { status.textContent = ''; box.innerHTML = `<div class="err-box">${type === 'sfx' ? '音效搜索失败' : '生成失败'}：${esc(r.error||'未知原因')}</div>`; return; }
+  // 差距 2a：音效产物不是画面变体——展示来源（Openverse CC0）与提示，不伪装成 AI 生成。
+  if (type === 'sfx') {
+    status.textContent = `已搜索并入库音效（${r.note || 'Openverse/freesound CC0'}）`;
+    box.innerHTML = r.results.map(res =>
+      `<div class="proj-row"><span><b>音效</b> <code>${esc(res.asset_id)}</code><br>`+
+      `<span class="hint">来源：Openverse/freesound CC0 搜索（非 AI 合成）；可在「声音 → 音效」面板应用</span></span>`+
+      `<span class="btn-row"><button class="btn-secondary btn-sm" onclick="edLibDomain('sound','sfx')">去音效面板应用</button></span></div>`).join('');
+    return;
+  }
   status.textContent = `已生成 ${r.results.length} 个变体（已保存到项目素材库）`;
   box.innerHTML = r.results.map(res =>
     `<div class="proj-row"><span><b>变体 ${esc(res.variant)}</b> <code>${esc(res.asset_id)}</code><br>`+
