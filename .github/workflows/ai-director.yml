@@ -619,7 +619,9 @@ jobs:
             if [ -s "$proxy_file" ]; then
               port="$(cat "$proxy_file")"
               if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
-                printf 'VD_ACTIONS_HTTP_PROXY=http://127.0.0.1:%s\n' "$port" >> "$GITHUB_ENV"
+                for variable in HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy; do
+                  printf '%s=http://127.0.0.1:%s\n' "$variable" "$port" >> "$GITHUB_ENV"
+                done
                 echo "ACTION_ARTIFACT_PROXY=READY transport=http-loopback-to-socks"
                 exit 0
               fi
@@ -635,32 +637,12 @@ jobs:
           if [ -s "$proxy_log" ]; then tail -n 20 "$proxy_log"; fi
           exit 0
 
-      # Node/undici does not accept SOCKS URLs; use the loopback HTTP bridge when ready.
-      - name: Retain regression diagnostics through local HTTP proxy
-        if: always() && steps.ensure_checkout.outcome == 'success' && env.VD_ACTIONS_HTTP_PROXY != ''
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        env:
-          HTTP_PROXY: ${{ env.VD_ACTIONS_HTTP_PROXY }}
-          HTTPS_PROXY: ${{ env.VD_ACTIONS_HTTP_PROXY }}
-          ALL_PROXY: ${{ env.VD_ACTIONS_HTTP_PROXY }}
-          http_proxy: ${{ env.VD_ACTIONS_HTTP_PROXY }}
-          https_proxy: ${{ env.VD_ACTIONS_HTTP_PROXY }}
-          all_proxy: ${{ env.VD_ACTIONS_HTTP_PROXY }}
-        with:
-          name: regression-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            junit.xml
-            pytest-output.log
-            live-stream-junit.xml
-            timeline-junit.xml
-            timeline-regression-output.log
-            test-results/**
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Retain regression diagnostics using runner proxy
-        if: always() && steps.ensure_checkout.outcome == 'success' && env.VD_ACTIONS_HTTP_PROXY == ''
+      # actions/upload-artifact's Node/undici proxy only accepts HTTP(S) proxy URLs.
+      # The preceding step temporarily overrides proxy variables in GITHUB_ENV
+      # only after a loopback bridge is ready. If it cannot start, runner defaults
+      # are preserved and diagnostic upload remains non-blocking.
+      - name: Retain regression diagnostics
+        if: always() && steps.ensure_checkout.outcome == 'success'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
