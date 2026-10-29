@@ -128,8 +128,8 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "id: live_stream_config" in ai_workflow
     assert "id: full_regression" in ai_workflow
     assert "steps.full_regression.outcome == 'success'" in ai_workflow
-    # Live-model diagnostics are intentionally non-blocking: the report must
-    # record REJECT/MISSING, while unrelated regression and release gates continue.
+    # MISSING is allowed when the live request was not opted in; an explicit
+    # live request that rejects or times out must block release publication.
     require_live_or_not_requested = (
         "steps.live_stream_config.conclusion == 'success' || "
         "steps.live_stream_config.conclusion == 'skipped' || "
@@ -144,6 +144,17 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "id: live_stream_smoke" in ai_workflow
     assert "steps.live_stream_config.outcome" in ai_workflow
     assert "steps.live_stream_acceptance.conclusion == 'success'" in ai_workflow
+    live_report_step = ai_workflow.split(
+        "      - name: Report real-model token-stream acceptance gate", 1
+    )[1].split("      - name: Check JavaScript syntax", 1)[0]
+    assert "continue-on-error: true" not in live_report_step
+    assert "LIVE_STREAM_CONFIG_OUTCOME" in live_report_step and "steps.live_stream_config.outcome" in live_report_step
+    assert "LIVE_STREAM_TEST_OUTCOME" in live_report_step and "steps.live_stream_smoke.outcome" in live_report_step
+    diagnostic_upload = ai_workflow.split(
+        "      - name: Retain regression diagnostics", 1
+    )[1].split("      - name: Publish verified React Studio bundle", 1)[0]
+    assert "actions/upload-artifact@v4" in diagnostic_upload
+    assert "continue-on-error: true" in diagnostic_upload
     assert "steps.timeline_regression_gate.outcome == 'success'" in ai_workflow
     # Artifact publication itself must not trigger an endless build/publish commit loop.
     assert '"message": "build: publish verified React 19 Studio bundle [skip ci]"' in ai_workflow

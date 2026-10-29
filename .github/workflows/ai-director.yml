@@ -485,7 +485,6 @@ jobs:
         id: live_stream_acceptance
         if: always() && steps.ensure_checkout.outcome == 'success'
         shell: bash
-        continue-on-error: true
         env:
           LIVE_STREAM_CONFIG_OUTCOME: ${{ steps.live_stream_config.outcome }}
           LIVE_STREAM_TEST_OUTCOME: ${{ steps.live_stream_smoke.outcome }}
@@ -551,8 +550,11 @@ jobs:
           fi
           exit "$test_exit"
 
+      # Runner SOCKS proxy URLs are not accepted by the Node artifact uploader.
+      # Failure details remain in Actions logs/summary; archive upload is optional.
       - name: Retain regression diagnostics
         if: always() && steps.ensure_checkout.outcome == 'success'
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: regression-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
