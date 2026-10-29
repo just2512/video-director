@@ -604,12 +604,50 @@ jobs:
           fi
           exit "$test_exit"
 
-      # Runner SOCKS proxy URLs are not accepted by the Node artifact uploader.
-      # Failure details remain in Actions logs/summary; archive upload is optional.
+      - name: Prepare local HTTP bridge for SOCKS-backed artifact upload
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          proxy_file="$RUNNER_TEMP/video-director-artifact-http-proxy-port"
+          proxy_log="$RUNNER_TEMP/video-director-artifact-http-proxy.log"
+          rm -f "$proxy_file" "$proxy_log"
+          "$PY311_BIN/python3.11" tools/http_connect_socks_proxy.py --port-file "$proxy_file" >"$proxy_log" 2>&1 < /dev/null &
+          proxy_pid=$!
+          for attempt in $(seq 1 40); do
+            if [ -s "$proxy_file" ]; then
+              port="$(cat "$proxy_file")"
+              if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
+                printf 'VD_ACTIONS_HTTP_PROXY=http://127.0.0.1:%s\n' "$port" >> "$GITHUB_ENV"
+                echo "ACTION_ARTIFACT_PROXY=READY transport=http-loopback-to-socks"
+                exit 0
+              fi
+              echo "ACTION_ARTIFACT_PROXY=REJECT reason=invalid-local-port"
+              exit 0
+            fi
+            if ! kill -0 "$proxy_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+          echo "ACTION_ARTIFACT_PROXY=SKIP reason=no-supported-socks-upstream-or-startup-failure"
+          if [ -s "$proxy_log" ]; then tail -n 20 "$proxy_log"; fi
+          exit 0
+
+      # actions/upload-artifact's Node/undici proxy only accepts HTTP(S) proxy URLs.
+      # When a SOCKS upstream exists, scope the localhost bridge to this step only.
       - name: Retain regression diagnostics
         if: always() && steps.ensure_checkout.outcome == 'success'
         continue-on-error: true
         uses: actions/upload-artifact@v4
+        env:
+          HTTP_PROXY: ${{ env.VD_ACTIONS_HTTP_PROXY || env.HTTP_PROXY }}
+          HTTPS_PROXY: ${{ env.VD_ACTIONS_HTTP_PROXY || env.HTTPS_PROXY }}
+          ALL_PROXY: ${{ env.VD_ACTIONS_HTTP_PROXY || env.ALL_PROXY }}
+          http_proxy: ${{ env.VD_ACTIONS_HTTP_PROXY || env.http_proxy }}
+          https_proxy: ${{ env.VD_ACTIONS_HTTP_PROXY || env.https_proxy }}
+          all_proxy: ${{ env.VD_ACTIONS_HTTP_PROXY || env.all_proxy }}
         with:
           name: regression-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
