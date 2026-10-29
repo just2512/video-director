@@ -145,6 +145,8 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "steps.live_stream_config.outcome" in ai_workflow
     assert "steps.live_stream_acceptance.conclusion == 'success'" in ai_workflow
     assert "steps.timeline_regression_gate.outcome == 'success'" in ai_workflow
+    # Artifact publication itself must not trigger an endless build/publish commit loop.
+    assert '"message": "build: publish verified React 19 Studio bundle [skip ci]"' in ai_workflow
     assert '"BLOCKED_PROVIDER":' in live_acceptance
     assert '"BLOCKED_MODEL":' in live_acceptance
     assert '"insufficient balance" in evidence' in live_acceptance
