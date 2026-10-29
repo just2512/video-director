@@ -400,10 +400,10 @@ jobs:
 
       - name: Run isolated real-model token-stream acceptance test
         id: live_stream_smoke
-        # A failed minimal probe already proves the provider path is unavailable.
-        # Do not spend another four minutes waiting on the same endpoint; the
-        # acceptance reporter still rejects the explicit live gate and blocks publish.
-        if: steps.live_stream_config.outcome == 'success' && steps.live_provider_probe.outcome == 'success'
+        # The probe is diagnostic, not a substitute for the requested live acceptance.
+        # A timeout may be a cold start or transient transport delay; always attempt the
+        # full token-stream test when an explicit live configuration was prepared.
+        if: steps.live_stream_config.outcome == 'success'
         shell: bash
         continue-on-error: true
         run: |

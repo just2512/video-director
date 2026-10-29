@@ -151,7 +151,12 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert '"reasoning_effort": effort' in provider_probe
     assert '"chat_template_kwargs": {"clear_thinking": True}' in provider_probe
     assert "type(exc).__name__" in provider_probe
-    assert "steps.live_provider_probe.outcome == 'success'" in ai_workflow
+    live_smoke_step = ai_workflow.split(
+        "      - name: Run isolated real-model token-stream acceptance test", 1
+    )[1].split("      - name: Install Remotion rendering runtime dependencies", 1)[0]
+    assert "steps.live_stream_config.outcome == 'success'" in live_smoke_step
+    assert "steps.live_provider_probe.outcome == 'success'" not in live_smoke_step
+    assert "probe is diagnostic, not a substitute" in live_smoke_step
     assert "id: live_stream_smoke" in ai_workflow
     live_smoke_step = ai_workflow.split(
         "      - name: Run isolated real-model token-stream acceptance test", 1
