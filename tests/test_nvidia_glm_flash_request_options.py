@@ -78,3 +78,40 @@ def test_other_openai_compatible_models_keep_existing_request_shape(monkeypatch)
     assert provider.generate("reply OK") == "OK"
     assert "reasoning_effort" not in fake.calls[0]
     assert "extra_body" not in fake.calls[0]
+
+def test_nvidia_glm_stream_error_reports_sanitized_transport_diagnostics(monkeypatch):
+    provider, _fake = _provider(
+        "https://integrate.api.nvidia.com/v1",
+        "z-ai/glm-5.3-flash",
+    )
+
+    private_reasoning = "private reasoning must not be present in diagnostics"
+
+    class BrokenCompletions:
+        def create(self, **kwargs):
+            assert kwargs.get("stream") is True
+
+            def events():
+                yield SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(
+                    content=None, reasoning_content=private_reasoning
+                ))])
+                raise OSError("raw upstream detail must not leak")
+
+            return events()
+
+    provider._client = SimpleNamespace(
+        chat=SimpleNamespace(completions=BrokenCompletions())
+    )
+    fragments = []
+    with pytest.raises(RuntimeError) as caught:
+        provider.generate_stream("reply OK", on_delta=fragments.append)
+
+    message = str(caught.value)
+    assert fragments == []
+    assert "exception_chain=OSError" in message
+    assert "reasoning_chunks=1" in message
+    assert f"reasoning_chars={len(private_reasoning)}" in message
+    assert "visible_chunks=0" in message
+    assert private_reasoning not in message
+    assert "raw upstream detail must not leak" not in message
+\n

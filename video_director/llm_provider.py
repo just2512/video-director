@@ -209,6 +209,9 @@ class OpenAICompatibleProvider:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
         parts: list[str] = []
+        reasoning_chunks = 0
+        reasoning_chars = 0
+        visible_chunks = 0
         stream = None
         try:
             stream = self._client.chat.completions.create(
@@ -224,9 +227,14 @@ class OpenAICompatibleProvider:
                 if not choices:
                     continue
                 delta = getattr(choices[0], "delta", None)
+                reasoning = getattr(delta, "reasoning_content", None)
+                if isinstance(reasoning, str) and reasoning:
+                    reasoning_chunks += 1
+                    reasoning_chars += len(reasoning)
                 content = getattr(delta, "content", None)
                 if isinstance(content, str) and content:
                     parts.append(content)
+                    visible_chunks += 1
                     if on_delta is not None:
                         on_delta(content)
                 elif isinstance(content, list):
@@ -234,14 +242,16 @@ class OpenAICompatibleProvider:
                         fragment = getattr(item, "text", None)
                         if isinstance(fragment, str) and fragment:
                             parts.append(fragment)
+                            visible_chunks += 1
                             if on_delta is not None:
                                 on_delta(fragment)
             if cancel_event is not None and cancel_event.is_set():
                 raise RuntimeError("LLM stream 已取消")
         except Exception as exc:
-            reason = "已取消" if cancel_event is not None and cancel_event.is_set() else f"失败: {exc}"
-            # Preserve useful transport diagnostics without logging request bodies,
-            # credentials, or exception messages that may contain sensitive details.
+            cancelled = cancel_event is not None and cancel_event.is_set()
+            reason = "已取消" if cancelled else "失败"
+            # Keep transport diagnostics useful without logging request bodies,
+            # reasoning text, credentials, or raw exception messages.
             chain = []
             current = exc
             seen = set()
@@ -249,10 +259,13 @@ class OpenAICompatibleProvider:
                 seen.add(id(current))
                 chain.append(type(current).__name__)
                 current = current.__cause__ or current.__context__
-            logger.warning(
-                f"LLM stream {reason} (model={self._model}, exception_chain={'->'.join(chain)})"
+            exception_chain = "->".join(chain) or type(exc).__name__
+            metrics = (
+                f"exception_chain={exception_chain}, reasoning_chunks={reasoning_chunks}, "
+                f"reasoning_chars={reasoning_chars}, visible_chunks={visible_chunks}"
             )
-            raise RuntimeError(f"LLM stream {reason}") from exc
+            logger.warning(f"LLM stream {reason} (model={self._model}, {metrics})")
+            raise RuntimeError(f"LLM stream {reason} ({metrics})") from exc
         finally:
             closer = getattr(stream, "close", None)
             if callable(closer):
