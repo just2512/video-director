@@ -249,7 +249,7 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 )
 
                 export_revision = fd.read_project_film(project_id)["rev"]
-                page.locator('[data-film-action="render"]').click()
+                page.locator('[data-film-action="render"]:visible').click()
                 page.locator("#fs-render-result").wait_for(state="visible", timeout=120000)
                 page.wait_for_function(
                     "() => document.querySelector('#fs-render-result-text')?.textContent.includes('QC PASS')",
