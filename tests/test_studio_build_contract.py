@@ -147,7 +147,8 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
     assert 'timeout --signal=TERM --kill-after=5s 75s' in provider_probe
     assert 'max_tokens=8' in provider_probe
-    assert 'reasoning_effort=os.environ.get("VD_LLM_REASONING_EFFORT", "low")' in provider_probe
+    assert 'endpoint_host == "integrate.api.nvidia.com" and config["model"].strip().lower() == "z-ai/glm-5.3-flash"' in provider_probe
+    assert '"reasoning_effort": effort' in provider_probe
     assert '"chat_template_kwargs": {"clear_thinking": True}' in provider_probe
     assert "type(exc).__name__" in provider_probe
     assert "steps.live_provider_probe.outcome == 'success'" in ai_workflow
@@ -320,7 +321,8 @@ def test_react_timeline_owns_move_target_hit_testing_and_legacy_fallback_is_gate
     assert "timelineHost.replaceChildren()" in no_react_gate
     assert "setAttribute('role','alert')" in no_react_gate
     assert "return;" in no_react_gate
-    assert renderer.index("return;") < renderer.index("var laneWidth=")
+    gate_index = renderer.index("if(!reactTimeline){")
+    assert gate_index < renderer.index("return;", gate_index) < renderer.index("var laneWidth=")
     gesture_entry = legacy.split("function beginClipGesture(e,context,el)", 1)[1].split("window.filmStudioBeginClipGesture=function", 1)[0]
     assert "S.data&&S.data.exists&&(!reactGestureBridge||typeof reactGestureBridge.renderSurface!=='function')" in gesture_entry
     assert "没有回退到旧版时间线" in gesture_entry

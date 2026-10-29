@@ -354,13 +354,25 @@ jobs:
           started = time.monotonic()
           try:
               client = OpenAI(api_key=config["api_key"], base_url=config["base_url"], timeout=60, max_retries=0)
+              from urllib.parse import urlparse
+
+              endpoint_host = (urlparse(config["base_url"]).hostname or "").lower().rstrip(".")
+              request_options = {}
+              if endpoint_host == "integrate.api.nvidia.com" and config["model"].strip().lower() == "z-ai/glm-5.3-flash":
+                  effort = os.environ.get("VD_LLM_REASONING_EFFORT", "low").strip().lower() or "low"
+                  if effort not in {"low", "high", "max"}:
+                      print("LIVE_PROVIDER_PROBE=REJECT reason=invalid_reasoning_effort")
+                      raise SystemExit(1)
+                  request_options = {
+                      "reasoning_effort": effort,
+                      "extra_body": {"chat_template_kwargs": {"clear_thinking": True}},
+                  }
               stream = client.chat.completions.create(
                   model=config["model"],
                   messages=[{"role":"user","content":"Reply with exactly OK."}],
                   stream=True,
                   max_tokens=8,
-                  reasoning_effort=os.environ.get("VD_LLM_REASONING_EFFORT", "low"),
-                  extra_body={"chat_template_kwargs": {"clear_thinking": True}},
+                  **request_options,
               )
               first = None
               for event in stream:
