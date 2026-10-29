@@ -28028,8 +28028,8 @@
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "copy-clips", title: "\u590D\u5236\u9009\u4E2D\u7247\u6BB5\uFF08Ctrl/\u2318+C\uFF09", children: "\u590D\u5236" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "paste-clips", title: "\u6309\u539F\u76F8\u5BF9\u5E03\u5C40\u7C98\u8D34\u5230\u64AD\u653E\u5934\u9644\u8FD1\u7684\u53EF\u7528\u533A\u95F4\uFF08Ctrl/\u2318+V\uFF09", children: "\u7C98\u8D34" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "join-cut", title: "\u5408\u5E76\u540C\u8F68\u76F8\u90BB\u3001\u540C\u6E90\u8FDE\u7EED\u4E14\u5C5E\u6027\u4E00\u81F4\u7684\u5207\u5206\u7247\u6BB5", children: "\u6108\u5408\u5207\u53E3" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "remove", children: "\u5220\u9664\u7247\u6BB5" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "ripple-delete", title: "\u5220\u9664\u9009\u4E2D\u7247\u6BB5\u5BF9\u5E94\u7684\u65F6\u95F4\u6BB5\uFF0C\u5E76\u6536\u62E2\u5168\u90E8\u8F68\u9053", children: "\u6CE2\u7EB9\u5220\u9664" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "remove", title: "Lift\uFF1A\u4EC5\u79FB\u9664\u6240\u9009\u7247\u6BB5\uFF0C\u4FDD\u7559\u65F6\u95F4\u7EBF\u7A7A\u9699\uFF1B\u540E\u7EED\u7247\u6BB5\u4E0D\u79FB\u52A8\u3002", children: "\u5220\u9664\u5E76\u4FDD\u7559\u7A7A\u9699" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fs-btn", type: "button", "data-film-action": "ripple-delete", title: "\u6CE2\u7EB9\u5220\u9664\uFF1A\u5220\u9664\u65F6\u95F4\u6BB5\u5E76\u6536\u62E2\u6240\u6709\u53D7\u5F71\u54CD\u8F68\u9053", children: "\u6CE2\u7EB9\u5220\u9664\uFF08\u6536\u62E2\u65F6\u95F4\u7EBF\uFF09" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", { className: "fs-btn" + (envelopeMode ? " fs-envelope-mode-active" : ""), type: "button", "data-film-action": "envelope-mode", "aria-pressed": envelopeMode, title: "\u5207\u6362\u97F3\u91CF\u5173\u952E\u5E27\u7F16\u8F91\u6A21\u5F0F\uFF1B\u666E\u901A\u6A21\u5F0F\u4E0B\u53EF\u6B63\u5E38\u62D6\u52A8\u7247\u6BB5", children: [
         "\u97F3\u91CF\u66F2\u7EBF\uFF1A",
         envelopeMode ? "\u5F00" : "\u5173"
@@ -28289,6 +28289,14 @@
       resolveReactClipGesturePreview(event);
     },
     prepareClipGestureCommit(event) {
+      const state = filmStore.getSnapshot();
+      const gesture = state.timelineGestureContext;
+      if (!gesture || gesture.pointerId !== event.pointerId) return void 0;
+      const scroll = document.getElementById("fs-timeline-scroll");
+      if (!scroll) return void 0;
+      const scrollDelta = scroll.scrollLeft - gesture.startScrollLeft;
+      const pointerDelta = event.clientX - gesture.startX;
+      if (!gesture.active && Math.hypot(pointerDelta + scrollDelta, event.clientY - gesture.startY) < 5) return [];
       return resolveReactClipGesturePreview(event, true);
     },
     zoom(direction, anchorClientX) {
