@@ -208,6 +208,7 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     output = Path(rendered["mp4_path"])
     assert rendered["ok"] and rendered["current"]
     assert rendered["rendered_revision"] == reloaded["rev"]
+    assert rendered["revision_status"] == "CURRENT"
     assert rendered["frame_count"] == 2
     assert rendered["audio_tracks_mixed"] == 3
     assert output.is_file() and output.stat().st_size > 0
@@ -307,6 +308,7 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     assert qc["source_revision"] == reloaded["rev"]
     assert qc["current_revision"] == reloaded["rev"]
     assert qc["current_revision_match"] is True
+    assert qc["revision_status"] == "CURRENT"
     assert qc["output"]["sha256"] and len(qc["output"]["sha256"]) == 64
     assert qc["output"]["size_bytes"] == output.stat().st_size
     assert qc["output"]["width"] == 160 and qc["output"]["height"] == 90

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import importlib
+import json
 import threading
 from http.server import ThreadingHTTPServer
 
@@ -75,6 +76,46 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
             context = browser.new_context(viewport={"width": 1440, "height": 1000})
             page = context.new_page()
             page_errors: list[str] = []
+            director_command_requests: list[dict] = []
+
+            def handle_director_command(route):
+                request_body = json.loads(route.request.post_data or "{}")
+                current = fd.read_project_film(project_id)
+                clips = [clip for track in current["doc"]["tracks"] for clip in track["clips"]]
+                assert clips, "the initialized film should expose a stable clip ID"
+                target_clip_id = clips[0]["id"]
+                candidate_doc, operations = fd.apply_ops(current["doc"], [{
+                    "op": "set", "clip": target_clip_id, "field": "title",
+                    "value": "导演提案候选标题",
+                }])
+                candidate_text = fd.serialize_film(candidate_doc)
+                candidate_state = {
+                    "exists": True,
+                    "project_id": project_id,
+                    "text": candidate_text,
+                    "rev": fd.revision_of(candidate_text),
+                    "doc": candidate_doc,
+                }
+                proposal = {
+                    "id": "migration-continuity-director-proposal",
+                    "project_id": project_id,
+                    "base_revision": current["rev"],
+                    "operations": operations,
+                    "summary": "初始化后继续使用导演能力",
+                    "candidate": fd.film_payload(project_id, candidate_state),
+                    "affected_clip_ids": [target_clip_id],
+                }
+                director_command_requests.append(request_body)
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "ok": True,
+                        "proposal": proposal,
+                        "message": "候选提案已生成，尚未写入正式影片。",
+                    }, ensure_ascii=False),
+                )
+
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.add_init_script("""(() => {
               window.__filmRuntimeLoadedRevs = [];
@@ -95,6 +136,7 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
               });
               window.confirm = () => true;
             })();""")
+            page.route("**/api/editor/film/command", handle_director_command)
             try:
                 response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 assert response and response.status == 200
@@ -167,6 +209,63 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 assert "有未提交草稿" in page.locator("#film-studio-alert").inner_text()
                 assert title_input.input_value() == draft_title
                 title_input.fill(original_title)
+
+                # Save a real Inspector edit after initialization; then continue
+                # in the Director tab and export from this same Studio workspace.
+                saved_title = original_title + " 已保存的手工剪辑"
+                title_input.fill(saved_title)
+                page.locator("#fs-apply-clip-inspector").click()
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已保存 1 项编辑')",
+                    timeout=15000,
+                )
+                manual_state = fd.read_project_film(project_id)
+                saved_clips = [clip for track in manual_state["doc"]["tracks"] for clip in track["clips"]]
+                assert any(clip.get("attrs", {}).get("title") == saved_title for clip in saved_clips)
+                director_base = manual_state["rev"]
+
+                page.locator('[data-film-action="director-mode"]').click()
+                page.locator("#fs-director-authority-note").wait_for(state="visible")
+                page.locator("#fs-director-prompt-review").click()
+                director_prompt = page.locator("#fs-director-film-prompt").input_value()
+                assert "导演审查" in director_prompt and "当前 revision" in director_prompt
+                page.locator('[data-film-action="director-propose"]').click()
+                page.locator('#fs-proposal-panel[data-react-ai-proposal="true"]').wait_for(
+                    state="visible", timeout=10000
+                )
+                assert len(director_command_requests) == 1, director_command_requests
+                director_request = director_command_requests[0]
+                assert director_request["project_id"] == project_id, director_request
+                assert director_request["base"] == director_base, director_request
+                assert director_request["message"].find(director_prompt) >= 0, director_request
+                assert director_request["stream"] is True, director_request
+                assert fd.read_project_film(project_id)["rev"] == director_base, (
+                    "director proposal generation must not write film.html"
+                )
+                page.locator('[data-film-action="reject-proposal"]:visible').click()
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已拒绝提案')",
+                    timeout=10000,
+                )
+
+                export_revision = fd.read_project_film(project_id)["rev"]
+                page.locator('[data-film-action="render"]').click()
+                page.locator("#fs-render-result").wait_for(state="visible", timeout=120000)
+                page.wait_for_function(
+                    "() => document.querySelector('#fs-render-result-text')?.textContent.includes('QC PASS')",
+                    timeout=120000,
+                )
+                result_text = page.locator("#fs-render-result-text").inner_text()
+                assert export_revision in result_text, result_text
+                assert page.locator("#fs-render-download").is_visible()
+                assert page.locator("#fs-qc-download").is_visible()
+                assert fd.read_project_film(project_id)["rev"] == export_revision
+                mp4_href = page.locator("#fs-render-download").get_attribute("href")
+                assert mp4_href and mp4_href.startswith("/file?path="), mp4_href
+                mp4_response = page.request.get(f"http://127.0.0.1:{server.server_port}{mp4_href}")
+                assert mp4_response.status == 200
+                assert len(mp4_response.body()) > 0
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
 
                 page.locator("#editor-project").select_option(target_project_id)
                 page.wait_for_function(

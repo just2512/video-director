@@ -31,16 +31,17 @@
 | 动画 | 音量包络可编辑；通用视觉关键帧可在 Inspector 编辑、在片段本体显示时间标记；split/trim/roll/slide 会按片段相对时间切片并保留 easing 曲线；自定义 Bezier 控制柄已通过保存/重载的真实 Chromium 回归（Studio #211 / b9b0adf4） | 完整预览与最终导出的逐帧一致性仍须在可运行的浏览器/渲染环境里验收；控制柄的交互与持久化测试不等于逐帧渲染一致性的证明 |
 | 实时 AI | 已支持 SSE 生命周期事件、token 片段转发、停止当前请求、执行中转向后重新规划，以及基于 revision 的提案预览/拒绝/确认；正式文档仍只在确认后写入 | [Actions 40637515525](https://github.com/just2512/video-director/actions/runs/40637515525) 在 2026-10-28 对实际配置的 OpenAI-compatible 提供方执行了显式 live smoke，真实模型 token 流门禁为 PASS：测试要求至少两个非空 token 片段先于 result 到达，并核实提案生成前后 `film.html` 字节与 revision 不变。默认 CI 不调用付费模型，因此普通运行仍按 MISSING 单独报告；这一单项 PASS 不替代同次旧提交失败的完整回归。转向仍是取消当前请求后用原指令+新指令重新规划，不是同一模型会话的 token 级 steering |
 | 确定性与导出 | `frame(t)`、本地资源边界、look 重复抽样、Revision 绑定导出均已有；采样检查不是全帧证明 | 对每个场景验证资源 ready 和帧回执；导出错误定位到 clip ID；明确运行时支持边界，不宣称任意网页/任意 WebGL 都确定 |
-| 产品入口 | 全屏 Studio 顶栏现在复用同一个项目选择器，支持不退出时间线切换项目；关闭时原位还原，仍经过 `editorLoad()` 的文档权威、revision、拖动和未提交草稿保护。不同项目状态的导演规划与剪辑仍存在迁移阶段差异 | 继续把导演规划、素材、场景、剪辑、AI 对话和导出收敛到同一项目壳/同一最终时间线；不能把项目切换器进入 Studio 误认成所有入口已统一 |
+| 产品入口 | **核心路径已收敛到同一全屏 Studio 壳**：项目选择器、素材库/片段/导演规划模式、预览、时间线、Inspector、AI 提案和导出共用同一工作环境。旧 Composition 项目先显示校验后的候选预览，显式初始化后继续在同一 Studio 手工编辑；导演侧旧计划保留为只读参考，可转交成绑定当前 revision 的提案。 | 并非所有 CompositionIR 旧动作都能直接在活动影片上执行：未明确映射为 FilmDocument 操作的能力仍须转为可审查提案或标记不支持，不能恢复竞争写入路径；项目间迁移仍需分别验证 |
 
-## 真实模型 Token 流验收的执行方式
+## 真实模型 Token 流验收的执行方式（当前仅本地执行）
 
 - 真实模型测试不是普通 SSE mock 测试的别名。只有 `tests/test_film_studio_live_ai_streaming.py` 收到至少两个真实 `token` 事件，并确认这些事件在 `result` 事件之前到达、生成提案前后 `film.html` 字节与 revision 不变，才可记录为 PASS。
-- 自托管 Runner 需要配置 `VD_LLM_API_KEY`、`VD_LLM_BASE_URL`、`VD_LLM_MODEL`。可在 GitHub Actions 手动运行 **AI Director regression** 并将 `run_live_llm=true`；或在 main 推送提交信息包含 `[live-stream-smoke]` 的提交。这个请求可能产生模型服务费用。
-- 每次普通回归会在 Actions Summary 显示 `PASS / MISSING / REJECT / UNKNOWN`：测试被跳过只能是 MISSING，不能以 mock 通过替代真实服务证据。MISSING 不意味着应用构建失败，但意味着“真实模型逐段 Token 流”验收仍未关闭。
-- 默认 push/PR 回归不主动调用真实模型；未显式 opt-in 时应标记为 MISSING，不阻断无模型配置下的基础构建和浏览器回归。显式 opt-in 后，若缺少凭据或真实模型烟测失败，则必须 REJECT 并阻断发布。2026-10-28 的显式运行已证明当前自托管 Runner 能从受限的 per-run 配置通道读取模型配置并通过真实流式烟测；不再将“当前 Runner 无凭据”写作现状。后续默认 CI 仍是 MISSING，只有明确 opt-in 的单次运行能证明该次模型端点可用。
+- 当前 AI Director workflow 的完整真实模型 token-stream acceptance 步骤固定为 `skipped`；普通 CI 的结果应为 `LIVE_STREAM_ACCEPTANCE=MISSING`。这只表示本次没有执行完整真实模型验收，不是 PASS，也不应阻断与模型无关的真实浏览器和导出回归。
+- 旧记录中的 `run_live_llm=true` 和 `[live-stream-smoke]` 是早期 Actions 入口，不是当前完整验收入口；旧入口可能触发一次最小 provider probe，但不会执行被禁用的完整验收，因此不能用它来声称真实 token 流通过。
+- 当前唯一完整真实验收入口是本地 PowerShell：先确认当前 Studio 配置指向预期的 OpenAI-compatible endpoint/model，再设置 `$env:VD_LLM_LIVE_STREAM_TEST = "1"`，运行 `tests/test_film_studio_live_ai_streaming.py::test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film`。完整命令、8 条通过标准和 `PASS / REJECT / BLOCKED_PROVIDER / BLOCKED_MODEL / UNKNOWN / MISSING` 的含义见 `docs/FILM_AGENT_MANUAL.md` 的“Real-model token-stream acceptance (local opt-in)”。
+- 2026-10-28 的真实 token 流 PASS 是针对当时配置与旧提交的历史单项证据，不能替代当前本地端点复验，也不能替代同一次提交的全量回归、时间线、MP4 与 QC 验收。
 
-## 当前下一阶段落地点
+## 已落地的 React 时间线交互契约（持续回归）
 
 - 时间线工具栏将 Lift 明确显示为“删除并保留空隙”，将 Ripple Delete 显示为“波纹删除（收拢时间线）”；两者分别说明后续片段是否移动，并与右键菜单保持同一语义。
 - 普通片段 move/trim/roll/slide/slip 的活动手势上下文已由 FilmStore 的 `timelineGestureContext` 类型化保存：仅含指针 ID、模式、稳定 clip/track ID、原始时间/时长、目标轨道状态及成员数值快照；Store 对必要字段与成员身份做严格校验。React 路径不保存 DOM 引用。
