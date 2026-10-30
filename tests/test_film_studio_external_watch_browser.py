@@ -1133,6 +1133,33 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').wait_for(state="visible")
                 assert fd.read_project_film(project_id)["exists"]
 
+                # A busy save/history transaction rejects the attempted project
+                # switch. The UI selector must roll back to the still-open FilmDocument
+                # instead of displaying a project that the Studio did not load.
+                busy_switch = page.evaluate("""async pid => {
+                  const select = document.querySelector('#editor-project');
+                  const store = window.filmStudioStore;
+                  const activeProjectId = store.getField('projectId');
+                  store.setField('busy', true);
+                  select.value = pid;
+                  const opened = await window.filmStudioOpenIfCurrentProjectHasFilm(pid, {
+                    project_id: pid, exists: true, ok: false,
+                    rev: 'busy-switch-probe', error: 'INVALID_FILM'
+                  });
+                  const state = {
+                    opened,
+                    selectedProjectId: select.value,
+                    activeProjectId: store.getField('projectId')
+                  };
+                  store.setField('busy', false);
+                  return state;
+                }""", broken_project_id)
+                assert busy_switch == {
+                    "opened": False,
+                    "selectedProjectId": project_id,
+                    "activeProjectId": project_id,
+                }, busy_switch
+
                 # Existing but malformed film.html must stay in the Studio's broken-document
                 # gate and must never cause a legacy CompositionIR read.
                 page.evaluate("""pid => {
