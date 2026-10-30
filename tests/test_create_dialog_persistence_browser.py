@@ -223,6 +223,7 @@ def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_
             """, timeout=10000)
             assert page.locator("#cf-input-context-details").evaluate("(node) => node.open")
             assert page.locator("#cf-resolution").input_value() == "1080x1440"
+            assert "所选风格由 StyleContract" in (page.locator("#cf-style-contract-detail").text_content() or "")
             assert page.locator('#cf-style-presets [data-studio-style="knowledge-explainer"]').evaluate("(node) => node.classList.contains('tab-active')")
 
             # Reuse the mounted dialog for a different project with no optional data.

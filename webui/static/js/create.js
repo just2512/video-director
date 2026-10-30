@@ -143,7 +143,7 @@ function cfResetProjectPrefillState(projectId){
   document.querySelectorAll('[data-studio-style]').forEach(node=>node.classList.remove('tab-active'));
   document.querySelectorAll('#cf-form details').forEach(node=>{node.open=false;});
   const styleDetail=document.getElementById('cf-style-contract-detail');
-  if(styleDetail)styleDetail.textContent=window.CF_STUDIO_CATALOG?.styles?.length
+  if(styleDetail)styleDetail.textContent=CF_STUDIO_CATALOG?.styles?.length
     ?'所选风格由 StyleContract 写入正式生成链：字幕布局/字号、图片运动、转场预算、配乐音量和音效密度。'
     :'风格契约未通过环境检查，不提供未验证选项。';
   const go=document.getElementById('cf-go');
