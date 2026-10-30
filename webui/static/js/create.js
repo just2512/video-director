@@ -318,7 +318,7 @@ function _createPanelHtml(){
   <div id="cf-essentials">
     <div class="hint" id="cf-script-gen-status"></div>
     <div class="btn-row" style="align-items:center;flex-wrap:wrap">
-      <span class="hint" id="cf-enhance-status">润色文案与图形方案预览位于上方创作要求快捷操作。</span>
+      <span class="hint" id="cf-enhance-status">AI 润色结果会显示在权威文案区，可对比后采用。</span>
     </div>
     <div id="cf-enhance-box" style="display:none" class="enhance-box">
       <div class="hint">润色结果（采用后替换原文）：</div>
@@ -342,7 +342,6 @@ function _createPanelHtml(){
       <div style="flex:1"><label>风格</label>
         <input type="text" id="cf-style" placeholder="例：纪录片沉稳，或点选可执行风格"></div>
     </div>
-    <div class="hint">素材已移到上面的「输入上下文」区。</div>
     <div class="btn-row" style="align-items:center;gap:10px;margin-top:8px">
       <div style="flex:1"><label>画面来源</label>
         <select id="cf-visual-source" onchange="cfVisualSourceSync()">

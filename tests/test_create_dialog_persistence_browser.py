@@ -51,6 +51,8 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                     && more?.parentElement?.id === 'cf-essentials'
                     && document.getElementById('cf-style-presets')?.closest('#cf-output-requirements');
                 }""", timeout=10000)
+                assert page.get_by_text("素材已移到上面的「输入上下文」区。").count() == 0
+                assert page.locator("#cf-enhance-status").text_content().find("权威文案区") >= 0
                 page.locator("#cf-director-brief").fill("持久化测试：保留我的创作目标")
                 page.locator("#cf-input-context-details summary").click()
                 page.locator("#cf-script").fill("持久化测试：保留我的权威文案")
