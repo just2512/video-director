@@ -231,6 +231,42 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert page.locator("#cf-article-url").input_value() == "https://news.example/article"
                 assert page.get_by_text("Imported article fixture").count() > 0
                 assert "已恢复上一轮导入" in page.locator("#cf-article-status").inner_text()
+
+                # Create-dialog regressions: backdrop clicks only dismiss by explicit action,
+                # actions are deduplicated, and the selected render engine stays visible.
+                page.locator("#cf-mask").click(position={"x": 8, "y": 8})
+                assert page.locator("#cf-mask").is_visible()
+                assert page.locator("#cf-article-url").input_value() == "https://news.example/article"
+                assert page.locator('#cf-quick-actions button[onclick="createEnhance()"]').count() == 1
+                assert page.locator('#cf-quick-actions button[onclick="cfMakeGraphicPlan()"]').count() == 1
+                assert page.locator("#cf-render-engine").is_visible()
+
+                # History UI reads the persistent conversation API and restores a new draft
+                # without mutating the original conversation record.
+                created_history = page.evaluate("""async () => {
+                  const response = await fetch('/api/director/conversations', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({
+                      conversation_id: 'conv-browser-smoke',
+                      title: 'Browser history fixture',
+                      initial_message: '历史对话原始要求',
+                      snapshot: {form:{fields:{
+                        'cf-director-brief':'从历史恢复的创作要求',
+                        'cf-script':'从历史恢复的权威文案'
+                      }}}
+                    })
+                  });
+                  return await response.json();
+                }""")
+                assert created_history["ok"] is True
+                page.get_by_role("button", name="历史对话").click()
+                page.locator("#cf-history-list").get_by_text("Browser history fixture").wait_for(timeout=10000)
+                page.locator('#cf-history-list button[onclick^="cfHistoryOpenConversation"]').click()
+                page.get_by_text("历史对话原始要求").wait_for(timeout=10000)
+                page.get_by_role("button", name="恢复为新草稿").click()
+                assert page.locator("#cf-director-brief").input_value() == "从历史恢复的创作要求"
+                assert page.locator("#cf-script").input_value() == "从历史恢复的权威文案"
+
                 page.evaluate("cfClearArticleSource()")
                 assert page.evaluate("window._cfArticle") is None
                 assert page.locator("#cf-article-url").input_value() == ""
