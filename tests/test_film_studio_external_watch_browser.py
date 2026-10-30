@@ -1140,6 +1140,9 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                   const select = document.querySelector('#editor-project');
                   const store = window.filmStudioStore;
                   const activeProjectId = store.getField('projectId');
+                  if (![...select.options].some(item => item.value === pid)) {
+                    select.add(new Option(pid, pid));
+                  }
                   store.setField('busy', true);
                   select.value = pid;
                   const opened = await window.filmStudioOpenIfCurrentProjectHasFilm(pid, {
