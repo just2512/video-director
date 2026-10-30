@@ -43,6 +43,26 @@ def test_conversation_records_user_tool_and_assistant_messages(tmp_path, monkeyp
     assert "director_inputs" not in loaded["messages"][-1]["metadata"]
 
 
+def test_link_workflow_does_not_downgrade_a_fast_completed_run(tmp_path, monkeypatch):
+    root=tmp_path/"composer";root.mkdir()
+    monkeypatch.setattr(config,"composer_storage_root",lambda:root)
+    conv=director_history.create_conversation(
+        conversation_id="conv-fast-run",title="快速结束的创作")
+    rid=workflow_run.start_run("director_create",project_id="project-fast",
+        steps=["understand"],conversation_id=conv["conversation_id"])
+    # Worker completes before the HTTP response handler executes /link.
+    workflow_run.finish_run(rid,workflow_run.COMPLETED,result={"project_id":"project-fast"})
+    assert director_history.get_conversation(conv["conversation_id"])["status"]=="COMPLETED"
+    # Frontend then links project_id/run_id; this must not revert a terminal state.
+    assert director_history.link_workflow(
+        conv["conversation_id"],project_id="project-fast",workflow_run_id=rid)
+    loaded=director_history.get_conversation(conv["conversation_id"])
+    assert loaded["status"]=="COMPLETED"
+    assert loaded["workflow_run_id"]==rid
+    assert loaded["project_id"]=="project-fast"
+    assert loaded["messages"][-1]["metadata"]["status"]=="COMPLETED"
+
+
 def test_conversation_list_can_filter_project(tmp_path, monkeypatch):
     root=tmp_path/"composer";root.mkdir()
     monkeypatch.setattr(config,"composer_storage_root",lambda:root)

@@ -107,7 +107,9 @@ def link_workflow(conversation_id: str, *, project_id: str = "", workflow_run_id
         cur=conn.execute("""UPDATE director_conversations
           SET project_id=CASE WHEN ?='' THEN project_id ELSE ? END,
           workflow_run_id=CASE WHEN ?='' THEN workflow_run_id ELSE ? END,
-          status='RUNNING',updated_at=? WHERE conversation_id=?""",
+          status=CASE WHEN status IN ('COMPLETED','WAITING_CONFIRMATION','FAILED','CANCELLED','INTERRUPTED')
+                      THEN status ELSE 'RUNNING' END,
+          updated_at=? WHERE conversation_id=?""",
           (project_id,project_id,workflow_run_id,workflow_run_id,now,conversation_id))
     return cur.rowcount > 0
 
