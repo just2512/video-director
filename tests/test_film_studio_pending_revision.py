@@ -163,3 +163,7 @@ def test_studio_restores_project_selector_when_switch_is_blocked_by_busy_transac
     assert "if(selector&&S.projectId)selector.value=S.projectId;" in busy_guard
     assert busy_guard.index("selector.value=S.projectId") < busy_guard.index("return false;")
     assert "上一项影片操作仍在保存；本次项目切换未执行。" in busy_guard
+
+    store = (Path(__file__).resolve().parents[1] / "remotion_runtime" / "src" / "film-store.ts").read_text(encoding="utf-8")
+    bindings = store[store.index("const bindings: Array"):store.index("for (const [legacyKey")]
+    assert '["busy", "busy"]' in bindings
