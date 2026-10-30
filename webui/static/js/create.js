@@ -1361,9 +1361,15 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(existing){existing.style.display='flex';existing.setAttribute('aria-hidden','false');if(window.CF&&document.getElementById('cf-form')?.style.display!=='none')window.CF.state='editing';if(projectId)cfPrefillFromProject(projectId);else restoreDraft();installHandlers();return;}
     restored=false;baseOpen(projectId);arrangeForm();installHandlers();if(!projectId)restoreDraft();
   };
-  window.closeCreate=function(){
+  window.closeCreate=async function(){
     const mask=document.getElementById('cf-mask');if(!mask)return baseClose();
-    scheduleSave();saveNow();mask.style.display='none';mask.setAttribute('aria-hidden','true');
+    // 素材/配音正在上传时先等入库结果，避免收起后刷新导致文件引用尚未写入草稿。
+    const ctx=window.CF_DRAFT_CONTEXT||{};
+    if(timer)clearTimeout(timer);
+    const pending=[ctx.assetUploadPromise,ctx.narrationPromise].filter(Boolean);
+    if(pending.length)await Promise.allSettled(pending);
+    await saveNow();
+    mask.style.display='none';mask.setAttribute('aria-hidden','true');
     if(window.CF)window.CF.state='idle';
   };
   window.cfFinalizeCreateDialog=async function(){
