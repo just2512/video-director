@@ -303,12 +303,7 @@ function _createPanelHtml(){
   <div id="cf-essentials">
     <div class="hint" id="cf-script-gen-status"></div>
     <div class="btn-row" style="align-items:center;flex-wrap:wrap">
-      <button class="btn-secondary btn-sm" onclick="createEnhance()">AI 润色文案</button>
-      <span class="hint" id="cf-enhance-status"></span>
-      <span class="tb-sep" style="flex:1"></span>
-      <span class="hint">或</span>
-      <button class="btn-secondary btn-sm" onclick="cfMakeGraphicPlan()">生成图形方案预览</button>
-      <span class="hint">（程序化动效画面，无需素材；预览满意后一键进入工作台）</span>
+      <span class="hint" id="cf-enhance-status">润色文案与图形方案预览位于上方创作要求快捷操作。</span>
     </div>
     <div id="cf-enhance-box" style="display:none" class="enhance-box">
       <div class="hint">润色结果（采用后替换原文）：</div>
@@ -1283,7 +1278,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const summary=document.getElementById('cf-assets-summary');
     if(summary)summary.textContent=window.CF_DRAFT_CONTEXT.assetRefs.length?
       '已暂存 '+window.CF_DRAFT_CONTEXT.assetRefs.length+' 个素材，可直接用于创作':'未添加本地素材';
-    if(window._cfArticle&&typeof cfRenderArticleSource==='function')cfRenderArticleSource(window._cfArticle,'已从草稿恢复文章来源。');
+    if(window._cfArticle&&typeof cfRenderArticleSource==='function')cfRenderArticleSource(window._cfArticle,'已恢复上一轮导入的文章来源。请核对后再创作。');
     if(window._cfReference){const el=document.getElementById('cf-reference-result');if(el)el.innerHTML='<div class="ok-box">已恢复参考视频分析，可直接用于创作。</div>';}
     if(window._cfRepo){const el=document.getElementById('cf-repo-result');if(el)el.innerHTML='<div class="ok-box">已恢复软件项目证据与已验证卖点。</div>';}
     if(typeof cfVoiceModeSync==='function')cfVoiceModeSync();
@@ -1331,7 +1326,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       manual.parentNode.insertBefore(panel,manual);
       if(row)panel.appendChild(row);if(visual)panel.appendChild(visual);
       const styles=document.getElementById('cf-style-presets');if(styles)panel.appendChild(styles);
-      if(studio){const detail=document.createElement('details');detail.style.marginTop='8px';detail.innerHTML='<summary style="cursor:pointer;color:var(--muted);font-size:12px">本机执行能力与模板状态</summary>';detail.appendChild(studio);panel.appendChild(detail);}
+      // 执行引擎是创建流程的实际输入，不得藏在默认收起的 details 内。
+      if(studio)panel.appendChild(studio);
     }
     document.getElementById('cf-style-gallery-btn')?.remove();
     const templateList=document.getElementById('cf-studio-template-list');if(templateList)templateList.style.display='none';

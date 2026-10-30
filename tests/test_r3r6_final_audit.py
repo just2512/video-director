@@ -545,13 +545,17 @@ class TestR6GenerationJobLock:
         assert job["status"] == "running"
         assert job["provider"] == "fake"
 
-    def test_lock_file_is_removed_after_update(self, tmp_path, monkeypatch):
-        """filelock 用完清理，不在项目目录留 .lock 垃圾。"""
+    def test_lock_file_is_reusable_after_update(self, tmp_path, monkeypatch):
+        """锁释放后可由另一个实例立即取得；lock file 本身保留作为稳定 inode。"""
         _isolate(tmp_path, monkeypatch)
+        from filelock import FileLock
         from video_director import config, generation as gen
 
         pid = "proj-r6-clean"
         config.init_project_dirs(config.project_dir(pid))
         gen._update_job(pid, "genjob-c", {"status": "running"})
-        lock = config.project_dir(pid) / "generation_jobs.lock"
-        assert not lock.exists(), "filelock 应自动释放并删除锁文件"
+        lock_path = config.project_dir(pid) / "generation_jobs.lock"
+        assert lock_path.exists(), "跨进程锁需要稳定的 inode 文件"
+        # 如果 _update_job 没有释放锁，这里会在短超时后失败。
+        with FileLock(str(lock_path), timeout=0.5):
+            pass

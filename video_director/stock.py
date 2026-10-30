@@ -151,7 +151,9 @@ def _api_key(provider: str) -> Optional[str]:
     """§25：设置中心优先，环境变量向后兼容。"""
     try:
         from video_director import model_config as _mc
-        cfg = _mc.get_role_config(f"stock_{provider}")
+        # Stock 按自身产品契约采用「设置中心优先、环境变量兜底」；
+        # 不调用 get_role_config，因为该通用 API 对模型角色刻意采用 env-first。
+        cfg = _mc.load_all().get(f"stock_{provider}") or {}
         if cfg.get("api_key"):
             return cfg["api_key"]
     except Exception:

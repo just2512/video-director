@@ -76,6 +76,8 @@ UI_ONLY_PREFIXES = (
     "styleGalleryOpen(", "styleGalleryClose(", "styleGalleryLoad(",
     "templateGallerySelectByIndex(", "templateGalleryRenderSample(", "templateGalleryInstantiate(",
     "cfMakeGraphicPlan(", "cfAnalyzeReference(", "cfImportArticle(", "cfClearArticleSource(", "cfScanRepo(", "editorGenerate(",
+    # 历史创作对话：列表切换、消息查看、将历史输入恢复为新草稿。
+    "cfHistoryToggle(", "cfHistoryOpenConversation(", "cfHistoryRestoreSnapshot(",
     # Inspector 表单收集器（读输入框收集 → 内部 executeAction）
     "editorApplyMask(", "editorSubtitleWhiteOnBlack(",
     # Library Picker 采用按钮（收集器：内部 executeAction）
