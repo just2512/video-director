@@ -3717,7 +3717,7 @@ class Handler(BaseHTTPRequestHandler):
                     "brief": str(bundle.get("brief") or ""),
                     "bundle": bundle,
                     "spec_settings": {
-                        "explicit_fields": spec.get("_explicit_fields", []),
+                        "explicit_fields": spec.get("_explicit_fields") if "_explicit_fields" in spec else None,
                         **{key: spec.get(key) for key in (
                             "duration", "style_intent", "voice_mode", "voice", "voice_rate",
                             "narration_volume", "subtitle_mode", "bgm", "bgm_volume", "sfx",

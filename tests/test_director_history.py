@@ -64,7 +64,7 @@ def test_create_dialog_lifecycle_and_single_style_catalog():
     assert "apiGet('/api/registry/styles')" not in source
     assert "CF_DRAFT_CONTEXT.assetRefs = refs" in source
     assert "spec_settings" in source
-    assert '"explicit_fields": spec.get("_explicit_fields", [])' in server_source
+    assert '"explicit_fields": spec.get("_explicit_fields") if "_explicit_fields" in spec else None' in server_source
     assert "Array.isArray(spec.explicit_fields)" in source
     server_source=(Path(__file__).resolve().parents[1]/"webui/server.py").read_text(encoding="utf-8")
     assert '"visual_source", "platform", "width", "height"' in server_source
