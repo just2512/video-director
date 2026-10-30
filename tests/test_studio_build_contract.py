@@ -180,32 +180,19 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     assert "continue-on-error: true" not in live_report_step
     assert "LIVE_STREAM_CONFIG_OUTCOME" in live_report_step and "steps.live_stream_config.outcome" in live_report_step
     assert "LIVE_STREAM_TEST_OUTCOME" in live_report_step and "steps.live_stream_smoke.outcome" in live_report_step
-    proxy_bridge_step = ai_workflow.split(
-        "      - name: Prepare local HTTP bridge for SOCKS-backed artifact upload", 1
-    )[1].split("      - name: Retain regression diagnostics", 1)[0]
-    assert "tools/http_connect_socks_proxy.py" in proxy_bridge_step
-    assert "ACTION_ARTIFACT_PROXY=REAPED_ORPHANS" in proxy_bridge_step
-    assert 'Path("/proc").glob("[0-9]*/cmdline")' in proxy_bridge_step
-    assert r'split(b"\\0")' not in proxy_bridge_step
-    assert r'split(b"\0")' in proxy_bridge_step
-    assert 'os.path.realpath(f"/proc/{pid}/cwd") != workspace' in proxy_bridge_step
-    assert "HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy" in proxy_bridge_step
-    assert "127.0.0.1" in proxy_bridge_step
-    assert "video-director-artifact-http-proxy-pid" in proxy_bridge_step
-    proxy_cleanup = ai_workflow.split(
-        "      - name: Stop local HTTP bridge for SOCKS-backed artifact upload", 1
-    )[1]
-    assert "grep -Fq 'tools/http_connect_socks_proxy.py'" in proxy_cleanup
-    assert 'kill "$proxy_pid"' in proxy_cleanup
-    assert 'rm -f "$proxy_pid_file" "$proxy_file" "$proxy_log"' in proxy_cleanup
-    assert ai_workflow.index("      - name: Stop local HTTP bridge") > ai_workflow.index(
-        "      - name: Publish verified React Studio bundle"
-    )
-    diagnostic_upload = ai_workflow.split(
-        "      - name: Retain regression diagnostics", 1
+    # Diagnostics are written to the built-in Actions log and job summary.
+    # Do not restore upload-artifact or its proxy bridge: action downloads happen
+    # before shell steps and have repeatedly failed on this SOCKS-backed runner.
+    assert "actions/upload-artifact@v4" not in ai_workflow
+    assert "Prepare local HTTP bridge for SOCKS-backed artifact upload" not in ai_workflow
+    assert "Stop local HTTP bridge for SOCKS-backed artifact upload" not in ai_workflow
+    diagnostic_summary = ai_workflow.split(
+        "      - name: Summarize retained regression diagnostics", 1
     )[1].split("      - name: Publish verified React Studio bundle", 1)[0]
-    assert "actions/upload-artifact@v4" in diagnostic_upload
-    assert "continue-on-error: true" in diagnostic_upload
+    assert "GITHUB_STEP_SUMMARY" in diagnostic_summary
+    assert "junit.xml" in diagnostic_summary
+    assert "timeline-junit.xml" in diagnostic_summary
+    assert "Detailed pytest output and failure traces remain in the corresponding Actions step logs." in diagnostic_summary
     assert "steps.timeline_regression_gate.outcome == 'success'" in ai_workflow
     # Artifact publication itself must not trigger an endless build/publish commit loop.
     assert '"message": "build: publish verified React 19 Studio bundle [skip ci]"' in ai_workflow
@@ -507,7 +494,9 @@ def test_self_hosted_workflows_share_runner_checkout_concurrency_lock():
 def test_ai_director_workflow_retains_regression_diagnostics():
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
-    assert "actions/upload-artifact@v4" in workflow
+    assert "actions/upload-artifact@v4" not in workflow
+    assert "Summarize retained regression diagnostics" in workflow
+    assert "GITHUB_STEP_SUMMARY" in workflow
     assert "timeline-junit.xml" in workflow
     assert "timeline-regression-output.log" in workflow
     assert "pytest-output.log" in workflow
