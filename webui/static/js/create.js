@@ -986,7 +986,7 @@ async function createProject(){
   // 步骤清单实时可见（在干什么/有什么问题），出问题可取消并返回修改要求。
   const runId = wfResp.run_id;
   await apiPost('/api/director/conversations/' + encodeURIComponent(conversation.conversation_id) + '/link',{project_id:wfResp.project_id||'',workflow_run_id:runId});
-  await apiPost('/api/director/drafts/active/clear',{});
+  if (window.cfClearSavedDraft) await window.cfClearSavedDraft();
   window.CF_DRAFT_CONTEXT.projectId=wfResp.project_id||'';
   cfEnterProgressMode(runId);
 }
@@ -1370,19 +1370,31 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   };
   window.closeCreate=async function(){
     const mask=document.getElementById('cf-mask');if(!mask)return baseClose();
-    // 素材/配音正在上传时先等入库结果，避免收起后刷新导致文件引用尚未写入草稿。
-    const ctx=window.CF_DRAFT_CONTEXT||{};
-    if(timer)clearTimeout(timer);
-    const pending=[ctx.assetUploadPromise,ctx.narrationPromise].filter(Boolean);
-    if(pending.length)await Promise.allSettled(pending);
-    await saveNow();
+    const form=document.getElementById('cf-form');
+    const isProgress=!!document.getElementById('cf-progress') && form && form.style.display==='none';
+    if(!isProgress){
+      // 素材/配音正在上传时先等入库结果，避免收起后刷新导致文件引用尚未写入草稿。
+      const ctx=window.CF_DRAFT_CONTEXT||{};
+      if(timer)clearTimeout(timer);
+      const pending=[ctx.assetUploadPromise,ctx.narrationPromise].filter(Boolean);
+      if(pending.length)await Promise.allSettled(pending);
+      await saveNow();
+    }
     mask.style.display='none';mask.setAttribute('aria-hidden','true');
     if(window.CF)window.CF.state='idle';
   };
+  async function clearSavedDraft(){
+    if(timer){clearTimeout(timer);timer=null;}
+    // 等待已排队的草稿写入结束，再清除，防止旧请求在清除之后复活草稿。
+    try{await saving;}catch(_){}
+    return apiPost('/api/director/drafts/active/clear',{});
+  }
+  window.cfClearSavedDraft=clearSavedDraft;
   window.cfFinalizeCreateDialog=async function(){
-    if(timer)clearTimeout(timer);document.getElementById('cf-mask')?.remove();
+    if(timer){clearTimeout(timer);timer=null;}
+    document.getElementById('cf-mask')?.remove();
     for(const id of ['sg-mask','tg-mask'])document.getElementById(id)?.remove();
-    try{await apiPost('/api/director/drafts/active/clear',{});}catch(_){}
+    try{await clearSavedDraft();}catch(_){}
     if(window.CF)window.CF.state='idle';restored=false;
   };
   window.cfHistoryToggle=async function(){
