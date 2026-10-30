@@ -66,7 +66,6 @@ function openCreate(projectId){
   panel.style.cssText = 'max-width:760px;width:94%;max-height:88vh;overflow:auto;padding:22px';
   panel.innerHTML = _createPanelHtml();
   mask.appendChild(panel);
-  mask.addEventListener('click', ev => { if (ev.target === mask) closeCreate(); });
   document.body.appendChild(mask);
   CF.state = 'editing';
   CF.explicitFields = new Set();
@@ -137,7 +136,7 @@ function _createPanelHtml(){
   <div style="display:flex;align-items:center;gap:10px">
     <h3 style="font-size:17px;margin:0">新建项目</h3>
     <span style="flex:1"></span>
-    <button class="btn-secondary btn-sm" onclick="closeCreate()">关闭</button>
+    <button class="btn-secondary btn-sm" onclick="closeCreate()">收起</button>
   </div>
   <div class="panel" style="margin-top:12px;padding:14px">
     <div style="display:flex;align-items:center;gap:8px">
@@ -146,7 +145,7 @@ function _createPanelHtml(){
     </div>
     <textarea id="cf-director-brief" style="min-height:82px;margin-top:8px"
       placeholder="例如：做一条 45 秒的视频，讲清楚为什么很多人越忙越没钱，口吻克制，画面以真实生活为主，适合抖音。"></textarea>
-    <div class="hint" style="margin-top:8px">可以不写文案；AI 会自己完成文案、分镜、配音、找画面、字幕、音乐、预览与预检。填好后点底部「AI 开始创作」。</div>
+    <div class="hint" style="margin-top:8px">可以只写创作要求，也可以同时提供权威文案、素材与参考资料。AI 负责其余导演工作。</div>
     <div id="cf-director-plan-preview" class="hint" style="margin-top:8px"></div>
   </div>
   <div class="panel" style="margin-top:10px;padding:12px">
@@ -205,8 +204,7 @@ function _createPanelHtml(){
     </div>
   </div>
   <div class="panel" style="margin-top:10px;padding:12px">
-    <div class="btn-row" style="align-items:center;gap:10px"><button id="cf-template-gallery-btn" class="btn-secondary btn-sm" type="button" onclick="templateGalleryOpen()">浏览模板与真实样片</button>
-      <button id="cf-style-gallery-btn" class="btn-secondary btn-sm" type="button" onclick="styleGalleryOpen()">浏览创作风格</button><span class="hint">查看引擎门禁、必填素材、真实渲染与解码结果；不会把风格名称当成可执行能力。</span></div>
+    <div class="btn-row" style="align-items:center;gap:10px"><button id="cf-template-gallery-btn" class="btn-secondary btn-sm" type="button" onclick="templateGalleryOpen()">浏览模板与真实样片</button><span class="hint">模板独立于风格；可先查看必填素材、未实现效果与真实样片状态。</span></div>
   </div>
 
     <div class="panel" style="margin-top:8px;padding:10px">
@@ -228,13 +226,7 @@ function _createPanelHtml(){
   <details id="cf-manual-options" style="margin-top:12px">
     <summary style="cursor:pointer;color:var(--muted);font-size:13px">手动输入与高级设置（AI 会自动决策，只有需要精确控制时才展开）</summary>
   <div id="cf-essentials">
-    <label>主题（可选，交给 AI 写文案）</label>
-    <div class="btn-row" style="align-items:center">
-      <input type="text" id="cf-topic" class="rev-input" style="flex:1" placeholder="例：为什么很多人越忙越没有钱">
-      <button class="btn-secondary btn-sm" onclick="cfGenerateScript()">AI 生成文案</button>
-    </div>
     <div class="hint" id="cf-script-gen-status"></div>
-    <div class="hint">文案已移到上面的「输入上下文」区。</div>
     <div class="btn-row" style="align-items:center;flex-wrap:wrap">
       <button class="btn-secondary btn-sm" onclick="createEnhance()">AI 润色文案</button>
       <span class="hint" id="cf-enhance-status"></span>
@@ -425,15 +417,7 @@ async function createLoadDefaults(){
                               ...sfxs.map(s => [s.id, s.label])]);
   } catch (e) { /* 下拉加载失败不阻塞创建 */ }
   try {
-    const styles = await apiGet('/api/registry/styles');
-    if (Array.isArray(styles) && styles.length) {
-      const box = document.getElementById('cf-style-presets');
-      box.innerHTML = '<span>风格参考：</span>' + styles.slice(0, 5).map(s =>
-        `<button class="btn-secondary btn-sm" onclick="document.getElementById('cf-style').value='${esc(s.name)}'" title="${esc((s.description || '') + '；这是创作参考元数据，不是已经验证可执行的风格包。')}">${esc(s.name)}</button>`).join('') +
-        '<span class="hint">这些是创作参考描述，不是已验证可执行的风格包。</span>';
-    }
-  } catch (e) { /* 预设失败不阻塞 */ }
-
+  // 风格只使用 Studio 能力目录返回的可执行 StyleContract，避免两个来源互相覆盖。
   await cfLoadStudioCatalog();}
 
 const CF_STYLE_NAMES = {
@@ -746,7 +730,7 @@ async function createProject(){
   const script = (document.getElementById('cf-script') || {}).value || '';
   const brief = (document.getElementById('cf-director-brief') || {}).value || '';
   const assets = document.getElementById('cf-assets');
-  const hasFiles = !!(assets && assets.files.length);
+  const hasFiles = !!((assets && assets.files.length) || (window.CF_DRAFT_CONTEXT && window.CF_DRAFT_CONTEXT.assetRefs && window.CF_DRAFT_CONTEXT.assetRefs.length));
   const referenceEl = document.getElementById('cf-reference');
   const selectedReference = !!(referenceEl && referenceEl.files && referenceEl.files.length);
   const referenceFile = selectedReference ? referenceEl.files[0] : null;
@@ -796,40 +780,19 @@ async function createProject(){
   // 路径暂存后传路径——这里直接上传到项目暂存目录再引用）
   let videoNames = [], imageNames = [], assetRefs = [];
   try {
-    if (hasFiles) {
-      const fd = new FormData();
-      for (const f of assets.files) fd.append('files', f, f.name);
+    const ctx = window.CF_DRAFT_CONTEXT || {};
+    if (ctx.assetUploadPromise) await ctx.assetUploadPromise;
+    assetRefs = Array.isArray(ctx.assetRefs) ? ctx.assetRefs.slice() : [];
+    if (assets && assets.files && assets.files.length && !assetRefs.length) {
+      const fd = new FormData(); for (const f of assets.files) fd.append('files', f, f.name);
       const imported = await apiUpload('/api/assets/upload', fd);
-      if (imported && imported.ok) {
-        const importedAssets = imported.imported || [];
-        assetRefs = importedAssets.map(a => ({
-          asset_id: a.asset_id,
-          type: a.type,
-          file: a.file,
-          width: a.width,
-          height: a.height,
-          duration: a.duration,
-          commercial_status: a.commercial_status
-        }));
-        videoNames = importedAssets.filter(a => a.type === 'video' && a.file).map(a => a.file);
-        imageNames = importedAssets.filter(a => a.type === 'image' && a.file).map(a => a.file);
-        if (imported.errors && imported.errors.length) {
-          const warn = document.getElementById('cf-status');
-          if (warn) warn.textContent = '部分素材未导入：' + imported.errors.join('；');
-        }
-      } else {
-        CF.state = 'failed';
-        status.textContent = '本地素材入库失败：' + ((imported && imported.error) || '无法写入素材库');
-        btn.disabled = false;
-        return;
-      }
+      if (!imported || !imported.ok) throw new Error((imported && imported.error) || '素材入库失败');
+      assetRefs = (imported.imported || []).map(a => ({asset_id:a.asset_id,type:a.type,file:a.file,width:a.width,height:a.height,duration:a.duration,commercial_status:a.commercial_status}));
+      ctx.assetRefs = assetRefs;
     }
-  } catch (e) {
-    CF.state = 'failed';
-    status.textContent = '本地素材上传失败：' + (e.message || e);
-    btn.disabled = false;
-    return;
-  }
+    videoNames = assetRefs.filter(a => a.type === 'video' && a.file).map(a => a.file);
+    imageNames = assetRefs.filter(a => a.type === 'image' && a.file).map(a => a.file);
+  } catch (e) { CF.state='failed'; status.textContent='本地素材暂存失败：'+(e.message||e); btn.disabled=false; return; }
 
   // §52 POST /api/workflows → run_id（不阻塞 HTTP；服务端后台执行）
   const resolution = (document.getElementById('cf-resolution') || {}).value || (window._cfAspect || '1080x1920');
@@ -843,22 +806,15 @@ async function createProject(){
     btn.disabled = false;
     return;
   }
-  let uploadedNarration = '';
-  if (voiceMode === 'upload' && voiceFileEl && voiceFileEl.files.length) {
-    // 上传配音先进入统一 stage；WorkflowRun 会在项目初始化后执行 Probe→ASR/估算→Word Timing。
-    const fd2 = new FormData();
-    fd2.append('files', voiceFileEl.files[0], voiceFileEl.files[0].name);
-    try {
-      const st2 = await apiUpload('/api/assets/stage', fd2);
-      if (st2 && st2.ok && (st2.audio || []).length) uploadedNarration = st2.audio[0];
-    } catch (e) { /* 状态保留为失败，不静默改成自动配音 */ }
-    if (!uploadedNarration) {
-      CF.state = 'failed';
-      status.textContent = '配音文件上传失败，可重试或切换自动配音';
-      btn.disabled = false;
-      return;
-    }
+  let uploadedNarration = (window.CF_DRAFT_CONTEXT && window.CF_DRAFT_CONTEXT.narrationUpload) || window._cfNarrationUpload || '';
+  if (voiceMode === 'upload' && window.CF_DRAFT_CONTEXT?.narrationPromise) {
+    try { uploadedNarration = await window.CF_DRAFT_CONTEXT.narrationPromise; }
+    catch (e) { CF.state='failed'; status.textContent='配音暂存失败：'+(e.message||e); btn.disabled=false; return; }
   }
+  if (voiceMode === 'upload' && !uploadedNarration && voiceFileEl && voiceFileEl.files.length) {
+    try { const fd2=new FormData(); fd2.append('files',voiceFileEl.files[0],voiceFileEl.files[0].name); const st2=await apiUpload('/api/assets/stage',fd2); if(st2&&st2.ok&&(st2.audio||[]).length){uploadedNarration=st2.audio[0];window.CF_DRAFT_CONTEXT.narrationUpload=uploadedNarration;} } catch (_) {}
+  }
+  if (voiceMode==='upload'&&!uploadedNarration) { CF.state='failed';status.textContent='上传配音模式需要先选择并成功暂存配音文件';btn.disabled=false;return; }
   const directorBrief = brief.trim();
   const referenceInput = window._cfReference ? [window._cfReference] : [];
   const articleInput = window._cfArticle ? [window._cfArticle] : [];
@@ -927,8 +883,16 @@ async function createProject(){
     video_paths: videoNames, image_paths: imageNames,
   };
   // 所有创建请求统一进入 AI Director；没有“文案模式 / 素材模式 / 参考模式 / 项目模式”。
+  const conversation = await apiPost('/api/director/conversations', {
+    title: (directorBrief || script || 'AI 导演创作').slice(0,80),
+    initial_message: [directorBrief, script ? '\n\n【权威文案】\n' + script : ''].filter(Boolean).join(''),
+    snapshot: {form:{fields:(function(){const out={};document.querySelectorAll('#cf-form input[id^="cf-"],#cf-form textarea[id^="cf-"],#cf-form select[id^="cf-"]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),context:{asset_refs:assetRefs,reference:window._cfReference||null,article:window._cfArticle||null,repo:window._cfRepo||null,narration_upload:uploadedNarration}},director_inputs:directorInputs,request_options:requestOptions}
+  });
+  if(!conversation||!conversation.ok||!conversation.conversation_id){CF.state='failed';status.textContent='历史对话保存失败，任务未提交：'+((conversation&&conversation.error)||'未知错误');btn.disabled=false;return;}
+  window._cfConversationId=conversation.conversation_id;
   const wfResp = await apiPost('/api/director/create', {
     ...requestOptions,
+    conversation_id: conversation.conversation_id,
     brief: directorBrief,
     platform: (tp || {}).value || '',
     duration: (td || {}).value || '',
@@ -938,13 +902,17 @@ async function createProject(){
   });
   if (!wfResp.ok || !wfResp.run_id) {
     CF.state = 'failed';
-    status.textContent = '任务提交失败：' + (wfResp.error || '未知') + '（内容未保存，可重试）';
+    status.textContent = '任务提交失败：' + (wfResp.error || '未知') + '（创作输入仍保留在草稿和历史对话中）';
+    await apiPost('/api/director/conversations/' + encodeURIComponent(conversation.conversation_id) + '/messages',{role:'assistant',content:'创作任务提交失败：'+(wfResp.error||'未知错误')});
     btn.disabled = false;
     return;
   }
   // 2026-10-25 用户裁决：点击创作后弹窗不关、变身「创作流程窗口」——
   // 步骤清单实时可见（在干什么/有什么问题），出问题可取消并返回修改要求。
   const runId = wfResp.run_id;
+  await apiPost('/api/director/conversations/' + encodeURIComponent(conversation.conversation_id) + '/link',{project_id:wfResp.project_id||'',workflow_run_id:runId});
+  await apiPost('/api/director/drafts/active/clear',{});
+  window.CF_DRAFT_CONTEXT.projectId=wfResp.project_id||'';
   cfEnterProgressMode(runId);
 }
 
@@ -990,7 +958,7 @@ function cfEnterProgressMode(runId){
         if (run.status === 'COMPLETED' || run.status === 'WAITING_CONFIRMATION') {
           const result = run.result || {};
           CF.state = run.status === 'WAITING_CONFIRMATION' ? 'awaiting_confirm' : 'editing';
-          closeCreate();
+          cfFinalizeCreateDialog();
           if (result.project_id) {
             editorToast(run.status === 'WAITING_CONFIRMATION' ? '方案已生成，正在打开工作台……' : '创作完成，已打开工作台');
             await workspaceOpen(result.project_id);
@@ -1116,7 +1084,7 @@ async function createSeriesFromCreatePanel(){
 
 /** 润色（走原 enhance API，面板内联呈现）。 */
 async function cfGenerateScript(){
-  const topic = (document.getElementById('cf-topic') || {}).value || '';
+  const topic = (document.getElementById('cf-director-brief') || {}).value || '';
   const status = document.getElementById('cf-script-gen-status');
   if (!topic.trim()) { if (status) status.textContent = '请先填写主题'; return; }
   const btn = document.querySelector('#cf-topic + button');
@@ -1180,3 +1148,198 @@ Object.assign(window, {
   cfMakeGraphicPlan, cfAnalyzeReference, cfImportArticle, cfClearArticleSource, cfScanRepo, cfVoiceModeSync, cfSeriesSync, createSeriesFromCreatePanel, CF,
   cfEnterProgressMode, cfRenderProgressSteps, cfCancelAndEdit, cfDismissProgress, cfPrefillFromProject, cfStopCreation,
 });
+
+
+/* Durable Create lifecycle: never destroy a draft on backdrop clicks or temporary dismissal. */
+window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:null,article:null,repo:null,narrationUpload:''};
+(function installCreateLifecycle(){
+  const baseOpen=window.openCreate, baseClose=window.closeCreate;
+  if(typeof baseOpen!=='function'||typeof baseClose!=='function')return;
+  let timer=null, saving=Promise.resolve(), restored=false;
+  function collectFields(){
+    const fields={};
+    document.querySelectorAll('#cf-form input[id^="cf-"],#cf-form textarea[id^="cf-"],#cf-form select[id^="cf-"]').forEach(el=>{
+      if(el.type==='file')return;
+      if(el.type==='radio'){if(el.checked)fields[el.name||el.id]=el.value;}
+      else if(el.type==='checkbox')fields[el.id]=!!el.checked;
+      else fields[el.id]=el.value;
+    });
+    const scope=document.querySelector('input[name="cf-scope"]:checked');if(scope)fields['cf-scope']=scope.value;
+    return fields;
+  }
+  function snapshot(){
+    const c=window.CF_DRAFT_CONTEXT||{};
+    return {version:1,fields:collectFields(),context:{
+      asset_refs:Array.isArray(c.assetRefs)?c.assetRefs:[],
+      reference:c.reference||window._cfReference||null,
+      article:c.article||window._cfArticle||null,
+      repo:c.repo||window._cfRepo||null,
+      narration_upload:c.narrationUpload||window._cfNarrationUpload||'',
+      project_id:c.projectId||''
+    }};
+  }
+  async function saveNow(){
+    if(!document.getElementById('cf-form'))return;
+    const data=snapshot();
+    saving=saving.catch(()=>{}).then(()=>apiPost('/api/director/drafts/active',{data}));
+    try{
+      const r=await saving,st=document.getElementById('cf-draft-status');
+      if(st)st.textContent=r&&r.ok?'已保存 '+new Date(r.updated_at*1000).toLocaleTimeString():'保存失败：'+((r&&r.error)||'服务未确认');
+      return r;
+    }catch(e){const st=document.getElementById('cf-draft-status');if(st)st.textContent='保存失败：'+(e.message||e);return {ok:false,error:String(e)};}
+  }
+  function scheduleSave(){
+    if(timer)clearTimeout(timer);
+    const st=document.getElementById('cf-draft-status');if(st)st.textContent='正在保存…';
+    timer=setTimeout(saveNow,450);
+  }
+  function applySnapshot(data){
+    if(!data||typeof data!=='object')return;
+    for(const [id,value] of Object.entries(data.fields||{})){
+      if(id==='cf-scope'){const radio=document.querySelector('input[name="cf-scope"][value="'+CSS.escape(String(value))+'"]');if(radio)radio.checked=true;continue;}
+      const el=document.getElementById(id);if(!el||el.type==='file')continue;
+      if(el.type==='checkbox')el.checked=!!value;else el.value=value==null?'':String(value);
+    }
+    const c=data.context||{};
+    window.CF_DRAFT_CONTEXT={assetRefs:Array.isArray(c.asset_refs)?c.asset_refs:[],reference:c.reference||null,
+      article:c.article||null,repo:c.repo||null,narrationUpload:c.narration_upload||'',projectId:c.project_id||''};
+    window._cfReference=c.reference||null;window._cfReferenceFileObject=null;
+    window._cfArticle=c.article||null;window._cfRepo=c.repo||null;window._cfNarrationUpload=c.narration_upload||'';
+    const summary=document.getElementById('cf-assets-summary');
+    if(summary)summary.textContent=window.CF_DRAFT_CONTEXT.assetRefs.length?
+      '已暂存 '+window.CF_DRAFT_CONTEXT.assetRefs.length+' 个素材，可直接用于创作':'未添加本地素材';
+    if(window._cfArticle&&typeof cfRenderArticleSource==='function')cfRenderArticleSource(window._cfArticle,'已从草稿恢复文章来源。');
+    if(window._cfReference){const el=document.getElementById('cf-reference-result');if(el)el.innerHTML='<div class="ok-box">已恢复参考视频分析，可直接用于创作。</div>';}
+    if(window._cfRepo){const el=document.getElementById('cf-repo-result');if(el)el.innerHTML='<div class="ok-box">已恢复软件项目证据与已验证卖点。</div>';}
+    if(typeof cfVoiceModeSync==='function')cfVoiceModeSync();
+    if(typeof cfVisualSourceSync==='function')cfVisualSourceSync();
+    if(typeof cfSeriesSync==='function')cfSeriesSync();
+    const st=document.getElementById('cf-draft-status');if(st)st.textContent='已恢复上次保存的创作草稿';
+  }
+  async function restoreDraft(){
+    if(restored)return;restored=true;
+    try{const r=await apiGet('/api/director/drafts/active');if(r&&r.ok&&r.draft&&r.draft.data)applySnapshot(r.draft.data);}
+    catch(e){const st=document.getElementById('cf-draft-status');if(st)st.textContent='草稿读取失败：'+(e.message||e);}
+  }
+  function arrangeForm(){
+    const form=document.getElementById('cf-form');if(!form||form.dataset.arranged==='1')return;form.dataset.arranged='1';
+    const header=form.firstElementChild;
+    if(header){
+      const history=document.createElement('button');history.type='button';history.className='btn-secondary btn-sm';history.textContent='历史对话';history.onclick=cfHistoryToggle;
+      header.insertBefore(history,header.querySelector('span[style*="flex:1"]'));
+      const status=document.createElement('span');status.id='cf-draft-status';status.className='hint';status.style.marginLeft='8px';status.textContent='草稿待保存';
+      header.insertBefore(status,history);
+      const close=header.querySelector('button[onclick="closeCreate()"]');if(close)close.textContent='收起';
+    }
+    const brief=document.getElementById('cf-director-brief');
+    if(brief&&!document.getElementById('cf-quick-actions')){
+      const actions=document.createElement('div');actions.id='cf-quick-actions';actions.className='btn-row';actions.style.marginTop='8px';
+      actions.innerHTML='<button type="button" class="btn-secondary btn-sm" onclick="cfGenerateScript()">AI 生成文案</button><button type="button" class="btn-secondary btn-sm" onclick="createEnhance()">AI 润色文案</button><button type="button" class="btn-secondary btn-sm" onclick="cfMakeGraphicPlan()">图形方案预览</button>';
+      brief.parentElement.appendChild(actions);
+    }
+    document.getElementById('cf-topic')?.closest('.btn-row')?.remove();
+    const manual=document.getElementById('cf-manual-options');
+    if(manual){
+      const row=document.getElementById('cf-platform')?.closest('.btn-row');
+      const visual=document.getElementById('cf-visual-source')?.closest('.btn-row');
+      const studio=document.getElementById('cf-studio-catalog-status')?.closest('.panel');
+      const panel=document.createElement('section');panel.id='cf-output-requirements';panel.className='panel';panel.style.marginTop='10px';
+      panel.innerHTML='<div class="btn-row" style="align-items:center;margin:0"><b>成片要求</b><span class="hint">只设置明确要求，其余交给 AI 决定。</span></div>';
+      manual.parentNode.insertBefore(panel,manual);
+      if(row)panel.appendChild(row);if(visual)panel.appendChild(visual);
+      const styles=document.getElementById('cf-style-presets');if(styles)panel.appendChild(styles);
+      if(studio){const detail=document.createElement('details');detail.style.marginTop='8px';detail.innerHTML='<summary style="cursor:pointer;color:var(--muted);font-size:12px">本机执行能力与模板状态</summary>';detail.appendChild(studio);panel.appendChild(detail);}
+    }
+    document.getElementById('cf-style-gallery-btn')?.remove();
+    const templateList=document.getElementById('cf-studio-template-list');if(templateList)templateList.style.display='none';
+  }
+  async function uploadAssets(input){
+    const files=Array.from(input.files||[]);if(!files.length)return;
+    const status=document.getElementById('cf-assets-summary');if(status)status.textContent='正在把素材暂存到素材库…';
+    const fd=new FormData();files.forEach(f=>fd.append('files',f,f.name));
+    try{
+      const r=await apiUpload('/api/assets/upload',fd);if(!r||!r.ok)throw new Error(r?.error||'上传失败');
+      const refs=window.CF_DRAFT_CONTEXT.assetRefs,seen=new Set(refs.map(x=>x.asset_id||x.file));
+      for(const a of (r.imported||[])){const key=a.asset_id||a.file;if(key&&!seen.has(key)){refs.push({asset_id:a.asset_id,type:a.type,file:a.file,width:a.width,height:a.height,duration:a.duration,commercial_status:a.commercial_status});seen.add(key);}}
+      if(status)status.textContent='已暂存 '+refs.length+' 个素材，关闭窗口或刷新后仍可恢复。';await saveNow();
+    }catch(e){if(status)status.textContent='素材暂存失败：'+(e.message||e)+'。请重试后再关闭。';throw e;}
+  }
+  async function uploadNarration(file){
+    const fd=new FormData();fd.append('files',file,file.name);
+    const r=await apiUpload('/api/assets/stage',fd);if(!r||!r.ok||!(r.audio||[]).length)throw new Error(r?.error||'配音暂存失败');
+    window.CF_DRAFT_CONTEXT.narrationUpload=r.audio[0];window._cfNarrationUpload=r.audio[0];await saveNow();return r.audio[0];
+  }
+  function installHandlers(){
+    const form=document.getElementById('cf-form');if(!form||form.dataset.draftHandlers==='1')return;form.dataset.draftHandlers='1';
+    form.addEventListener('input',scheduleSave,true);
+    form.addEventListener('change',e=>{
+      scheduleSave();
+      if(e.target?.id==='cf-assets')window.CF_DRAFT_CONTEXT.assetUploadPromise=uploadAssets(e.target);
+      if(e.target?.id==='cf-reference'&&e.target.files?.length){
+        window._cfReference=null;window.CF_DRAFT_CONTEXT.reference=null;
+        cfAnalyzeReference().then(ok=>{if(ok){window.CF_DRAFT_CONTEXT.reference=window._cfReference;saveNow();}});
+      }
+      if(e.target?.id==='cf-voice-file'&&e.target.files?.length)
+        window.CF_DRAFT_CONTEXT.narrationPromise=uploadNarration(e.target.files[0]);
+    },true);
+  }
+  window.openCreate=function(projectId){
+    const existing=document.getElementById('cf-mask');
+    if(existing){existing.style.display='flex';existing.setAttribute('aria-hidden','false');if(projectId)cfPrefillFromProject(projectId);else restoreDraft();installHandlers();return;}
+    restored=false;baseOpen(projectId);arrangeForm();installHandlers();if(!projectId)restoreDraft();
+  };
+  window.closeCreate=function(){
+    const mask=document.getElementById('cf-mask');if(!mask)return baseClose();
+    scheduleSave();saveNow();mask.style.display='none';mask.setAttribute('aria-hidden','true');
+    if(window.CF)window.CF.state='idle';
+  };
+  window.cfFinalizeCreateDialog=async function(){
+    if(timer)clearTimeout(timer);document.getElementById('cf-mask')?.remove();
+    for(const id of ['sg-mask','tg-mask'])document.getElementById(id)?.remove();
+    try{await apiPost('/api/director/drafts/active/clear',{});}catch(_){}
+    if(window.CF)window.CF.state='idle';restored=false;
+  };
+  window.cfHistoryToggle=async function(){
+    let panel=document.getElementById('cf-history-panel');if(panel){panel.remove();return;}
+    panel=document.createElement('section');panel.id='cf-history-panel';panel.className='panel';panel.style.maxHeight='45vh';panel.style.overflow='auto';
+    panel.innerHTML='<div class="btn-row"><b>历史创作对话</b><span class="tb-sep"></span><button class="btn-secondary btn-sm" onclick="cfHistoryToggle()">收起</button></div><div id="cf-history-list" class="hint">正在读取…</div>';
+    const anchor=document.getElementById('cf-quick-actions')||document.getElementById('cf-director-plan-preview');
+    (anchor?.parentElement||document.getElementById('cf-form')).insertAdjacentElement('afterend',panel);
+    try{
+      const r=await apiGet('/api/director/conversations?limit=50'),list=document.getElementById('cf-history-list');
+      const rows=(r&&r.conversations)||[];
+      if(list)list.innerHTML=rows.length?rows.map(x=>'<div class="proj-row"><span style="flex:1"><b>'+esc(x.title||'未命名对话')+'</b><span class="hint">'+esc(x.project_id||'未关联项目')+' · '+new Date((x.updated_at||0)*1000).toLocaleString()+' · '+esc(x.status)+'</span></span><button class="btn-secondary btn-sm" onclick="cfHistoryOpenConversation(\''+esc(x.conversation_id)+'\')">查看</button></div>').join(''):'<div class="hint">暂无历史对话。第一次提交创作后会自动记录。</div>';
+    }catch(e){const list=document.getElementById('cf-history-list');if(list)list.textContent='历史对话读取失败：'+(e.message||e);}
+  };
+  window.cfHistoryOpenConversation=async function(id){
+    const list=document.getElementById('cf-history-list');if(!list)return;list.textContent='读取对话…';
+    try{
+      const r=await apiGet('/api/director/conversations/'+encodeURIComponent(id));if(!r||!r.ok||!r.conversation)throw new Error(r?.error||'对话不存在');
+      const c=r.conversation;window._cfHistorySelected=c;
+      const messages=(c.messages||[]).map(m=>'<div class="panel" style="padding:8px;margin-top:6px"><b>'+({user:'用户',assistant:'AI',tool:'执行记录',system:'系统'}[m.role]||m.role)+'</b><div style="white-space:pre-wrap;margin-top:4px">'+esc(m.content)+'</div></div>').join('');
+      list.innerHTML='<div class="btn-row"><b>'+esc(c.title)+'</b><span class="tb-sep"></span><button class="btn-secondary btn-sm" onclick="cfHistoryToggle()">返回列表</button></div>'+messages+
+        '<div class="btn-row" style="margin-top:8px"><button class="btn-sm" onclick="cfHistoryRestoreSnapshot(\''+esc(id)+'\')">恢复为新草稿</button>'+
+        (c.project_id?'<button class="btn-secondary btn-sm" onclick="openCreate(\''+esc(c.project_id)+'\')">打开关联项目</button>':'')+'</div>';
+    }catch(e){list.textContent='对话读取失败：'+(e.message||e);}
+  };
+  window.cfHistoryRestoreSnapshot=async function(id){
+    const c=window._cfHistorySelected;if(!c||c.conversation_id!==id)return;
+    const s=c.snapshot||{};const form=s.form||s;if(form.fields)applySnapshot(form);
+    else if(s.director_inputs){const d=s.director_inputs;const b=document.getElementById('cf-director-brief'),t=document.getElementById('cf-script');if(b)b.value=d.brief||'';if(t)t.value=(d.script&&d.script.text)||'';window.CF_DRAFT_CONTEXT.assetRefs=(d.assets&&d.assets.asset_refs)||[];window._cfReference=(d.references||[])[0]||null;window._cfArticle=(d.articles||[])[0]||null;window._cfRepo=d.software_project||null;}
+    await saveNow();const list=document.getElementById('cf-history-list');if(list)list.innerHTML='<div class="ok-box">已恢复为新草稿，原历史对话不会被覆盖。</div>';
+  };
+  window.addEventListener('beforeunload',()=>{
+    if(document.getElementById('cf-mask')?.style.display!=='none'){
+      try{navigator.sendBeacon('/api/director/drafts/active',new Blob([JSON.stringify({data:snapshot()})],{type:'application/json'}));}catch(_){}
+    }
+  });
+  const originalGenerate=window.cfGenerateScript;
+  window.cfGenerateScript=async function(){
+    const brief=document.getElementById('cf-director-brief');if(!brief||!brief.value.trim()){const st=document.getElementById('cf-script-gen-status');if(st)st.textContent='请先填写上方创作要求';return;}
+    return originalGenerate();
+  };
+  const originalRepo=window.cfScanRepo;window.cfScanRepo=async function(){const r=await originalRepo();await saveNow();return r;};
+  const originalReference=window.cfAnalyzeReference;window.cfAnalyzeReference=async function(){const r=await originalReference();if(r){window.CF_DRAFT_CONTEXT.reference=window._cfReference;await saveNow();}return r;};
+  const originalArticle=window.cfImportArticle;window.cfImportArticle=async function(){await originalArticle();window.CF_DRAFT_CONTEXT.article=window._cfArticle;await saveNow();};
+  const originalClear=window.cfClearArticleSource;window.cfClearArticleSource=function(){originalClear();window.CF_DRAFT_CONTEXT.article=null;scheduleSave();};
+})();

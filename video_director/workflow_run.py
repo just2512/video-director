@@ -125,6 +125,9 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_workflow_runs_project
         ON workflow_runs(project_id);
     """)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(workflow_runs)").fetchall()}
+    if "conversation_id" not in columns:
+        conn.execute("ALTER TABLE workflow_runs ADD COLUMN conversation_id TEXT NOT NULL DEFAULT ''")
 
 
 def _conn() -> sqlite3.Connection:
@@ -136,7 +139,7 @@ def _conn() -> sqlite3.Connection:
 
 def start_run(kind: str, project_id: Optional[str] = None,
               steps: Optional[List[str]] = None,
-              spec: Optional[dict] = None) -> str:
+              spec: Optional[dict] = None, conversation_id: str = "") -> str:
     """§52 POST /api/workflows：开一个 run，立即返回 run_id。
 
     kind: compose | script_only | product | image_shots | gfx | series_episode |
@@ -150,10 +153,11 @@ def start_run(kind: str, project_id: Optional[str] = None,
         _ensure_table(conn)
         conn.execute(
             "INSERT INTO workflow_runs (run_id, kind, project_id, status, current, "
-            "steps_status_json, result_json, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            "steps_status_json, result_json, created_at, updated_at, conversation_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
             (run_id, kind, project_id, RUNNING, step_list[0] if step_list else None,
-             json.dumps(steps_status, ensure_ascii=False), json.dumps(spec or {}), now, now),
+             json.dumps(steps_status, ensure_ascii=False), json.dumps(spec or {}), now, now,
+             str(conversation_id or "")),
         )
     logger.info(f"workflow: run {run_id} ({kind}) started, project={project_id}")
     return run_id
@@ -180,7 +184,7 @@ def step_update(run_id: str, step: str, status: str,
     with _DB_LOCK, _conn() as conn:
         _ensure_table(conn)
         row = conn.execute(
-            "SELECT steps_status_json, current, status FROM workflow_runs WHERE run_id=?",
+            "SELECT steps_status_json, current, status, conversation_id FROM workflow_runs WHERE run_id=?",
             (run_id,)).fetchone()
         if row is None:
             return
@@ -204,6 +208,14 @@ def step_update(run_id: str, step: str, status: str,
     label = STEP_LABEL_CN.get(step, step)
     _emit(run_id, f"workflow.step", {"step": step, "status": status,
                                      "label": label, "detail": detail or ""})
+    if row["conversation_id"] and status in ("DONE", "FAILED", "SKIPPED"):
+        try:
+            from video_director import director_history
+            director_history.append_message(row["conversation_id"], "tool",
+                f"{label}：{'完成' if status == 'DONE' else '失败' if status == 'FAILED' else '跳过'}" + (f"。{detail[:500]}" if detail else ""),
+                {"workflow_run_id": run_id, "step": step, "status": status})
+        except Exception as exc:
+            logger.warning(f"director conversation step record failed: {exc}")
 
 
 def _next_pending(steps_status: dict) -> Optional[str]:
@@ -221,6 +233,8 @@ def finish_run(run_id: str, status: str, result: Optional[dict] = None,
     now = time.time()
     with _DB_LOCK, _conn() as conn:
         _ensure_table(conn)
+        row = conn.execute("SELECT conversation_id FROM workflow_runs WHERE run_id=?", (run_id,)).fetchone()
+        conversation_id = str(row["conversation_id"] or "") if row else ""
         conn.execute(
             "UPDATE workflow_runs SET status=?, result_json=?, error=?, updated_at=? "
             "WHERE run_id=?",
@@ -229,6 +243,12 @@ def finish_run(run_id: str, status: str, result: Optional[dict] = None,
         )
     logger.info(f"workflow: run {run_id} → {status}" + (f" ({error})" if error else ""))
     _emit(run_id, "workflow.done", {"status": status})
+    if conversation_id:
+        try:
+            from video_director import director_history
+            director_history.record_workflow_result(run_id, status, result=result or {}, error=error or "")
+        except Exception as exc:
+            logger.warning(f"director conversation final record failed: {exc}")
 
 
 def get_run(run_id: str) -> Optional[dict]:
@@ -286,12 +306,12 @@ def list_runs(project_id: Optional[str] = None, limit: int = 20) -> List[dict]:
         _ensure_table(conn)
         if project_id:
             rows = conn.execute(
-                "SELECT run_id, kind, project_id, status, current, error, created_at, updated_at "
+                "SELECT run_id, kind, project_id, status, current, error, created_at, updated_at, conversation_id "
                 "FROM workflow_runs WHERE project_id=? ORDER BY created_at DESC LIMIT ?",
                 (project_id, limit)).fetchall()
         else:
             rows = conn.execute(
-                "SELECT run_id, kind, project_id, status, current, error, created_at, updated_at "
+                "SELECT run_id, kind, project_id, status, current, error, created_at, updated_at, conversation_id "
                 "FROM workflow_runs ORDER BY created_at DESC LIMIT ?",
                 (limit,)).fetchall()
     return [dict(r) for r in rows]
@@ -432,7 +452,8 @@ def run_director_create_async(spec: dict, plan: Optional[dict] = None) -> str:
         steps = ["understand", "script", "scene_plan", "narration", "material_match",
                  "subtitle", "music", "watermark", "composition", "preview", "verify", "render"]
     run_id = start_run("director_create", project_id=payload.get("project_id") or None,
-                       steps=steps, spec=payload)
+                       steps=steps, spec=payload,
+                       conversation_id=str(payload.get("conversation_id") or ""))
     t = threading.Thread(target=_compose_worker, args=(run_id, payload), daemon=True)
     t.start()
     return run_id

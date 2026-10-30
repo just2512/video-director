@@ -266,6 +266,7 @@ def create_director_run(payload: dict) -> dict:
         raise DirectorServiceError("INVALID_SETTINGS", "画面速度必须大于 0")
     spec = {
         "project_id": pid, "script": script, "creative_brief": brief, "brief": brief,
+        "conversation_id": str(payload.get("conversation_id") or ""),
         "mode": payload.get("mode") or "auto",
         "voice": choose_setting("voice", payload.get("voice"), default="zh-CN-XiaoxiaoNeural"),
         "voice_mode": choose_setting("voice_mode", payload.get("voice_mode"), default="auto"),

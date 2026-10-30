@@ -2566,6 +2566,30 @@ class Handler(BaseHTTPRequestHandler):
                     })
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
+        elif route == "/api/director/drafts/active":
+            try:
+                from video_director import director_history as history
+                self._send_json({"ok": True, "draft": history.get_draft("active")})
+            except Exception as exc:
+                self._send_json({"ok": False, "error": str(exc)[:240]}, 500)
+        elif route == "/api/director/conversations":
+            try:
+                from video_director import director_history as history
+                qs=parse_qs(parsed.query)
+                self._send_json({"ok":True,"conversations":history.list_conversations(
+                    project_id=str(qs.get("project_id",[""])[0] or ""),
+                    limit=int(qs.get("limit",["50"])[0] or 50))})
+            except Exception as exc:
+                self._send_json({"ok":False,"error":str(exc)[:240]},500)
+        elif route.startswith("/api/director/conversations/"):
+            try:
+                from video_director import director_history as history
+                cid=route[len("/api/director/conversations/"):].strip("/")
+                item=history.get_conversation(cid)
+                if item is None:self._send_json({"ok":False,"error":"历史对话不存在"},404)
+                else:self._send_json({"ok":True,"conversation":item})
+            except Exception as exc:
+                self._send_json({"ok":False,"error":str(exc)[:240]},500)
         elif route == "/api/workflows":
             # §52 GET /api/workflows：run 列表（可选 project_id 过滤）
             try:
@@ -3539,6 +3563,56 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "context": {}})  # 上报成功即可，快照失败不阻塞
             return
 
+        if parsed.path == "/api/director/drafts/active":
+            length=int(self.headers.get("Content-Length",0))
+            try:
+                payload=json.loads(self.rfile.read(length).decode("utf-8",errors="replace") or "{}")
+                from video_director import director_history as history
+                self._send_json({"ok":True,**history.save_draft("active",payload.get("data") or {})})
+            except (json.JSONDecodeError,ValueError) as exc:self._send_json({"ok":False,"error":str(exc)[:240]},400)
+            except Exception as exc:self._send_json({"ok":False,"error":str(exc)[:240]},500)
+            return
+        if parsed.path == "/api/director/drafts/active/clear":
+            try:
+                from video_director import director_history as history
+                history.delete_draft("active");self._send_json({"ok":True})
+            except Exception as exc:self._send_json({"ok":False,"error":str(exc)[:240]},500)
+            return
+        if parsed.path == "/api/director/conversations":
+            length=int(self.headers.get("Content-Length",0))
+            try:
+                payload=json.loads(self.rfile.read(length).decode("utf-8",errors="replace") or "{}")
+                from video_director import director_history as history
+                out=history.create_conversation(
+                    conversation_id=str(payload.get("conversation_id") or ""),
+                    project_id=str(payload.get("project_id") or ""),
+                    title=str(payload.get("title") or ""),
+                    initial_message=str(payload.get("initial_message") or ""),
+                    snapshot=payload.get("snapshot") or {})
+                self._send_json({"ok":True,**out})
+            except (json.JSONDecodeError,ValueError) as exc:self._send_json({"ok":False,"error":str(exc)[:240]},400)
+            except Exception as exc:self._send_json({"ok":False,"error":str(exc)[:240]},500)
+            return
+        if parsed.path.startswith("/api/director/conversations/"):
+            length=int(self.headers.get("Content-Length",0));suffix=parsed.path[len("/api/director/conversations/"):].strip("/")
+            try:
+                payload=json.loads(self.rfile.read(length).decode("utf-8",errors="replace") or "{}") if length else {}
+                from video_director import director_history as history
+                if suffix.endswith("/link"):
+                    cid=suffix[:-5].strip("/")
+                    ok=history.link_workflow(cid,project_id=str(payload.get("project_id") or ""),
+                        workflow_run_id=str(payload.get("workflow_run_id") or ""))
+                    self._send_json({"ok":ok,"error":"" if ok else "历史对话不存在"})
+                elif suffix.endswith("/messages"):
+                    cid=suffix[:-8].strip("/")
+                    ok=history.append_message(cid,str(payload.get("role") or "assistant"),
+                        str(payload.get("content") or ""),payload.get("metadata") or {})
+                    self._send_json({"ok":ok,"error":"" if ok else "历史对话不存在"})
+                else:self._send_json({"ok":False,"error":"不支持的历史对话操作"},404)
+            except (json.JSONDecodeError,ValueError) as exc:self._send_json({"ok":False,"error":str(exc)[:240]},400)
+            except Exception as exc:self._send_json({"ok":False,"error":str(exc)[:240]},500)
+            return
+
         # AI Director：所有创作来源统一进入 DirectorInputBundle（无需先建项目）。
         if parsed.path == "/api/director/create":
             length = int(self.headers.get("Content-Length", 0))
@@ -3618,6 +3692,11 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 from video_director import director_inputs as _di
                 bundle = _di.load_bundle(pid)
+                spec = {}
+                spec_path = config.project_dir(pid) / "plans" / "director_spec.json"
+                try:
+                    if spec_path.is_file(): spec = json.loads(spec_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError): spec = {}
                 if not bundle:
                     self._send_json(
                         {"ok": False, "error": "项目没有创作要求记录（可能来自旧流程）"},
@@ -3637,6 +3716,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "brief": str(bundle.get("brief") or ""),
                     "bundle": bundle,
+                    "spec": spec,
                 })
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)[:200]}, 500)

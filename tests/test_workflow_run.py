@@ -70,6 +70,12 @@ class TestWorkflowRun:
         from video_director import workflow_run as wf
         assert wf.get_run("run-nonexistent") is None
 
+    def test_conversation_id_is_persisted(self, _iso_storage):
+        from video_director import workflow_run as wf
+        rid=wf.start_run("director_create",project_id="wf-chat",conversation_id="conv-001")
+        assert wf.get_run(rid)["conversation_id"]=="conv-001"
+        assert wf.list_runs(project_id="wf-chat")[0]["conversation_id"]=="conv-001"
+
     def test_step_labels_human(self, _iso_storage):
         """§53 步骤人话（真实事件标注，非技术词裸奔）。"""
         from video_director import workflow_run as wf
