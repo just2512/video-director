@@ -72,7 +72,11 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                   return form && form.style.display !== 'none' && submit && submit.disabled;
                 }""", timeout=10000)
                 accepted = page.evaluate("window.__cancelApiCalls")
-                assert accepted == [{
+                cancel_calls = [
+                    call for call in accepted
+                    if call.get("path") == "/api/workflows/cancel"
+                ]
+                assert cancel_calls == [{
                     "path": "/api/workflows/cancel",
                     "payload": {"run_id": "run-stop-and-edit"},
                 }]

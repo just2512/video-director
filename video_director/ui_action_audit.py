@@ -109,8 +109,9 @@ UI_ONLY_PREFIXES = (
     "editorSourceMonitorRefresh(", "editorSourceMonitorRefreshTracks(",
     "editorSourceMonitorSelectAsset(", "editorSourceMonitorMarkIn(",
     "editorSourceMonitorMarkOut(", "editorSourceMonitorAddToTimeline(",
-    # §46 任务中心抽屉（WorkflowRun 渲染层 UI 开关）
-    "taskDrawerToggle(", "taskRefresh(", "taskShowDetail(", "taskOpenProject(", "taskRetryDirector(",
+    # §46 任务中心抽屉（WorkflowRun 列表/详情/重试/停止操作）
+    "taskDrawerToggle(", "taskRefresh(", "taskShowDetail(", "taskOpenProject(",
+    "taskRetryDirector(", "taskCancelRun(",
     # §52 配置导入导出（设置表单）
     "settingsExport(", "settingsImport(",
     "pmToggleSelected(", "pmToggleAll(", "pmAskBulkDelete(", "pmBulkAction(", "pmClearSelection(",
