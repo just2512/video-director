@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', seekGeneration:0, data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', seekGeneration:0, data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, initializingRequests:Object.create(null), poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null};
   var gestureDomRefs = null;
   var envelopeDomCanvas = null;
   var skipClipClickGeneration = 0;
@@ -2248,20 +2248,44 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     if(expected==null){showStatus('迁移预览缺少源版本号，请重新载入。','error');return false;}
     var selectedVariantId=migration&&migration.migration_preview
       ?(migration.migration_preview.selected_variant_id||null):null;
-    var r=await apiPost('/api/editor/film/initialize',{
-      project_id:requestProjectId,expected_composition_version:expected,
-      selected_variant_id:selectedVariantId,accept_warnings:!!acceptWarnings
-    });
+    // Only one initialization request may be in flight for this project view.
+    // A new project/load generation gets an independent key, so switching
+    // projects does not block the next project's initialization.
+    var requestMap=S.initializingRequests||(S.initializingRequests=Object.create(null));
+    var requestKey=JSON.stringify([requestProjectId,requestGeneration]);
+    if(requestMap[requestKey]){
+      showStatus('当前项目的影片初始化请求正在执行，请勿重复提交。');
+      return false;
+    }
+    var requestToken={};
+    requestMap[requestKey]=requestToken;
+    var initializeButton=$('fs-initialize-button');
+    if(initializeButton)initializeButton.disabled=true;
+    var r;
+    try{
+      r=await apiPost('/api/editor/film/initialize',{
+        project_id:requestProjectId,expected_composition_version:expected,
+        selected_variant_id:selectedVariantId,accept_warnings:!!acceptWarnings
+      });
+    }finally{
+      if(requestMap[requestKey]===requestToken)delete requestMap[requestKey];
+      // Never re-enable a button belonging to another project or load generation.
+      if(S.open&&requestProjectId===S.projectId&&requestGeneration===S.loadGeneration){
+        var activeInitializeButton=$('fs-initialize-button');
+        if(activeInitializeButton)activeInitializeButton.disabled=false;
+      }
+    }
     if(!S.open||requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return false;
     if(r&&r.code==='MIGRATION_WARNINGS_REQUIRE_CONFIRMATION'){
       var message='以下内容目前不能保证无损迁移：\n\n'+(r.warnings||[]).join('\n')+'\n\n确认后才写入 film.html。是否继续？';
       if(window.confirm(message))return filmStudioInitialize(true);
-      showStatus('已取消初始化，没有创建 film.html。');return;
+      showStatus('已取消初始化，没有创建 film.html。');return false;
     }
-    if(!r||!r.ok){showStatus((r&&r.error)||'初始化失败。','error');return;}
+    if(!r||!r.ok){showStatus((r&&r.error)||'初始化失败。','error');return false;}
     S.data=r;S.rev=r.rev;S.migration=null;S.assetMode='clips';S.selectedId='';S.selectedIds=[];S.selectionAnchor='';
     mountDirectorPlanning(false);
     showStatus('已初始化 film.html。旧 Composition 与旧工作台不自动双向同步。',r.warnings&&r.warnings.length?'':'success');render();renderAiDirector();
+    return true;
   }
   function inspectorFieldDiffersNumber(id, expected, tolerance){
     var input=$(id);if(!input)return false;

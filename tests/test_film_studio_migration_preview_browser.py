@@ -70,18 +70,22 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
     initialize_request_started = threading.Event()
     release_initialize_request = threading.Event()
     initialize_delay_consumed = [False]
+    initialize_request_count = [0]
+    initialize_request_lock = threading.Lock()
     original_do_post = web_server.Handler.do_POST
 
     def delay_first_film_initialize(handler):
-        if (
-            handler.path.split("?", 1)[0] == "/api/editor/film/initialize"
-            and not initialize_delay_consumed[0]
-        ):
-            initialize_delay_consumed[0] = True
-            initialize_request_started.set()
-            if not release_initialize_request.wait(timeout=10):
-                handler.send_error(504, "test did not release delayed initialization")
-                return
+        if handler.path.split("?", 1)[0] == "/api/editor/film/initialize":
+            with initialize_request_lock:
+                initialize_request_count[0] += 1
+                should_delay = not initialize_delay_consumed[0]
+                if should_delay:
+                    initialize_delay_consumed[0] = True
+            if should_delay:
+                initialize_request_started.set()
+                if not release_initialize_request.wait(timeout=10):
+                    handler.send_error(504, "test did not release delayed initialization")
+                    return
         original_do_post(handler)
 
     monkeypatch.setattr(web_server.Handler, "do_POST", delay_first_film_initialize)
@@ -205,6 +209,18 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                   );
                 }""")
                 assert initialize_request_started.wait(timeout=5), "film initialization request did not reach the server"
+                page.wait_for_function(
+                    "() => document.querySelector('#fs-initialize-button')?.disabled === true",
+                    timeout=3000,
+                )
+                duplicate_attempt = page.evaluate("() => window.filmStudioInitialize(false)")
+                assert duplicate_attempt is False, duplicate_attempt
+                with initialize_request_lock:
+                    assert initialize_request_count[0] == 1, (
+                        "a second initialization call for the same project/load generation "
+                        "must be coalesced before reaching the server"
+                    )
+
                 opened_target = page.evaluate("(pid) => workspaceOpen(pid)", target_project_id)
                 assert opened_target.get("ok") is True, opened_target
                 page.wait_for_function(
