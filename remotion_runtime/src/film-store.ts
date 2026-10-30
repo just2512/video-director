@@ -989,7 +989,6 @@ class FilmStore implements FilmStudioStoreBridge {
       ["rendering", "rendering"],
       ["busy", "busy"],
       ["broken", "broken"],
-      ["busy", "busy"],
       ["pendingTransaction", "pendingTransaction"],
     ];
     for (const [legacyKey, storeKey] of bindings) {
