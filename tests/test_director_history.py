@@ -55,4 +55,5 @@ def test_create_dialog_lifecycle_and_single_style_catalog():
     assert "spec_settings" in source
     assert "await Promise.allSettled(pending)" in source
     assert "window.CF_DRAFT_CONTEXT.assetRefs = refs" in source
-    assert 'button[onclick="createEnhance()"],button[onclick="cfMakeGraphicPlan()"]' in source
+    assert 'if(!quickActions || !quickActions.contains(button)) button.remove();' in source
+    assert "actions.innerHTML='<button type=" in source

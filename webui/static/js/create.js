@@ -132,6 +132,10 @@ async function cfPrefillFromProject(pid){
     if (spec.width && spec.height) {
       const resolution=document.getElementById('cf-resolution');
       if(resolution) resolution.value=String(spec.width)+'x'+String(spec.height);
+      const aspect=String(spec.width)+'x'+String(spec.height);
+      const platformByAspect={'1080x1920':'douyin','1920x1080':'bilibili','1080x1440':'xhs','1080x1080':'square'};
+      const platform=document.getElementById('cf-platform');
+      if(platform && platformByAspect[aspect]) platform.value=platformByAspect[aspect];
     }
     if (window.CF) {
       window.CF.explicitFields = new Set(Object.keys(CF_EXPLICIT_CONTROL_FIELDS).map(id => CF_EXPLICIT_CONTROL_FIELDS[id])
@@ -1309,7 +1313,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       brief.parentElement.appendChild(actions);
     }
     // 上方快捷栏已承载这两项动作，移除高级区的旧副本。
-    form.querySelectorAll('button[onclick="createEnhance()"],button[onclick="cfMakeGraphicPlan()"]').forEach(button=>button.remove());
+    const quickActions=document.getElementById('cf-quick-actions');
+    form.querySelectorAll('button[onclick="createEnhance()"],button[onclick="cfMakeGraphicPlan()"]').forEach(button=>{
+      if(!quickActions || !quickActions.contains(button)) button.remove();
+    });
     document.getElementById('cf-topic')?.closest('.btn-row')?.remove();
     const manual=document.getElementById('cf-manual-options');
     if(manual){
