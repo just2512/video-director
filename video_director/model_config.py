@@ -162,6 +162,21 @@ def _env_fallback(role: str) -> dict:
                          or ROLE_DEFS["vision"]["default_model"],
                 "source": "env",
             }
+    # 通用 AI 角色环境变量：VD_<ROLE_UPPER>_API_KEY / _BASE_URL / _MODEL。
+    # 覆盖 image/video/semantic_rerank/visual_qa/hyperframes 等未在 ROLE_DEFS
+    # 写 key_env 的角色（以及任何后续新增角色）：同一套命名从环境读密钥，
+    # 不再需要明文写在 model_config.json。
+    generic_key = os.environ.get(f"VD_{role.upper()}_API_KEY")
+    if generic_key:
+        d = ROLE_DEFS.get(role, {})
+        return {
+            "api_key": generic_key,
+            "base_url": os.environ.get(f"VD_{role.upper()}_BASE_URL")
+                        or d.get("default_base_url", ""),
+            "model": os.environ.get(f"VD_{role.upper()}_MODEL")
+                     or d.get("default_model", ""),
+            "source": "env",
+        }
     return {"api_key": "", "base_url": "", "model": "", "source": "none"}
 
 
@@ -194,12 +209,18 @@ def load_all() -> Dict[str, dict]:
 
 
 def get_role_config(role: str) -> dict:
-    """单角色配置：文件配置 > 环境变量 > 未启用。"""
+    """单角色配置：环境变量 > 文件配置 > 未启用。
+
+    环境变量优先让密钥可迁出明文文件：设置 VD_<ROLE>_API_KEY 即用环境，
+    否则回退 storage/composer/model_config.json（个人单机兜底，不入库）。"""
+    env = _env_fallback(role)
+    if env.get("api_key"):
+        return env
     all_cfg = load_all()
     entry = all_cfg.get(role)
     if entry and entry.get("api_key"):
         return entry
-    return _env_fallback(role)
+    return env
 
 
 def is_role_enabled(role: str) -> bool:

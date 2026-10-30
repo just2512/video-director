@@ -5,6 +5,7 @@ venv/
 .pytest_cache/
 .claude/
 release/
+.env
 
 # 私人工作文档（不上传远程）
 _*.md
