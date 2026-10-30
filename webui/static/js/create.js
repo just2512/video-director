@@ -192,6 +192,8 @@ async function cfPrefillFromProject(pid){
     if (typeof cfVisualSourceSync === 'function') cfVisualSourceSync();
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') window.CF_DRAFT_CONTEXT.projectId = pid;
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') window.CF_DRAFT_CONTEXT.assetRefs = refs;
+    const supplement=document.getElementById('cf-input-context-details');
+    if(supplement&&(scriptText.trim()||refs.length||window._cfReference||window._cfArticle||window._cfRepo))supplement.open=true;
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') await apiPost('/api/director/drafts/active', {data:{
       version:1,fields:(function(){const out={};document.querySelectorAll('#cf-form input[id],#cf-form textarea[id],#cf-form select[id]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),
       explicit_fields:Array.from(window.CF?.explicitFields||[]),
@@ -602,7 +604,7 @@ document.addEventListener('click',function(event){
   const button=event.target.closest('[data-studio-style]');
   if(!button)return;
   const input=document.getElementById('cf-style');
-  if(input)input.value=button.dataset.studioStyle;
+  if(input){input.value=button.dataset.studioStyle;input.dispatchEvent(new Event('input',{bubbles:true}));}
   document.querySelectorAll('[data-studio-style]').forEach(el=>el.classList.toggle('tab-active',el===button));
   const row=(CF_STUDIO_CATALOG&&CF_STUDIO_CATALOG.styles||[]).find(x=>x.id===button.dataset.studioStyle);
   const detail=document.getElementById('cf-style-contract-detail');
@@ -1394,6 +1396,16 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(st)st.textContent=localSaved?'本机已保存，正在同步…':'正在保存…';
     timer=setTimeout(()=>{timer=null;saveNow();},450);
   }
+  function persistImmediately(){
+    if(timer){clearTimeout(timer);timer=null;}
+    return saveNow();
+  }
+  function revealSupplementaryInput(targetId){
+    const details=document.getElementById('cf-input-context-details');
+    if(details)details.open=true;
+    const target=document.getElementById(targetId||'cf-script');
+    if(target){target.scrollIntoView({behavior:'smooth',block:'center'});target.focus();}
+  }
   function applySnapshot(data,preserveDirty=false){
     if(!data||typeof data!=='object')return;
     for(const [id,value] of Object.entries(data.fields||{})){
@@ -1440,6 +1452,12 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         const data=useLocal?local.data:(remote&&remote.data)||(local&&local.data)||null;
         if(data){
           applySnapshot(data,true);
+          const context=data.context||{};
+          const hasSupplementaryContent=!!String(data.fields?.['cf-script']||'').trim()
+            ||!!(context.asset_refs&&context.asset_refs.length)
+            ||!!context.reference||!!context.article||!!context.repo;
+          const supplement=document.getElementById('cf-input-context-details');
+          if(supplement&&hasSupplementaryContent)supplement.open=true;
           writeLocalDraft(data);
           const st=document.getElementById('cf-draft-status');
           if(st)st.textContent=useLocal?'已恢复本机草稿，正在同步到项目服务':'已恢复上次保存的创作草稿';
@@ -1475,6 +1493,16 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     form.querySelectorAll('button[onclick="createEnhance()"],button[onclick="cfMakeGraphicPlan()"]').forEach(button=>{
       if(!quickActions || !quickActions.contains(button)) button.remove();
     });
+    const scriptStatus=document.getElementById('cf-script-gen-status');
+    const enhanceStatus=document.getElementById('cf-enhance-status');
+    if(quickActions&&scriptStatus){scriptStatus.style.flexBasis='100%';quickActions.appendChild(scriptStatus);}
+    if(quickActions&&enhanceStatus){
+      enhanceStatus.style.flexBasis='100%';quickActions.appendChild(enhanceStatus);
+      enhanceStatus.closest('.btn-row')?.remove();
+    }
+    const scriptPanel=document.getElementById('cf-script')?.closest('.panel');
+    const enhanceBox=document.getElementById('cf-enhance-box');
+    if(scriptPanel&&enhanceBox&&!scriptPanel.contains(enhanceBox))scriptPanel.appendChild(enhanceBox);
     document.getElementById('cf-topic')?.closest('.btn-row')?.remove();
 
     // These five sources are complementary, not five competing creation modes.
@@ -1723,6 +1751,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       window.CF_DRAFT_CONTEXT.article=window._cfArticle;
       window.CF_DRAFT_CONTEXT.repo=window._cfRepo;
     }
+    const restoredContext=window.CF_DRAFT_CONTEXT||{};
+    const restoredScript=(document.getElementById('cf-script')||{}).value||'';
+    const supplement=document.getElementById('cf-input-context-details');
+    if(supplement&&(restoredScript.trim()||restoredContext.assetRefs?.length||restoredContext.reference||restoredContext.article||restoredContext.repo))supplement.open=true;
     await saveNow();
     const status=document.getElementById('cf-draft-status');if(status)status.textContent='已恢复历史对话为新草稿；原记录不会被覆盖。';
     const list=document.getElementById('cf-history-list');if(list)list.innerHTML='<div class="ok-box">已恢复为新草稿，原历史对话不会被覆盖。</div>';
@@ -1743,8 +1775,45 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   };
   const originalGenerate=window.cfGenerateScript;
   window.cfGenerateScript=async function(){
-    const brief=document.getElementById('cf-director-brief');if(!brief||!brief.value.trim()){const st=document.getElementById('cf-script-gen-status');if(st)st.textContent='请先填写上方创作要求';return;}
-    return originalGenerate();
+    const brief=document.getElementById('cf-director-brief');
+    const status=document.getElementById('cf-script-gen-status');
+    if(!brief||!brief.value.trim()){if(status)status.textContent='请先填写上方创作要求';return;}
+    const script=document.getElementById('cf-script');
+    const previous=script?.value||'';
+    const result=await originalGenerate();
+    const generated=script?.value||'';
+    if(generated.trim()&&generated!==previous){
+      revealSupplementaryInput('cf-script');
+      script.dispatchEvent(new Event('input',{bubbles:true}));
+      await persistImmediately();
+    }
+    return result;
+  };
+  const originalEnhance=window.createEnhance;
+  window.createEnhance=async function(){
+    const script=document.getElementById('cf-script');
+    if(!script?.value.trim()){revealSupplementaryInput('cf-script');return originalEnhance();}
+    const result=await originalEnhance();
+    const box=document.getElementById('cf-enhance-box');
+    if(box&&box.style.display!=='none'){
+      revealSupplementaryInput('cf-enhanced');
+      await persistImmediately();
+    }
+    return result;
+  };
+  const originalAcceptEnhanced=window.createAcceptEnhanced;
+  window.createAcceptEnhanced=function(){
+    const result=originalAcceptEnhanced();
+    const script=document.getElementById('cf-script');
+    if(script)script.dispatchEvent(new Event('input',{bubbles:true}));
+    persistImmediately();
+    return result;
+  };
+  const originalGraphicPlan=window.cfMakeGraphicPlan;
+  window.cfMakeGraphicPlan=function(){
+    const script=document.getElementById('cf-script');
+    if(!script?.value.trim()){revealSupplementaryInput('cf-script');return originalGraphicPlan();}
+    return originalGraphicPlan();
   };
   const originalRepo=window.cfScanRepo;window.cfScanRepo=async function(){const r=await originalRepo();await saveNow();return r;};
   const originalReference=window.cfAnalyzeReference;window.cfAnalyzeReference=async function(){const r=await originalReference();if(r){window.CF_DRAFT_CONTEXT.reference=window._cfReference;await saveNow();}return r;};

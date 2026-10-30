@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import threading
 from http.server import ThreadingHTTPServer
 
@@ -96,6 +97,70 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
         thread.join(timeout=5)
 
 
+def test_script_generation_and_polish_reveal_and_persist_content(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.route(
+                    "**/api/script/generate",
+                    lambda route: route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps({"ok": True, "script": "AI 生成的权威文案"}),
+                    ),
+                )
+                page.route(
+                    "**/api/enhance",
+                    lambda route: route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps({"ok": True, "changed": True, "enhanced": "AI 润色后的文案"}),
+                    ),
+                )
+
+                page.evaluate("openCreate()")
+                page.locator("#cf-input-context-details").wait_for(state="attached")
+                assert page.locator("#cf-input-context-details").evaluate("(node) => !node.open")
+                page.locator("#cf-director-brief").fill("制作一条解释复利的短视频")
+                page.locator('#cf-quick-actions button[onclick="cfGenerateScript()"]').click()
+
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-script')?.value === 'AI 生成的权威文案'
+                    && document.getElementById('cf-input-context-details')?.open
+                """, timeout=10000)
+                assert page.locator("#cf-script").is_visible()
+                assert page.locator("#cf-script-gen-status").is_visible()
+
+                page.locator('#cf-quick-actions button[onclick="createEnhance()"]').click()
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-enhance-box')?.style.display !== 'none'
+                    && document.getElementById('cf-input-context-details')?.open
+                """, timeout=10000)
+                assert page.locator("#cf-enhanced").is_visible()
+                assert page.locator("#cf-enhance-status").is_visible()
+
+                page.locator('#cf-enhance-box button[onclick="createAcceptEnhanced()"]').click()
+                page.wait_for_function("document.getElementById('cf-script')?.value === 'AI 润色后的文案'")
+                page.wait_for_function("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    const payload = await response.json();
+                    return payload?.draft?.data?.fields?.['cf-script'] === 'AI 润色后的文案';
+                }""", timeout=10000)
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:
@@ -137,6 +202,7 @@ def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp
                   && document.getElementById('cf-script')?.value === '从历史恢复的权威文案'
                 """, timeout=10000)
                 assert page.locator("#cf-history-drawer").is_visible()
+                assert page.locator("#cf-input-context-details").evaluate("(node) => node.open")
                 assert not errors
             finally:
                 browser.close()
