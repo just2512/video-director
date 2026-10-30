@@ -51,6 +51,7 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                     && document.getElementById('cf-style-presets')?.closest('#cf-output-requirements');
                 }""", timeout=10000)
                 page.locator("#cf-director-brief").fill("持久化测试：保留我的创作目标")
+                page.locator("#cf-input-context-details summary").click()
                 page.locator("#cf-script").fill("持久化测试：保留我的权威文案")
                 page.locator("#cf-platform").select_option("xhs")
 

@@ -219,6 +219,7 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                     ),
                 )
                 page.evaluate("openCreate()")
+                page.locator("#cf-input-context-details summary").click()
                 page.locator("#cf-article-url").fill("https://news.example/article")
                 page.locator("#cf-import-article-btn").click()
                 page.get_by_text("Imported article fixture").wait_for(timeout=10000)
@@ -259,9 +260,9 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                   return await response.json();
                 }""")
                 assert created_history["ok"] is True
-                page.get_by_role("button", name="历史对话").click()
+                page.locator("#cf-history-inline-launch").click()
                 page.locator("#cf-history-list").get_by_text("Browser history fixture").wait_for(timeout=10000)
-                page.locator('#cf-history-list button[onclick^="cfHistoryOpenConversation"]').click()
+                page.locator('#cf-history-list button[data-conversation-id="conv-browser-smoke"]').click()
                 page.get_by_text("历史对话原始要求").wait_for(timeout=10000)
                 page.get_by_role("button", name="恢复为新草稿").click()
                 assert page.locator("#cf-director-brief").input_value() == "从历史恢复的创作要求"

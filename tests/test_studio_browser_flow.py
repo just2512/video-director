@@ -129,7 +129,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 )
                 assert response and response.status == 200
                 page.locator('button[onclick="openCreate()"]').click()
-                page.locator("#cf-render-engine").wait_for(state="visible")
+                page.locator("#cf-render-engine-status").wait_for(state="visible")
                 page.wait_for_function(
                     "() => window.CF_STUDIO_CATALOG && document.querySelectorAll('[data-studio-style]').length > 0",
                     # 首次 catalog 请求做真实能力探活（ffmpeg -version 子进程 +
@@ -138,8 +138,8 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                     timeout=30000,
                 )
                 assert page.locator("#cf-panel").is_visible()
-                assert page.locator("#cf-render-engine").is_enabled()
-                assert page.locator("#cf-render-engine option").count() >= 1
+                assert "可执行" in (page.locator("#cf-render-engine-status").text_content() or "")
+                assert page.locator("#cf-render-engine").input_value() == "ffmpeg"
                 first_style = page.locator("[data-studio-style]").first
                 selected_style = first_style.get_attribute("data-studio-style")
                 assert selected_style

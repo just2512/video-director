@@ -34,6 +34,7 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                 page.evaluate("openCreate()")
                 page.locator("#cf-form").wait_for(state="visible")
                 page.locator("#cf-director-brief").fill("保留这段创作要求")
+                page.locator("#cf-input-context-details summary").click()
                 page.locator("#cf-script").fill("保留这段权威文案")
 
                 page.evaluate("""() => {

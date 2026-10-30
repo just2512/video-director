@@ -300,8 +300,9 @@ function _createPanelHtml(){
       </div>
       <div class="btn-row" style="gap:10px;align-items:center;margin-top:7px">
         <div style="flex:1;min-width:180px">
-          <label for="cf-render-engine">最终视频引擎</label>
-          <span class="hint">FFmpeg · 当前生产渲染器（固定执行引擎）</span><input type="hidden" id="cf-render-engine" value="ffmpeg">
+          <label>最终视频引擎</label>
+          <span id="cf-render-engine-status" class="hint" role="status">FFmpeg · 当前生产渲染器（固定执行引擎）</span>
+          <input type="hidden" id="cf-render-engine" value="ffmpeg">
         </div>
         <div id="cf-studio-graphics-status" class="hint" style="flex:2">动态图形引擎状态将由运行环境实际检查。</div>
       </div>
@@ -519,16 +520,14 @@ async function cfLoadStudioCatalog(){
     if(!catalog||!catalog.ok)throw new Error((catalog&&catalog.error)||'目录服务未就绪');
     CF_STUDIO_CATALOG=catalog;
     window.CF_STUDIO_CATALOG=catalog;
-    const engineSelect=document.getElementById('cf-render-engine');
-    if(engineSelect){
-      const available=(catalog.engines||[]).filter(e=>e.scope==='full_video'&&e.selectable);
-      const previous=engineSelect.value;
-      engineSelect.innerHTML=available.length
-        ?available.map(e=>'<option value="'+esc(e.id)+'">'+esc(e.name)+' · 可执行</option>').join('')
-        :'<option value="">没有可执行的最终视频引擎</option>';
-      if(available.some(e=>e.id===previous))engineSelect.value=previous;
-      engineSelect.disabled=!available.length;
-    }
+    const engineValue=document.getElementById('cf-render-engine');
+    const engineStatus=document.getElementById('cf-render-engine-status');
+    const availableEngines=(catalog.engines||[]).filter(e=>e.scope==='full_video'&&e.selectable);
+    const selectedEngine=availableEngines.find(e=>e.id===(engineValue?.value||'ffmpeg'))||availableEngines[0]||null;
+    if(engineValue)engineValue.value=selectedEngine?selectedEngine.id:'';
+    if(engineStatus)engineStatus.textContent=selectedEngine
+      ?(selectedEngine.name||selectedEngine.id)+' · 可执行（固定执行引擎）'
+      :'没有可执行的最终视频引擎';
     if(status)status.textContent=(catalog.engines||[]).some(e=>e.scope==='full_video'&&e.selectable)
       ?'已核验当前可执行的成片引擎':'未找到可执行的成片引擎，提交会被拒绝';
     const graphicEngines=(catalog.engines||[]).filter(e=>e.scope==='graphics_layer');
@@ -1460,7 +1459,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const form=document.getElementById('cf-form');if(!form||form.dataset.arranged==='1')return;form.dataset.arranged='1';
     const header=form.firstElementChild;
     if(header){
-      const history=document.createElement('button');history.type='button';history.className='btn-secondary btn-sm';history.textContent='历史对话';history.title='打开历史创作对话';history.onclick=cfHistoryToggle;
+      const history=document.createElement('button');history.id='cf-history-inline-launch';history.type='button';history.className='btn-secondary btn-sm';history.textContent='历史对话';history.title='打开历史创作对话';history.onclick=cfHistoryToggle;
       header.insertBefore(history,header.querySelector('span[style*="flex:1"]'));
       const status=document.createElement('span');status.id='cf-draft-status';status.className='hint';status.style.marginLeft='8px';status.textContent='草稿待保存';
       header.insertBefore(status,history);
@@ -1523,11 +1522,11 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         const disclosure=document.createElement('details');disclosure.id='cf-capability-details';disclosure.style.marginTop='8px';
         const summary=document.createElement('summary');summary.style.cssText='cursor:pointer;color:var(--muted);font-size:12px';summary.textContent='本机执行能力核验';
         disclosure.appendChild(summary);
-        const engineLine=document.createElement('div');engineLine.className='hint';engineLine.style.marginTop='6px';engineLine.textContent='最终渲染：FFmpeg（当前生产渲染器）';
-        disclosure.appendChild(engineLine);
         for(const id of ['cf-studio-catalog-status','cf-studio-graphics-status','cf-render-engine','cf-studio-template-list']){
           const node=document.getElementById(id);if(node){if(id==='cf-studio-template-list')node.style.display='none';disclosure.appendChild(node);}
         }
+        const engineStatus=document.getElementById('cf-render-engine-status');
+        if(engineStatus)outputHeader.appendChild(engineStatus);
         output.appendChild(disclosure);
         enginePanel.remove();
       }
@@ -1707,7 +1706,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const c=window._cfHistorySelected;if(!c||c.conversation_id!==id)return;
     const mask=document.getElementById('cf-mask');
     if(!document.getElementById('cf-form')||(mask&&mask.style.display==='none'))await window.openCreate();
-    if(window.CF_DEFAULTS_READY)await window.CF_DEFAULTS_READY;
+    if(window.CF_DEFAULTS_READY) await window.CF_DEFAULTS_READY;
     await restoreDraft();
     const snapshot=c.snapshot||{},formSnapshot=snapshot.form||snapshot;
     if(formSnapshot.fields)applySnapshot(formSnapshot);
