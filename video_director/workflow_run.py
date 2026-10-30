@@ -39,6 +39,22 @@ COMPLETED = "COMPLETED"
 CANCELLED = "CANCELLED"
 INTERRUPTED = "INTERRUPTED"
 
+# Only workflows executed by _compose_worker install the cooperative cancel
+# hook. Render-only workers must not advertise stop support until they can
+# observe the same run-scoped cancellation contract.
+CANCELLABLE_RUN_KINDS = frozenset({
+    "compose", "director_create", "script_only", "product",
+    "image_shots", "gfx", "series_episode", "variant",
+})
+
+
+def is_run_cancellable(run) -> bool:
+    """One server-owned capability predicate shared by stop API and run payloads."""
+    try:
+        return run["status"] == RUNNING and run["kind"] in CANCELLABLE_RUN_KINDS
+    except (KeyError, TypeError):
+        return False
+
 #: §53 步骤事件 → 前端人话（真实事件，不是轮播短语）
 STEP_LABEL_CN = {
     "workflow.start": "开始创作",
@@ -94,13 +110,7 @@ def request_cancel(run_id: str) -> bool:
         row = conn.execute(
             "SELECT kind, status FROM workflow_runs WHERE run_id=?", (run_id,)
         ).fetchone()
-        # These kinds execute in _compose_worker, which installs and checks
-        # this run's cancellation hook. Render-only workers do not yet support it.
-        cancellable_kinds = {
-            "compose", "director_create", "script_only", "product",
-            "image_shots", "gfx", "series_episode", "variant",
-        }
-        if row is None or row["status"] != RUNNING or row["kind"] not in cancellable_kinds:
+        if row is None or not is_run_cancellable(row):
             return False
         # Lock ordering is always DB -> cancel flag. A finalizer can therefore
         # observe a request accepted before its terminal transition.
@@ -337,6 +347,7 @@ def get_run(run_id: str) -> Optional[dict]:
         "result": result,
         "labels": {s: STEP_LABEL_CN.get(s, s) for s in steps_status},
         "llm_retry": llm_retry,
+        "cancellable": is_run_cancellable(d),
     })
     return d
 
@@ -354,7 +365,7 @@ def list_runs(project_id: Optional[str] = None, limit: int = 20) -> List[dict]:
                 "SELECT run_id, kind, project_id, status, current, error, created_at, updated_at, conversation_id "
                 "FROM workflow_runs ORDER BY created_at DESC LIMIT ?",
                 (limit,)).fetchall()
-    return [dict(r) for r in rows]
+    return [{**dict(r), "cancellable": is_run_cancellable(r)} for r in rows]
 
 
 def runs_of_project(project_id: str) -> List[dict]:

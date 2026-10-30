@@ -102,6 +102,8 @@ class TestWorkflowRun:
             rid = wf.start_run(kind, project_id="wf-uncancellable")
             assert not wf.request_cancel(rid)
             assert wf.get_run(rid)["status"] == wf.RUNNING
+            assert wf.get_run(rid)["cancellable"] is False
+            assert wf.list_runs(project_id="wf-uncancellable")[0]["cancellable"] is False
             assert wf.finish_run(rid, wf.COMPLETED)
 
 

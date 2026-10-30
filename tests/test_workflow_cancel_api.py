@@ -44,6 +44,10 @@ def test_workflow_cancel_api_enforces_real_worker_capabilities(tmp_path, monkeyp
             "film_render_final", project_id="cancel-api-render", steps=["render", "verify"]
         )
         run_ids.append(render_id)
+        render_detail = workflow_run.get_run(render_id)
+        render_list = workflow_run.list_runs(project_id="cancel-api-render")
+        assert render_detail["cancellable"] is False
+        assert render_list[0]["cancellable"] is False
         status, rejected = _post(base_url, {"run_id": render_id})
         assert status == 409
         assert rejected["ok"] is False
@@ -58,6 +62,10 @@ def test_workflow_cancel_api_enforces_real_worker_capabilities(tmp_path, monkeyp
             "compose", project_id="cancel-api-compose", steps=["script"]
         )
         run_ids.append(compose_id)
+        compose_detail = workflow_run.get_run(compose_id)
+        compose_list = workflow_run.list_runs(project_id="cancel-api-compose")
+        assert compose_detail["cancellable"] is True
+        assert compose_list[0]["cancellable"] is True
         status, accepted = _post(base_url, {"run_id": compose_id})
         assert status == 200
         assert accepted["ok"] is True

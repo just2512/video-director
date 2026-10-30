@@ -55,9 +55,9 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                     }
                     if (path === "/api/workflows?limit=50") return {runs:[
                       {run_id:"run-background-stop",kind:"director_create",project_id:"project-background",
-                       status:window.__taskListStatus,current:"scene_plan",updated_at:Date.now()/1000,steps:[]},
+                       status:window.__taskListStatus,cancellable:true,current:"scene_plan",updated_at:Date.now()/1000,steps:[]},
                       {run_id:"run-background-render",kind:"film_render_final",project_id:"project-render",
-                       status:"RUNNING",current:"render",updated_at:Date.now()/1000,steps:[]}
+                       status:"RUNNING",cancellable:false,current:"render",updated_at:Date.now()/1000,steps:[]}
                     ]};
                     return {ok:true};
                   };
@@ -121,10 +121,10 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                   window.WFUI.drawerOpen=true;
                   window.WFUI.runs=[
                     {run_id:"run-background-stop",kind:"director_create",
-                     project_id:"project-background",status:"RUNNING",current:"scene_plan",
+                     project_id:"project-background",status:"RUNNING",cancellable:true,current:"scene_plan",
                      updated_at:Date.now()/1000,steps:[]},
                     {run_id:"run-background-render",kind:"film_render_final",
-                     project_id:"project-render",status:"RUNNING",current:"render",
+                     project_id:"project-render",status:"RUNNING",cancellable:false,current:"render",
                      updated_at:Date.now()/1000,steps:[]}
                   ];
                   renderTaskDrawer();

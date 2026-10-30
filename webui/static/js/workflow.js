@@ -5,14 +5,12 @@
 // §46 任务中心 = 项目页顶部的「任务」抽屉（不新增第四个顶层 Tab）：
 //   正在处理（RUNNING + 当前步骤人话 + 进度）/ 已完成 / 失败（查看原因 + 重试）。
 
-const WFUI_CANCELLABLE_KINDS = new Set([
-  "compose", "director_create", "script_only", "product",
-  "image_shots", "gfx", "series_episode", "variant",
-]);
 window.WFUI = {drawerOpen: false, runs: [], refreshing: null, selected: new Set(), cancelling: new Set()};
 
+// Stop capability is authored by WorkflowRun and returned on list/detail payloads.
+// The browser never maintains a second copy of the server's worker-kind whitelist.
 function taskRunCanCancel(run){
-  return !!run && run.status === "RUNNING" && WFUI_CANCELLABLE_KINDS.has(String(run.kind || ""));
+  return !!run && run.status === "RUNNING" && run.cancellable === true;
 }
 
 /** §46 任务抽屉开关（项目页顶部）。 */
