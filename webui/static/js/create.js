@@ -1218,10 +1218,23 @@ async function cfCancelAndEdit(){
 }
 
 /** 后台继续：关窗口，创作不停（工作台「AI 导演流程」面板可继续看）。 */
-function cfDismissProgress(){
+async function cfDismissProgress(){
   if (_cfProgressTimer) { clearInterval(_cfProgressTimer); _cfProgressTimer = null; }
-  closeCreate();
+  // “后台继续”与普通“收起”不同：先保存可编辑表单，再卸载全屏遮罩，
+  // 让工作台任务抽屉重新可交互；绝不清除 active draft。
+  const saved=await closeCreate();
+  if(saved===false){
+    editorToast('草稿保存未确认，窗口仍保持打开；请先处理保存状态',true);
+    return false;
+  }
+  const mask=document.getElementById('cf-mask');
+  if(mask)mask.remove();
+  for(const id of ['sg-mask','tg-mask']){
+    const child=document.getElementById(id);if(child)child.remove();
+  }
+  if(window.CF)window.CF.state='idle';
   editorToast('创作在后台继续；打开项目后可在「AI 导演流程」面板查看每步进展');
+  return true;
 }
 
 function cfSeriesSync(){
