@@ -183,6 +183,7 @@ jobs:
           import pathlib
           import subprocess
           import time
+          from concurrent.futures import ThreadPoolExecutor
 
           repository = os.environ["GITHUB_REPOSITORY"]
           revision = os.environ["GITHUB_SHA"]
@@ -225,6 +226,22 @@ jobs:
           if not entries:
               raise RuntimeError("Exact commit tree is empty")
 
+          # Blob retrieval is independent. Use a small bounded worker pool so
+          # hundreds of source files do not consume the entire eight-minute
+          # checkout budget one HTTP round trip at a time.
+          generated_bundle = "webui/static/js/film-studio-react.js"
+          blob_shas = sorted({
+              entry["sha"] for entry in entries
+              if entry.get("type") == "blob" and entry.get("path") != generated_bundle
+          })
+
+          def fetch_blob(sha):
+              return sha, get_json(f"{api}/repos/{repository}/git/blobs/{sha}")
+
+          with ThreadPoolExecutor(max_workers=6) as executor:
+              blobs = dict(executor.map(fetch_blob, blob_shas))
+          print(f"Fetched {len(blobs)} unique source blobs with bounded concurrency.")
+
           written = 0
           for entry in entries:
               # This tracked bundle is a generated 1.5 MB artifact. GitHub's
@@ -245,7 +262,7 @@ jobs:
                   raise RuntimeError(f"Unsafe Git tree path: {entry['path']!r}")
               target = root.joinpath(*relative.parts)
               target.parent.mkdir(parents=True, exist_ok=True)
-              blob = get_json(f"{api}/repos/{repository}/git/blobs/{entry['sha']}")
+              blob = blobs[entry["sha"]]
               if blob.get("encoding") != "base64" or not isinstance(blob.get("content"), str):
                   raise RuntimeError(f"Blob is not base64 encoded: {entry['path']}")
               raw = base64.b64decode(blob["content"], validate=False)
