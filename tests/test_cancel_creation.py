@@ -81,5 +81,6 @@ class TestCancelMechanism:
                 if wr._cancel_requested(run_id):
                     raise wr.RunCancelled("用户停止创作（循环边界检测）")
         finally:
+            wr.finish_run(run_id, wr.CANCELLED, error="测试结束")
             wr._clear_cancel(run_id)
             wr.delete_run(run_id, allow_waiting=True)
