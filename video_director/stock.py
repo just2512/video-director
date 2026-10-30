@@ -159,7 +159,9 @@ def _api_key(provider: str) -> Optional[str]:
     except Exception:
         pass
     env = PROVIDER_POLICY[provider]["key_env"]
-    return os.environ.get(env) or None
+    # 保留 model_config 的通用角色环境变量命名回退。
+    generic_env = f"VD_STOCK_{provider.upper()}_API_KEY"
+    return os.environ.get(env) or os.environ.get(generic_env) or None
 
 
 # ---------------------------------------------------------------------------

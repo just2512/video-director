@@ -31,6 +31,14 @@ def test_stock_api_key_prefers_model_config(monkeypatch, tmp_path):
     assert vd_stock._api_key("pexels") == "settings-key"
 
 
+def test_stock_api_key_falls_back_to_generic_role_env(monkeypatch, tmp_path):
+    monkeypatch.setattr(mc, "_config_path", lambda: tmp_path / "mc.json")
+    monkeypatch.setattr(mc, "_cache", {})
+    monkeypatch.delenv("PEXELS_API_KEY", raising=False)
+    monkeypatch.setenv("VD_STOCK_PEXELS_API_KEY", "role-env-key")
+    assert vd_stock._api_key("pexels") == "role-env-key"
+
+
 def test_stock_roles_exist_in_settings():
     """设置中心必须有 Pexels/Pixabay/Coverr 三角色（方案 §十六/§八）。"""
     for role in ("stock_pexels", "stock_pixabay", "stock_coverr"):
