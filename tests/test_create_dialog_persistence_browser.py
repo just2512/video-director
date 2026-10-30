@@ -174,7 +174,8 @@ def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_
             page.on("pageerror", lambda error: errors.append(str(error)))
 
             def project_brief(route):
-                project_id = (route.request.post_data_json or {}).get("project_id")
+                body = json.loads(route.request.post_data or "{}")
+                project_id = body.get("project_id")
                 if project_id == "project-with-context":
                     payload = {
                         "ok": True,
@@ -196,7 +197,7 @@ def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_
                         },
                         "spec_settings": {"platform": "xhs", "duration": 45, "style_intent": "knowledge-explainer"},
                     }
-                else:
+                elif project_id == "project-without-context":
                     payload = {
                         "ok": True,
                         "brief": "项目 B 的创作要求",
@@ -209,9 +210,17 @@ def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_
                         },
                         "spec_settings": {},
                     }
+                else:
+                    return route.fulfill(status=400, content_type="application/json", body=json.dumps({
+                        "ok": False, "error": f"unexpected project id: {project_id}"
+                    }))
                 return route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
 
             page.route("**/api/director/brief", project_brief)
+            page.route(
+                "**/api/project_detail?project_id=project-without-context",
+                lambda route: route.fulfill(status=404, content_type="application/json", body='{"error":"no legacy script"}'),
+            )
             page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
 
             page.evaluate("openCreate('project-with-context')")
@@ -226,7 +235,6 @@ def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_
             assert "所选风格由 StyleContract" in (page.locator("#cf-style-contract-detail").text_content() or "")
             assert page.locator('#cf-style-presets [data-studio-style="knowledge-explainer"]').evaluate("(node) => node.classList.contains('tab-active')")
 
-            # Reuse the mounted dialog for a different project with no optional data.
             page.evaluate("openCreate('project-without-context')")
             page.wait_for_function("""() =>
                 document.getElementById('cf-director-brief')?.value === '项目 B 的创作要求'
@@ -235,6 +243,7 @@ def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_
                 && document.getElementById('cf-assets-summary')?.textContent === '未添加本地素材'
                 && document.getElementById('cf-input-context-details')?.open === false
                 && window.CF_DRAFT_CONTEXT?.assetRefs?.length === 0
+                && window.CF_DRAFT_CONTEXT?.projectId === 'project-without-context'
                 && window._cfReference === null
                 && window._cfArticle === null
                 && window._cfRepo === null
@@ -252,7 +261,6 @@ def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_
         thread.join(timeout=5)
 
 
-
 def test_late_project_prefill_response_cannot_overwrite_newer_project(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:
@@ -261,72 +269,79 @@ def test_late_project_prefill_response_cannot_overwrite_newer_project(tmp_path, 
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
+            deferred: dict[str, object] = {}
+
+            old_payload = {
+                "ok": True,
+                "brief": "旧项目 A",
+                "bundle": {
+                    "script": {"text": "旧项目 A 文案"},
+                    "assets": {"asset_refs": [{"asset_id": "old-asset", "type": "video", "file": "old.mp4"}]},
+                    "references": [], "articles": [], "software_project": None,
+                },
+                "spec_settings": {"platform": "xhs", "duration": 60},
+            }
+            new_payload = {
+                "ok": True,
+                "brief": "新项目 B",
+                "bundle": {
+                    "script": {"text": ""},
+                    "assets": {"asset_refs": []},
+                    "references": [], "articles": [], "software_project": None,
+                },
+                "spec_settings": {},
+            }
+
+            def project_brief(route):
+                body = json.loads(route.request.post_data or "{}")
+                project_id = body.get("project_id")
+                if project_id == "project-slow":
+                    deferred["old_route"] = route
+                    return  # Keep A's real browser request paused until the test releases it.
+                if project_id == "project-fast":
+                    return route.fulfill(status=200, content_type="application/json", body=json.dumps(new_payload))
+                return route.fulfill(status=400, content_type="application/json", body=json.dumps({
+                    "ok": False, "error": f"unexpected project id: {project_id}"
+                }))
+
+            page.route("**/api/director/brief", project_brief)
+            page.route(
+                "**/api/project_detail?project_id=project-fast",
+                lambda route: route.fulfill(status=404, content_type="application/json", body='{"error":"no legacy script"}'),
+            )
+
             try:
                 page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
                 page.evaluate("openCreate()")
                 page.wait_for_function("!!window.CF_DEFAULTS_READY")
 
-                page.evaluate("""() => {
-                  const originalPost=window.apiPost.bind(window);
-                  window.__releaseOldProject=null;
-                  window.apiPost=async (path,payload) => {
-                    if(path==='/api/director/brief'&&payload?.project_id==='project-slow'){
-                      return await new Promise(resolve=>{
-                        window.__releaseOldProject=()=>resolve({
-                          ok:true,brief:'旧项目 A',
-                          bundle:{
-                            script:{text:'旧项目 A 文案'},
-                            assets:{asset_refs:[{asset_id:'old-asset',type:'video',file:'old.mp4'}]},
-                            references:[],articles:[],software_project:null
-                          },
-                          spec_settings:{platform:'xhs',duration:60}
-                        });
-                      });
-                    }
-                    if(path==='/api/director/brief'&&payload?.project_id==='project-fast'){
-                      return {
-                        ok:true,brief:'新项目 B',
-                        bundle:{
-                          script:{text:''},
-                          assets:{asset_refs:[]},
-                          references:[],articles:[],software_project:null
-                        },
-                        spec_settings:{}
-                      };
-                    }
-                    return originalPost(path,payload);
-                  };
-                  const originalGet=window.apiGet.bind(window);
-                  window.apiGet=async path=>{
-                    if(path==='/api/project_detail?project_id=project-fast')return {error:'no legacy script'};
-                    return originalGet(path);
-                  };
-                  window.__slowProjectPromise=window.openCreate('project-slow');
-                }""")
-                page.wait_for_function("typeof window.__releaseOldProject === 'function'", timeout=10000)
-                page.evaluate("openCreate('project-fast')")
+                with page.expect_request("**/api/director/brief") as slow_request:
+                    page.evaluate("() => { window.__slowProjectPromise = openCreate('project-slow'); }")
+                assert json.loads(slow_request.value.post_data or "{}").get("project_id") == "project-slow"
+                assert "old_route" in deferred
 
+                page.evaluate("openCreate('project-fast')")
                 page.wait_for_function("""() =>
-                  document.getElementById('cf-director-brief')?.value === '新项目 B'
-                  && document.getElementById('cf-script')?.value === ''
-                  && window.CF_DRAFT_CONTEXT?.projectId === 'project-fast'
+                    document.getElementById('cf-director-brief')?.value === '新项目 B'
+                    && document.getElementById('cf-script')?.value === ''
+                    && window.CF_DRAFT_CONTEXT?.projectId === 'project-fast'
                 """, timeout=10000)
                 assert page.locator("#cf-input-context-details").evaluate("(node) => !node.open")
 
-                page.evaluate("window.__releaseOldProject()")
+                old_route = deferred.get("old_route")
+                assert old_route is not None
+                old_route.fulfill(status=200, content_type="application/json", body=json.dumps(old_payload))
                 page.evaluate("async () => await window.__slowProjectPromise")
-                page.wait_for_timeout(250)
-                assert page.locator("#cf-director-brief").input_value() == "新项目 B"
-                assert page.locator("#cf-script").input_value() == ""
+                page.wait_for_function("""async () => {
+                    const response=await fetch('/api/director/drafts/active',{cache:'no-store'});
+                    const result=await response.json();
+                    const data=result?.draft?.data||{};
+                    return document.getElementById('cf-director-brief')?.value === '新项目 B'
+                      && document.getElementById('cf-script')?.value === ''
+                      && data.context?.project_id === 'project-fast'
+                      && data.fields?.['cf-director-brief'] === '新项目 B';
+                }""", timeout=10000)
                 assert page.evaluate("window.CF_DRAFT_CONTEXT.projectId") == "project-fast"
-
-                saved = page.evaluate("""async () => {
-                  const response=await fetch('/api/director/drafts/active',{cache:'no-store'});
-                  const result=await response.json();
-                  return result?.draft?.data || {};
-                }""")
-                assert saved.get("context",{}).get("project_id") == "project-fast"
-                assert saved.get("fields",{}).get("cf-director-brief") == "新项目 B"
                 assert not errors
             finally:
                 browser.close()
