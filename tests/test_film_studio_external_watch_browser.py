@@ -4066,3 +4066,90 @@ def test_film_document_never_falls_back_to_legacy_timeline_when_react_bundle_is_
         server.server_close()
         thread.join(timeout=5)
 
+def test_shotbook_and_creative_plan_loads_ignore_late_previous_project_responses(tmp_path, monkeypatch):
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
+                )
+                assert response and response.status == 200
+                page.wait_for_function(
+                    "typeof window.shotbookLoad === 'function' && typeof window.creativePlanReload === 'function'"
+                )
+                first_project = "sidecar-race-project-a"
+                second_project = "sidecar-race-project-b"
+                outcome = page.evaluate("""async ({firstProject, secondProject}) => {
+                  const select = document.querySelector('#editor-project');
+                  for (const pid of [firstProject, secondProject]) {
+                    if (![...select.options].some(item => item.value === pid)) {
+                      select.add(new Option(pid, pid));
+                    }
+                  }
+                  const nativeFetch = window.fetch.bind(window);
+                  const held = {};
+                  const response = body => new Response(JSON.stringify(body), {
+                    status: 200, headers: {'Content-Type':'application/json'}
+                  });
+                  window.fetch = (input, init) => {
+                    const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+                    const match = url.pathname.match(/^\/api\/editor\/(shotbook|creative-plan)$/);
+                    if (!match) return nativeFetch(input, init);
+                    const pid = url.searchParams.get('project_id');
+                    const kind = match[1];
+                    const body = kind === 'shotbook'
+                      ? {ok:true,project_id:pid,version:1,saved:true,reference_only:true,shots:[],gates:[],recipes:[],motions:[],timing_note:''}
+                      : {ok:true,exists:false,plan:null,reference_only:pid===firstProject,stale:false,stale_reasons:[]};
+                    if (pid === firstProject) {
+                      return new Promise(resolve => { held[kind] = () => resolve(response(body)); });
+                    }
+                    if (pid === secondProject) return Promise.resolve(response(body));
+                    return nativeFetch(input, init);
+                  };
+                  try {
+                    select.value = firstProject;
+                    const oldShotbook = window.shotbookLoad(true);
+                    const oldPlan = window.creativePlanReload();
+                    if (!held.shotbook || !held['creative-plan']) {
+                      throw new Error('first-project sidecar requests were not both held');
+                    }
+                    select.value = secondProject;
+                    const newShotbook = window.shotbookLoad(true);
+                    const newPlan = window.creativePlanReload();
+                    await Promise.all([newShotbook, newPlan]);
+                    const afterSecond = {
+                      shotbookProject: SHOTBOOK && SHOTBOOK.project_id,
+                      planStatus: document.querySelector('#creative-plan-status')?.textContent || ''
+                    };
+                    held.shotbook();
+                    held['creative-plan']();
+                    await Promise.all([oldShotbook, oldPlan]);
+                    const afterFirstLate = {
+                      shotbookProject: SHOTBOOK && SHOTBOOK.project_id,
+                      planStatus: document.querySelector('#creative-plan-status')?.textContent || ''
+                    };
+                    return {afterSecond, afterFirstLate};
+                  } finally {
+                    window.fetch = nativeFetch;
+                  }
+                }""", {"firstProject": first_project, "secondProject": second_project})
+                assert outcome["afterSecond"]["shotbookProject"] == second_project, outcome
+                assert outcome["afterFirstLate"] == outcome["afterSecond"], outcome
+                assert "尚无创作计划" in outcome["afterFirstLate"]["planStatus"], outcome
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

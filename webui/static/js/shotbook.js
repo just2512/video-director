@@ -1,6 +1,7 @@
 // Editable Shotbook workbench: semantic beats + qualified character-time anchors.
 let SHOTBOOK = null;
 let SHOTBOOK_DIRTY = false;
+let SHOTBOOK_LOAD_GENERATION = 0;
 const SB_ROLE_LABELS = {hook:'开场钩子',context:'背景交代',problem:'问题冲突',evidence:'证据呈现',turn:'认知转折',resolution:'解决方案',cta:'结尾行动',neutral:'普通叙述'};
 const SB_INTENT_LABELS = {establish:'建立场景',illustrate:'解释/举例',contrast:'对比反差',prove:'证据支撑',emphasize:'重点强调',transition:'转场过渡',breathe:'留白停顿',close:'收束结尾'};
 const SB_SHOT_LABELS = {footage:'实拍/素材',document:'文件/文献',screenshot:'屏幕截图',chart:'图表数据',title_card:'动态字卡',diagram:'示意图',product:'产品/物件',map:'地图',split_screen:'分屏对照',still:'静帧'};
@@ -11,30 +12,43 @@ async function shotbookLoad(discardDirty){
   const pid=sbGetProjectId(), status=document.getElementById('shotbook-status');
   if(!pid){if(status)status.textContent='先打开一个项目，再生成分镜。';return false;}
   if(SHOTBOOK_DIRTY&&!discardDirty&&!window.confirm('分镜有未保存修改。重新载入会丢弃这些修改，是否继续？'))return false;
+  const requestGeneration=++SHOTBOOK_LOAD_GENERATION;
   if(status)status.textContent='正在读取当前时间线……';
   const data=await apiGet('/api/editor/shotbook?project_id='+encodeURIComponent(pid));
+  // A late sidecar response must never overwrite another project's view or a newer reload.
+  if(requestGeneration!==SHOTBOOK_LOAD_GENERATION||sbGetProjectId()!==pid)return false;
+  if(data&&data.project_id&&String(data.project_id)!==String(pid)){
+    if(status)status.textContent='分镜响应项目与当前项目不一致；已丢弃过期结果。';
+    return false;
+  }
   if(!data||data.ok===false||data.error){if(status)status.textContent='读取失败：'+((data&&data.error)||'服务暂不可用');return false;}
   SHOTBOOK=data;SHOTBOOK_DIRTY=false;shotbookRender();
   if(status)status.textContent=data.reference_only
     ? (data.saved?'已载入旧版分镜只读参考。旧时间与镜头 ID 不具备 film.html 写入权威。':'当前项目没有已保存的旧版分镜只读参考。')
-    : (data.saved?'已载入已保存的分镜。修改后点“保存分镜”。':'当前项目还没有保存过分镜；可从当前时间线生成草案。');
+    : (data.saved?'已载入已保存的分镜。修改后点“保存分镜”。':'当前项目还没有保存过旧版分镜；可从当前时间线生成草案。');
   return true;
 }
+
 async function shotbookGenerate(){
   const pid=sbGetProjectId(),status=document.getElementById('shotbook-status');
   if(!pid){if(status)status.textContent='先打开一个项目，再生成分镜。';return;}
   if(SHOTBOOK_DIRTY&&!window.confirm('当前分镜有未保存修改；继续生成会丢弃页面上的修改，是否继续？'))return;
   if(!SHOTBOOK||SHOTBOOK.project_id!==pid){
     const loaded=await shotbookLoad(true);
-    if(!loaded)return;
+    if(!loaded||sbGetProjectId()!==pid)return;
   }
+  if(sbGetProjectId()!==pid||!SHOTBOOK||SHOTBOOK.project_id!==pid)return;
   SHOTBOOK_DIRTY=false;
+  const baseVersion=SHOTBOOK.version;
   if(status)status.textContent='正在按当前时间线生成分镜草案……';
-  const r=await apiPost('/api/editor/shotbook',{project_id:pid,action:'generate',base_version:SHOTBOOK.version});
+  const r=await apiPost('/api/editor/shotbook',{project_id:pid,action:'generate',base_version:baseVersion});
+  if(sbGetProjectId()!==pid)return;
+  if(r&&r.project_id&&String(r.project_id)!==String(pid))return;
   if(!r||!r.ok){if(status)status.textContent='生成未完成：'+((r&&r.error)||'请求失败');if(r&&r.code==='CONFLICT')await shotbookLoad(true);return;}
   SHOTBOOK=r;SHOTBOOK_DIRTY=false;shotbookRender();
   if(status)status.textContent='已生成草案（版本 V'+r.version+'）。自动推断尚未通过人工验收，请逐镜核对后保存。';
 }
+
 function shotbookSelectOptions(values,current,labels){
   return values.map(function(v){return '<option value="'+sbEsc(v)+'"'+(v===current?' selected':'')+'>'+sbEsc(labels[v]||v)+'</option>';}).join('');
 }
@@ -158,7 +172,10 @@ async function shotbookSave(){
   const pid=sbGetProjectId(),status=document.getElementById('shotbook-status');
   if(!pid||!SHOTBOOK){if(status)status.textContent='先载入或生成分镜草案。';return;}
   if(SHOTBOOK.project_id!==pid){if(status)status.textContent='当前编辑器已切换到其他项目；先载入该项目的分镜，避免把修改写错项目。';return;}
-  const r=await apiPost('/api/editor/shotbook',{project_id:pid,action:'save',base_version:SHOTBOOK.version,shots:shotbookCollect()});
+  const baseVersion=SHOTBOOK.version,shots=shotbookCollect();
+  const r=await apiPost('/api/editor/shotbook',{project_id:pid,action:'save',base_version:baseVersion,shots:shots});
+  if(sbGetProjectId()!==pid)return;
+  if(r&&r.project_id&&String(r.project_id)!==String(pid))return;
   if(!r||!r.ok){if(status)status.textContent='保存未完成：'+((r&&r.error)||'请求失败')+'。当前修改仍留在页面中。';const reload=document.getElementById('shotbook-reload-conflict');if(reload&&r&&r.code==='CONFLICT')reload.style.display='';return;}
   SHOTBOOK=r;SHOTBOOK_DIRTY=false;shotbookRender();if(status)status.textContent='分镜已保存为 V'+r.version+'。语义确认、字级校正和配方关联已写入项目。';
 }

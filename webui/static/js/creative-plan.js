@@ -1,6 +1,7 @@
 /* Semantic-beat and shot-plan editor; state persists through project-scoped API. */
 (() => {
-  const state = {plan: null, exists: false, stale: false, staleReasons: [], referenceOnly:false, report: null};
+  const state = {plan: null, projectId: "", exists: false, stale: false, staleReasons: [], referenceOnly:false, report: null};
+  let creativePlanLoadGeneration = 0;
   const el = (id) => document.getElementById(id);
   const escHtml = (value) => String(value == null ? "" : value)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -135,12 +136,20 @@
   window.creativePlanReload = async function () {
     const pid = projectId();
     if (!pid) { renderStatus("请先在工作台打开一个项目。", true); return; }
+    const requestGeneration = ++creativePlanLoadGeneration;
     renderStatus("正在读取项目创作计划……");
     const result = await apiGet("/api/editor/creative-plan?project_id=" + encodeURIComponent(pid));
+    if (projectId() !== pid || requestGeneration !== creativePlanLoadGeneration) return;
+    if (result && result.plan && result.plan.project_id &&
+        String(result.plan.project_id) !== String(pid)) {
+      renderStatus("创作计划响应项目与当前项目不一致；已丢弃过期结果。", true);
+      return;
+    }
     if (!result || result.ok === false || result.error) {
       renderStatus("读取失败：" + (result.error || "未知错误"), true);
       return;
     }
+    state.projectId = pid;
     state.exists = !!result.exists;
     state.plan = result.plan || null;
     state.referenceOnly = result.reference_only === true;
@@ -168,15 +177,22 @@
   window.creativePlanInitialize = async function () {
     const pid = projectId();
     if (!pid) { renderStatus("请先在工作台打开一个项目。", true); return; }
-    if (state.exists && !window.confirm("重新生成会覆盖已有语义标注和镜头计划，是否继续？")) return;
+    if (state.projectId === pid && state.exists && !window.confirm("重新生成会覆盖已有语义标注和镜头计划，是否继续？")) return;
     renderStatus("正在读取项目现有时间戳；缺少时间戳的句子会明确标为 MISSING……");
     const result = await apiPost("/api/editor/creative-plan", {
       project_id: pid, action: "initialize", replace: true
     });
+    if (projectId() !== pid) return;
+    if (result && result.plan && result.plan.project_id &&
+        String(result.plan.project_id) !== String(pid)) {
+      renderStatus("创作计划初始化响应项目与当前项目不一致；已丢弃结果。", true);
+      return;
+    }
     if (!result || result.ok === false || result.error) {
       renderStatus("生成失败：" + (result.error || "未知错误"), true);
       return;
     }
+    state.projectId = pid;
     state.plan = result.plan;
     state.exists = true;
     state.stale = false;
@@ -188,8 +204,13 @@
   };
 
   window.creativePlanSave = async function (quiet) {
+    const pid = projectId();
     if (!state.plan || state.stale) {
       renderStatus(state.stale ? "计划已过期，请重新生成。" : "先生成创作草案。", true);
+      return false;
+    }
+    if (!pid || state.projectId !== pid) {
+      renderStatus("当前创作计划不属于当前项目；已拒绝保存，请先重新载入当前项目的计划。", true);
       return false;
     }
     const content = el("creative-plan-content");
@@ -217,9 +238,12 @@
     });
     renderStatus("正在保存……");
     const result = await apiPost("/api/editor/creative-plan", {
-      project_id: projectId(), action: "save",
+      project_id: pid, action: "save",
       expected_version: state.plan.version, plan: state.plan
     });
+    if (projectId() !== pid || state.projectId !== pid) return false;
+    if (result && result.plan && result.plan.project_id &&
+        String(result.plan.project_id) !== String(pid)) return false;
     if (!result || result.ok === false || result.error) {
       if (result && result.stale) state.stale = true;
       renderStatus("保存失败：" + (result.error || "未知错误"), true);
@@ -260,10 +284,16 @@
 
   window.creativePlanValidate = async function () {
     if (!await window.creativePlanSave(true)) return;
+    const pid = projectId();
+    if (!pid || state.projectId !== pid) {
+      renderStatus("当前创作计划不属于当前项目；已取消预检。", true);
+      return;
+    }
     renderStatus("正在对照当前 CompositionIR、时间锚点、镜头 ID 与 Registry 预检……");
     const result = await apiPost("/api/editor/creative-plan", {
-      project_id: projectId(), action: "validate"
+      project_id: pid, action: "validate"
     });
+    if (projectId() !== pid || state.projectId !== pid) return;
     if (!result || result.ok === false || result.error) {
       renderStatus("预检失败：" + (result.error || "未知错误"), true);
       return;
