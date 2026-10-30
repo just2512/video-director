@@ -325,18 +325,3 @@ def test_create_rejects_graphics_provider_as_final_video_engine(monkeypatch):
     assert exc.value.status_code == 503
 
 
-def test_full_video_engine_status_reuses_ffmpeg_catalog_probe(monkeypatch):
-    from video_director import studio_catalog
-
-    monkeypatch.setattr(
-        studio_catalog, "_ffmpeg_status",
-        lambda: ("PASS", "/usr/bin/ffmpeg", "ffmpeg fixture"),
-    )
-    result = studio_catalog.full_video_engine_status("ffmpeg")
-    assert result["selectable"] is True
-    assert result["status"] == "PASS"
-    assert result["path"] == "/usr/bin/ffmpeg"
-
-    unsupported = studio_catalog.full_video_engine_status("browser")
-    assert unsupported["selectable"] is False
-    assert unsupported["scope"] == "full_video"

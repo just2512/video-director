@@ -74,3 +74,18 @@ def test_studio_catalog_blocks_templates_with_an_unregistered_renderer(monkeypat
     assert item["can_render"] is False
     assert item["status"] == "BLOCKED"
     assert any(issue["code"] == "ENGINE_NOT_REGISTERED" for issue in item["blockers"])
+
+
+def test_full_video_engine_status_reuses_ffmpeg_catalog_probe(monkeypatch):
+    monkeypatch.setattr(
+        studio_catalog, "_ffmpeg_status",
+        lambda: ("PASS", "/usr/bin/ffmpeg", "ffmpeg fixture"),
+    )
+    result = studio_catalog.full_video_engine_status("ffmpeg")
+    assert result["selectable"] is True
+    assert result["status"] == "PASS"
+    assert result["path"] == "/usr/bin/ffmpeg"
+
+    unsupported = studio_catalog.full_video_engine_status("browser")
+    assert unsupported["selectable"] is False
+    assert unsupported["scope"] == "full_video"
