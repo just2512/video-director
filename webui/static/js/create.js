@@ -194,6 +194,7 @@ async function cfPrefillFromProject(pid){
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') window.CF_DRAFT_CONTEXT.assetRefs = refs;
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') await apiPost('/api/director/drafts/active', {data:{
       version:1,fields:(function(){const out={};document.querySelectorAll('#cf-form input[id],#cf-form textarea[id],#cf-form select[id]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),
+      explicit_fields:Array.from(window.CF?.explicitFields||[]),
       context:{asset_refs:refs,reference:window._cfReference,article:window._cfArticle,repo:window._cfRepo,project_id:pid}
     }});
     if (status) status.textContent =
@@ -1498,7 +1499,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       const visualRow=document.getElementById('cf-visual-source')?.closest('.btn-row');
       const enginePanel=document.getElementById('cf-studio-catalog-status')?.closest('.panel');
       const output=document.createElement('section');output.id='cf-output-requirements';output.className='panel';output.style.marginTop='10px';
-      output.innerHTML='<div class="btn-row" id="cf-output-header" style="align-items:center;flex-wrap:wrap;margin:0"><b>成片要求</b><span class="hint">只指定平台、时长和风格，其余交给 AI。</span></div>';
+      output.innerHTML='<div class="btn-row" id="cf-output-header" style="align-items:center;flex-wrap:wrap;margin:0"><b>成片要求</b><span class="hint">设置平台、时长、风格和画面来源；其余交给 AI。</span></div>';
       const outputHeader=output.firstElementChild;
       manual.parentNode.insertBefore(output,manual);
       if(formatRow)output.appendChild(formatRow);
