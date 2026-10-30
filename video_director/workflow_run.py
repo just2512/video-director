@@ -404,6 +404,16 @@ def reconcile_runs(reason: str = "服务重启，上一任务已中断") -> dict
             except Exception as exc:
                 logger.warning(f"workflow reconcile project {pid} failed: {exc}")
         _emit(row["run_id"], "workflow.done", {"status": INTERRUPTED})
+        # Reconciliation is a terminal transition too: keep the user-visible
+        # conversation in sync with the WorkflowRun after a process restart.
+        try:
+            from video_director import director_history
+            director_history.record_workflow_result(
+                row["run_id"], INTERRUPTED,
+                result={"project_id": pid or ""}, error=reason,
+            )
+        except Exception as exc:
+            logger.warning(f"director conversation interruption record failed: {exc}")
     return {"interrupted_runs": [r["run_id"] for r in rows], "projects": projects}
 
 

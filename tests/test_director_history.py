@@ -59,6 +59,26 @@ def test_workflow_terminal_record_reconciles_link_without_client_callback(tmp_pa
     assert loaded["status"]=="COMPLETED"
 
 
+def test_restart_reconciliation_marks_linked_conversation_interrupted(tmp_path, monkeypatch):
+    root=tmp_path/"composer";root.mkdir()
+    monkeypatch.setattr(config,"composer_storage_root",lambda:root)
+    conv=director_history.create_conversation(
+        conversation_id="conv-restart-interrupted",project_id="project-restart",
+        title="服务重启恢复")
+    rid=workflow_run.start_run("director_create",project_id="project-restart",
+        steps=["understand","render"],conversation_id=conv["conversation_id"])
+    result=workflow_run.reconcile_runs("测试模拟服务重启")
+    run=workflow_run.get_run(rid)
+    loaded=director_history.get_conversation(conv["conversation_id"])
+    assert rid in result["interrupted_runs"]
+    assert run["status"]==workflow_run.INTERRUPTED
+    assert loaded["status"]==workflow_run.INTERRUPTED
+    assert loaded["workflow_run_id"]==rid
+    assert loaded["project_id"]=="project-restart"
+    assert loaded["messages"][-1]["role"]=="assistant"
+    assert "测试模拟服务重启" in loaded["messages"][-1]["content"]
+
+
 def test_link_workflow_does_not_downgrade_a_fast_completed_run(tmp_path, monkeypatch):
     root=tmp_path/"composer";root.mkdir()
     monkeypatch.setattr(config,"composer_storage_root",lambda:root)
