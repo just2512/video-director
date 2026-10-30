@@ -3716,7 +3716,16 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "brief": str(bundle.get("brief") or ""),
                     "bundle": bundle,
-                    "spec": spec,
+                    "spec_settings": {
+                        key: spec.get(key) for key in (
+                            "duration", "style_intent", "voice_mode", "voice", "voice_rate",
+                            "narration_volume", "subtitle_mode", "bgm", "bgm_volume", "sfx",
+                            "fit_mode", "clip_duration", "clip_speed", "concat_mode",
+                            "transition_mode", "stop_at", "fps", "watermark",
+                            "lower_third_name", "lower_third_role", "confirm_mode",
+                            "visual_source", "width", "height",
+                        ) if key in spec
+                    },
                 })
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)[:200]}, 500)

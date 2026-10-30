@@ -51,3 +51,6 @@ def test_create_dialog_lifecycle_and_single_style_catalog():
     assert "apiPost('/api/director/conversations'" in source
     assert "id=\"cf-topic\"" not in source
     assert "apiGet('/api/registry/styles')" not in source
+    assert "CF_DRAFT_CONTEXT.assetRefs = refs" in source
+    assert "spec_settings" in source
+    assert 'button[onclick="createEnhance()"],button[onclick="cfMakeGraphicPlan()"]' in source
