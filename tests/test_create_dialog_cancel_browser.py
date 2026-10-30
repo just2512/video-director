@@ -119,6 +119,11 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                 assert page.locator("#cf-progress").is_visible()
                 assert "已取消创作。" not in (page.locator("#cf-status").text_content() or "")
 
+                # Dismiss the still-running Create dialog to the background first.
+                # This removes its full-screen mask; the task drawer must then be
+                # genuinely clickable rather than bypassing Playwright hit testing.
+                page.evaluate("cfDismissProgress()")
+                page.wait_for_function("document.getElementById('cf-mask') === null")
                 # A task dismissed to background remains stoppable from the task
                 # drawer, and the button remains disabled after acceptance until
                 # the refreshed run list reports a terminal state.

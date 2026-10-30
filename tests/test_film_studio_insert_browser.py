@@ -818,14 +818,35 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 assert len(remove_ops) == 1 and remove_ops[0].get("op") == "remove", remove_ops
 
                 # Undo lift to compare ripple behavior against exactly the same source document.
-                page.evaluate("() => window.filmStudioUndo()")
+                # Wait for the Store's external-revision gate, clear transient selection,
+                # and assert that the real Undo endpoint accepted the command.
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!state && !state.busy && state.pendingTransaction === null
+                    && !state.pendingExternalRevision;
+                }""", timeout=10000)
+                page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  store.setField("selectedId", "");
+                  store.setField("selectedIds", []);
+                  store.setField("canvasElementSelection", null);
+                }""")
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/undo"),
+                    timeout=10000,
+                ) as undo_response:
+                    page.evaluate("() => window.filmStudioUndo()")
+                assert undo_response.value.status == 200
+                undo_payload = undo_response.value.json()
+                assert undo_payload.get("action") == "undo", undo_payload
                 page.wait_for_function("""async (pid) => {
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid), {cache:'no-store'});
                   if (!response.ok) return false;
                   const doc = await response.json();
                   const state = window.filmStudioStore?.getSnapshot();
                   return !!doc.rev && !!state && !state.busy && state.pendingTransaction === null
-                    && doc.rev === state.revision
+                    && !state.pendingExternalRevision && doc.rev === state.revision
                     && (doc.tracks || []).some(track =>
                       (track.clips || []).some(clip => clip.id === 'video-target'));
                 }""", arg=project_id, timeout=10000)
@@ -882,8 +903,27 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 assert audio_by_id[right_id]["attrs"]["src"].endswith("#t=3,6")
                 assert float(audio_by_id[right_id]["attrs"]["at"]) == 2
 
-                # Undo restores the exact pre-ripple film.html bytes.
-                page.evaluate("() => window.filmStudioUndo()")
+                # Undo restores the exact pre-ripple bytes through the same server history API.
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!state && !state.busy && state.pendingTransaction === null
+                    && !state.pendingExternalRevision;
+                }""", timeout=10000)
+                page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  store.setField("selectedId", "");
+                  store.setField("selectedIds", []);
+                  store.setField("canvasElementSelection", null);
+                }""")
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/undo"),
+                    timeout=10000,
+                ) as undo_response:
+                    page.evaluate("() => window.filmStudioUndo()")
+                assert undo_response.value.status == 200
+                undo_payload = undo_response.value.json()
+                assert undo_payload.get("action") == "undo", undo_payload
                 page.wait_for_function("""async (pid) => {
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid), {cache:'no-store'});
                   if (!response.ok) return false;
@@ -891,7 +931,7 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                   const state = window.filmStudioStore?.getSnapshot();
                   const clips = (doc.tracks || []).flatMap(track => track.clips || []);
                   return !!doc.rev && !!state && !state.busy && state.pendingTransaction === null
-                    && doc.rev === state.revision
+                    && !state.pendingExternalRevision && doc.rev === state.revision
                     && clips.some(clip => clip.id === 'video-target')
                     && clips.some(clip => clip.id === 'audio-long' && String(clip.attrs.src).endsWith('#t=0,6'));
                 }""", arg=project_id, timeout=10000)
