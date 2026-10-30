@@ -299,8 +299,9 @@ def test_late_project_prefill_response_cannot_overwrite_newer_project(tmp_path, 
                     return originalGet(path);
                   };
                   window.__slowProjectPromise=window.openCreate('project-slow');
-                  window.openCreate('project-fast');
                 }""")
+                page.wait_for_function("typeof window.__releaseOldProject === 'function'", timeout=10000)
+                page.evaluate("openCreate('project-fast')")
 
                 page.wait_for_function("""() =>
                   document.getElementById('cf-director-brief')?.value === '新项目 B'
@@ -310,7 +311,7 @@ def test_late_project_prefill_response_cannot_overwrite_newer_project(tmp_path, 
                 assert page.locator("#cf-input-context-details").evaluate("(node) => !node.open")
 
                 page.evaluate("window.__releaseOldProject()")
-                page.evaluate("window.__slowProjectPromise")
+                page.evaluate("async () => await window.__slowProjectPromise")
                 page.wait_for_timeout(250)
                 assert page.locator("#cf-director-brief").input_value() == "新项目 B"
                 assert page.locator("#cf-script").input_value() == ""

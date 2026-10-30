@@ -1704,7 +1704,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(existing){
       existing.style.display='flex';existing.setAttribute('aria-hidden','false');
       if(window.CF&&document.getElementById('cf-form')?.style.display!=='none')window.CF.state='editing';
-      if(window._cfArticle&&typeof cfRestoreArticleSourceUI==='function')cfRestoreArticleSourceUI();
+      if(!projectId&&window._cfArticle&&typeof cfRestoreArticleSourceUI==='function')cfRestoreArticleSourceUI();
       installHandlers();
       if(projectId)return cfPrefillFromProject(projectId);
       _cfProjectPrefillRequest++;
