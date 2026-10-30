@@ -1403,7 +1403,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       const r=await apiGet('/api/director/conversations/'+encodeURIComponent(id));if(!r||!r.ok||!r.conversation)throw new Error(r?.error||'对话不存在');
       const c=r.conversation;window._cfHistorySelected=c;
       const messages=(c.messages||[]).map(m=>'<div class="panel" style="padding:8px;margin-top:6px"><b>'+({user:'用户',assistant:'AI',tool:'执行记录',system:'系统'}[m.role]||m.role)+'</b><div style="white-space:pre-wrap;margin-top:4px">'+esc(m.content)+'</div></div>').join('');
-      list.innerHTML='<div class="btn-row"><b>'+esc(c.title)+'</b><span class="tb-sep"></span><button class="btn-secondary btn-sm" onclick="cfHistoryToggle()">返回列表</button></div>'+messages+
+      list.innerHTML='<div class="btn-row"><b>'+esc(c.title)+'</b><span class="tb-sep"></span><button class="btn-secondary btn-sm" onclick="cfHistoryToggle()">关闭历史</button></div>'+messages+
         '<div class="btn-row" style="margin-top:8px"><button class="btn-sm" onclick="cfHistoryRestoreSnapshot(\''+esc(id)+'\')">恢复为新草稿</button>'+
         (c.project_id?'<button class="btn-secondary btn-sm" onclick="openCreate(\''+esc(c.project_id)+'\')">打开关联项目</button>':'')+'</div>';
     }catch(e){list.textContent='对话读取失败：'+(e.message||e);}
@@ -1415,10 +1415,18 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     await saveNow();const list=document.getElementById('cf-history-list');if(list)list.innerHTML='<div class="ok-box">已恢复为新草稿，原历史对话不会被覆盖。</div>';
   };
   window.addEventListener('beforeunload',()=>{
-    if(document.getElementById('cf-mask')?.style.display!=='none'){
+    const mask=document.getElementById('cf-mask');
+    // Dialog 真正销毁/从未打开时不能重建已清除的 draft。
+    if(mask && mask.style.display!=='none'){
       try{navigator.sendBeacon('/api/director/drafts/active',new Blob([JSON.stringify({data:snapshot()})],{type:'application/json'}));}catch(_){}
     }
   });
+  const originalCancelAndEdit=window.cfCancelAndEdit;
+  window.cfCancelAndEdit=function(){
+    originalCancelAndEdit();
+    // create 成功后 active draft 已清除；用户停止任务并返回编辑时重新建立草稿。
+    saveNow();
+  };
   const originalGenerate=window.cfGenerateScript;
   window.cfGenerateScript=async function(){
     const brief=document.getElementById('cf-director-brief');if(!brief||!brief.value.trim()){const st=document.getElementById('cf-script-gen-status');if(st)st.textContent='请先填写上方创作要求';return;}
