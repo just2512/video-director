@@ -1496,10 +1496,11 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     });
     const scriptStatus=document.getElementById('cf-script-gen-status');
     const enhanceStatus=document.getElementById('cf-enhance-status');
+    const enhanceStatusRow=enhanceStatus?.closest('.btn-row');
     if(quickActions&&scriptStatus){scriptStatus.style.flexBasis='100%';quickActions.appendChild(scriptStatus);}
     if(quickActions&&enhanceStatus){
       enhanceStatus.style.flexBasis='100%';quickActions.appendChild(enhanceStatus);
-      enhanceStatus.closest('.btn-row')?.remove();
+      if(enhanceStatusRow&&enhanceStatusRow!==quickActions)enhanceStatusRow.remove();
     }
     const scriptPanel=document.getElementById('cf-script')?.closest('.panel');
     const enhanceBox=document.getElementById('cf-enhance-box');
