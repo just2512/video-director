@@ -420,7 +420,19 @@ def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, 
                 page.wait_for_function("typeof window.CF_DRAFT_CONTEXT.assetUploadPromise?.then === 'function'")
                 page.evaluate("window.__oldAssetUploadPromise = window.CF_DRAFT_CONTEXT.assetUploadPromise")
 
-                page.evaluate("openCreate('project-after-upload')")
+                page.evaluate("""() => {
+                    const state = {settled: false, result: null, error: null};
+                    window.__projectAfterUploadState = state;
+                    // Do not make Playwright's evaluate call wait on the async UI workflow.
+                    // Its API requests and routed upload must continue to be dispatched by
+                    // the sync Playwright event loop while the test advances the browser.
+                    window.__projectAfterUploadPromise = Promise.resolve(
+                        openCreate('project-after-upload')
+                    ).then(
+                        result => { state.settled = true; state.result = result; },
+                        error => { state.settled = true; state.error = String(error); }
+                    );
+                }""")
                 page.wait_for_function("""() =>
                     document.getElementById('cf-director-brief')?.value === '项目 B 的创作目标'
                     && window.CF_DRAFT_CONTEXT?.projectId === 'project-after-upload'
@@ -456,6 +468,14 @@ def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, 
                       && (data.context?.asset_refs||[]).length === 0
                       && data.fields?.['cf-director-brief'] === '项目 B 的创作目标';
                 }""", timeout=10000)
+                page.wait_for_function(
+                    "window.__projectAfterUploadState?.settled === true",
+                    timeout=10000,
+                )
+                switch_state = page.evaluate("window.__projectAfterUploadState")
+                assert switch_state["error"] is None, switch_state["error"]
+                assert switch_state["result"] == {"ok": True, "project_id": "project-after-upload"}
+
                 assert page.locator("#cf-assets-summary").text_content() == "未添加本地素材"
                 assert not errors
             finally:
