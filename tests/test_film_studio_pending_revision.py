@@ -167,3 +167,13 @@ def test_studio_restores_project_selector_when_switch_is_blocked_by_busy_transac
     store = (Path(__file__).resolve().parents[1] / "remotion_runtime" / "src" / "film-store.ts").read_text(encoding="utf-8")
     bindings = store[store.index("const bindings: Array"):store.index("for (const [legacyKey")]
     assert '["busy", "busy"]' in bindings
+
+def test_studio_close_is_blocked_while_save_ai_export_or_timeline_gesture_is_active():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    close = source[source.index("window.filmStudioClose=function()"):source.index("window.filmStudioLoad=filmStudioLoad")]
+    for guard in ("if(S.rendering)", "if(S.busy)", "if(S.drag||S.envelopeDrag)"):
+        assert guard in close
+        assert close.index(guard) < close.index("S.open=false")
+    assert "AI 指令仍在生成；先停止或等待生成结束，再退出 Studio。" in close
+    assert "影片操作仍在保存；保存结束后再退出 Studio。" in close
+    assert "时间线手势尚未结束；请完成或取消拖动后再退出 Studio。" in close

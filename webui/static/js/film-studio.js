@@ -3144,6 +3144,23 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
   // do not also bind a change listener here or the initial selector change races
   // two independent FilmDocument preflights and Studio toggles.
   window.filmStudioClose=function(){
+    // Keep the authoritative work surface mounted while an async operation or
+    // pointer gesture still owns its state. Hiding it here can strand a busy
+    // transaction or leave an active drag with no visible target to finish on.
+    if(S.rendering){
+      showStatus('影片正在导出；导出结束后再退出 Studio。','error');
+      return;
+    }
+    if(S.busy){
+      showStatus(S.aiController
+        ?'AI 指令仍在生成；先停止或等待生成结束，再退出 Studio。'
+        :'影片操作仍在保存；保存结束后再退出 Studio。','error');
+      return;
+    }
+    if(S.drag||S.envelopeDrag){
+      showStatus('时间线手势尚未结束；请完成或取消拖动后再退出 Studio。','error');
+      return;
+    }
     if(hasUncommittedInspectorEdits()){
       if(!window.confirm('Inspector 中有未提交的属性草稿。退出 Studio 将放弃这些修改；是否继续？'))return;
       resetInspectorDraft();

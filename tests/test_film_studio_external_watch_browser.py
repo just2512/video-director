@@ -1133,6 +1133,38 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                 page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]').wait_for(state="visible")
                 assert fd.read_project_film(project_id)["exists"]
 
+                # Do not hide the only authoritative editor while a save or
+                # export still owns the project lifecycle.
+                blocked_close = page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  const snapshot = () => ({
+                    studioOpen: document.documentElement.classList.contains('fs-studio-open'),
+                    panelExpanded: document.querySelector('#film-studio-panel')?.classList.contains('fs-studio-expanded') === true,
+                    selectorInStudio: document.querySelector('#fs-project-switch-host #editor-project-switch-row') !== null
+                  });
+                  store.setField('busy', true);
+                  window.filmStudioClose();
+                  const whileBusy = snapshot();
+                  store.setField('busy', false);
+                  store.setField('rendering', true);
+                  window.filmStudioClose();
+                  const whileRendering = snapshot();
+                  store.setField('rendering', false);
+                  return {whileBusy, whileRendering};
+                }""")
+                assert blocked_close == {
+                    "whileBusy": {
+                        "studioOpen": True,
+                        "panelExpanded": True,
+                        "selectorInStudio": True,
+                    },
+                    "whileRendering": {
+                        "studioOpen": True,
+                        "panelExpanded": True,
+                        "selectorInStudio": True,
+                    },
+                }, blocked_close
+
                 # A busy save/history transaction rejects the attempted project
                 # switch. The UI selector must roll back to the still-open FilmDocument
                 # instead of displaying a project that the Studio did not load.
