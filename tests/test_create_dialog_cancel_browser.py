@@ -49,6 +49,10 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                       return {run_id:"run-stop-and-edit",status:window.__workflowStatus,
                         steps:[{id:"script",status:"DONE"}],labels:{script:"理解文案"},result:{}};
                     }
+                    if (path === "/api/workflows/run-noncancellable") {
+                      return {run_id:"run-noncancellable",status:"RUNNING",steps:[],labels:{},result:{}};
+                    }
+                    if (path === "/api/workflows?limit=50") return {runs:[]};
                     return {ok:true};
                   };
                 }""")
