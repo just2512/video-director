@@ -593,114 +593,53 @@ jobs:
           fi
           exit "$test_exit"
 
-      - name: Prepare local HTTP bridge for SOCKS-backed artifact upload
+      # Keep CI diagnostics in the built-in job log/summary. Do not depend on
+      # actions/upload-artifact: self-hosted SOCKS proxy failures while downloading
+      # that optional action happen before any job step can run.
+      - name: Summarize retained regression diagnostics
         if: always() && steps.ensure_checkout.outcome == 'success'
-        continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          # Self-hosted jobs may leave a child alive if the runner is interrupted
-          # before the explicit cleanup step. Reap only this repo's orphaned bridge
-          # process, checked by executable args and its workspace cwd.
           "$PY311_BIN/python3.11" - <<'PY'
           import os
-          import signal
+          import xml.etree.ElementTree as ET
           from pathlib import Path
 
-          workspace = os.path.realpath(os.environ["GITHUB_WORKSPACE"])
-          current_pid = os.getpid()
-          candidates = []
-          for cmdline_path in Path("/proc").glob("[0-9]*/cmdline"):
-              try:
-                  pid = int(cmdline_path.parent.name)
-                  if pid in {1, current_pid}:
-                      continue
-                  argv = [part.decode("utf-8", "replace") for part in cmdline_path.read_bytes().split(b"\0") if part]
-                  if "tools/http_connect_socks_proxy.py" not in argv:
-                      continue
-                  if os.path.realpath(f"/proc/{pid}/cwd") != workspace:
-                      continue
-                  candidates.append(pid)
-              except (OSError, ValueError, ProcessLookupError):
+          reports = [
+              ("Create dialog lifecycle", Path("create-dialog-junit.xml")),
+              ("Full pytest suite", Path("junit.xml")),
+              ("Timeline / migration / export gate", Path("timeline-junit.xml")),
+              ("Live model stream", Path("live-stream-junit.xml")),
+          ]
+          rows = []
+          for label, path in reports:
+              if not path.is_file():
+                  rows.append((label, "MISSING", "—", "—", "—", "—"))
                   continue
+              root = ET.parse(path).getroot()
+              suites = [root] if root.tag == "testsuite" else list(root.findall(".//testsuite"))
+              totals = {key: 0 for key in ("tests", "failures", "errors", "skipped")}
+              for suite in suites:
+                  for key in totals:
+                      totals[key] += int(suite.attrib.get(key, "0") or 0)
+              rows.append((
+                  label, "PRESENT", totals["tests"], totals["failures"],
+                  totals["errors"], totals["skipped"],
+              ))
 
-          for pid in candidates:
-              try:
-                  os.kill(pid, signal.SIGTERM)
-              except ProcessLookupError:
-                  pass
-          for _ in range(20):
-              survivors = []
-              for pid in candidates:
-                  try:
-                      cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
-                      if b"tools/http_connect_socks_proxy.py" in cmdline:
-                          survivors.append(pid)
-                  except OSError:
-                      continue
-              if not survivors:
-                  break
-              import time
-              time.sleep(0.1)
-          for pid in candidates:
-              try:
-                  cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
-                  if b"tools/http_connect_socks_proxy.py" in cmdline and os.path.realpath(f"/proc/{pid}/cwd") == workspace:
-                      os.kill(pid, signal.SIGKILL)
-              except (OSError, ProcessLookupError):
-                  pass
-          print(f"ACTION_ARTIFACT_PROXY=REAPED_ORPHANS count={len(candidates)}")
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          lines = ["## Regression diagnostics", "",
+                   "| Gate | Report | Tests | Failures | Errors | Skipped |",
+                   "|---|---:|---:|---:|---:|---:|"]
+          lines.extend("| " + " | ".join(map(str, row)) + " |" for row in rows)
+          lines += ["", "Detailed pytest output and failure traces remain in the corresponding Actions step logs.",
+                    "Diagnostic file upload is intentionally not a job prerequisite on the SOCKS-backed runner."]
+          rendered = "\n".join(lines) + "\n"
+          print(rendered)
+          if summary:
+              with open(summary, "a", encoding="utf-8") as stream:
+                  stream.write(rendered)
           PY
-          proxy_file="$RUNNER_TEMP/video-director-artifact-http-proxy-port"
-          proxy_log="$RUNNER_TEMP/video-director-artifact-http-proxy.log"
-          proxy_pid_file="$RUNNER_TEMP/video-director-artifact-http-proxy-pid"
-          rm -f "$proxy_file" "$proxy_log" "$proxy_pid_file"
-          "$PY311_BIN/python3.11" tools/http_connect_socks_proxy.py --port-file "$proxy_file" >"$proxy_log" 2>&1 < /dev/null &
-          proxy_pid=$!
-          printf '%s\n' "$proxy_pid" > "$proxy_pid_file"
-          for attempt in $(seq 1 40); do
-            if [ -s "$proxy_file" ]; then
-              port="$(cat "$proxy_file")"
-              if [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; then
-                for variable in HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy; do
-                  printf '%s=http://127.0.0.1:%s\n' "$variable" "$port" >> "$GITHUB_ENV"
-                done
-                echo "ACTION_ARTIFACT_PROXY=READY transport=http-loopback-to-socks"
-                exit 0
-              fi
-              echo "ACTION_ARTIFACT_PROXY=REJECT reason=invalid-local-port"
-              exit 0
-            fi
-            if ! kill -0 "$proxy_pid" 2>/dev/null; then
-              break
-            fi
-            sleep 0.25
-          done
-          echo "ACTION_ARTIFACT_PROXY=SKIP reason=no-supported-socks-upstream-or-startup-failure"
-          if [ -s "$proxy_log" ]; then tail -n 20 "$proxy_log"; fi
-          exit 0
-
-      # actions/upload-artifact's Node/undici proxy only accepts HTTP(S) proxy URLs.
-      # The preceding step temporarily overrides proxy variables in GITHUB_ENV
-      # only after a loopback bridge is ready. If it cannot start, runner defaults
-      # are preserved and diagnostic upload remains non-blocking.
-      - name: Retain regression diagnostics
-        if: always() && steps.ensure_checkout.outcome == 'success'
-        continue-on-error: true
-        uses: actions/upload-artifact@v4
-        with:
-          name: regression-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            junit.xml
-            pytest-output.log
-            create-dialog-output.log
-            create-dialog-junit.xml
-            live-stream-junit.xml
-            timeline-junit.xml
-            timeline-regression-output.log
-            test-results/**
-          if-no-files-found: ignore
-          retention-days: 7
 
       - name: Publish verified React Studio bundle and Tailwind CSS to main
         if: always() && steps.ensure_checkout.outcome == 'success' && steps.full_regression.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && (steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped') && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped' || steps.live_stream_config.conclusion == 'failure') && steps.timeline_regression_gate.outcome == 'success'
@@ -824,30 +763,3 @@ jobs:
           })
           print(f"Published verified React Studio bundle and Tailwind CSS: {updated['object']['sha']}")
           PY
-      - name: Stop local HTTP bridge for SOCKS-backed artifact upload
-        if: always() && steps.ensure_checkout.outcome == 'success'
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          proxy_pid_file="$RUNNER_TEMP/video-director-artifact-http-proxy-pid"
-          proxy_file="$RUNNER_TEMP/video-director-artifact-http-proxy-port"
-          proxy_log="$RUNNER_TEMP/video-director-artifact-http-proxy.log"
-          if [ -s "$proxy_pid_file" ]; then
-            proxy_pid="$(cat "$proxy_pid_file")"
-            if [[ "$proxy_pid" =~ ^[0-9]+$ ]] &&
-               [ -r "/proc/$proxy_pid/cmdline" ] &&
-               tr '\0' ' ' < "/proc/$proxy_pid/cmdline" | grep -Fq 'tools/http_connect_socks_proxy.py'; then
-              kill "$proxy_pid" 2>/dev/null || true
-              for attempt in $(seq 1 20); do
-                if ! kill -0 "$proxy_pid" 2>/dev/null; then break; fi
-                sleep 0.1
-              done
-              if [ -r "/proc/$proxy_pid/cmdline" ] &&
-                 tr '\0' ' ' < "/proc/$proxy_pid/cmdline" | grep -Fq 'tools/http_connect_socks_proxy.py'; then
-                kill -9 "$proxy_pid" 2>/dev/null || true
-              fi
-            fi
-          fi
-          rm -f "$proxy_pid_file" "$proxy_file" "$proxy_log"
-
