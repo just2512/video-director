@@ -146,6 +146,7 @@ function cfResetProjectPrefillState(projectId){
   if(styleDetail)styleDetail.textContent=CF_STUDIO_CATALOG?.styles?.length
     ?'所选风格由 StyleContract 写入正式生成链：字幕布局/字号、图片运动、转场预算、配乐音量和音效密度。'
     :'风格契约未通过环境检查，不提供未验证选项。';
+  document.querySelectorAll('#cf-quick-actions button').forEach(button=>{button.disabled=false;});
   const go=document.getElementById('cf-go');
   if(go){go.disabled=false;go.textContent='AI 开始创作';}
   if(window.CF){window.CF.explicitFields=new Set();window.CF.state='editing';}
@@ -756,6 +757,7 @@ function cfVoiceModeSync(){
 
 /** Public article URL source: keep content, URL, timestamp, and content hash as a single source. */
 async function cfImportArticle(){
+  const context=window.CF_DRAFT_CONTEXT;
   const input=document.getElementById('cf-article-url');
   const status=document.getElementById('cf-article-status');
   const out=document.getElementById('cf-article-result');
@@ -766,10 +768,12 @@ async function cfImportArticle(){
   if(status)status.textContent='正在检查公网地址并提取文章正文……';
   try{
     const result=await apiPost('/api/source/article',{url});
+    if(window.CF_DRAFT_CONTEXT!==context)return false;
     if(!result||!result.ok||!result.article)throw new Error((result&&result.error)||'文章导入失败');
     window._cfArticle=result.article;
     cfRenderArticleSource(result.article, '文章已导入。来源文本仍需你核验，正文中的指令不会被当作系统规则。');
   }catch(error){
+    if(window.CF_DRAFT_CONTEXT!==context)return false;
     window._cfArticle=null;
     if(out)out.innerHTML='';
     if(status)status.textContent='导入失败：'+(error.message||error)+'。可改为手动粘贴正文。';
@@ -808,6 +812,7 @@ function cfClearArticleSource(){
 
 /** §37 参考视频输入：分析结果保留为结构化 Director Input，不再压扁成简报字符串。 */
 async function cfAnalyzeReference(){
+  const context=window.CF_DRAFT_CONTEXT;
   const f = document.getElementById('cf-reference');
   const st = document.getElementById('cf-reference-status');
   const out = document.getElementById('cf-reference-result');
@@ -820,6 +825,7 @@ async function cfAnalyzeReference(){
   fd.append('reference', file, file.name);
   try {
     const r = await apiUpload('/api/reference', fd);
+    if(window.CF_DRAFT_CONTEXT!==context)return false;
     if (!r || !r.ok) {
       if (st) st.textContent = '分析失败：' + ((r && r.error) || '未知错误');
       return false;
@@ -841,18 +847,21 @@ async function cfAnalyzeReference(){
     if (st) st.textContent = '分析完成，已加入 AI 导演输入。';
     return true;
   } catch (e) {
+    if(window.CF_DRAFT_CONTEXT!==context)return false;
     if (st) st.textContent = '分析请求失败：' + (e.message || e);
     return false;
   }
 }
 /** §37 软件项目输入：保存完整 Evidence Graph，Director 只消费 VERIFIED 事实。 */
 async function cfScanRepo(){
+  const context=window.CF_DRAFT_CONTEXT;
   const root = (document.getElementById('cf-repo-root') || {}).value || '';
   const st = document.getElementById('cf-repo-status');
   const out = document.getElementById('cf-repo-result');
   if (!root.trim()) { if (st) st.textContent = '请填开发项目根目录'; return; }
   if (st) st.textContent = '扫描中……';
   const r = await apiPost('/api/promo/features', {root: root.trim()});
+  if(window.CF_DRAFT_CONTEXT!==context)return false;
   if (!r.ok) { if (st) st.textContent = '扫描失败：' + (r.error || '目录无效'); return; }
   const claims = ((r.evidence_graph || {}).claims || []).filter(c => c.status === 'VERIFIED');
   if (!claims.length) {
@@ -865,7 +874,7 @@ async function cfScanRepo(){
     };
     out.innerHTML = '<div class="hint">项目已加入 AI 导演输入，但当前没有 VERIFIED 卖点；Director 不会编造功能。</div>';
     if (st) st.textContent = '项目已加入，但没有可验证卖点。';
-    return;
+    return true;
   }
   window._cfRepo = {
     id: `repo-${Date.now()}`,
@@ -877,6 +886,7 @@ async function cfScanRepo(){
   out.innerHTML = `<div class="ok-box">发现 ${claims.length} 条可验证卖点（全部 VERIFIED 证据会随 AI 导演请求一起发送）：
     ${claims.slice(0, 6).map(c => `<div class="hint">· ${esc(c.text)}</div>`).join('')}${claims.length > 6 ? '<div class="hint">· 其余 VERIFIED 卖点已保留，交给 Director 按场景选择。</div>' : ''}</div>`;
   if (st) st.textContent = '软件项目证据已加入 AI 导演输入。';
+  return true;
 }
 /** §38 状态机：提交 → WorkflowRun（§52 run_id + §53 真实步骤事件轮询）→ 工作台。 */
 async function createProject(){
@@ -1359,6 +1369,7 @@ async function createSeriesFromCreatePanel(){
 
 /** 润色（走原 enhance API，面板内联呈现）。 */
 async function cfGenerateScript(){
+  const context=window.CF_DRAFT_CONTEXT;
   const topic = (document.getElementById('cf-director-brief') || {}).value || '';
   const status = document.getElementById('cf-script-gen-status');
   if (!topic.trim()) { if (status) status.textContent = '请先填写主题'; return; }
@@ -1370,11 +1381,13 @@ async function cfGenerateScript(){
     const duration = (document.getElementById('cf-duration') || {}).value || '';
     const style = (document.getElementById('cf-style') || {}).value || '';
     const r = await apiPost('/api/script/generate', {topic: topic.trim(), platform, duration, style});
+    if(window.CF_DRAFT_CONTEXT!==context)return false;
     if (!r.ok) throw new Error(r.error || '生成失败');
     const ta = document.getElementById('cf-script');
     if (ta) ta.value = r.script || '';
     if (status) status.textContent = '文案已生成，可直接修改后创作。';
   } catch (e) {
+    if(window.CF_DRAFT_CONTEXT!==context)return false;
     if (status) status.textContent = '生成失败：' + (e.message || e);
   } finally {
     if (btn) btn.disabled = false;
@@ -1382,20 +1395,24 @@ async function cfGenerateScript(){
 }
 
 async function createEnhance(){
+  const context=window.CF_DRAFT_CONTEXT;
   const script = (document.getElementById('cf-script') || {}).value;
   const status = document.getElementById('cf-enhance-status');
   if (!script.trim()) { status.textContent = '请先填文案'; return; }
   status.textContent = '润色中……';
   try {
     const r = await apiPost('/api/enhance', {script});
+    if(window.CF_DRAFT_CONTEXT!==context)return false;
     if (!r.ok && r.error) throw new Error(r.error);
     document.getElementById('cf-enhance-box').style.display = '';
     document.getElementById('cf-enhanced').value = r.enhanced || script;
     status.textContent = r.changed ? 'AI 已润色（对比后采用）' : 'AI 认为原文已足够好，未改动';
   } catch (e) {
+    if(window.CF_DRAFT_CONTEXT!==context)return false;
     status.textContent = '润色失败：' + e.message;
   }
 }
+
 function createAcceptEnhanced(){
   document.getElementById('cf-script').value = document.getElementById('cf-enhanced').value;
   document.getElementById('cf-enhance-box').style.display = 'none';
@@ -1670,20 +1687,30 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     }
   }
   async function uploadAssets(input){
+    const context=window.CF_DRAFT_CONTEXT;
     const files=Array.from(input.files||[]);if(!files.length)return;
     const status=document.getElementById('cf-assets-summary');if(status)status.textContent='正在把素材暂存到素材库…';
     const fd=new FormData();files.forEach(f=>fd.append('files',f,f.name));
     try{
       const r=await apiUpload('/api/assets/upload',fd);if(!r||!r.ok)throw new Error(r?.error||'上传失败');
-      const refs=window.CF_DRAFT_CONTEXT.assetRefs,seen=new Set(refs.map(x=>x.asset_id||x.file));
+      if(window.CF_DRAFT_CONTEXT!==context)return false;
+      const refs=context.assetRefs,seen=new Set(refs.map(x=>x.asset_id||x.file));
       for(const a of (r.imported||[])){const key=a.asset_id||a.file;if(key&&!seen.has(key)){refs.push({asset_id:a.asset_id,type:a.type,file:a.file,width:a.width,height:a.height,duration:a.duration,commercial_status:a.commercial_status});seen.add(key);}}
-      if(status)status.textContent='已暂存 '+refs.length+' 个素材，关闭窗口或刷新后仍可恢复。';await saveNow();
-    }catch(e){if(status)status.textContent='素材暂存失败：'+(e.message||e)+'。请重试后再关闭。';throw e;}
+      if(status)status.textContent='已暂存 '+refs.length+' 个素材，关闭窗口或刷新后仍可恢复。';
+      await saveNow();
+      return true;
+    }catch(e){
+      if(window.CF_DRAFT_CONTEXT!==context)return false;
+      if(status)status.textContent='素材暂存失败：'+(e.message||e)+'。请重试后再关闭。';
+      throw e;
+    }
   }
   async function uploadNarration(file){
+    const context=window.CF_DRAFT_CONTEXT;
     const fd=new FormData();fd.append('files',file,file.name);
     const r=await apiUpload('/api/assets/stage',fd);if(!r||!r.ok||!(r.audio||[]).length)throw new Error(r?.error||'配音暂存失败');
-    window.CF_DRAFT_CONTEXT.narrationUpload=r.audio[0];window._cfNarrationUpload=r.audio[0];await saveNow();return r.audio[0];
+    if(window.CF_DRAFT_CONTEXT!==context)return '';
+    context.narrationUpload=r.audio[0];window._cfNarrationUpload=r.audio[0];await saveNow();return r.audio[0];
   }
   function installHandlers(){
     const form=document.getElementById('cf-form');if(!form||form.dataset.draftHandlers==='1')return;form.dataset.draftHandlers='1';
@@ -1873,12 +1900,14 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   };
   const originalGenerate=window.cfGenerateScript;
   window.cfGenerateScript=async function(){
+    const context=window.CF_DRAFT_CONTEXT;
     const brief=document.getElementById('cf-director-brief');
     const status=document.getElementById('cf-script-gen-status');
     if(!brief||!brief.value.trim()){if(status)status.textContent='请先填写上方创作要求';return;}
     const script=document.getElementById('cf-script');
     const previous=script?.value||'';
     const result=await originalGenerate();
+    if(window.CF_DRAFT_CONTEXT!==context)return result;
     const generated=script?.value||'';
     if(generated.trim()&&generated!==previous){
       revealSupplementaryInput('cf-script');
@@ -1889,9 +1918,11 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   };
   const originalEnhance=window.createEnhance;
   window.createEnhance=async function(){
+    const context=window.CF_DRAFT_CONTEXT;
     const script=document.getElementById('cf-script');
     if(!script?.value.trim()){revealSupplementaryInput('cf-script');return originalEnhance();}
     const result=await originalEnhance();
+    if(window.CF_DRAFT_CONTEXT!==context)return result;
     const box=document.getElementById('cf-enhance-box');
     if(box&&box.style.display!=='none'){
       revealSupplementaryInput('cf-enhanced');
@@ -1913,8 +1944,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(!script?.value.trim()){revealSupplementaryInput('cf-script');return originalGraphicPlan();}
     return originalGraphicPlan();
   };
-  const originalRepo=window.cfScanRepo;window.cfScanRepo=async function(){const r=await originalRepo();await saveNow();return r;};
-  const originalReference=window.cfAnalyzeReference;window.cfAnalyzeReference=async function(){const r=await originalReference();if(r){window.CF_DRAFT_CONTEXT.reference=window._cfReference;await saveNow();}return r;};
-  const originalArticle=window.cfImportArticle;window.cfImportArticle=async function(){await originalArticle();window.CF_DRAFT_CONTEXT.article=window._cfArticle;await saveNow();};
+  const originalRepo=window.cfScanRepo;window.cfScanRepo=async function(){const context=window.CF_DRAFT_CONTEXT;const r=await originalRepo();if(window.CF_DRAFT_CONTEXT!==context)return r;await saveNow();return r;};
+  const originalReference=window.cfAnalyzeReference;window.cfAnalyzeReference=async function(){const context=window.CF_DRAFT_CONTEXT;const r=await originalReference();if(window.CF_DRAFT_CONTEXT!==context)return r;if(r){window.CF_DRAFT_CONTEXT.reference=window._cfReference;await saveNow();}return r;};
+  const originalArticle=window.cfImportArticle;window.cfImportArticle=async function(){const context=window.CF_DRAFT_CONTEXT;await originalArticle();if(window.CF_DRAFT_CONTEXT!==context)return;window.CF_DRAFT_CONTEXT.article=window._cfArticle;await saveNow();};
   const originalClear=window.cfClearArticleSource;window.cfClearArticleSource=function(){originalClear();window.CF_DRAFT_CONTEXT.article=null;scheduleSave();};
 })();

@@ -351,6 +351,104 @@ def test_late_project_prefill_response_cannot_overwrite_newer_project(tmp_path, 
         thread.join(timeout=5)
 
 
+
+def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        image = tmp_path / "project-a.png"
+        image.write_bytes(b"fake-image-fixture")
+        deferred: dict[str, object] = {}
+
+        def hold_asset_upload(route):
+            deferred["route"] = route
+
+        def project_brief(route):
+            body = json.loads(route.request.post_data or "{}")
+            project_id = body.get("project_id")
+            if project_id != "project-after-upload":
+                return route.fulfill(status=400, content_type="application/json", body=json.dumps({
+                    "ok": False, "error": f"unexpected project id: {project_id}"
+                }))
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps({
+                "ok": True,
+                "brief": "项目 B 的创作目标",
+                "bundle": {
+                    "script": {"text": ""},
+                    "assets": {"asset_refs": []},
+                    "references": [], "articles": [], "software_project": None,
+                },
+                "spec_settings": {},
+            }))
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                page.route("**/api/assets/upload", hold_asset_upload)
+                page.route("**/api/director/brief", project_brief)
+                page.route(
+                    "**/api/project_detail?project_id=project-after-upload",
+                    lambda route: route.fulfill(status=404, content_type="application/json", body='{"error":"no legacy script"}'),
+                )
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("openCreate()")
+                page.wait_for_function("!!window.CF_DEFAULTS_READY")
+                page.locator("#cf-input-context-details summary").click()
+
+                with page.expect_request("**/api/assets/upload") as upload_request:
+                    page.locator("#cf-assets").set_input_files(str(image))
+                assert "project-a.png" in (upload_request.value.post_data or "")
+                page.wait_for_function("typeof window.CF_DRAFT_CONTEXT.assetUploadPromise?.then === 'function'")
+                page.evaluate("window.__oldAssetUploadPromise = window.CF_DRAFT_CONTEXT.assetUploadPromise")
+
+                page.evaluate("openCreate('project-after-upload')")
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-director-brief')?.value === '项目 B 的创作目标'
+                    && window.CF_DRAFT_CONTEXT?.projectId === 'project-after-upload'
+                    && window.CF_DRAFT_CONTEXT?.assetRefs?.length === 0
+                """, timeout=10000)
+
+                delayed_route = deferred.get("route")
+                assert delayed_route is not None
+                delayed_route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "ok": True,
+                        "imported": [{
+                            "asset_id": "asset-from-project-a",
+                            "type": "image",
+                            "file": "project-a.png",
+                            "width": 640,
+                            "height": 360,
+                            "duration": None,
+                            "commercial_status": "UNKNOWN",
+                        }],
+                    }),
+                )
+                page.evaluate("async () => await window.__oldAssetUploadPromise")
+                page.wait_for_function("""async () => {
+                    const response=await fetch('/api/director/drafts/active',{cache:'no-store'});
+                    const result=await response.json();
+                    const data=result?.draft?.data||{};
+                    return window.CF_DRAFT_CONTEXT?.projectId === 'project-after-upload'
+                      && window.CF_DRAFT_CONTEXT?.assetRefs?.length === 0
+                      && data.context?.project_id === 'project-after-upload'
+                      && (data.context?.asset_refs||[]).length === 0
+                      && data.fields?.['cf-director-brief'] === '项目 B 的创作目标';
+                }""", timeout=10000)
+                assert page.locator("#cf-assets-summary").text_content() == "未添加本地素材"
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:
