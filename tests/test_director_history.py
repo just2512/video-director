@@ -24,12 +24,20 @@ def test_conversation_records_user_tool_and_assistant_messages(tmp_path, monkeyp
         steps=["understand","render"],conversation_id=conv["conversation_id"])
     director_history.link_workflow(conv["conversation_id"],project_id="project-01",workflow_run_id=rid)
     workflow_run.step_update(rid,"understand","DONE")
-    workflow_run.finish_run(rid,workflow_run.WAITING_CONFIRMATION,result={"project_id":"project-01"})
+    workflow_run.finish_run(rid,workflow_run.WAITING_CONFIRMATION,result={
+        "project_id":"project-01",
+        "director_inputs":{"script":{"source":"director","text":"这是一段 AI 生成文案。"}},
+        "warnings":["素材来源已按用户优先策略处理"],
+        "director_plan":{"nodes":[{"status":"DONE"},{"status":"PENDING"}]},
+    })
     loaded=director_history.get_conversation(conv["conversation_id"])
     assert loaded["workflow_run_id"]==rid
     assert loaded["snapshot"]["form"]["fields"]["cf-style"]=="documentary-calm"
     assert [x["role"] for x in loaded["messages"]]==["user","tool","assistant"]
     assert "等待人工确认" in loaded["messages"][-1]["content"]
+    assert "这是一段 AI 生成文案。" in loaded["messages"][-1]["content"]
+    assert "素材来源已按用户优先策略处理" in loaded["messages"][-1]["content"]
+    assert "1 个完成" in loaded["messages"][-1]["content"]
 
 
 def test_conversation_list_can_filter_project(tmp_path, monkeypatch):
