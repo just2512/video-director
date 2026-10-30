@@ -1662,13 +1662,16 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     drawer.querySelector('#cf-history-close').addEventListener('click',()=>drawer.remove());
     drawer.querySelector('#cf-history-refresh').addEventListener('click',()=>window.cfHistoryRefresh());
     drawer.querySelector('#cf-history-list').addEventListener('click',event=>{
-      const conversationButton=event.target.closest('[data-conversation-id]');
-      if(conversationButton){window.cfHistoryOpenConversation(conversationButton.dataset.conversationId);return;}
+      // Detail actions also carry the conversation ID; handle explicit actions first.
       const actionButton=event.target.closest('[data-history-action]');
-      if(!actionButton)return;
-      const action=actionButton.dataset.historyAction;
-      if(action==='list')cfHistoryRenderList();
-      else if(action==='restore')window.cfHistoryRestoreSnapshot(actionButton.dataset.conversationId);
+      if(actionButton){
+        const action=actionButton.dataset.historyAction;
+        if(action==='list')cfHistoryRenderList();
+        else if(action==='restore')window.cfHistoryRestoreSnapshot(actionButton.dataset.conversationId);
+        return;
+      }
+      const conversationButton=event.target.closest('[data-conversation-id]');
+      if(conversationButton)window.cfHistoryOpenConversation(conversationButton.dataset.conversationId);
     });
     await window.cfHistoryRefresh();
   };
