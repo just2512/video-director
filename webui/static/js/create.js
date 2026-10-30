@@ -193,7 +193,8 @@ async function cfPrefillFromProject(pid){
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') window.CF_DRAFT_CONTEXT.projectId = pid;
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') window.CF_DRAFT_CONTEXT.assetRefs = refs;
     const supplement=document.getElementById('cf-input-context-details');
-    if(supplement&&(scriptText.trim()||refs.length||window._cfReference||window._cfArticle||window._cfRepo))supplement.open=true;
+    const restoredScript=(document.getElementById('cf-script')||{}).value||'';
+    if(supplement&&(restoredScript.trim()||refs.length||window._cfReference||window._cfArticle||window._cfRepo))supplement.open=true;
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') await apiPost('/api/director/drafts/active', {data:{
       version:1,fields:(function(){const out={};document.querySelectorAll('#cf-form input[id],#cf-form textarea[id],#cf-form select[id]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),
       explicit_fields:Array.from(window.CF?.explicitFields||[]),
@@ -1458,7 +1459,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
             ||!!context.reference||!!context.article||!!context.repo;
           const supplement=document.getElementById('cf-input-context-details');
           if(supplement&&hasSupplementaryContent)supplement.open=true;
-          writeLocalDraft(data);
+          writeLocalDraft(snapshot());
           const st=document.getElementById('cf-draft-status');
           if(st)st.textContent=useLocal?'已恢复本机草稿，正在同步到项目服务':'已恢复上次保存的创作草稿';
           if(useLocal)scheduleSave();
