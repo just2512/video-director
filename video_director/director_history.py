@@ -176,7 +176,20 @@ def record_workflow_result(run_id: str, status: str, result: dict | None = None,
         completed=sum(1 for node in checks if isinstance(node,dict) and node.get("status")=="DONE")
         failed=sum(1 for node in checks if isinstance(node,dict) and node.get("status")=="FAILED")
         content += f"\n\n导演节点记录：{completed} 个完成，{failed} 个失败，共 {len(checks)} 个节点。"
-    append_message(cid,"assistant",content,{"workflow_run_id":run_id,"status":status,"result":result})
+    node_rows=[
+        {"id":str(node.get("id") or ""),"status":str(node.get("status") or ""),
+         "error":str(node.get("error") or "")[:240]}
+        for node in checks if isinstance(node,dict)
+    ]
+    append_message(cid,"assistant",content,{
+        "workflow_run_id":run_id,
+        "status":status,
+        "project_id":pid,
+        "checkpoint":str(result.get("checkpoint") or ""),
+        "director_verify_ok":result.get("director_verify_ok"),
+        "warnings":warnings[:8],
+        "nodes":node_rows,
+    })
     with _LOCK, _connect() as conn:
         _ensure(conn)
         conn.execute("UPDATE director_conversations SET status=?,updated_at=? WHERE conversation_id=?",(status,time.time(),cid))

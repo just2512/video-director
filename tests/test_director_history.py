@@ -38,6 +38,9 @@ def test_conversation_records_user_tool_and_assistant_messages(tmp_path, monkeyp
     assert "这是一段 AI 生成文案。" in loaded["messages"][-1]["content"]
     assert "素材来源已按用户优先策略处理" in loaded["messages"][-1]["content"]
     assert "1 个完成" in loaded["messages"][-1]["content"]
+    assert loaded["messages"][-1]["metadata"]["project_id"] == "project-01"
+    assert loaded["messages"][-1]["metadata"]["nodes"][0]["id"] == "understand"
+    assert "director_inputs" not in loaded["messages"][-1]["metadata"]
 
 
 def test_conversation_list_can_filter_project(tmp_path, monkeypatch):
