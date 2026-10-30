@@ -331,6 +331,7 @@ def test_late_project_prefill_response_cannot_overwrite_newer_project(tmp_path, 
                 old_route = deferred.get("old_route")
                 assert old_route is not None
                 old_route.fulfill(status=200, content_type="application/json", body=json.dumps(old_payload))
+                deferred.pop("old_route", None)
                 page.evaluate("async () => await window.__slowProjectPromise")
                 page.wait_for_function("""async () => {
                     const response=await fetch('/api/director/drafts/active',{cache:'no-store'});
@@ -344,6 +345,12 @@ def test_late_project_prefill_response_cannot_overwrite_newer_project(tmp_path, 
                 assert page.evaluate("window.CF_DRAFT_CONTEXT.projectId") == "project-fast"
                 assert not errors
             finally:
+                pending_route = deferred.pop("old_route", None)
+                if pending_route is not None:
+                    try:
+                        pending_route.abort()
+                    except Exception:
+                        pass
                 browser.close()
     finally:
         server.shutdown()
@@ -428,6 +435,7 @@ def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, 
                         }],
                     }),
                 )
+                deferred.pop("route", None)
                 page.evaluate("async () => await window.__oldAssetUploadPromise")
                 page.wait_for_function("""async () => {
                     const response=await fetch('/api/director/drafts/active',{cache:'no-store'});
@@ -442,6 +450,12 @@ def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, 
                 assert page.locator("#cf-assets-summary").text_content() == "未添加本地素材"
                 assert not errors
             finally:
+                pending_route = deferred.pop("route", None)
+                if pending_route is not None:
+                    try:
+                        pending_route.abort()
+                    except Exception:
+                        pass
                 browser.close()
     finally:
         server.shutdown()

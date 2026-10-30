@@ -449,8 +449,8 @@ jobs:
             tests/test_film_mask_overlay_migration.py \
             tests/test_film_variant_transform_keyframes.py \
             tests/test_film_registered_style_migration.py
-      - name: Run test suite and retain JUnit report
-        id: full_regression
+      - name: Run Create dialog lifecycle browser regressions
+        id: create_dialog_regression
         if: always() && steps.ensure_checkout.outcome == 'success'
         shell: bash
         run: |
@@ -458,7 +458,29 @@ jobs:
           env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
             -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
             -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
-            timeout --signal=TERM --kill-after=15s 22m "$PY311_BIN/python3.11" -m pytest -q --tb=short --junitxml=junit.xml > pytest-output.log 2>&1
+            timeout --signal=TERM --kill-after=15s 5m "$PY311_BIN/python3.11" -m pytest -vv --tb=long --maxfail=3 \
+              --junitxml=create-dialog-junit.xml tests/test_create_dialog_persistence_browser.py \
+              > create-dialog-output.log 2>&1
+          test_exit=$?
+          set -e
+          if [ -f create-dialog-output.log ]; then
+            echo "---- Create dialog focused browser regression output ----"
+            tail -n 260 create-dialog-output.log
+          fi
+          exit "$test_exit"
+
+      - name: Run test suite and retain JUnit report
+        id: full_regression
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.create_dialog_regression.outcome == 'success'
+        shell: bash
+        run: |
+          set +e
+          env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
+            -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
+            -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+            timeout --signal=TERM --kill-after=15s 22m "$PY311_BIN/python3.11" -m pytest -q --tb=short --junitxml=junit.xml > pytest-output.log
+create-dialog-output.log
+create-dialog-junit.xml 2>&1
           test_exit=$?
           set -e
           if [ -f pytest-output.log ]; then
