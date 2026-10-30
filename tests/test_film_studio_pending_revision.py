@@ -181,3 +181,8 @@ def test_studio_close_blocks_async_work_and_cancels_uncommitted_timeline_gesture
     assert "S.envelopeDrag=null" in cancel
     assert "S.drag=null" in cancel
     assert "clearTimelineGesturePreview();" in cancel
+
+def test_creative_plan_export_is_bound_to_the_active_project():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "creative-plan.js").read_text(encoding="utf-8")
+    export = source[source.index("window.creativePlanExportForFilmDirector"):source.index("window.creativePlanValidate = async function")]
+    assert "if (!state.plan || !state.projectId || state.projectId !== projectId()) return null;" in export

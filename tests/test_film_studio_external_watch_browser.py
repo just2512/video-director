@@ -4110,7 +4110,7 @@ def test_shotbook_and_creative_plan_loads_ignore_late_previous_project_responses
                     const kind = match[1];
                     const body = kind === 'shotbook'
                       ? {ok:true,project_id:pid,version:1,saved:true,reference_only:true,shots:[],gates:[],recipes:[],motions:[],timing_note:''}
-                      : {ok:true,exists:false,plan:null,reference_only:pid===firstProject,stale:false,stale_reasons:[]};
+                      : {ok:true,exists:true,plan:{project_id:pid,version:1,timing_source:'fixture',semantic_beats:[],character_timings:[],shots:[]},reference_only:false,stale:false,stale_reasons:[]};
                     if (pid === firstProject) {
                       return new Promise(resolve => { held[kind] = () => resolve(response(body)); });
                     }
@@ -4137,16 +4137,24 @@ def test_shotbook_and_creative_plan_loads_ignore_late_previous_project_responses
                     await Promise.all([oldShotbook, oldPlan]);
                     const afterFirstLate = {
                       shotbookProject: SHOTBOOK && SHOTBOOK.project_id,
-                      planStatus: document.querySelector('#creative-plan-status')?.textContent || ''
+                      planStatus: document.querySelector('#creative-plan-status')?.textContent || '',
+                      exportedPlanProject: window.creativePlanExportForFilmDirector()?.project_id || null
                     };
-                    return {afterSecond, afterFirstLate};
+                    // A plan still resident from B must neither be exported nor saved
+                    // after the selector moves to A without loading A's plan first.
+                    select.value = firstProject;
+                    const mismatchedExport = window.creativePlanExportForFilmDirector();
+                    const mismatchedSave = await window.creativePlanSave(true);
+                    return {afterSecond, afterFirstLate, mismatchedExport, mismatchedSave};
                   } finally {
                     window.fetch = nativeFetch;
                   }
                 }""", {"firstProject": first_project, "secondProject": second_project})
                 assert outcome["afterSecond"]["shotbookProject"] == second_project, outcome
                 assert outcome["afterFirstLate"] == outcome["afterSecond"], outcome
-                assert "尚无创作计划" in outcome["afterFirstLate"]["planStatus"], outcome
+                assert outcome["afterFirstLate"]["exportedPlanProject"] == second_project, outcome
+                assert outcome["mismatchedExport"] is None, outcome
+                assert outcome["mismatchedSave"] is False, outcome
             finally:
                 browser.close()
     finally:

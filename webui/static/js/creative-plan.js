@@ -261,7 +261,7 @@
   };
 
   window.creativePlanExportForFilmDirector = function () {
-    if (!state.plan) return null;
+    if (!state.plan || !state.projectId || state.projectId !== projectId()) return null;
     return {
       project_id:state.plan.project_id,version:state.plan.version,
       reference_only:state.referenceOnly===true,stale:state.stale===true||state.referenceOnly===true,
