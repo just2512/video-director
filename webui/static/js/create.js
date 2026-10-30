@@ -101,7 +101,11 @@ async function cfPrefillFromProject(pid){
     window.CF_DRAFT_CONTEXT.article = window._cfArticle;
     window.CF_DRAFT_CONTEXT.repo = window._cfRepo;
     const spec = (brief && brief.ok && brief.spec_settings) || {};
+    const restoredAspect = spec.width && spec.height ? String(spec.width)+'x'+String(spec.height) : '';
+    const platformByAspect = {'1080x1920':'douyin','1920x1080':'bilibili','1080x1440':'xhs','1080x1080':'square'};
     const settingFields = {
+      'cf-platform': platformByAspect[restoredAspect] || undefined,
+      'cf-resolution': restoredAspect || undefined,
       'cf-duration': spec.duration,
       'cf-style': spec.style_intent,
       'cf-voice-mode': spec.voice_mode,
@@ -129,14 +133,7 @@ async function cfPrefillFromProject(pid){
       const el=document.getElementById(id);
       if(el && value !== undefined && value !== null) el.value=String(value);
     }
-    if (spec.width && spec.height) {
-      const resolution=document.getElementById('cf-resolution');
-      if(resolution) resolution.value=String(spec.width)+'x'+String(spec.height);
-      const aspect=String(spec.width)+'x'+String(spec.height);
-      const platformByAspect={'1080x1920':'douyin','1920x1080':'bilibili','1080x1440':'xhs','1080x1080':'square'};
-      const platform=document.getElementById('cf-platform');
-      if(platform && platformByAspect[aspect]) platform.value=platformByAspect[aspect];
-    }
+
     if (window.CF) {
       window.CF.explicitFields = new Set(Object.keys(CF_EXPLICIT_CONTROL_FIELDS).map(id => CF_EXPLICIT_CONTROL_FIELDS[id])
         .filter(field => settingFields[Object.keys(CF_EXPLICIT_CONTROL_FIELDS).find(id => CF_EXPLICIT_CONTROL_FIELDS[id] === field)] !== undefined));

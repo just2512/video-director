@@ -53,6 +53,8 @@ def test_create_dialog_lifecycle_and_single_style_catalog():
     assert "apiGet('/api/registry/styles')" not in source
     assert "CF_DRAFT_CONTEXT.assetRefs = refs" in source
     assert "spec_settings" in source
+    assert "'cf-platform': platformByAspect[restoredAspect] || undefined" in source
+    assert "'cf-resolution': restoredAspect || undefined" in source
     assert "await Promise.allSettled(pending)" in source
     assert "const isProgress=!!document.getElementById('cf-progress')" in source
     assert "await saving;" in source
