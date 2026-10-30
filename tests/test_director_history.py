@@ -28,7 +28,7 @@ def test_conversation_records_user_tool_and_assistant_messages(tmp_path, monkeyp
         "project_id":"project-01",
         "director_inputs":{"script":{"source":"director","text":"这是一段 AI 生成文案。"}},
         "warnings":["素材来源已按用户优先策略处理"],
-        "director_plan":{"nodes":[{"status":"DONE"},{"status":"PENDING"}]},
+        "director_plan":{"nodes":[{"id":"understand","status":"DONE"},{"id":"render","status":"PENDING"}]},
     })
     loaded=director_history.get_conversation(conv["conversation_id"])
     assert loaded["workflow_run_id"]==rid

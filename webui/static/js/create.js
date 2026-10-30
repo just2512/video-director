@@ -1364,7 +1364,13 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   }
   window.openCreate=function(projectId){
     const existing=document.getElementById('cf-mask');
-    if(existing){existing.style.display='flex';existing.setAttribute('aria-hidden','false');if(window.CF&&document.getElementById('cf-form')?.style.display!=='none')window.CF.state='editing';if(projectId)cfPrefillFromProject(projectId);else restoreDraft();installHandlers();return;}
+    if(existing){
+      existing.style.display='flex';existing.setAttribute('aria-hidden','false');
+      if(window.CF&&document.getElementById('cf-form')?.style.display!=='none')window.CF.state='editing';
+      if(window._cfArticle && typeof cfRestoreArticleSourceUI==='function') cfRestoreArticleSourceUI();
+      if(projectId)cfPrefillFromProject(projectId);else restoreDraft();
+      installHandlers();return;
+    }
     restored=false;baseOpen(projectId);arrangeForm();installHandlers();if(!projectId)restoreDraft();
   };
   window.closeCreate=async function(){
