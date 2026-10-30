@@ -163,6 +163,92 @@ def test_script_generation_and_polish_reveal_and_persist_content(tmp_path, monke
         thread.join(timeout=5)
 
 
+
+def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def project_brief(route):
+                project_id = (route.request.post_data_json or {}).get("project_id")
+                if project_id == "project-with-context":
+                    payload = {
+                        "ok": True,
+                        "brief": "项目 A 的创作要求",
+                        "bundle": {
+                            "script": {"text": "项目 A 的权威文案"},
+                            "assets": {"asset_refs": [{"asset_id": "asset-a", "type": "video", "file": "A.mp4"}]},
+                            "references": [{"id": "reference-a", "report": {"visual_language": {"pace": "slow"}}}],
+                            "articles": [{
+                                "requested_url": "https://example.test/a",
+                                "source_url": "https://example.test/a",
+                                "title": "项目 A 文章",
+                                "content": "项目 A 文章正文",
+                                "content_chars": 8,
+                                "content_sha256": "a" * 64,
+                                "content_type": "text/html",
+                            }],
+                            "software_project": {"id": "repo-a", "root": "D:/project-a", "claims": [{"text": "项目 A 卖点"}]},
+                        },
+                        "spec_settings": {"platform": "xhs", "duration": 45, "style_intent": "knowledge-explainer"},
+                    }
+                else:
+                    payload = {
+                        "ok": True,
+                        "brief": "项目 B 的创作要求",
+                        "bundle": {
+                            "script": {"text": ""},
+                            "assets": {"asset_refs": []},
+                            "references": [],
+                            "articles": [],
+                            "software_project": None,
+                        },
+                        "spec_settings": {},
+                    }
+                return route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+
+            page.route("**/api/director/brief", project_brief)
+            page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+
+            page.evaluate("openCreate('project-with-context')")
+            page.wait_for_function("""() =>
+                document.getElementById('cf-director-brief')?.value === '项目 A 的创作要求'
+                && document.getElementById('cf-script')?.value === '项目 A 的权威文案'
+                && document.getElementById('cf-article-url')?.value === 'https://example.test/a'
+                && document.getElementById('cf-assets-summary')?.textContent?.includes('A.mp4')
+            """, timeout=10000)
+            assert page.locator("#cf-input-context-details").evaluate("(node) => node.open")
+
+            # Reuse the mounted dialog for a different project with no optional data.
+            page.evaluate("openCreate('project-without-context')")
+            page.wait_for_function("""() =>
+                document.getElementById('cf-director-brief')?.value === '项目 B 的创作要求'
+                && document.getElementById('cf-script')?.value === ''
+                && document.getElementById('cf-article-url')?.value === ''
+                && document.getElementById('cf-assets-summary')?.textContent === '未添加本地素材'
+                && document.getElementById('cf-input-context-details')?.open === false
+                && window.CF_DRAFT_CONTEXT?.assetRefs?.length === 0
+                && window._cfReference === null
+                && window._cfArticle === null
+                && window._cfRepo === null
+            """, timeout=10000)
+            assert page.locator("#cf-article-result").inner_text() == ""
+            assert page.locator("#cf-reference-result").inner_text() == ""
+            assert page.locator("#cf-repo-result").inner_text() == ""
+            assert page.locator("#cf-platform").input_value() == ""
+            assert page.locator("#cf-duration").input_value() == ""
+            assert not errors
+            browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:

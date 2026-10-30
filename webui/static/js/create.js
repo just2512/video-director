@@ -90,15 +90,83 @@ function openCreate(projectId){
 }
 
 /** 从已有项目回填表单（修改要求重新创作的入口）。 */
+let _cfProjectPrefillRequest = 0;
+function cfResetProjectPrefillState(projectId){
+  const form=document.getElementById('cf-form');
+  if(form)form.reset();
+
+  window.CF_DRAFT_CONTEXT={
+    assetRefs:[],reference:null,article:null,repo:null,narrationUpload:'',projectId:String(projectId||'')
+  };
+  window._cfReference=null;
+  window._cfReferenceFileObject=null;
+  window._cfArticle=null;
+  window._cfRepo=null;
+  window._cfNarrationUpload='';
+  window._cfAspect='';
+
+  const textFields={
+    'cf-director-brief':'',
+    'cf-script':'',
+    'cf-article-url':'',
+    'cf-repo-root':'',
+    'cf-series-name':'',
+    'cf-watermark':'',
+    'cf-lower-name':'',
+    'cf-lower-role':'',
+    'cf-enhanced':''
+  };
+  for(const [id,value] of Object.entries(textFields)){
+    const node=document.getElementById(id);if(node)node.value=value;
+  }
+  for(const id of ['cf-director-plan-preview','cf-article-result','cf-reference-result','cf-repo-result']){
+    const node=document.getElementById(id);if(node)node.innerHTML='';
+  }
+  const labels={
+    'cf-article-status':'仅抓取公网 HTTP/HTTPS 页面；不访问内网、登录态或本机服务。',
+    'cf-reference-status':'分析完成后加入导演上下文。',
+    'cf-repo-status':'扫描 README / CHANGELOG 等证据文件。',
+    'cf-assets-summary':'未添加本地素材',
+    'cf-script-gen-status':'',
+    'cf-enhance-status':'AI 润色结果会显示在权威文案区，可对比后采用。',
+    'cf-status':'正在载入项目创作要求与素材……'
+  };
+  for(const [id,value] of Object.entries(labels)){
+    const node=document.getElementById(id);if(node)node.textContent=value;
+  }
+  const clearArticle=document.getElementById('cf-clear-article-btn');
+  if(clearArticle)clearArticle.disabled=true;
+  const enhanceBox=document.getElementById('cf-enhance-box');
+  if(enhanceBox)enhanceBox.style.display='none';
+  const gfxArea=document.getElementById('cf-gfx-area');
+  if(gfxArea)gfxArea.style.display='none';
+  document.querySelectorAll('[data-studio-style]').forEach(node=>node.classList.remove('tab-active'));
+  document.querySelectorAll('#cf-form details').forEach(node=>{node.open=false;});
+  const styleDetail=document.getElementById('cf-style-contract-detail');
+  if(styleDetail)styleDetail.textContent=window.CF_STUDIO_CATALOG?.styles?.length
+    ?'所选风格由 StyleContract 写入正式生成链：字幕布局/字号、图片运动、转场预算、配乐音量和音效密度。'
+    :'风格契约未通过环境检查，不提供未验证选项。';
+  const go=document.getElementById('cf-go');
+  if(go){go.disabled=false;go.textContent='AI 开始创作';}
+  if(window.CF){window.CF.explicitFields=new Set();window.CF.state='editing';}
+  if(typeof cfRefreshAssetSummary==='function')cfRefreshAssetSummary();
+  if(typeof cfVoiceModeSync==='function')cfVoiceModeSync();
+  if(typeof cfVisualSourceSync==='function')cfVisualSourceSync();
+  if(typeof cfSeriesSync==='function')cfSeriesSync();
+}
 async function cfPrefillFromProject(pid){
+  const requestId=++_cfProjectPrefillRequest;
   const status = document.getElementById('cf-status');
   try {
     if (window.CF_DEFAULTS_READY) await window.CF_DEFAULTS_READY;
+    if(requestId!==_cfProjectPrefillRequest)return {ok:false,stale:true};
+    cfResetProjectPrefillState(pid);
     const brief = await apiPost('/api/director/brief', {project_id: pid});
+    if(requestId!==_cfProjectPrefillRequest)return {ok:false,stale:true};
     const bundle = (brief && brief.ok && brief.bundle) || {};
-    if (brief && brief.ok && brief.brief) {
-      const el = document.getElementById('cf-director-brief');
-      if (el) el.value = brief.brief;
+    {
+      const el=document.getElementById('cf-director-brief');
+      if(el)el.value=(brief&&brief.ok&&brief.brief)||'';
     }
     // 文案：持久化 bundle.script.text 优先（director_inputs.json 是权威要求源）
     // 项目恢复必须沿用同一份素材池与结构化参考输入，不能只显示一个文件名摘要。
@@ -159,7 +227,7 @@ async function cfPrefillFromProject(pid){
     }
     const scriptText = (bundle.script && bundle.script.text) || '';
     const ta = document.getElementById('cf-script');
-    if (scriptText && ta) ta.value = scriptText;
+    if (ta) ta.value = scriptText;
     // 素材：file input 无法回填，但列出已入库素材清单（重新创作沿用，无需重传）
     if (refs.length) {
       const names = refs.map(r => {
@@ -173,9 +241,10 @@ async function cfPrefillFromProject(pid){
     // bundle 缺失时用 project_detail 兜底补文案（兼容旧流程项目）
     if (!scriptText) {
       const detail = await apiGet('/api/project_detail?project_id=' + encodeURIComponent(pid));
+      if(requestId!==_cfProjectPrefillRequest)return {ok:false,stale:true};
       if (detail && !detail.error && detail.script) {
         const ta2 = document.getElementById('cf-script');
-        if (ta2 && !ta2.value) ta2.value = detail.script;
+        if (ta2) ta2.value = detail.script;
       }
     }
     if (window._cfArticle && typeof cfRenderArticleSource === 'function')
@@ -188,6 +257,7 @@ async function cfPrefillFromProject(pid){
       const node=document.getElementById('cf-repo-result');
       if(node)node.innerHTML='<div class="ok-box">已恢复软件项目证据。</div>';
     }
+    if(requestId!==_cfProjectPrefillRequest)return {ok:false,stale:true};
     if (typeof cfVoiceModeSync === 'function') cfVoiceModeSync();
     if (typeof cfVisualSourceSync === 'function') cfVisualSourceSync();
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') window.CF_DRAFT_CONTEXT.projectId = pid;
@@ -195,6 +265,7 @@ async function cfPrefillFromProject(pid){
     const supplement=document.getElementById('cf-input-context-details');
     const restoredScript=(document.getElementById('cf-script')||{}).value||'';
     if(supplement&&(restoredScript.trim()||refs.length||window._cfReference||window._cfArticle||window._cfRepo))supplement.open=true;
+    if(requestId!==_cfProjectPrefillRequest)return {ok:false,stale:true};
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') await apiPost('/api/director/drafts/active', {data:{
       version:1,fields:(function(){const out={};document.querySelectorAll('#cf-form input[id],#cf-form textarea[id],#cf-form select[id]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),
       explicit_fields:Array.from(window.CF?.explicitFields||[]),
@@ -203,8 +274,11 @@ async function cfPrefillFromProject(pid){
     if (status) status.textContent =
       '已载入项目「' + pid + '」的创作要求、文案、素材与原始制作参数。修改后将创建新版本。';
   } catch (e) {
+    if(requestId!==_cfProjectPrefillRequest)return {ok:false,stale:true};
     if (status) status.textContent = '项目信息载入部分失败（要求/文案仍可手动填写）。';
+    return {ok:false,error:String(e)};
   }
+  return {ok:true,project_id:pid};
 }
 function closeCreate(){
   if (_cfProgressTimer) { clearInterval(_cfProgressTimer); _cfProgressTimer = null; }
@@ -1633,14 +1707,15 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       if(window._cfArticle&&typeof cfRestoreArticleSourceUI==='function')cfRestoreArticleSourceUI();
       installHandlers();
       if(projectId)return cfPrefillFromProject(projectId);
+      _cfProjectPrefillRequest++;
       return restoreDraft();
     }
     restored=false;restorePromise=null;dirtyFields.clear();
-    // Avoid baseOpen's fire-and-forget project prefill; run it once and return its promise.
     baseOpen();
     arrangeForm();
     installHandlers();
     if(projectId)return cfPrefillFromProject(projectId);
+    _cfProjectPrefillRequest++;
     return restoreDraft();
   };
   window.closeCreate=async function(){
