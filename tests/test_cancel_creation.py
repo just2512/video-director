@@ -15,13 +15,23 @@ from video_director import workflow_run as wr
 
 
 class TestCancelMechanism:
-    def test_cancel_flag_lifecycle(self):
-        rid = "run-cancel-test-1"
-        assert not wr._cancel_requested(rid)
-        wr.request_cancel(rid)
-        assert wr._cancel_requested(rid)
-        wr._clear_cancel(rid)
-        assert not wr._cancel_requested(rid)
+    def test_cancel_flag_lifecycle(self, tmp_path, monkeypatch):
+        from video_director import config
+
+        root = tmp_path / "composer"
+        root.mkdir()
+        monkeypatch.setattr(config, "composer_storage_root", lambda: root)
+        assert not wr.request_cancel("run-does-not-exist")
+        rid = wr.start_run("compose", project_id="proj-cancel-flag", steps=["a"])
+        try:
+            assert not wr._cancel_requested(rid)
+            assert wr.request_cancel(rid) is True
+            assert wr._cancel_requested(rid)
+            assert wr.finish_run(rid, wr.CANCELLED, error="测试停止")
+            assert not wr._cancel_requested(rid)
+        finally:
+            wr._clear_cancel(rid)
+            wr.delete_run(rid, allow_waiting=True)
 
     def test_cancelled_run_finishes_as_cancelled(self):
         """端到端：开 run → 请求取消 → worker 收口 CANCELLED（非 FAILED）。"""
@@ -48,26 +58,28 @@ class TestCancelMechanism:
         assert issubclass(wr.RunCancelled, Exception)
         assert "停止" in str(wr.RunCancelled("用户停止创作"))
 
-    def test_director_loop_cancel_checkpoint(self, monkeypatch):
-        """director execute 循环：取消标志置位后下个节点边界抛 RunCancelled。"""
+    def test_director_loop_cancel_checkpoint(self, monkeypatch, tmp_path):
+        """director execute 循环：真实 director_create run 的取消标志可在节点边界读取。"""
         import video_director.director_agent as da
+        from video_director import config
+
+        root = tmp_path / "composer"
+        root.mkdir()
+        monkeypatch.setattr(config, "composer_storage_root", lambda: root)
 
         # 构造最小 plan：两个节点，第一个 DONE，第二个 PENDING
         plan = {"nodes": [
             {"id": "script", "status": "DONE"},
             {"id": "scene_plan", "status": "PENDING"},
         ]}
-        # _ready_nodes 返回 scene_plan；取消标志已置位
         monkeypatch.setattr(da, "_ready_nodes", lambda p: ["scene_plan"])
-        run_id = "run-loop-cancel"
-        wr.request_cancel(run_id)
+        run_id = wr.start_run("director_create", project_id="proj-loop-cancel", steps=["script", "scene_plan"])
         try:
-            # 直接调 execute 的内层循环不容易——此处验证循环首检测的
-            # 语义组件：标志位在（上面已置）+ RunCancelled 会抛
+            assert wr.request_cancel(run_id)
             with pytest.raises(wr.RunCancelled):
-                # 模拟循环顶的行为（与 execute 内实现同源）
+                # 与 director execute 节点循环相同：收到标志后停止推进下一节点。
                 if wr._cancel_requested(run_id):
-                    wr._clear_cancel(run_id)
                     raise wr.RunCancelled("用户停止创作（循环边界检测）")
         finally:
             wr._clear_cancel(run_id)
+            wr.delete_run(run_id, allow_waiting=True)
