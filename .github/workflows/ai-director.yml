@@ -227,6 +227,13 @@ jobs:
 
           written = 0
           for entry in entries:
+              # This tracked bundle is a generated 1.5 MB artifact. GitHub's
+              # JSON blob endpoint does not reliably serve blobs above 1 MB;
+              # the React Studio build below recreates it from source before
+              # browser tests and publication, so do not download stale bytes.
+              if entry.get("path") == "webui/static/js/film-studio-react.js":
+                  print("Skipping generated React Studio bundle; build step recreates it from source.")
+                  continue
               kind = entry.get("type")
               mode = entry.get("mode")
               if kind == "tree":
