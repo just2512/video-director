@@ -459,7 +459,7 @@ jobs:
             -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
             -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
             timeout --signal=TERM --kill-after=15s 5m "$PY311_BIN/python3.11" -m pytest -vv --tb=long --maxfail=3 \
-              --junitxml=create-dialog-junit.xml tests/test_create_dialog_persistence_browser.py \
+              --maxfail=1 --junitxml=create-dialog-junit.xml tests/test_create_dialog_persistence_browser.py \
               > create-dialog-output.log 2>&1
           test_exit=$?
           set -e
