@@ -194,4 +194,9 @@ def record_workflow_result(run_id: str, status: str, result: dict | None = None,
     })
     with _LOCK, _connect() as conn:
         _ensure(conn)
-        conn.execute("UPDATE director_conversations SET status=?,updated_at=? WHERE conversation_id=?",(status,time.time(),cid))
+        conn.execute("""UPDATE director_conversations
+          SET project_id=CASE WHEN ?='' THEN project_id ELSE ? END,
+              workflow_run_id=CASE WHEN ?='' THEN workflow_run_id ELSE ? END,
+              status=?,updated_at=?
+          WHERE conversation_id=?""",
+          (pid,pid,run_id,run_id,status,time.time(),cid))

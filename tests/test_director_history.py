@@ -43,6 +43,22 @@ def test_conversation_records_user_tool_and_assistant_messages(tmp_path, monkeyp
     assert "director_inputs" not in loaded["messages"][-1]["metadata"]
 
 
+def test_workflow_terminal_record_reconciles_link_without_client_callback(tmp_path, monkeypatch):
+    root=tmp_path/"composer";root.mkdir()
+    monkeypatch.setattr(config,"composer_storage_root",lambda:root)
+    conv=director_history.create_conversation(
+        conversation_id="conv-no-client-link",title="浏览器断线场景")
+    rid=workflow_run.start_run("director_create",project_id="project-server-link",
+        steps=["understand"],conversation_id=conv["conversation_id"])
+    # No follow-up /link request is sent by the frontend.
+    workflow_run.finish_run(
+        rid,workflow_run.COMPLETED,result={"project_id":"project-server-link"})
+    loaded=director_history.get_conversation(conv["conversation_id"])
+    assert loaded["project_id"]=="project-server-link"
+    assert loaded["workflow_run_id"]==rid
+    assert loaded["status"]=="COMPLETED"
+
+
 def test_link_workflow_does_not_downgrade_a_fast_completed_run(tmp_path, monkeypatch):
     root=tmp_path/"composer";root.mkdir()
     monkeypatch.setattr(config,"composer_storage_root",lambda:root)
