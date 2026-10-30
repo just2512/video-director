@@ -72,6 +72,7 @@ def test_create_dialog_lifecycle_and_single_style_catalog():
     assert "'cf-platform': spec.platform || ''" in source
     assert "'cf-resolution': restoredAspect || undefined" in source
     assert "await Promise.allSettled(pending)" in source
+    assert "#cf-form input[id],#cf-form textarea[id],#cf-form select[id]" in source
     assert "const isProgress=!!document.getElementById('cf-progress')" in source
     assert "await saving;" in source
     assert "cfClearSavedDraft" in source

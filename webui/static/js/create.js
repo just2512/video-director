@@ -181,7 +181,7 @@ async function cfPrefillFromProject(pid){
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') window.CF_DRAFT_CONTEXT.projectId = pid;
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') window.CF_DRAFT_CONTEXT.assetRefs = refs;
     if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') await apiPost('/api/director/drafts/active', {data:{
-      version:1,fields:(function(){const out={};document.querySelectorAll('#cf-form input[id^="cf-"],#cf-form textarea[id^="cf-"],#cf-form select[id^="cf-"]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),
+      version:1,fields:(function(){const out={};document.querySelectorAll('#cf-form input[id],#cf-form textarea[id],#cf-form select[id]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),
       context:{asset_refs:refs,reference:window._cfReference,article:window._cfArticle,repo:window._cfRepo,project_id:pid}
     }});
     if (status) status.textContent =
@@ -959,7 +959,7 @@ async function createProject(){
   const conversation = await apiPost('/api/director/conversations', {
     title: (directorBrief || script || 'AI 导演创作').slice(0,80),
     initial_message: [directorBrief, script ? '\n\n【权威文案】\n' + script : ''].filter(Boolean).join('') || '请根据我提供的素材、参考资料和其他上下文完成导演创作。',
-    snapshot: {form:{fields:(function(){const out={};document.querySelectorAll('#cf-form input[id^="cf-"],#cf-form textarea[id^="cf-"],#cf-form select[id^="cf-"]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),context:{asset_refs:assetRefs,reference:window._cfReference||null,article:window._cfArticle||null,repo:window._cfRepo||null,narration_upload:uploadedNarration}},director_inputs:directorInputs,request_options:requestOptions}
+    snapshot: {form:{fields:(function(){const out={};document.querySelectorAll('#cf-form input[id],#cf-form textarea[id],#cf-form select[id]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),context:{asset_refs:assetRefs,reference:window._cfReference||null,article:window._cfArticle||null,repo:window._cfRepo||null,narration_upload:uploadedNarration}},director_inputs:directorInputs,request_options:requestOptions}
   });
   if(!conversation||!conversation.ok||!conversation.conversation_id){CF.state='failed';status.textContent='历史对话保存失败，任务未提交：'+((conversation&&conversation.error)||'未知错误');btn.disabled=false;return;}
   window._cfConversationId=conversation.conversation_id;
@@ -1231,7 +1231,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   let timer=null, saving=Promise.resolve(), restored=false;
   function collectFields(){
     const fields={};
-    document.querySelectorAll('#cf-form input[id^="cf-"],#cf-form textarea[id^="cf-"],#cf-form select[id^="cf-"]').forEach(el=>{
+    document.querySelectorAll('#cf-form input[id],#cf-form textarea[id],#cf-form select[id]').forEach(el=>{
       if(el.type==='file')return;
       if(el.type==='radio'){if(el.checked)fields[el.name||el.id]=el.value;}
       else if(el.type==='checkbox')fields[el.id]=!!el.checked;
