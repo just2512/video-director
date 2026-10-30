@@ -145,7 +145,7 @@ def get_conversation(conversation_id: str) -> dict | None:
         row=conn.execute("SELECT * FROM director_conversations WHERE conversation_id=?",(conversation_id,)).fetchone()
         if not row: return None
         messages=conn.execute("""SELECT message_id,role,content,metadata_json,created_at
-          FROM director_messages WHERE conversation_id=? ORDER BY created_at,message_id""",(conversation_id,)).fetchall()
+          FROM director_messages WHERE conversation_id=? ORDER BY created_at,rowid""",(conversation_id,)).fetchall()
     result=dict(row); result["snapshot"]=_decode(result.pop("snapshot_json"),{})
     result["messages"]=[]
     for msg in messages:

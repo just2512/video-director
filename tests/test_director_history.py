@@ -99,6 +99,21 @@ def test_link_workflow_does_not_downgrade_a_fast_completed_run(tmp_path, monkeyp
     assert loaded["messages"][-1]["metadata"]["status"]=="COMPLETED"
 
 
+def test_conversation_messages_keep_insert_order_when_timestamps_collide(tmp_path, monkeypatch):
+    root=tmp_path/"composer";root.mkdir()
+    monkeypatch.setattr(config,"composer_storage_root",lambda:root)
+    monkeypatch.setattr(director_history.time,"time",lambda:1700000000.0)
+    conv=director_history.create_conversation(
+        conversation_id="conv-stable-order",title="同一时间戳",initial_message="用户消息")
+    director_history.append_message(conv["conversation_id"],"tool","第一个工具结果")
+    director_history.append_message(conv["conversation_id"],"tool","第二个工具结果")
+    director_history.append_message(conv["conversation_id"],"assistant","最终答复")
+    loaded=director_history.get_conversation(conv["conversation_id"])
+    assert [m["content"] for m in loaded["messages"]]==[
+        "用户消息","第一个工具结果","第二个工具结果","最终答复"
+    ]
+
+
 def test_conversation_list_can_filter_project(tmp_path, monkeypatch):
     root=tmp_path/"composer";root.mkdir()
     monkeypatch.setattr(config,"composer_storage_root",lambda:root)

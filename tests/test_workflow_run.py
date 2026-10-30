@@ -57,6 +57,54 @@ class TestWorkflowRun:
         assert r2["status"] == "FAILED"
         assert "渲染器" in r2["error"]
 
+    def test_terminal_finish_is_idempotent_and_ignores_late_steps(self, _iso_storage):
+        from video_director import director_history, workflow_run as wf
+
+        conv = director_history.create_conversation(
+            conversation_id="conv-terminal-once", title="只收口一次",
+            initial_message="用户请求",
+        )
+        rid = wf.start_run(
+            "director_create", project_id="wf-terminal-once",
+            steps=["understand", "render"], conversation_id=conv["conversation_id"],
+        )
+        assert wf.finish_run(rid, wf.COMPLETED, result={"answer": "first"})
+        assert not wf.finish_run(rid, wf.FAILED, result={"answer": "late"},
+                                 error="late worker exception")
+        wf.step_update(rid, "render", "DONE", detail="late callback")
+
+        run = wf.get_run(rid)
+        loaded = director_history.get_conversation(conv["conversation_id"])
+        assert run["status"] == wf.COMPLETED
+        assert run["result"] == {"answer": "first"}
+        assert [s["id"] for s in run["steps"]] == ["understand", "render"]
+        assert loaded["status"] == wf.COMPLETED
+        assert [m["role"] for m in loaded["messages"]] == ["user", "assistant"]
+        assert loaded["messages"][-1]["metadata"]["status"] == wf.COMPLETED
+
+    def test_cancel_request_wins_over_a_racing_finish(self, _iso_storage):
+        from video_director import workflow_run as wf
+
+        rid = wf.start_run("compose", project_id="wf-cancel-race")
+        assert wf.request_cancel(rid)
+        # A racing success callback cannot override an accepted stop request.
+        assert wf.finish_run(rid, wf.COMPLETED, result={"completed": True})
+        run = wf.get_run(rid)
+        assert run["status"] == wf.CANCELLED
+        assert run["error"] == "用户请求停止"
+        assert run["result"] == {}
+        assert not wf.request_cancel(rid)
+
+    def test_unsupported_run_kind_is_not_reported_as_cancellable(self, _iso_storage):
+        from video_director import workflow_run as wf
+
+        for kind in ("render_draft", "render_final", "film_render_final"):
+            rid = wf.start_run(kind, project_id="wf-uncancellable")
+            assert not wf.request_cancel(rid)
+            assert wf.get_run(rid)["status"] == wf.RUNNING
+            assert wf.finish_run(rid, wf.COMPLETED)
+
+
     def test_runs_of_project(self, _iso_storage):
         """§70-4：项目关联 run 可查（删除验证/历史都依赖）。"""
         from video_director import workflow_run as wf

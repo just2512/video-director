@@ -2795,7 +2795,19 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({"ok": True, "status": run.get("status"),
                                      "note": "任务已不在执行中，无需停止"})
                     return
-                vd_wf.request_cancel(run_id)
+                if not vd_wf.request_cancel(run_id):
+                    latest = vd_wf.get_run(run_id)
+                    if latest is None:
+                        self._send_json({"ok": False, "error": "run 不存在"}, 404)
+                    elif latest.get("status") == "RUNNING":
+                        self._send_json({
+                            "ok": False, "status": "RUNNING",
+                            "note": "当前任务类型暂不支持中断，任务仍在运行"
+                        }, 409)
+                    else:
+                        self._send_json({"ok": True, "status": latest.get("status"),
+                                         "note": "任务已先行收口，无需停止"})
+                    return
                 self._send_json({"ok": True,
                                  "note": "已请求停止：正在立即中断（当前 LLM 调用会在数秒内停止，不再开启下一步）"})
             except Exception as exc:

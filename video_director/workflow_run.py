@@ -88,9 +88,24 @@ _RUN_CANCEL_LOCK = __import__("threading").Lock()
 
 
 def request_cancel(run_id: str) -> bool:
-    """用户请求停止创作：设置标志位；节点循环在下一步边界检测并收口 CANCELLED。"""
-    with _RUN_CANCEL_LOCK:
-        _RUN_CANCEL_FLAGS.add(run_id)
+    """仅接受执行器能响应的活动任务，并与 finish_run 原子竞争。"""
+    with _DB_LOCK, _conn() as conn:
+        _ensure_table(conn)
+        row = conn.execute(
+            "SELECT kind, status FROM workflow_runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        # These kinds execute in _compose_worker, which installs and checks
+        # this run's cancellation hook. Render-only workers do not yet support it.
+        cancellable_kinds = {
+            "compose", "director_create", "script_only", "product",
+            "image_shots", "gfx", "series_episode", "variant",
+        }
+        if row is None or row["status"] != RUNNING or row["kind"] not in cancellable_kinds:
+            return False
+        # Lock ordering is always DB -> cancel flag. A finalizer can therefore
+        # observe a request accepted before its terminal transition.
+        with _RUN_CANCEL_LOCK:
+            _RUN_CANCEL_FLAGS.add(run_id)
     return True
 
 
@@ -181,41 +196,46 @@ def step_update(run_id: str, step: str, status: str,
     前端步骤面板据此展示「为什么这一步降级了」。
     """
     now = time.time()
-    with _DB_LOCK, _conn() as conn:
-        _ensure_table(conn)
-        row = conn.execute(
-            "SELECT steps_status_json, current, status, conversation_id FROM workflow_runs WHERE run_id=?",
-            (run_id,)).fetchone()
-        if row is None:
-            return
-        steps_status = json.loads(row["steps_status_json"] or "{}")
-        if detail:
-            steps_status[step] = {"status": status, "detail": str(detail)[:240]}
-        else:
-            # 无 detail 用纯 status（保持旧格式，前端兼容读）
-            prev = steps_status.get(step)
-            if isinstance(prev, dict):
-                steps_status[step] = {"status": status,
-                                     "detail": prev.get("detail") or ""}
+    with _DB_LOCK:
+        with _conn() as conn:
+            _ensure_table(conn)
+            row = conn.execute(
+                "SELECT steps_status_json, current, status, conversation_id FROM workflow_runs WHERE run_id=?",
+                (run_id,)).fetchone()
+            # A late worker callback must not mutate a terminal run.
+            if row is None or row["status"] != RUNNING:
+                return
+            steps_status = json.loads(row["steps_status_json"] or "{}")
+            if detail:
+                steps_status[step] = {"status": status, "detail": str(detail)[:240]}
             else:
-                steps_status[step] = status
-        current = step if status == "RUNNING" else _next_pending(steps_status)
-        conn.execute(
-            "UPDATE workflow_runs SET steps_status_json=?, current=?, updated_at=? "
-            "WHERE run_id=?",
-            (json.dumps(steps_status, ensure_ascii=False), current, now, run_id),
-        )
-    label = STEP_LABEL_CN.get(step, step)
-    _emit(run_id, f"workflow.step", {"step": step, "status": status,
-                                     "label": label, "detail": detail or ""})
-    if row["conversation_id"] and status in ("DONE", "FAILED", "SKIPPED"):
-        try:
-            from video_director import director_history
-            director_history.append_message(row["conversation_id"], "tool",
-                f"{label}：{'完成' if status == 'DONE' else '失败' if status == 'FAILED' else '跳过'}" + (f"。{detail[:500]}" if detail else ""),
-                {"workflow_run_id": run_id, "step": step, "status": status})
-        except Exception as exc:
-            logger.warning(f"director conversation step record failed: {exc}")
+                # 无 detail 用纯 status（保持旧格式，前端兼容读）
+                prev = steps_status.get(step)
+                if isinstance(prev, dict):
+                    steps_status[step] = {"status": status,
+                                         "detail": prev.get("detail") or ""}
+                else:
+                    steps_status[step] = status
+            current = step if status == "RUNNING" else _next_pending(steps_status)
+            conn.execute(
+                "UPDATE workflow_runs SET steps_status_json=?, current=?, updated_at=? "
+                "WHERE run_id=? AND status=?",
+                (json.dumps(steps_status, ensure_ascii=False), current, now, run_id, RUNNING),
+            )
+        label = STEP_LABEL_CN.get(step, step)
+        # Keep durable tool events ordered before finish_run's final assistant
+        # message. The shared DB lock prevents a terminal transition interleaving
+        # between the step update and its conversation-history append.
+        if row["conversation_id"] and status in ("DONE", "FAILED", "SKIPPED"):
+            try:
+                from video_director import director_history
+                director_history.append_message(row["conversation_id"], "tool",
+                    f"{label}：{'完成' if status == 'DONE' else '失败' if status == 'FAILED' else '跳过'}" + (f"。{detail[:500]}" if detail else ""),
+                    {"workflow_run_id": run_id, "step": step, "status": status})
+            except Exception as exc:
+                logger.warning(f"director conversation step record failed: {exc}")
+    _emit(run_id, "workflow.step", {"step": step, "status": status,
+                                   "label": label, "detail": detail or ""})
 
 
 def _next_pending(steps_status: dict) -> Optional[str]:
@@ -228,19 +248,38 @@ def _next_pending(steps_status: dict) -> Optional[str]:
 
 
 def finish_run(run_id: str, status: str, result: Optional[dict] = None,
-               error: Optional[str] = None) -> None:
-    """收口：COMPLETED / WAITING_CONFIRMATION / FAILED / CANCELLED。"""
+               error: Optional[str] = None) -> bool:
+    """原子收口：每个 RUNNING run 只允许发生一次终态转换。"""
     now = time.time()
     with _DB_LOCK, _conn() as conn:
         _ensure_table(conn)
-        row = conn.execute("SELECT conversation_id FROM workflow_runs WHERE run_id=?", (run_id,)).fetchone()
-        conversation_id = str(row["conversation_id"] or "") if row else ""
-        conn.execute(
+        row = conn.execute(
+            "SELECT conversation_id, status FROM workflow_runs WHERE run_id=?", (run_id,)
+        ).fetchone()
+        if row is None or row["status"] != RUNNING:
+            return False
+
+        # If cancellation acquired the DB lock first, it wins over a racing
+        # success/failure callback. A later cancel sees the terminal status.
+        with _RUN_CANCEL_LOCK:
+            cancel_requested = run_id in _RUN_CANCEL_FLAGS
+        if cancel_requested and status != CANCELLED:
+            status = CANCELLED
+            result = {}
+            error = error or "用户请求停止"
+
+        conversation_id = str(row["conversation_id"] or "")
+        updated = conn.execute(
             "UPDATE workflow_runs SET status=?, result_json=?, error=?, updated_at=? "
-            "WHERE run_id=?",
+            "WHERE run_id=? AND status=?",
             (status, json.dumps(result or {}, ensure_ascii=False),
-             error, now, run_id),
+             error, now, run_id, RUNNING),
         )
+        if updated.rowcount != 1:
+            return False
+        with _RUN_CANCEL_LOCK:
+            _RUN_CANCEL_FLAGS.discard(run_id)
+
     logger.info(f"workflow: run {run_id} → {status}" + (f" ({error})" if error else ""))
     _emit(run_id, "workflow.done", {"status": status})
     if conversation_id:
@@ -249,6 +288,7 @@ def finish_run(run_id: str, status: str, result: Optional[dict] = None,
             director_history.record_workflow_result(run_id, status, result=result or {}, error=error or "")
         except Exception as exc:
             logger.warning(f"director conversation final record failed: {exc}")
+    return True
 
 
 def get_run(run_id: str) -> Optional[dict]:
