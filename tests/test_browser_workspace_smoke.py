@@ -240,7 +240,7 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 assert page.locator("#cf-article-url").input_value() == "https://news.example/article"
                 assert page.locator('#cf-quick-actions button[onclick="createEnhance()"]').count() == 1
                 assert page.locator('#cf-quick-actions button[onclick="cfMakeGraphicPlan()"]').count() == 1
-                assert page.locator("#cf-render-engine").is_visible()
+                assert page.locator("#cf-render-engine-status").is_visible()
 
                 # History UI reads the persistent conversation API and restores a new draft
                 # without mutating the original conversation record.
