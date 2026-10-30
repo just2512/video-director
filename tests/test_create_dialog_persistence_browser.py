@@ -418,7 +418,9 @@ def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, 
                     page.locator("#cf-assets").set_input_files(str(image))
                 assert "project-a.png" in (upload_request.value.post_data or "")
                 page.wait_for_function("typeof window.CF_DRAFT_CONTEXT.assetUploadPromise?.then === 'function'")
-                page.evaluate("window.__oldAssetUploadPromise = window.CF_DRAFT_CONTEXT.assetUploadPromise")
+                page.evaluate("""() => {
+                    window.__oldAssetUploadPromise = window.CF_DRAFT_CONTEXT.assetUploadPromise;
+                }""")
 
                 page.evaluate("""() => {
                     const state = {settled: false, result: null, error: null};
