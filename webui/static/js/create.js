@@ -560,7 +560,8 @@ function _createPanelHtml(){
           <select id="cf-fps"><option value="24">24 fps</option><option value="30" selected>30 fps</option><option value="60">60 fps</option></select></div>
         <div style="flex:1"><label>输出分辨率</label>
           <select id="cf-resolution">
-            <option value="1080x1920" selected>1080×1920</option>
+            <option value="1080x1920" selected>1080×1920 · 9:16</option>
+            <option value="1080x1440">1080×1440 · 3:4 小红书</option>
             <option value="2160x3840">4K 竖屏 2160×3840</option>
             <option value="1920x1080">1920×1080</option>
             <option value="3840x2160">4K 横屏 3840×2160</option>
