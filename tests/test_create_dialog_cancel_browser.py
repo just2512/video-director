@@ -39,6 +39,7 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                 page.evaluate("""() => {
                   window.__cancelApiCalls = [];
                   window.__workflowStatus = "RUNNING";
+                  window.__taskListStatus = "RUNNING";
                   window.__cancelApiResult = {ok:true, note:"已请求停止"};
                   window.apiPost = async (path, payload) => {
                     window.__cancelApiCalls.push({path, payload});
@@ -52,7 +53,10 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                     if (path === "/api/workflows/run-noncancellable") {
                       return {run_id:"run-noncancellable",status:"RUNNING",steps:[],labels:{},result:{}};
                     }
-                    if (path === "/api/workflows?limit=50") return {runs:[]};
+                    if (path === "/api/workflows?limit=50") return {runs:[{
+                      run_id:"run-background-stop",kind:"director_create",project_id:"project-background",
+                      status:window.__taskListStatus,current:"scene_plan",updated_at:Date.now()/1000,steps:[]
+                    }]};
                     return {ok:true};
                   };
                 }""")
@@ -128,7 +132,15 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                     call.path === "/api/workflows/cancel" &&
                     call.payload.run_id === "run-background-stop")
                 """, timeout=10000)
-                assert page.locator("#task-drawer-list").inner_text().find("没有进行中的任务") >= 0
+                page.wait_for_function("""() => {
+                  const button=document.querySelector('#task-drawer-list button[onclick^="taskCancelRun("]');
+                  return button && button.disabled && button.textContent.includes("正在请求");
+                }""", timeout=10000)
+                page.evaluate("window.__taskListStatus='CANCELLED'; taskRefresh()")
+                page.wait_for_function("""() =>
+                  !document.querySelector('#task-drawer-list button[onclick^="taskCancelRun("]') &&
+                  (document.getElementById('task-drawer-list')?.textContent || '').includes('已完成')
+                """, timeout=10000)
                 assert not page_errors
             finally:
                 page.evaluate("""() => {
