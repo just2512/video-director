@@ -14,7 +14,7 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
 
     import webui.server as web_server
     web_server = importlib.reload(web_server)
-    web_server.COMPOSER_ROOT = storage
+    monkeypatch.setattr(web_server, "COMPOSER_ROOT", storage)
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
