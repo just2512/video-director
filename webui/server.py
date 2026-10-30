@@ -3723,7 +3723,7 @@ class Handler(BaseHTTPRequestHandler):
                             "fit_mode", "clip_duration", "clip_speed", "concat_mode",
                             "transition_mode", "stop_at", "fps", "watermark",
                             "lower_third_name", "lower_third_role", "confirm_mode",
-                            "visual_source", "width", "height",
+                            "visual_source", "platform", "width", "height",
                         ) if key in spec
                     },
                 })

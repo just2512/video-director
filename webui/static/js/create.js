@@ -102,9 +102,8 @@ async function cfPrefillFromProject(pid){
     window.CF_DRAFT_CONTEXT.repo = window._cfRepo;
     const spec = (brief && brief.ok && brief.spec_settings) || {};
     const restoredAspect = spec.width && spec.height ? String(spec.width)+'x'+String(spec.height) : '';
-    const platformByAspect = {'1080x1920':'douyin','1920x1080':'bilibili','1080x1440':'xhs','1080x1080':'square'};
     const settingFields = {
-      'cf-platform': platformByAspect[restoredAspect] || undefined,
+      'cf-platform': spec.platform || '',
       'cf-resolution': restoredAspect || undefined,
       'cf-duration': spec.duration,
       'cf-style': spec.style_intent,

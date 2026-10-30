@@ -272,6 +272,7 @@ def create_director_run(payload: dict) -> dict:
         "voice_mode": choose_setting("voice_mode", payload.get("voice_mode"), default="auto"),
         "voice_rate": choose_setting("voice_rate", payload.get("voice_rate"), default="1.0"),
         "style_intent": effective_style,
+        "platform": effective_platform,
         "width": rw, "height": rh, "fps": fps,
         "bgm": choose_setting("bgm", payload.get("bgm"), default="auto"),
         "bgm_volume": bgm_volume,

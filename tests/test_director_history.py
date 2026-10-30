@@ -64,7 +64,8 @@ def test_create_dialog_lifecycle_and_single_style_catalog():
     assert "apiGet('/api/registry/styles')" not in source
     assert "CF_DRAFT_CONTEXT.assetRefs = refs" in source
     assert "spec_settings" in source
-    assert "'cf-platform': platformByAspect[restoredAspect] || undefined" in source
+    assert '"platform": effective_platform' in (Path(__file__).resolve().parents[1] / "video_director" / "director_service.py").read_text(encoding="utf-8")
+    assert "'cf-platform': spec.platform || ''" in source
     assert "'cf-resolution': restoredAspect || undefined" in source
     assert "await Promise.allSettled(pending)" in source
     assert "const isProgress=!!document.getElementById('cf-progress')" in source
