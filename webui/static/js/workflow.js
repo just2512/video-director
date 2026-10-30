@@ -5,7 +5,7 @@
 // §46 任务中心 = 项目页顶部的「任务」抽屉（不新增第四个顶层 Tab）：
 //   正在处理（RUNNING + 当前步骤人话 + 进度）/ 已完成 / 失败（查看原因 + 重试）。
 
-window.WFUI = {drawerOpen: false, runs: [], refreshing: null, selected: new Set()};
+window.WFUI = {drawerOpen: false, runs: [], refreshing: null, selected: new Set(), cancelling: new Set()};
 
 /** §46 任务抽屉开关（项目页顶部）。 */
 function taskDrawerToggle(){
@@ -26,17 +26,32 @@ async function taskRefresh(){
   try {
     const r = await apiGet('/api/workflows?limit=50');
     WFUI.runs = (r && r.runs) || [];
+    // Keep stop controls disabled until an accepted cancellation reaches a terminal state.
+    WFUI.cancelling.forEach(id => {
+      const current = WFUI.runs.find(item => item.run_id === id);
+      if (!current || current.status !== 'RUNNING') WFUI.cancelling.delete(id);
+    });
   } catch (e) {
     box.innerHTML = '<div class="err-box">任务读取失败：' + esc(String(e).slice(0, 60)) + '</div>';
     return;
   }
   renderTaskDrawer();
-  // RUNNING 存在 → 5s 轮询真实状态（§47 不能纯动画）
-  if (WFUI.runs.some(x => x.status === 'RUNNING') && !WFUI.refreshing) {
-    WFUI.refreshing = setInterval(() => {
-      if (!WFUI.drawerOpen) { clearInterval(WFUI.refreshing); WFUI.refreshing = null; return; }
-      taskRefresh();
-    }, 5000);
+  // RUNNING 存在 → 5s 轮询真实状态（§47 不能纯动画）。
+  // 没有活动任务时立即释放轮询句柄，避免任务抽屉长期打开造成空转。
+  if (WFUI.runs.some(x => x.status === 'RUNNING')) {
+    if (!WFUI.refreshing) {
+      WFUI.refreshing = setInterval(() => {
+        if (!WFUI.drawerOpen) {
+          clearInterval(WFUI.refreshing);
+          WFUI.refreshing = null;
+          return;
+        }
+        taskRefresh();
+      }, 5000);
+    }
+  } else if (WFUI.refreshing) {
+    clearInterval(WFUI.refreshing);
+    WFUI.refreshing = null;
   }
 }
 
@@ -62,6 +77,7 @@ async function taskShowDetail(runId){
       <b>${esc(run.kind)}</b> <span class="hint">${esc(run.status)}</span>
       <span class="tb-sep"></span>
       <button class="btn-secondary btn-sm" onclick="taskRefresh()">返回列表</button>
+      ${run.status === 'RUNNING' ? `<button class="btn-secondary btn-sm" onclick="taskCancelRun('${esc(run.run_id)}')" ${WFUI.cancelling.has(run.run_id)?'disabled':''}>${WFUI.cancelling.has(run.run_id)?'正在请求…':'停止任务'}</button>` : ''}
       ${result.project_id ? `<button class="btn-sm" onclick="taskOpenProject('${esc(result.project_id)}')">打开项目</button>` : ''}
       ${(run.status === 'FAILED' || run.status === 'INTERRUPTED') && run.project_id && run.kind === 'director_create' ? `<button class="btn-sm" onclick="taskRetryDirector('${esc(run.project_id)}')">重新执行</button>` : ''}
     </div>
@@ -69,6 +85,30 @@ async function taskShowDetail(runId){
     <div style="margin-top:6px">${stepRows || '<div class="hint">无步骤记录</div>'}</div>`;
 }
 
+/** 请求停止活动 WorkflowRun；仅以后端确认结果作为停止事实。 */
+async function taskCancelRun(runId){
+  const id=String(runId||'').trim();
+  const run=WFUI.runs.find(item=>item.run_id===id);
+  if(!id||!run||run.status!=='RUNNING')return;
+  if(WFUI.cancelling.has(id))return;
+  WFUI.cancelling.add(id);
+  renderTaskDrawer();
+  let accepted=false;
+  try{
+    const response=await apiPost('/api/workflows/cancel',{run_id:id});
+    if(!response||!response.ok){
+      editorToast('停止未受理：'+((response&&response.error)||'任务仍在运行'),true);
+    }else{
+      accepted=true;
+      editorToast(response.note||'已请求停止，正在等待任务终态。');
+    }
+  }catch(error){
+    editorToast('停止请求失败：'+String(error&&error.message||error),true);
+  }finally{
+    if(!accepted)WFUI.cancelling.delete(id);
+    await taskRefresh();
+  }
+}
 /** 失败的 AI Director 任务在任务中心直接重试，复用后端持久化 bundle 门禁。 */
 async function taskRetryDirector(projectId){
   if(!projectId) return;
@@ -126,6 +166,7 @@ function renderTaskDrawer(){
     <div class="proj-row"><span><b>${esc(r.kind)}${r.project_id ? ' · ' + esc(r.project_id) : ''}</b>
       <span class="hint">${extra}</span></span>
       <span class="btn-row">
+        ${r.status === 'RUNNING' ? `<button class="btn-secondary btn-sm" onclick="taskCancelRun('${esc(r.run_id)}')" ${WFUI.cancelling.has(r.run_id)?'disabled':''}>${WFUI.cancelling.has(r.run_id)?'正在请求…':'停止'}</button>` : ''}
         <button class="btn-secondary btn-sm" onclick="taskShowDetail('${esc(r.run_id)}')">查看</button>
       </span></div>`;
   const section = (title, items, emptyText) => `
@@ -148,4 +189,4 @@ function renderTaskDrawer(){
     section('已完成',done.slice(0,10).map(r=>'<div class="proj-row"><span style="width:28px"><input type="checkbox" '+(WFUI.selected.has(r.run_id)?'checked':'')+' onchange="taskToggleSelected(\''+esc(r.run_id)+'\',this.checked)" onclick="event.stopPropagation()"></span><span style="flex:1"><b>'+esc(r.kind)+(r.project_id?' · '+esc(r.project_id):'')+'</b><span class="hint">'+new Date((r.updated_at||0)*1000).toLocaleString()+'</span></span><button class="btn-secondary btn-sm" onclick="taskShowDetail(\''+esc(r.run_id)+'\')">查看</button></div>'),'暂无');
 }
 
-Object.assign(window, {taskDrawerToggle, taskRefresh, taskShowDetail, taskOpenProject, taskRetryDirector, renderTaskDrawer, taskBulkCleanup, taskToggleAllTerminal, taskToggleSelected, WFUI});
+Object.assign(window, {taskDrawerToggle, taskRefresh, taskShowDetail, taskOpenProject, taskRetryDirector, taskCancelRun, renderTaskDrawer, taskBulkCleanup, taskToggleAllTerminal, taskToggleSelected, WFUI});

@@ -988,8 +988,10 @@ async function createProject(){
 
 /** 创作流程窗口模式：表单隐藏，弹窗变成进度面板（步骤+警告+取消返回修改）。 */
 let _cfProgressTimer = null;
+let _cfStopPendingRunId = "";
 function cfEnterProgressMode(runId){
   window._cfActiveRunId = runId;
+  _cfStopPendingRunId = "";
   const form = document.getElementById('cf-form');
   const status = document.getElementById('cf-status');
   if (!form || !status) return;
@@ -1028,6 +1030,8 @@ function cfEnterProgressMode(runId){
         if (run.status === 'COMPLETED' || run.status === 'WAITING_CONFIRMATION') {
           const result = run.result || {};
           CF.state = run.status === 'WAITING_CONFIRMATION' ? 'awaiting_confirm' : 'editing';
+          if (_cfStopPendingRunId === runId) _cfStopPendingRunId = "";
+          if (window._cfActiveRunId === runId) window._cfActiveRunId = "";
           cfFinalizeCreateDialog();
           if (result.project_id) {
             editorToast(run.status === 'WAITING_CONFIRMATION' ? '方案已生成，正在打开工作台……' : '创作完成，已打开工作台');
@@ -1037,8 +1041,20 @@ function cfEnterProgressMode(runId){
           loadProjects();
         } else if (run.status === 'CANCELLED') {
           CF.state = 'idle';  // 已停止：表单可改可重提
+          if (_cfStopPendingRunId === runId) {
+            cfRestoreCreateFormAfterStop(
+              runId,
+              '任务已确认停止。你的创作要求、文案和素材均已保留，可以修改后重新提交。'
+            );
+          }
         } else {
           CF.state = 'failed';
+          if (_cfStopPendingRunId === runId) {
+            cfRestoreCreateFormAfterStop(
+              runId,
+              '任务已先行失败：' + (run.error || '未知原因') + '。已恢复创作要求，可修改后重试。'
+            );
+          }
         }
       }
     } catch (e) { /* 下次轮询再试 */ }
@@ -1093,18 +1109,100 @@ async function cfStopCreation(){
   }
 }
 
-/** 取消创作并返回修改要求：停止轮询，弹窗还原表单（用户要求原样保留）。 */
-function cfCancelAndEdit(){
+function cfRestoreCreateFormAfterStop(runId, message){
+  if (_cfStopPendingRunId !== runId) return;
   if (_cfProgressTimer) { clearInterval(_cfProgressTimer); _cfProgressTimer = null; }
   const panel = document.getElementById('cf-progress');
   if (panel) panel.remove();
   const form = document.getElementById('cf-form');
   if (form) form.style.display = '';
   const status = document.getElementById('cf-status');
-  if (status) status.textContent = '已取消创作。你的要求和素材都保留在表单里，修改后可重新点「AI 开始创作」。';
+  if (status) status.textContent = message || '任务已结束。你的要求和素材都保留在表单里，可以修改后重新提交。';
   const btn = document.getElementById('cf-go');
   if (btn) { btn.disabled = false; btn.textContent = 'AI 开始创作'; }
-  CF.state = 'idle';
+  _cfStopPendingRunId = '';
+  if (window._cfActiveRunId === runId) window._cfActiveRunId = '';
+  CF.state = 'editing';
+}
+
+/** 停止当前 WorkflowRun，并在服务端确认终态后返回修改要求。 */
+async function cfCancelAndEdit(){
+  const rid = window._cfActiveRunId;
+  if (!rid) {
+    editorToast('没有可停止的创作任务', true);
+    return;
+  }
+  const action = document.querySelector('#cf-progress button[onclick="cfCancelAndEdit()"]');
+  if (action) { action.disabled = true; action.textContent = '正在请求停止…'; }
+  let response;
+  try {
+    response = await apiPost('/api/workflows/cancel', {run_id: rid});
+  } catch (error) {
+    if (action) { action.disabled = false; action.textContent = '停止并返回修改要求'; }
+    editorToast('停止请求失败：' + String(error && error.message || error), true);
+    return;
+  }
+  if (!response || !response.ok) {
+    if (action) { action.disabled = false; action.textContent = '停止并返回修改要求'; }
+    editorToast('停止失败：' + ((response && response.error) || '任务仍在运行'), true);
+    return;
+  }
+  // A terminal result may win the race before the cancellation request reaches
+  // the worker. Only CANCELLED is reported as stopped; a failed task can still
+  // return to editing, while a completed task remains on the normal success path.
+  if (response.status && response.status !== 'RUNNING') {
+    if (response.status === 'CANCELLED' || response.status === 'FAILED' ||
+        response.status === 'INTERRUPTED') {
+      _cfStopPendingRunId = rid;
+      cfRestoreCreateFormAfterStop(
+        rid,
+        response.status === 'CANCELLED'
+          ? '任务已确认停止。你的创作要求、文案和素材均已保留，可以修改后重新提交。'
+          : '任务已先行结束（' + response.status + '）。已恢复创作要求，可修改后重试。'
+      );
+    } else if (action) {
+      action.disabled = false;
+      action.textContent = '停止并返回修改要求';
+      editorToast(response.note || '任务已先行完成，请在工作台查看结果。');
+    }
+    return;
+  }
+
+  _cfStopPendingRunId = rid;
+  // Close the small race where the worker reaches CANCELLED before the POST
+  // response has returned and the periodic poller has already stopped.
+  try {
+    const current = await apiGet('/api/workflows/' + encodeURIComponent(rid));
+    if (current && ['CANCELLED', 'FAILED', 'INTERRUPTED'].includes(current.status)) {
+      cfRestoreCreateFormAfterStop(
+        rid,
+        current.status === 'CANCELLED'
+          ? '任务已确认停止。你的创作要求、文案和素材均已保留，可以修改后重新提交。'
+          : '任务已先行结束（' + current.status + '）。已恢复创作要求，可修改后重试。'
+      );
+      return;
+    }
+    if (current && ['COMPLETED', 'WAITING_CONFIRMATION'].includes(current.status)) {
+      _cfStopPendingRunId = '';
+      if (action) { action.disabled = false; action.textContent = '停止并返回修改要求'; }
+      editorToast('任务已先行完成，请在工作台查看结果。');
+      return;
+    }
+  } catch (_) {
+    // Keep the active progress poller as the recovery path for transient GET errors.
+  }
+
+  const panel = document.getElementById('cf-progress');
+  if (panel) panel.remove();
+  const form = document.getElementById('cf-form');
+  if (form) form.style.display = '';
+  const status = document.getElementById('cf-status');
+  if (status) status.textContent =
+    '已请求停止，正在等待服务端确认任务终态。创作要求、文案和素材已保留；确认停止前不能重新提交。';
+  const btn = document.getElementById('cf-go');
+  if (btn) { btn.disabled = true; btn.textContent = '正在确认停止…'; }
+  // The existing progress timer stays alive until it observes a terminal run.
+  CF.state = 'editing';
 }
 
 /** 后台继续：关窗口，创作不停（工作台「AI 导演流程」面板可继续看）。 */
