@@ -267,6 +267,10 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 page.get_by_role("button", name="恢复为新草稿").click()
                 assert page.locator("#cf-director-brief").input_value() == "从历史恢复的创作要求"
                 assert page.locator("#cf-script").input_value() == "从历史恢复的权威文案"
+                # The history drawer is intentionally persistent after restore.
+                # Close it explicitly before continuing to interact with the editor.
+                page.locator("#cf-history-close").click()
+                page.wait_for_function("document.getElementById('cf-history-drawer') === null")
 
                 page.evaluate("cfClearArticleSource()")
                 assert page.evaluate("window._cfArticle") is None
