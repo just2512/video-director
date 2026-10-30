@@ -161,6 +161,7 @@ function renderTaskDrawer(){
   const running = WFUI.runs.filter(r => r.status === 'RUNNING');
   const waiting = WFUI.runs.filter(r => r.status === 'WAITING_CONFIRMATION');
   const done = WFUI.runs.filter(r => r.status === 'COMPLETED');
+  const cancelled = WFUI.runs.filter(r => r.status === 'CANCELLED');
   const failed = WFUI.runs.filter(r => r.status === 'FAILED' || r.status === 'INTERRUPTED');
   const row = (r, extra) => `
     <div class="proj-row"><span><b>${esc(r.kind)}${r.project_id ? ' · ' + esc(r.project_id) : ''}</b>
@@ -186,6 +187,7 @@ function renderTaskDrawer(){
     section('正在处理',running.map(r=>row(r,(r.current?'步骤：'+esc(r.current)+'……':'排队中'))),'没有进行中的任务')+
     section('等待确认',waiting.map(r=>row(r,'分镜/草稿等待你确认')),'无')+
     section('失败',failed.map(r=>'<div class="proj-row"><span style="width:28px"><input type="checkbox" '+(WFUI.selected.has(r.run_id)?'checked':'')+' onchange="taskToggleSelected(\''+esc(r.run_id)+'\',this.checked)" onclick="event.stopPropagation()"></span><span style="flex:1"><b>'+esc(r.kind)+(r.project_id?' · '+esc(r.project_id):'')+'</b><span class="hint">'+esc(r.status==='INTERRUPTED'?('服务中断：'+(r.error||'可重新执行')):((r.error||'').slice(0,50)||'失败'))+'</span></span>'+(r.project_id&&r.kind==='director_create'?'<button class="btn-secondary btn-sm" onclick="taskRetryDirector(\''+esc(r.project_id)+'\')">重新执行</button>':'')+'<button class="btn-secondary btn-sm" onclick="taskShowDetail(\''+esc(r.run_id)+'\')">查看</button></div>'),'没有失败/中断任务')+
+    section('已停止',cancelled.map(r=>'<div class="proj-row"><span style="width:28px"><input type="checkbox" '+(WFUI.selected.has(r.run_id)?'checked':'')+' onchange="taskToggleSelected(\''+esc(r.run_id)+'\',this.checked)" onclick="event.stopPropagation()"></span><span style="flex:1"><b>'+esc(r.kind)+(r.project_id?' · '+esc(r.project_id):'')+'</b><span class="hint">'+esc((r.error||'用户已停止').slice(0,80))+'</span></span>'+(r.project_id&&r.kind==='director_create'?'<button class="btn-secondary btn-sm" onclick="taskRetryDirector(\''+esc(r.project_id)+'\')">重新执行</button>':'')+'<button class="btn-secondary btn-sm" onclick="taskShowDetail(\''+esc(r.run_id)+'\')">查看</button></div>'),'没有主动停止的任务')+
     section('已完成',done.slice(0,10).map(r=>'<div class="proj-row"><span style="width:28px"><input type="checkbox" '+(WFUI.selected.has(r.run_id)?'checked':'')+' onchange="taskToggleSelected(\''+esc(r.run_id)+'\',this.checked)" onclick="event.stopPropagation()"></span><span style="flex:1"><b>'+esc(r.kind)+(r.project_id?' · '+esc(r.project_id):'')+'</b><span class="hint">'+new Date((r.updated_at||0)*1000).toLocaleString()+'</span></span><button class="btn-secondary btn-sm" onclick="taskShowDetail(\''+esc(r.run_id)+'\')">查看</button></div>'),'暂无');
 }
 

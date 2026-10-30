@@ -139,8 +139,12 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                 page.evaluate("window.__taskListStatus='CANCELLED'; taskRefresh()")
                 page.wait_for_function("""() =>
                   !document.querySelector('#task-drawer-list button[onclick^="taskCancelRun("]') &&
-                  (document.getElementById('task-drawer-list')?.textContent || '').includes('已完成')
+                  (document.getElementById('task-drawer-list')?.textContent || '').includes('已停止') &&
+                  (document.getElementById('task-drawer-list')?.textContent || '').includes('project-background')
                 """, timeout=10000)
+                cancelled_row = page.locator("#task-drawer-list .proj-row").last
+                assert cancelled_row.locator('input[type="checkbox"]').is_visible()
+                assert cancelled_row.locator('button[onclick^="taskShowDetail("]').is_visible()
                 assert not page_errors
             finally:
                 page.evaluate("""() => {
