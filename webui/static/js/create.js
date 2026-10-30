@@ -266,11 +266,10 @@ async function cfPrefillFromProject(pid){
     const restoredScript=(document.getElementById('cf-script')||{}).value||'';
     if(supplement&&(restoredScript.trim()||refs.length||window._cfReference||window._cfArticle||window._cfRepo))supplement.open=true;
     if(requestId!==_cfProjectPrefillRequest)return {ok:false,stale:true};
-    if (typeof window.CF_DRAFT_CONTEXT !== 'undefined') await apiPost('/api/director/drafts/active', {data:{
-      version:1,fields:(function(){const out={};document.querySelectorAll('#cf-form input[id],#cf-form textarea[id],#cf-form select[id]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),
-      explicit_fields:Array.from(window.CF?.explicitFields||[]),
-      context:{asset_refs:refs,reference:window._cfReference,article:window._cfArticle,repo:window._cfRepo,project_id:pid}
-    }});
+    if(typeof window.cfPersistCreateDraftNow==='function'){
+      const saved=await window.cfPersistCreateDraftNow();
+      if(!saved||!saved.ok)throw new Error(saved?.error||'项目草稿保存失败');
+    }
     if (status) status.textContent =
       '已载入项目「' + pid + '」的创作要求、文案、素材与原始制作参数。修改后将创建新版本。';
   } catch (e) {
@@ -1478,6 +1477,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       return {ok:localSaved,localOnly:localSaved,error:String(e)};
     }
   }
+  window.cfPersistCreateDraftNow=saveNow;
   function scheduleSave(){
     const localSaved=writeLocalDraft(snapshot());
     if(timer)clearTimeout(timer);

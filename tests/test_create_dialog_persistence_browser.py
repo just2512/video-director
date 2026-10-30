@@ -249,6 +249,89 @@ def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_
         thread.join(timeout=5)
 
 
+
+def test_late_project_prefill_response_cannot_overwrite_newer_project(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("openCreate()")
+                page.wait_for_function("!!window.CF_DEFAULTS_READY")
+
+                page.evaluate("""() => {
+                  const originalPost=window.apiPost.bind(window);
+                  window.__releaseOldProject=null;
+                  window.apiPost=async (path,payload) => {
+                    if(path==='/api/director/brief'&&payload?.project_id==='project-slow'){
+                      return await new Promise(resolve=>{
+                        window.__releaseOldProject=()=>resolve({
+                          ok:true,brief:'旧项目 A',
+                          bundle:{
+                            script:{text:'旧项目 A 文案'},
+                            assets:{asset_refs:[{asset_id:'old-asset',type:'video',file:'old.mp4'}]},
+                            references:[],articles:[],software_project:null
+                          },
+                          spec_settings:{platform:'xhs',duration:60}
+                        });
+                      });
+                    }
+                    if(path==='/api/director/brief'&&payload?.project_id==='project-fast'){
+                      return {
+                        ok:true,brief:'新项目 B',
+                        bundle:{
+                          script:{text:''},
+                          assets:{asset_refs:[]},
+                          references:[],articles:[],software_project:null
+                        },
+                        spec_settings:{}
+                      };
+                    }
+                    return originalPost(path,payload);
+                  };
+                  const originalGet=window.apiGet.bind(window);
+                  window.apiGet=async path=>{
+                    if(path==='/api/project_detail?project_id=project-fast')return {error:'no legacy script'};
+                    return originalGet(path);
+                  };
+                  window.__slowProjectPromise=window.openCreate('project-slow');
+                  window.openCreate('project-fast');
+                }""")
+
+                page.wait_for_function("""() =>
+                  document.getElementById('cf-director-brief')?.value === '新项目 B'
+                  && document.getElementById('cf-script')?.value === ''
+                  && window.CF_DRAFT_CONTEXT?.projectId === 'project-fast'
+                """, timeout=10000)
+                assert page.locator("#cf-input-context-details").evaluate("(node) => !node.open")
+
+                page.evaluate("window.__releaseOldProject()")
+                page.evaluate("window.__slowProjectPromise")
+                page.wait_for_timeout(250)
+                assert page.locator("#cf-director-brief").input_value() == "新项目 B"
+                assert page.locator("#cf-script").input_value() == ""
+                assert page.evaluate("window.CF_DRAFT_CONTEXT.projectId") == "project-fast"
+
+                saved = page.evaluate("""async () => {
+                  const response=await fetch('/api/director/drafts/active',{cache:'no-store'});
+                  const result=await response.json();
+                  return result?.draft?.data || {};
+                }""")
+                assert saved.get("context",{}).get("project_id") == "project-fast"
+                assert saved.get("fields",{}).get("cf-director-brief") == "新项目 B"
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:
