@@ -212,6 +212,13 @@ async function cfPrefillFromProject(pid){
       const el=document.getElementById(id);
       if(el && value !== undefined && value !== null) el.value=String(value);
     }
+    // Older projects may have a platform but no persisted width/height pair.
+    // Derive the same aspect ratio as the platform picker instead of retaining
+    // the default portrait resolution from the previously mounted form.
+    if(!restoredAspect&&spec.platform&&typeof createPlatformSync==='function')createPlatformSync();
+    document.querySelectorAll('[data-studio-style]').forEach(button=>{
+      button.classList.toggle('tab-active',!!spec.style_intent&&button.dataset.studioStyle===String(spec.style_intent));
+    });
 
     if (window.CF) {
       // 新规格保留原始字段来源；旧项目规格缺少来源时才兼容推断非空字段。
