@@ -81,6 +81,27 @@ def create_director_run(payload: dict) -> dict:
     if not pid:
         pid = f"web-{uuid.uuid4().hex[:8]}"
 
+    constraints = inputs.get("constraints") or {}
+    if not isinstance(constraints, dict):
+        raise DirectorServiceError("INVALID_INPUT", "director_inputs.constraints 必须是对象")
+    requested_engine = _text(constraints.get("render_engine") or "ffmpeg", "render_engine")
+    from video_director.studio_catalog import full_video_engine_status
+    try:
+        engine_status = full_video_engine_status(requested_engine)
+    except Exception as exc:
+        raise DirectorServiceError(
+            "ENGINE_CHECK_FAILED",
+            f"最终视频引擎核验失败：{str(exc)[:180]}",
+            503,
+        ) from exc
+    if not engine_status.get("selectable"):
+        detail = engine_status.get("detail") or engine_status.get("name") or requested_engine
+        raise DirectorServiceError(
+            "RENDER_ENGINE_UNAVAILABLE",
+            f"最终视频引擎不可执行：{detail}",
+            503,
+        )
+
     merged = dict(payload)
     merged["project_id"] = pid
     merged["brief"] = brief

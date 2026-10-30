@@ -43,6 +43,35 @@ def _ffmpeg_status() -> tuple[str, str, str]:
         return "MISSING", "", f"FFmpeg 环境检查失败：{exc}"[:240]
 
 
+def full_video_engine_status(engine_id: str = "ffmpeg") -> dict:
+    """Return the readiness of a registered full-video renderer.
+
+    Graphics-layer providers are not final-video renderers. Reuse the cached
+    FFmpeg probe without launching Chromium or building the template catalog.
+    """
+    requested = str(engine_id or "").strip()
+    if requested != "ffmpeg":
+        return {
+            "id": requested,
+            "name": requested or "未指定引擎",
+            "scope": "full_video",
+            "status": "MISSING",
+            "selectable": False,
+            "detail": "当前仅注册 FFmpeg 作为最终视频渲染器。",
+            "path": "",
+        }
+    status, executable, detail = _ffmpeg_status()
+    return {
+        "id": "ffmpeg",
+        "name": "FFmpeg",
+        "scope": "full_video",
+        "status": status,
+        "selectable": status == "PASS",
+        "detail": detail,
+        "path": executable,
+    }
+
+
 @lru_cache(maxsize=1)
 def _browser_status() -> tuple[str, str]:
     try:

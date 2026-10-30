@@ -7,6 +7,16 @@ from video_director.director_service import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _stable_final_renderer(monkeypatch):
+    from video_director import studio_catalog
+    monkeypatch.setattr(studio_catalog, "full_video_engine_status", lambda engine_id="ffmpeg": {
+        "id": "ffmpeg", "name": "FFmpeg", "scope": "full_video",
+        "status": "PASS", "selectable": True, "detail": "fixture FFmpeg is executable",
+        "path": "/fixture/ffmpeg",
+    })
+
+
 def test_empty_creation_is_rejected_before_workflow_side_effects():
     with pytest.raises(DirectorServiceError) as exc:
         create_director_run({})
@@ -105,7 +115,7 @@ def test_create_director_run_builds_the_same_bundle_and_workflow(monkeypatch):
             "references": [],
             "articles": [],
             "software_project": {},
-            "constraints": {"visual_source": "local", "allow_generation": True},
+            "constraints": {"visual_source": "local", "allow_generation": True, "render_engine": "ffmpeg"},
         },
     })
 
@@ -250,3 +260,83 @@ def test_invalid_resolution_is_rejected(value, monkeypatch):
             "director_inputs": {"brief": "test", "assets": {}},
         })
     assert exc.value.code == "INVALID_RESOLUTION"
+
+
+def test_create_rejects_unavailable_final_video_engine_before_workflow_side_effects(monkeypatch):
+    from video_director import director_inputs, studio_catalog, workflow_run
+
+    monkeypatch.setattr(studio_catalog, "full_video_engine_status", lambda engine_id="ffmpeg": {
+        "id": "ffmpeg", "name": "FFmpeg", "scope": "full_video",
+        "status": "MISSING", "selectable": False, "detail": "FFmpeg 不可执行",
+    })
+    monkeypatch.setattr(
+        director_inputs, "build_bundle",
+        lambda _merged: pytest.fail("engine gate must run before bundle construction"),
+    )
+    monkeypatch.setattr(
+        workflow_run, "run_director_create_async",
+        lambda *_args, **_kwargs: pytest.fail("engine gate must run before workflow creation"),
+    )
+
+    with pytest.raises(DirectorServiceError) as exc:
+        create_director_run({
+            "brief": "制作一条短视频",
+            "director_inputs": {
+                "brief": "制作一条短视频",
+                "assets": {"asset_refs": []},
+                "constraints": {"render_engine": "ffmpeg"},
+            },
+        })
+    assert exc.value.code == "RENDER_ENGINE_UNAVAILABLE"
+    assert exc.value.status_code == 503
+    assert "FFmpeg 不可执行" in str(exc.value)
+
+
+def test_create_rejects_graphics_provider_as_final_video_engine(monkeypatch):
+    from video_director import studio_catalog, director_inputs, workflow_run
+
+    monkeypatch.setattr(
+        studio_catalog, "full_video_engine_status",
+        lambda engine_id: {
+            "id": engine_id, "name": engine_id, "scope": "full_video",
+            "status": "MISSING", "selectable": False,
+            "detail": "Playwright Chromium 仅为图形层引擎",
+        },
+    )
+    monkeypatch.setattr(
+        director_inputs, "build_bundle",
+        lambda _merged: pytest.fail("unsupported renderer must be rejected before bundle construction"),
+    )
+    monkeypatch.setattr(
+        workflow_run, "run_director_create_async",
+        lambda *_args, **_kwargs: pytest.fail("unsupported renderer must not launch a workflow"),
+    )
+
+    with pytest.raises(DirectorServiceError) as exc:
+        create_director_run({
+            "brief": "制作一条短视频",
+            "director_inputs": {
+                "brief": "制作一条短视频",
+                "assets": {"asset_refs": []},
+                "constraints": {"render_engine": "browser"},
+            },
+        })
+    assert exc.value.code == "RENDER_ENGINE_UNAVAILABLE"
+    assert exc.value.status_code == 503
+
+
+def test_full_video_engine_status_reuses_ffmpeg_catalog_probe(monkeypatch):
+    from video_director import studio_catalog
+
+    monkeypatch.setattr(
+        studio_catalog, "_ffmpeg_status",
+        lambda: ("PASS", "/usr/bin/ffmpeg", "ffmpeg fixture"),
+    )
+    result = studio_catalog.full_video_engine_status("ffmpeg")
+    assert result["selectable"] is True
+    assert result["status"] == "PASS"
+    assert result["path"] == "/usr/bin/ffmpeg"
+
+    unsupported = studio_catalog.full_video_engine_status("browser")
+    assert unsupported["selectable"] is False
+    assert unsupported["scope"] == "full_video"

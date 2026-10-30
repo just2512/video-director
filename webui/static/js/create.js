@@ -570,6 +570,8 @@ async function cfLoadStudioCatalog(){
     }
   }catch(error){
     if(status)status.textContent='引擎/风格目录读取失败：'+(error.message||error);
+    const engineStatus=document.getElementById('cf-render-engine-status');
+    if(engineStatus)engineStatus.textContent='最终视频引擎核验失败；提交时服务端将再次检查';
     if(box)box.textContent='未能核验风格执行能力；不会回退到未验证的风格列表。';
     if(templates)templates.textContent='';
   }
