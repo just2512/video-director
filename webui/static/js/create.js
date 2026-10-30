@@ -69,7 +69,8 @@ function openCreate(projectId){
   document.body.appendChild(mask);
   CF.state = 'editing';
   CF.explicitFields = new Set();
-  createLoadDefaults();
+  // 先暴露默认值加载 Promise；草稿/项目回填必须等待 Select 选项就绪，避免被异步默认值覆盖。
+  window.CF_DEFAULTS_READY = createLoadDefaults();
   cfRestoreArticleSourceUI();
   // 2026-10-25 用户裁决：随时可回到新建项目对话框——带 projectId 时回填
   // 该项目的创作要求/文案（素材在项目里保留，file input 无法回填但清单提示）。
@@ -82,6 +83,7 @@ function openCreate(projectId){
 async function cfPrefillFromProject(pid){
   const status = document.getElementById('cf-status');
   try {
+    if (window.CF_DEFAULTS_READY) await window.CF_DEFAULTS_READY;
     const brief = await apiPost('/api/director/brief', {project_id: pid});
     const bundle = (brief && brief.ok && brief.bundle) || {};
     if (brief && brief.ok && brief.brief) {
@@ -1291,8 +1293,11 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   }
   async function restoreDraft(){
     if(restored)return;restored=true;
-    try{const r=await apiGet('/api/director/drafts/active');if(r&&r.ok&&r.draft&&r.draft.data)applySnapshot(r.draft.data);}
-    catch(e){const st=document.getElementById('cf-draft-status');if(st)st.textContent='草稿读取失败：'+(e.message||e);}
+    try{
+      if(window.CF_DEFAULTS_READY) await window.CF_DEFAULTS_READY;
+      const r=await apiGet('/api/director/drafts/active');
+      if(r&&r.ok&&r.draft&&r.draft.data)applySnapshot(r.draft.data);
+    }catch(e){const st=document.getElementById('cf-draft-status');if(st)st.textContent='草稿读取失败：'+(e.message||e);}
   }
   function arrangeForm(){
     const form=document.getElementById('cf-form');if(!form||form.dataset.arranged==='1')return;form.dataset.arranged='1';

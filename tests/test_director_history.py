@@ -64,9 +64,9 @@ def test_create_dialog_lifecycle_and_single_style_catalog():
     assert "apiGet('/api/registry/styles')" not in source
     assert "CF_DRAFT_CONTEXT.assetRefs = refs" in source
     assert "spec_settings" in source
+    server_source=(Path(__file__).resolve().parents[1]/"webui/server.py").read_text(encoding="utf-8")
     assert '"explicit_fields": spec.get("_explicit_fields") if "_explicit_fields" in spec else None' in server_source
     assert "Array.isArray(spec.explicit_fields)" in source
-    server_source=(Path(__file__).resolve().parents[1]/"webui/server.py").read_text(encoding="utf-8")
     assert '"visual_source", "platform", "width", "height"' in server_source
     assert '"platform": effective_platform' in (Path(__file__).resolve().parents[1] / "video_director" / "director_service.py").read_text(encoding="utf-8")
     assert "'cf-platform': spec.platform || ''" in source
@@ -75,6 +75,9 @@ def test_create_dialog_lifecycle_and_single_style_catalog():
     assert "#cf-form input[id],#cf-form textarea[id],#cf-form select[id]" in source
     assert "const isProgress=!!document.getElementById('cf-progress')" in source
     assert "await saving;" in source
+    assert "window.CF_DEFAULTS_READY = createLoadDefaults();" in source
+    assert "if(window.CF_DEFAULTS_READY) await window.CF_DEFAULTS_READY;" in source
+    assert "if (window.CF_DEFAULTS_READY) await window.CF_DEFAULTS_READY;" in source
     assert "cfClearSavedDraft" in source
     assert "window.CF_DRAFT_CONTEXT.assetRefs = refs" in source
     assert 'if(!quickActions || !quickActions.contains(button)) button.remove();' in source
