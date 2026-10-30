@@ -457,7 +457,22 @@ def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, 
                     }),
                 )
                 deferred.pop("route", None)
-                page.evaluate("async () => await window.__oldAssetUploadPromise")
+                page.evaluate("""() => {
+                    const state = {settled: false, result: null, error: null};
+                    window.__oldAssetUploadState = state;
+                    // Keep the sync Playwright event loop free to process the upload response.
+                    Promise.resolve(window.__oldAssetUploadPromise).then(
+                        result => { state.settled = true; state.result = result; },
+                        error => { state.settled = true; state.error = String(error); }
+                    );
+                }""")
+                page.wait_for_function(
+                    "window.__oldAssetUploadState?.settled === true",
+                    timeout=10000,
+                )
+                upload_state = page.evaluate("window.__oldAssetUploadState")
+                assert upload_state["error"] is None, upload_state["error"]
+                assert upload_state["result"] is False, upload_state
                 page.wait_for_function("""async () => {
                     const response=await fetch('/api/director/drafts/active',{cache:'no-store'});
                     const result=await response.json();
