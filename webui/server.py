@@ -2591,12 +2591,18 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._send_json({"ok":False,"error":str(exc)[:240]},500)
         elif route == "/api/workflows":
-            # §52 GET /api/workflows：run 列表（可选 project_id 过滤）
+            # §52 GET /api/workflows：run 列表（可选 project_id 过滤和 limit）。
+            # The task drawer requests 50; honor it while bounding untrusted callers.
             try:
                 from video_director import workflow_run as vd_wf
                 qs = parse_qs(parsed.query)
                 pid = qs.get("project_id", [""])[0]
-                self._send_json({"runs": vd_wf.list_runs(project_id=pid or None)})
+                try:
+                    limit = int(qs.get("limit", ["20"])[0])
+                except (TypeError, ValueError):
+                    limit = 20
+                limit = max(1, min(limit, 100))
+                self._send_json({"runs": vd_wf.list_runs(project_id=pid or None, limit=limit)})
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
         elif route.startswith("/api/workflows/"):

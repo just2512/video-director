@@ -78,13 +78,15 @@ async function taskShowDetail(runId){
     return `<div class="hint"><b class="${st[1]}">${st[0]}</b> ${esc(label)} <span class="hint">(${esc(s.status)})</span></div>`;
   }).join('');
   const result = run.result || {};
+  // project_id is a WorkflowRun field; result may be empty for cancelled/interrupted runs.
+  const projectId = run.project_id || result.project_id || "";
   box.innerHTML = `
     <div class="btn-row" style="align-items:center;margin-top:0">
       <b>${esc(run.kind)}</b> <span class="hint">${esc(run.status)}</span>
       <span class="tb-sep"></span>
       <button class="btn-secondary btn-sm" onclick="taskRefresh()">返回列表</button>
       ${taskRunCanCancel(run) ? `<button class="btn-secondary btn-sm" onclick="taskCancelRun('${esc(run.run_id)}')" ${WFUI.cancelling.has(run.run_id)?'disabled':''}>${WFUI.cancelling.has(run.run_id)?'正在请求…':'停止任务'}</button>` : (run.status === 'RUNNING' ? '<button class="btn-secondary btn-sm" disabled title="当前任务类型暂不支持中断">不支持停止</button>' : '')}
-      ${result.project_id ? `<button class="btn-sm" onclick="taskOpenProject('${esc(result.project_id)}')">打开项目</button>` : ''}
+      ${projectId ? `<button class="btn-sm" onclick="taskOpenProject('${esc(projectId)}')">打开项目</button>` : ''}
       ${(run.status === 'FAILED' || run.status === 'INTERRUPTED') && run.project_id && run.kind === 'director_create' ? `<button class="btn-sm" onclick="taskRetryDirector('${esc(run.project_id)}')">重新执行</button>` : ''}
     </div>
     ${run.error ? `<div class="err-box">失败原因：${esc(run.error.slice(0, 160))}</div>` : ''}
@@ -119,7 +121,9 @@ async function taskCancelRun(runId){
 async function taskRetryDirector(projectId){
   if(!projectId) return;
   const buttons = document.querySelectorAll('#task-drawer-list button');
-  buttons.forEach(b => { if (b.textContent.trim() === '重新执行') b.disabled = true; });
+  buttons.forEach(b => {
+    if (['重新执行', '重新开始'].includes(b.textContent.trim())) b.disabled = true;
+  });
   try {
     const r = await apiPost('/api/director/retry', {project_id: projectId});
     if (!r || !r.ok) {

@@ -53,6 +53,10 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                     if (path === "/api/workflows/run-noncancellable") {
                       return {run_id:"run-noncancellable",status:"RUNNING",steps:[],labels:{},result:{}};
                     }
+                    if (path === "/api/workflows/run-background-stop") {
+                      return {run_id:"run-background-stop",kind:"director_create",project_id:"project-background",
+                        status:"CANCELLED",cancellable:false,steps:[],labels:{},result:{}};
+                    }
                     if (path === "/api/workflows?limit=50") return {runs:[
                       {run_id:"run-background-stop",kind:"director_create",project_id:"project-background",
                        status:window.__taskListStatus,cancellable:true,current:"scene_plan",updated_at:Date.now()/1000,steps:[]},
@@ -136,7 +140,7 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                 render_row = page.locator("#task-drawer-list .proj-row").filter(has_text="project-render")
                 assert render_row.locator("button[disabled]").inner_text() == "不支持停止"
                 assert render_row.locator('button[onclick^="taskCancelRun("]').count() == 0
-                stop_button = page.locator('#task-drawer-list button[onclick*="run-background-stop"]')
+                stop_button = page.locator('#task-drawer-list button[onclick^="taskCancelRun("]')
                 stop_button.wait_for(state="visible")
                 stop_button.click()
                 page.wait_for_function("""() =>
@@ -157,6 +161,11 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
                 cancelled_row = page.locator("#task-drawer-list .proj-row").last
                 assert cancelled_row.locator('input[type="checkbox"]').is_visible()
                 assert cancelled_row.locator('button[onclick^="taskShowDetail("]').is_visible()
+                cancelled_row.locator('button[onclick^="taskShowDetail("]').click()
+                page.wait_for_function("""() =>
+                  document.querySelector('#task-drawer-list button[onclick^="taskOpenProject("]') !== null
+                """, timeout=10000)
+                assert "打开项目" in page.locator("#task-drawer-list").inner_text()
                 assert not page_errors
             finally:
                 page.evaluate("""() => {

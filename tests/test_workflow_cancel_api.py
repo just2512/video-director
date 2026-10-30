@@ -26,6 +26,12 @@ def _post(base_url: str, payload: dict) -> tuple[int, dict]:
         return response.code, json.loads(body) if body else {}
 
 
+def _get(base_url: str, path: str) -> tuple[int, dict]:
+    with urlopen(base_url + path, timeout=5) as response:
+        body = response.read().decode("utf-8")
+        return response.status, json.loads(body) if body else {}
+
+
 def test_workflow_cancel_api_enforces_real_worker_capabilities(tmp_path, monkeypatch):
     root = tmp_path / "composer"
     root.mkdir()
@@ -83,6 +89,22 @@ def test_workflow_cancel_api_enforces_real_worker_capabilities(tmp_path, monkeyp
         assert terminal["ok"] is True
         assert terminal["status"] == workflow_run.COMPLETED
         assert not workflow_run._cancel_requested(render_id)
+
+        # The task drawer asks for 50 entries. GET /api/workflows must forward
+        # the bounded query parameter instead of silently using list_runs' 20 default.
+        calls = {}
+        original_list_runs = workflow_run.list_runs
+        def capture_list_runs(project_id=None, limit=20):
+            calls.update(project_id=project_id, limit=limit)
+            return [{"run_id": "listed-run", "status": workflow_run.COMPLETED}]
+        monkeypatch.setattr(workflow_run, "list_runs", capture_list_runs)
+        list_status, listing = _get(
+            base_url, "/api/workflows?project_id=limit-check&limit=50"
+        )
+        assert list_status == 200
+        assert listing["runs"][0]["run_id"] == "listed-run"
+        assert calls == {"project_id": "limit-check", "limit": 50}
+        monkeypatch.setattr(workflow_run, "list_runs", original_list_runs)
     finally:
         for run_id in run_ids:
             run = workflow_run.get_run(run_id)
