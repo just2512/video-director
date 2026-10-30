@@ -165,7 +165,7 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert page.locator("#tg-detail").inner_text().find("使用自己的素材") >= 0
                 page.evaluate("templateGalleryClose()")
 
-                page.locator('#cf-panel button:has-text("关闭")').first.click()
+                page.locator('#cf-panel button[onclick="closeCreate()"]').click()
                 page.wait_for_function(
                     "() => typeof workspaceOpen === 'function' && typeof shotbookLoad === 'function'"
                 )
