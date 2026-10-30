@@ -2237,15 +2237,22 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     return false;
   }
   async function filmStudioInitialize(acceptWarnings) {
-    if(!S.projectId){showStatus('缺少项目编号。','error');return;}
-    var expected=S.migration?S.migration.source_composition_version:null;
-    if(expected==null){showStatus('迁移预览缺少源版本号，请重新载入。','error');return;}
-    var selectedVariantId=S.migration&&S.migration.migration_preview
-      ?(S.migration.migration_preview.selected_variant_id||null):null;
+    if(!S.projectId){showStatus('缺少项目编号。','error');return false;}
+    // Initialization is an asynchronous project-scoped request. Keep its
+    // identity just like filmStudioLoad so a late response cannot replace a
+    // different project's active FilmDocument or migration preview.
+    var requestProjectId=String(S.projectId);
+    var requestGeneration=S.loadGeneration;
+    var migration=S.migration;
+    var expected=migration?migration.source_composition_version:null;
+    if(expected==null){showStatus('迁移预览缺少源版本号，请重新载入。','error');return false;}
+    var selectedVariantId=migration&&migration.migration_preview
+      ?(migration.migration_preview.selected_variant_id||null):null;
     var r=await apiPost('/api/editor/film/initialize',{
-      project_id:S.projectId,expected_composition_version:expected,
+      project_id:requestProjectId,expected_composition_version:expected,
       selected_variant_id:selectedVariantId,accept_warnings:!!acceptWarnings
     });
+    if(!S.open||requestProjectId!==S.projectId||requestGeneration!==S.loadGeneration)return false;
     if(r&&r.code==='MIGRATION_WARNINGS_REQUIRE_CONFIRMATION'){
       var message='以下内容目前不能保证无损迁移：\n\n'+(r.warnings||[]).join('\n')+'\n\n确认后才写入 film.html。是否继续？';
       if(window.confirm(message))return filmStudioInitialize(true);

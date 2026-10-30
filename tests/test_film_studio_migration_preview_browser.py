@@ -67,6 +67,24 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
     import webui.server as web_server
     web_server = importlib.reload(web_server)
     web_server.COMPOSER_ROOT = storage
+    initialize_request_started = threading.Event()
+    release_initialize_request = threading.Event()
+    initialize_delay_consumed = [False]
+    original_do_post = web_server.Handler.do_POST
+
+    def delay_first_film_initialize(handler):
+        if (
+            handler.path.split("?", 1)[0] == "/api/editor/film/initialize"
+            and not initialize_delay_consumed[0]
+        ):
+            initialize_delay_consumed[0] = True
+            initialize_request_started.set()
+            if not release_initialize_request.wait(timeout=10):
+                handler.send_error(504, "test did not release delayed initialization")
+                return
+        original_do_post(handler)
+
+    monkeypatch.setattr(web_server.Handler, "do_POST", delay_first_film_initialize)
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -175,7 +193,49 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 assert fd.read_project_film(project_id)["exists"] is False
                 assert page.locator("#fs-timeline .fs-migrate-action").is_visible()
 
-                page.locator("#fs-initialize-button").click()
+                # Hold project A's initialization response while the user opens
+                # project B. The response belongs to A and must never replace B's
+                # active Studio state, even if A was initialized on the server.
+                page.evaluate("""() => {
+                  const state = {settled: false, result: null, error: null};
+                  window.__migrationInitializeState = state;
+                  Promise.resolve(window.filmStudioInitialize(false)).then(
+                    result => { state.settled = true; state.result = result; },
+                    error => { state.settled = true; state.error = String(error); }
+                  );
+                }""")
+                assert initialize_request_started.wait(timeout=5), "film initialization request did not reach the server"
+                opened_target = page.evaluate("(pid) => workspaceOpen(pid)", target_project_id)
+                assert opened_target.get("ok") is True, opened_target
+                page.wait_for_function(
+                    "(pid) => window.filmStudioStore?.getSnapshot()?.projectId === pid",
+                    arg=target_project_id,
+                    timeout=10000,
+                )
+                page.wait_for_function(
+                    "() => !!document.querySelector('#fs-timeline .fs-clip[data-clip=switch-clip]')",
+                    timeout=10000,
+                )
+                release_initialize_request.set()
+                page.wait_for_function(
+                    "() => window.__migrationInitializeState?.settled === true",
+                    timeout=10000,
+                )
+                initialize_state = page.evaluate("window.__migrationInitializeState")
+                assert initialize_state["error"] is None, initialize_state["error"]
+                assert initialize_state["result"] is False, initialize_state
+                assert page.evaluate("() => window.filmStudioStore.getSnapshot().projectId") == target_project_id
+                assert page.locator("#fs-project-label").inner_text().startswith(target_project_id)
+                assert page.locator("#fs-timeline .fs-clip[data-clip=switch-clip]").count() == 1
+
+                # Return to A after its request has settled. Depending on the
+                # server-side warning gate, the first request may have created
+                # the document or left the migration preview untouched.
+                reopened_after_initialize = page.evaluate("(pid) => workspaceOpen(pid)", project_id)
+                assert reopened_after_initialize.get("ok") is True, reopened_after_initialize
+                if not fd.read_project_film(project_id)["exists"]:
+                    page.locator("#fs-initialize-button").wait_for(state="visible")
+                    page.locator("#fs-initialize-button").click()
                 page.wait_for_function(
                     "() => !!document.querySelector('#fs-timeline .fs-clip[data-clip]')",
                     timeout=10000,
@@ -292,9 +352,11 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 assert page.locator("#fs-project-switch-host #editor-project-switch-row").count() == 0
                 assert page.locator("#editor-project").count() == 1
             finally:
+                release_initialize_request.set()
                 context.close()
                 browser.close()
     finally:
+        release_initialize_request.set()
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
