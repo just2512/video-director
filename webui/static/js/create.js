@@ -487,9 +487,9 @@ async function createLoadDefaults(){
                               ['', '关闭'],
                               ...sfxs.map(s => [s.id, s.label])]);
   } catch (e) { /* 下拉加载失败不阻塞创建 */ }
-  try {
   // 风格只使用 Studio 能力目录返回的可执行 StyleContract，避免两个来源互相覆盖。
-  await cfLoadStudioCatalog();}
+  await cfLoadStudioCatalog();
+}
 
 const CF_STYLE_NAMES = {
   'documentary-calm':'沉稳纪录片',
