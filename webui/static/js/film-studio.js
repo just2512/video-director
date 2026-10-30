@@ -2114,7 +2114,13 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     if(!S.open&&!force)return false;
     var selector=$('editor-project'),nextId=(selector&&selector.value)||(typeof ED!=='undefined'&&ED.pid)||S.projectId;
     if(!nextId){showStatus('请先在工作台顶部选择并打开一个可编辑项目。','error');return false;}
-    if(S.busy){showStatus('上一项影片操作仍在保存；本次项目切换未执行。','error');return false;}
+    if(S.busy){
+      // workspaceOpen may already have changed the project selector before
+      // Film Studio rejects the transition. Keep the selector aligned with
+      // the project that is still authoritative until the save/history call ends.
+      if(selector&&S.projectId)selector.value=S.projectId;
+      showStatus('上一项影片操作仍在保存；本次项目切换未执行。','error');return false;
+    }
     var changed=nextId!==S.projectId;
     if(changed&&S.rendering){
       if(selector&&S.projectId)selector.value=S.projectId;

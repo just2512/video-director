@@ -154,3 +154,12 @@ def test_broken_external_document_preserves_current_view_and_defers_reload_until
     assert "pendingRevisionSource=data.source||'external_file';" in recovered
     assert "flushPendingExternalRevision();" in recovered
     assert recovered.index("S.pendingExternalRevision=data.revision;") < recovered.index("flushPendingExternalRevision();")
+
+def test_studio_restores_project_selector_when_switch_is_blocked_by_busy_transaction():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    load = source[source.index("async function filmStudioLoad("):source.index("async function filmStudioInitialize")]
+    busy_guard = load.split("if(S.busy){", 1)[1].split("var changed=", 1)[0]
+
+    assert "if(selector&&S.projectId)selector.value=S.projectId;" in busy_guard
+    assert busy_guard.index("selector.value=S.projectId") < busy_guard.index("return false;")
+    assert "上一项影片操作仍在保存；本次项目切换未执行。" in busy_guard
