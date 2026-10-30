@@ -84,22 +84,36 @@ async function cfPrefillFromProject(pid){
   const status = document.getElementById('cf-status');
   try {
     const brief = await apiPost('/api/director/brief', {project_id: pid});
+    const bundle = (brief && brief.ok && brief.bundle) || {};
     if (brief && brief.ok && brief.brief) {
       const el = document.getElementById('cf-director-brief');
       if (el) el.value = brief.brief;
     }
-    const detail = await apiGet('/api/project_detail?project_id=' + encodeURIComponent(pid));
-    if (detail && !detail.error) {
-      if (detail.script) {
-        const ta = document.getElementById('cf-script');
-        if (ta) ta.value = detail.script;
-      }
-      if (status) status.textContent =
-        '已载入项目「' + (detail.name || pid) + '」的创作要求与文案；' +
-        '该项目的已入库素材会保留。修改后点「AI 开始创作」将创建新版本。';
-    } else if (status) {
-      status.textContent = '已载入该项目的创作要求；修改后重新创作。';
+    // 文案：持久化 bundle.script.text 优先（director_inputs.json 是权威要求源）
+    const scriptText = (bundle.script && bundle.script.text) || '';
+    const ta = document.getElementById('cf-script');
+    if (scriptText && ta) ta.value = scriptText;
+    // 素材：file input 无法回填，但列出已入库素材清单（重新创作沿用，无需重传）
+    const refs = (bundle.assets && bundle.assets.asset_refs) || [];
+    if (refs.length) {
+      const names = refs.map(r => {
+        const f = r && r.file ? String(r.file).split(/[\\/]/).pop() : '';
+        return f || (r && r.asset_id) || '';
+      }).filter(Boolean);
+      const summary = document.getElementById('cf-assets-summary');
+      if (summary) summary.textContent = '已入库素材 ' + refs.length + ' 个：' + names.join('、') + '（重新创作沿用，无需重新上传）';
     }
+    // bundle 缺失时用 project_detail 兜底补文案（兼容旧流程项目）
+    if (!scriptText) {
+      const detail = await apiGet('/api/project_detail?project_id=' + encodeURIComponent(pid));
+      if (detail && !detail.error && detail.script) {
+        const ta2 = document.getElementById('cf-script');
+        if (ta2 && !ta2.value) ta2.value = detail.script;
+      }
+    }
+    if (status) status.textContent =
+      '已载入项目「' + pid + '」的创作要求、文案与素材清单。' +
+      '修改后点「AI 开始创作」将创建新版本。';
   } catch (e) {
     if (status) status.textContent = '项目信息载入部分失败（要求/文案仍可手动填写）。';
   }

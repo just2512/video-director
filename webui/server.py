@@ -3630,7 +3630,14 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     bundle["brief"] = new_brief
                     _di.persist_bundle(pid, bundle)
-                self._send_json({"ok": True, "brief": str(bundle.get("brief") or "")})
+                # 2026-10-30 用户裁决：回到新建对话框要能看到「剪辑描述 + 文案 + 素材」，
+                # 不是只有 brief 折叠区。GET 返回完整 director_inputs bundle，
+                # 前端据此回填 brief/script/assets 清单。
+                self._send_json({
+                    "ok": True,
+                    "brief": str(bundle.get("brief") or ""),
+                    "bundle": bundle,
+                })
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)[:200]}, 500)
             return

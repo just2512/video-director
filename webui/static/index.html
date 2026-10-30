@@ -431,6 +431,7 @@
           <div id="director-brief-warn" style="display:none;color:var(--danger,#c33);font-size:12px;margin-top:4px"></div>
           <textarea id="director-brief-text" class="rev-input" style="width:100%;min-height:56px;margin-top:4px" placeholder="你的创作要求"></textarea>
           <div class="btn-row" style="margin-top:4px">
+            <button class="btn-sm" onclick="openCreate(ED.pid)">打开完整创作表单修改</button>
             <button class="btn-sm" onclick="directorSaveBrief()">保存要求</button>
             <button class="btn-secondary btn-sm" onclick="directorRerunFromBrief()">按此要求重新创作</button>
             <span class="hint" id="director-brief-status"></span>
