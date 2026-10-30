@@ -1282,7 +1282,7 @@ async function cfGenerateScript(){
   const topic = (document.getElementById('cf-director-brief') || {}).value || '';
   const status = document.getElementById('cf-script-gen-status');
   if (!topic.trim()) { if (status) status.textContent = '请先填写主题'; return; }
-  const btn = document.querySelector('#cf-topic + button');
+  const btn = document.querySelector('#cf-quick-actions button[onclick="cfGenerateScript()"]');
   if (btn) btn.disabled = true;
   if (status) status.textContent = '正在生成文案……';
   try {
