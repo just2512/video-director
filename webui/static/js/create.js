@@ -966,7 +966,7 @@ async function createProject(){
   const conversation = await apiPost('/api/director/conversations', {
     title: (directorBrief || script || 'AI 导演创作').slice(0,80),
     initial_message: [directorBrief, script ? '\n\n【权威文案】\n' + script : ''].filter(Boolean).join('') || '请根据我提供的素材、参考资料和其他上下文完成导演创作。',
-    snapshot: {form:{fields:(function(){const out={};document.querySelectorAll('#cf-form input[id],#cf-form textarea[id],#cf-form select[id]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),context:{asset_refs:assetRefs,reference:window._cfReference||null,article:window._cfArticle||null,repo:window._cfRepo||null,narration_upload:uploadedNarration}},director_inputs:directorInputs,request_options:requestOptions}
+    snapshot: {form:{fields:(function(){const out={};document.querySelectorAll('#cf-form input[id],#cf-form textarea[id],#cf-form select[id]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),explicit_fields:Array.from(CF.explicitFields||[]),context:{asset_refs:assetRefs,reference:window._cfReference||null,article:window._cfArticle||null,repo:window._cfRepo||null,narration_upload:uploadedNarration}},director_inputs:directorInputs,request_options:requestOptions}
   });
   if(!conversation||!conversation.ok||!conversation.conversation_id){CF.state='failed';status.textContent='历史对话保存失败，任务未提交：'+((conversation&&conversation.error)||'未知错误');btn.disabled=false;return;}
   window._cfConversationId=conversation.conversation_id;
@@ -1359,7 +1359,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   }
   function snapshot(){
     const c=window.CF_DRAFT_CONTEXT||{};
-    return {version:1,fields:collectFields(),context:{
+    return {version:1,fields:collectFields(),explicit_fields:Array.from(window.CF?.explicitFields||[]),context:{
       asset_refs:Array.isArray(c.assetRefs)?c.assetRefs:[],
       reference:c.reference||window._cfReference||null,
       article:c.article||window._cfArticle||null,
@@ -1402,6 +1402,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       const el=document.getElementById(id);if(!el||el.type==='file')continue;
       if(el.type==='checkbox')el.checked=!!value;else el.value=value==null?'':String(value);
     }
+    const knownExplicit=new Set(Object.values(CF_EXPLICIT_CONTROL_FIELDS));
+    const restoredExplicit=Array.isArray(data.explicit_fields)?data.explicit_fields.filter(field=>knownExplicit.has(field)):[];
+    const currentExplicit=preserveDirty?Array.from(window.CF?.explicitFields||[]):[];
+    if(window.CF)window.CF.explicitFields=new Set([...restoredExplicit,...currentExplicit]);
     const contextDirty=preserveDirty&&['cf-assets','cf-reference','cf-article-url','cf-repo-root','cf-voice-file'].some(id=>dirtyFields.has(id));
     if(!contextDirty){
       const c=data.context||{};

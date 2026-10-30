@@ -52,13 +52,16 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                 }""", timeout=10000)
                 page.locator("#cf-director-brief").fill("持久化测试：保留我的创作目标")
                 page.locator("#cf-script").fill("持久化测试：保留我的权威文案")
+                page.locator("#cf-platform").select_option("xhs")
 
                 page.wait_for_function("""async () => {
                   const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
                   const result = await response.json();
                   const fields = result?.draft?.data?.fields || {};
                   return fields['cf-director-brief'] === '持久化测试：保留我的创作目标'
-                    && fields['cf-script'] === '持久化测试：保留我的权威文案';
+                    && fields['cf-script'] === '持久化测试：保留我的权威文案'
+                    && fields['cf-platform'] === 'xhs'
+                    && result?.draft?.data?.explicit_fields?.includes('platform');
                 }""", timeout=10000)
 
                 assert page.evaluate("document.elementFromPoint(8,8)?.id === 'cf-mask'")
@@ -74,6 +77,7 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                 }""")
                 assert saved["cf-director-brief"] == "持久化测试：保留我的创作目标"
                 assert saved["cf-script"] == "持久化测试：保留我的权威文案"
+                assert saved["cf-platform"] == "xhs"
                 assert page.evaluate("JSON.parse(localStorage.getItem('video-director:create-draft:v1') || 'null')?.data?.fields?.['cf-script']") == "持久化测试：保留我的权威文案"
 
                 page.reload(wait_until="networkidle")
