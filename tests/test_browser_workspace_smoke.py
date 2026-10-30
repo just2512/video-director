@@ -278,6 +278,10 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 page.locator("#cf-template-gallery-btn").wait_for(timeout=10000)
                 page.locator("#cf-template-gallery-btn").click()
                 page.locator("#tg-mask").wait_for(timeout=10000)
+                page.wait_for_function("""() =>
+                  Number(getComputedStyle(document.getElementById('tg-mask')).zIndex)
+                    > Number(getComputedStyle(document.getElementById('cf-mask')).zIndex)
+                """)
                 page.locator(".tg-template-card").first.wait_for(timeout=15000)
                 assert page.locator(".tg-template-card").count() > 0
                 assert page.locator("#tg-detail").inner_text().find("执行前检查") >= 0
