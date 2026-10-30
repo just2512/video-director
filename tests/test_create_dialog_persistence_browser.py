@@ -23,6 +23,18 @@ def _start_server(tmp_path, monkeypatch):
     thread.start()
     return server, thread
 
+def _wait_for_deferred_route(page, deferred, key, timeout_ms=2000):
+    """Let Playwright dispatch the route callback after the request event fires."""
+    attempts = max(1, timeout_ms // 20)
+    for _ in range(attempts):
+        route = deferred.get(key)
+        if route is not None:
+            return route
+        # Drives the sync Playwright event loop; a blocking threading.Event.wait
+        # would prevent its greenlet from running the pending route callback.
+        page.wait_for_timeout(20)
+    raise AssertionError(f"route handler did not capture {key!r} within {timeout_ms} ms")
+
 
 def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
@@ -318,7 +330,7 @@ def test_late_project_prefill_response_cannot_overwrite_newer_project(tmp_path, 
                 with page.expect_request("**/api/director/brief") as slow_request:
                     page.evaluate("() => { window.__slowProjectPromise = openCreate('project-slow'); }")
                 assert json.loads(slow_request.value.post_data or "{}").get("project_id") == "project-slow"
-                assert "old_route" in deferred
+                old_route = _wait_for_deferred_route(page, deferred, "old_route")
 
                 page.evaluate("openCreate('project-fast')")
                 page.wait_for_function("""() =>
@@ -328,8 +340,6 @@ def test_late_project_prefill_response_cannot_overwrite_newer_project(tmp_path, 
                 """, timeout=10000)
                 assert page.locator("#cf-input-context-details").evaluate("(node) => !node.open")
 
-                old_route = deferred.get("old_route")
-                assert old_route is not None
                 old_route.fulfill(status=200, content_type="application/json", body=json.dumps(old_payload))
                 deferred.pop("old_route", None)
                 page.evaluate("async () => await window.__slowProjectPromise")
@@ -417,8 +427,7 @@ def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, 
                     && window.CF_DRAFT_CONTEXT?.assetRefs?.length === 0
                 """, timeout=10000)
 
-                delayed_route = deferred.get("route")
-                assert delayed_route is not None
+                delayed_route = _wait_for_deferred_route(page, deferred, "route")
                 delayed_route.fulfill(
                     status=200,
                     content_type="application/json",
