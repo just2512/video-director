@@ -3157,10 +3157,9 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
         :'影片操作仍在保存；保存结束后再退出 Studio。','error');
       return;
     }
-    if(S.drag||S.envelopeDrag){
-      showStatus('时间线手势尚未结束；请完成或取消拖动后再退出 Studio。','error');
-      return;
-    }
+    // A gesture has not committed a document edit yet. Cancel its transient
+    // preview before unmounting; never strand pointer state behind a hidden panel.
+    if(S.drag||S.envelopeDrag)cancelPointerGesture();
     if(hasUncommittedInspectorEdits()){
       if(!window.confirm('Inspector 中有未提交的属性草稿。退出 Studio 将放弃这些修改；是否继续？'))return;
       resetInspectorDraft();

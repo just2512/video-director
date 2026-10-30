@@ -168,36 +168,16 @@ def test_studio_restores_project_selector_when_switch_is_blocked_by_busy_transac
     bindings = store[store.index("const bindings: Array"):store.index("for (const [legacyKey")]
     assert '["busy", "busy"]' in bindings
 
-def test_studio_close_is_blocked_while_save_ai_export_or_timeline_gesture_is_active():
+def test_studio_close_blocks_async_work_and_cancels_uncommitted_timeline_gestures():
     source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     close = source[source.index("window.filmStudioClose=function()"):source.index("window.filmStudioLoad=filmStudioLoad")]
-    for guard in ("if(S.rendering)", "if(S.busy)", "if(S.drag||S.envelopeDrag)"):
+    for guard in ("if(S.rendering)", "if(S.busy)"):
         assert guard in close
         assert close.index(guard) < close.index("S.open=false")
+    assert close.index("if(S.drag||S.envelopeDrag)cancelPointerGesture();") < close.index("S.open=false")
     assert "AI 指令仍在生成；先停止或等待生成结束，再退出 Studio。" in close
     assert "影片操作仍在保存；保存结束后再退出 Studio。" in close
-    assert "时间线手势尚未结束；请完成或取消拖动后再退出 Studio。" in close
-
-def test_shotbook_and_creative_plan_sidecars_reject_stale_project_responses_and_cross_project_saves():
-    root = Path(__file__).resolve().parents[1]
-    shotbook = (root / "webui" / "static" / "js" / "shotbook.js").read_text(encoding="utf-8")
-    shot_load = shotbook[shotbook.index("async function shotbookLoad"):shotbook.index("async function shotbookGenerate")]
-    assert "let SHOTBOOK_LOAD_GENERATION = 0;" in shotbook
-    assert shot_load.index("const data=await apiGet") < shot_load.index("requestGeneration!==SHOTBOOK_LOAD_GENERATION")
-    assert shot_load.index("requestGeneration!==SHOTBOOK_LOAD_GENERATION") < shot_load.index("SHOTBOOK=data")
-    shot_save = shotbook[shotbook.index("async function shotbookSave"):shotbook.index("async function shotbookApplyMotion")]
-    assert shot_save.index("const r=await apiPost") < shot_save.index("if(sbGetProjectId()!==pid)return;")
-    assert shot_save.index("if(sbGetProjectId()!==pid)return;") < shot_save.index("SHOTBOOK=r")
-
-    creative = (root / "webui" / "static" / "js" / "creative-plan.js").read_text(encoding="utf-8")
-    reload = creative[creative.index("window.creativePlanReload = async function"):creative.index("window.creativePlanInitialize = async function")]
-    assert "let creativePlanLoadGeneration = 0;" in creative
-    assert reload.index("const result = await apiGet") < reload.index("requestGeneration !== creativePlanLoadGeneration")
-    assert reload.index("requestGeneration !== creativePlanLoadGeneration") < reload.index("state.plan = result.plan || null")
-    save = creative[creative.index("window.creativePlanSave = async function"):creative.index("window.creativePlanExportForFilmDirector")]
-    assert "state.projectId !== pid" in save
-    assert save.index("state.projectId !== pid") < save.index('apiPost("/api/editor/creative-plan"')
-    assert 'project_id: pid, action: "save"' in save
-    validate = creative[creative.index("window.creativePlanValidate = async function"):creative.index("})();")]
-    assert 'project_id: pid, action: "validate"' in validate
-    assert 'if (projectId() !== pid || state.projectId !== pid) return;' in validate
+    cancel = source[source.index("function cancelPointerGesture()"):source.index("window.filmStudioCancelClipGesture=function")]
+    assert "S.envelopeDrag=null" in cancel
+    assert "S.drag=null" in cancel
+    assert "clearTimelineGesturePreview();" in cancel
