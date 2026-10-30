@@ -1505,10 +1505,11 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       // Template selection is part of the visual direction, not a separate step.
       const templateButton=document.getElementById('cf-template-gallery-btn');
       if(templateButton){
+        const originalTemplatePanel=templateButton.closest('.panel');
         templateButton.textContent='模板与真实样片';
         templateButton.style.marginLeft='auto';
         outputHeader.appendChild(templateButton);
-        templateButton.closest('.panel')?.remove();
+        if(originalTemplatePanel&&originalTemplatePanel!==output)originalTemplatePanel.remove();
       }
 
       // Capability diagnostics are read-only information. Keep them accessible,
