@@ -316,14 +316,22 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 preview_duration = page.locator("#tg-sample-result video").evaluate("(v) => v.duration")
                 assert preview_duration > 0, f"sample MP4 did not load in the gallery video preview: {preview_duration}"
                 page.evaluate("templateGalleryClose()")
-                page.locator("#cf-style-gallery-btn").wait_for(timeout=10000)
-                page.locator("#cf-style-gallery-btn").click()
-                page.locator("#sg-list .sg-card").first.wait_for(timeout=15000)
-                assert page.locator("#sg-list .sg-card").count() >= 4
-                assert "METADATA_ONLY" in page.locator("#sg-list").inner_text()
-                assert "图片运动倍率" in page.locator("#sg-list").inner_text()
-                page.locator('[data-style-id="style.documentary-calm"]').click()
-                assert page.locator("#cf-style").input_value() == "纪录片、沉稳、专业"
+
+                # The current Create surface exposes executable StyleContracts directly;
+                # the MP4 style-sample gallery belongs to the opened editor toolbar, not
+                # to the Create dialog. Exercise the live contract picker here.
+                page.wait_for_function(
+                    "() => window.CF_STUDIO_CATALOG && "
+                    "document.querySelectorAll('#cf-style-presets [data-studio-style]').length > 0",
+                    timeout=30000,
+                )
+                style_choice = page.locator("#cf-style-presets [data-studio-style]").first
+                selected_style = style_choice.get_attribute("data-studio-style")
+                assert selected_style
+                style_choice.click()
+                assert page.locator("#cf-style").input_value() == selected_style
+                assert "图片运动" in page.locator("#cf-style-contract-detail").inner_text()
+                assert page.locator("#cf-style-gallery-btn").count() == 0
                 page.evaluate("closeCreate()")
 
                 assert page.locator("#editor-workspace").count() == 1

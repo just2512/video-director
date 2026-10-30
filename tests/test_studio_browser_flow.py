@@ -145,19 +145,23 @@ def test_studio_to_timeline_browser_flow(tmp_path, monkeypatch):
                 assert selected_style
                 first_style.click()
                 assert page.locator("#cf-style").input_value() == selected_style
-                assert page.locator("#cf-studio-template-list").inner_text().startswith("模板目录")
-                usable_templates = page.locator("[data-studio-template]")
-                assert usable_templates.count() > 0, "catalog must expose at least one genuinely instantiable built-in template"
-                selected_template = usable_templates.first.evaluate(
-                    "(el) => ({id: el.dataset.studioTemplate, version: el.dataset.templateVersion, text: el.innerText})"
-                )
-                usable_templates.first.click()
+                # The embedded catalog rows are deliberately hidden so there is only
+                # one template entry point. Use the visible gallery action rather than
+                # trying to click a hidden legacy row.
+                assert page.locator("#cf-studio-template-list").is_hidden()
+                gallery_button = page.locator("#cf-template-gallery-btn")
+                assert gallery_button.is_visible()
+                gallery_button.click()
                 page.locator("#tg-mask").wait_for(state="visible")
                 page.wait_for_function(
-                    "(key) => window.TG && window.TG.selectedKey === key",
-                    arg=selected_template["id"] + "@" + selected_template["version"],
+                    "() => window.TG && window.TG.visible && window.TG.visible.length > 0"
                 )
-                assert selected_template["text"] or selected_template["id"]
+                assert page.locator(".tg-template-card").count() > 0
+                selected_template = page.evaluate(
+                    "() => ({key: window.TG.selectedKey, id: window.TG.visible[0].id, "
+                    "version: window.TG.visible[0].version})"
+                )
+                assert selected_template["key"] == selected_template["id"] + "@" + selected_template["version"]
                 assert page.locator("#tg-detail").inner_text().find("使用自己的素材") >= 0
                 page.evaluate("templateGalleryClose()")
 
