@@ -620,6 +620,7 @@ type FilmStudioAssetsModel = {
 };
 interface FilmStudioReactAssetsBridge {
   render(model: FilmStudioAssetsModel): void;
+  clear(): void;
 }
 type FilmTimelineSurfaceClip = FilmStudioTimelineSurfaceClip;
 type FilmTimelineSurfaceTrack = FilmStudioTimelineSurfaceTrack;
@@ -2791,6 +2792,13 @@ window.filmStudioReactAssets = {
   render(model) {
     filmStore.setField("assetsModel", model);
     renderStudioReactOwner();
+  },
+  clear() {
+    // Mirror timeline clearSurface: unmount the assets portal synchronously so the
+    // legacy migration/broken path may safely replace #fs-assets-list children.
+    flushSync(() => {
+      filmStore.setField("assetsModel", null);
+    });
   },
 };
 

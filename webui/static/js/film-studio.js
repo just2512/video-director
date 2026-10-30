@@ -743,6 +743,8 @@
     // Unmount that portal before legacy migration markup mutates its DOM children.
     var timelineBridge=window.filmStudioReactTimeline;
     if(timelineBridge&&typeof timelineBridge.clearSurface==='function')timelineBridge.clearSurface();
+    var assetsBridge=window.filmStudioReactAssets;
+    if(assetsBridge&&typeof assetsBridge.clear==='function')assetsBridge.clear();
     var data=S.migration||{}, preview=data.migration_preview||{}, warnings=preview.warnings||[];
     S.duration=Math.max(0.001,num(preview.duration,10));
     S.playhead=Math.max(0,Math.min(S.playhead,S.duration));
