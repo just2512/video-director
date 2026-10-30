@@ -85,7 +85,7 @@ function openCreate(projectId){
   // 2026-10-25 用户裁决：随时可回到新建项目对话框——带 projectId 时回填
   // 该项目的创作要求/文案（素材在项目里保留，file input 无法回填但清单提示）。
   if (projectId) cfPrefillFromProject(projectId);
-  const ta = document.getElementById('cf-script');
+  const ta = document.getElementById('cf-director-brief');
   if (ta) ta.focus();
 }
 
@@ -1588,7 +1588,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       return restoreDraft();
     }
     restored=false;restorePromise=null;dirtyFields.clear();
-    baseOpen(projectId);
+    // Avoid baseOpen's fire-and-forget project prefill; run it once and return its promise.
+    baseOpen();
     arrangeForm();
     installHandlers();
     if(projectId)return cfPrefillFromProject(projectId);

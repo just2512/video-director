@@ -38,6 +38,18 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
 
                 page.evaluate("openCreate()")
                 page.locator("#cf-form").wait_for(state="visible")
+                page.wait_for_function("""() => {
+                  const output = document.getElementById('cf-output-requirements');
+                  const template = document.getElementById('cf-template-gallery-btn');
+                  const context = document.getElementById('cf-input-context-details');
+                  const advanced = document.getElementById('cf-manual-options');
+                  const more = document.getElementById('cf-more-settings');
+                  return !!output && output.contains(template)
+                    && !!context && !context.open
+                    && !!advanced && !advanced.open
+                    && more?.parentElement?.id === 'cf-essentials'
+                    && document.getElementById('cf-style-presets')?.closest('#cf-output-requirements');
+                }""", timeout=10000)
                 page.locator("#cf-director-brief").fill("持久化测试：保留我的创作目标")
                 page.locator("#cf-script").fill("持久化测试：保留我的权威文案")
 
