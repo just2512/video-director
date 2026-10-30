@@ -167,15 +167,15 @@ def record_workflow_result(run_id: str, status: str, result: dict | None = None,
     if isinstance(script_obj,dict):
         script_text=str(script_obj.get("text") or "").strip()
         if script_text and script_obj.get("source") == "director":
-            content += "\\n\\nAI 生成文案：\\n" + script_text[:4000]
+            content += "\n\nAI 生成文案：\n" + script_text[:4000]
     warnings=[str(x).strip() for x in (result.get("warnings") or []) if str(x).strip()]
     if warnings:
-        content += "\\n\\n执行提示：\\n" + "\\n".join("• "+item[:400] for item in warnings[:8])
+        content += "\n\n执行提示：\n" + "\n".join("• "+item[:400] for item in warnings[:8])
     checks=(result.get("director_plan") or {}).get("nodes") or []
     if checks:
         completed=sum(1 for node in checks if isinstance(node,dict) and node.get("status")=="DONE")
         failed=sum(1 for node in checks if isinstance(node,dict) and node.get("status")=="FAILED")
-        content += f"\\n\\n导演节点记录：{completed} 个完成，{failed} 个失败，共 {len(checks)} 个节点。"
+        content += f"\n\n导演节点记录：{completed} 个完成，{failed} 个失败，共 {len(checks)} 个节点。"
     append_message(cid,"assistant",content,{"workflow_run_id":run_id,"status":status,"result":result})
     with _LOCK, _connect() as conn:
         _ensure(conn)
