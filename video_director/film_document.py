@@ -5859,7 +5859,12 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
     _validate_doc(document)
     return {"document": document, "pages": pages, "warnings": warnings, "duration": duration,
             "track_count": len(tracks), "clip_count": sum(len(t["clips"]) for t in tracks),
-            "selected_variant_id": str(selected_variant.get("id")) if selected_variant else None}
+            "selected_variant_id": str(selected_variant.get("id")) if selected_variant else None,
+            "source_archive": {
+                "path": source_snapshot_path,
+                "sha256": source_snapshot_sha256,
+                "status": "pending_initialization",
+            }}
 
 
 def initialize_project_film(project_id: str, document: dict, pages: dict[str, str], source_version: int, warnings: list[str], selected_variant_id: str | None = None) -> dict:
@@ -5886,8 +5891,14 @@ def initialize_project_film(project_id: str, document: dict, pages: dict[str, st
                      "selected_variant_id": selected_variant_id,
                      "warnings": list(warnings), "document_revision": revision_of(text)}
         if isinstance(source_snapshot, str):
+            source_snapshot_sha256 = hashlib.sha256(source_snapshot.encode("utf-8")).hexdigest()
             migration["source_snapshot_path"] = "migration/source-composition.json"
-            migration["source_snapshot_sha256"] = hashlib.sha256(source_snapshot.encode("utf-8")).hexdigest()
+            migration["source_snapshot_sha256"] = source_snapshot_sha256
+            migration["source_archive"] = {
+                "path": "migration/source-composition.json",
+                "sha256": source_snapshot_sha256,
+                "status": "written",
+            }
         _write_atomic(root / MIGRATION_NAME, json.dumps(migration, ensure_ascii=False, indent=2))
         _write_atomic(path, text)
         _history_write(pid, {"past": [], "future": []})

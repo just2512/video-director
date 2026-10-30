@@ -41,6 +41,7 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 provenance={"source": "Chromium migration preview acceptance"},
             )
         ],
+        camera_tracks=[{"id": "camera-main"}],
     )
     editor.save_composition(project_id, composition)
     film_path = project_root / fd.FILM_NAME
@@ -196,6 +197,16 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 assert not film_path.exists()
                 assert fd.read_project_film(project_id)["exists"] is False
                 assert page.locator("#fs-timeline .fs-migrate-action").is_visible()
+                migration_report = page.locator("#fs-timeline .fs-migration-report")
+                migration_report.wait_for(state="visible")
+                assert "迁移提示" in migration_report.inner_text()
+                warning_items = migration_report.locator("li")
+                assert warning_items.count() >= 1
+                assert "camera_tracks" in migration_report.inner_text()
+                archive_preview = page.locator("#fs-timeline .fs-migration-archive")
+                assert "migration/source-composition.json" in archive_preview.inner_text()
+                archive_digest = archive_preview.locator("small").inner_text()
+                assert "SHA-256：" in archive_digest
 
                 # Hold project A's initialization response while the user opens
                 # project B. The response belongs to A and must never replace B's
@@ -259,6 +270,19 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 initialized = fd.read_project_film(project_id)
                 assert initialized["exists"] is True
                 assert film_path.exists()
+                migration_record_path = project_root / fd.MIGRATION_NAME
+                migration_record = json.loads(migration_record_path.read_text(encoding="utf-8"))
+                archive_path = project_root / "migration" / "source-composition.json"
+                assert archive_path.is_file()
+                archive_bytes = archive_path.read_bytes()
+                archive_sha256 = __import__("hashlib").sha256(archive_bytes).hexdigest()
+                assert migration_record["source_archive"] == {
+                    "path": "migration/source-composition.json",
+                    "sha256": archive_sha256,
+                    "status": "written",
+                }
+                assert migration_record["source_snapshot_sha256"] == archive_sha256
+                assert archive_digest.split("SHA-256：", 1)[1] == archive_sha256
                 assert page.locator("#film-studio-panel.fs-studio-expanded").is_visible()
                 assert page.locator("#fs-timeline .fs-clip[data-clip]").count() >= 1
                 # The project switcher is moved into the fullscreen header as the

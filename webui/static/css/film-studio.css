@@ -394,3 +394,12 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-context-transition-settings label{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--fs-text,#eee)}
 .fs-context-transition-settings input{width:72px;min-width:72px;box-sizing:border-box;padding:4px 5px;background:var(--fs-input,#111);border:1px solid var(--fs-border,#3a3a3a);border-radius:4px;color:inherit;font:inherit}
 .fs-context-transition-settings small{font-size:10px;line-height:1.4;color:var(--fs-muted,#aaa)}
+
+.fs-migration-archive{display:grid;gap:5px;margin:12px 0;padding:10px 12px;border:1px solid #3d4b54;border-radius:6px;background:#171e22;color:#ddd}
+.fs-migration-archive code,.fs-migration-archive small{overflow-wrap:anywhere;color:#aebbc1;font-size:11px}
+.fs-migration-archive p{margin:2px 0 0;color:#9eabb1;font-size:11px;line-height:1.5}
+.fs-migration-report{margin:10px 0 14px;border:1px solid #665640;border-radius:6px;background:#211f1b;color:#e6dccb}
+.fs-migration-report summary{padding:9px 11px;cursor:pointer;font-weight:600;color:#e5c88e}
+.fs-migration-report ol{max-height:190px;overflow:auto;margin:0;padding:0 14px 10px 32px;color:#d3c7b3;font-size:11px;line-height:1.55}
+.fs-migration-report li{padding:3px 0;overflow-wrap:anywhere}
+.fs-migration-report-empty{margin:10px 0;padding:10px 12px;border:1px solid #34463f;border-radius:6px;color:#a9c7b6;font-size:11px}

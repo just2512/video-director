@@ -260,3 +260,10 @@
 - Switching to a different project or loading generation is not blocked by the older request. Its `finally` cleanup may only re-enable the initialize control if the original project and generation are still active.
 - Warning confirmation retries only after the first request has released its in-flight key. Server-side project locking and the existing `FILM_ALREADY_INITIALIZED` / authority 409 remain the final persistence guard; this client gate is not a replacement for server validation.
 - Real Chromium coverage holds the first initialization POST, invokes the same initialization again, proves the duplicate returns `false` and the server has received exactly one request, then switches to another project before releasing the original response.
+
+
+### Migration preview audit and source-snapshot verification (2026-10-30)
+
+- The Composition-to-Film migration preview now returns the exact archive path and SHA-256 of the validated source snapshot before initialization. The Studio displays each warning as an individually readable item rather than concatenating all warnings into the status line.
+- The preview explicitly states that the source snapshot is written only when initialization succeeds, and that retaining a field in the archive does not mean Film Runtime executed that field. The persisted migration manifest records `source_archive.path`, `source_archive.sha256` and `status: written`, while retaining the existing top-level snapshot fields for compatibility.
+- Chromium acceptance checks the warning list and displayed digest before initialization, then hashes the actual archived file after initialization and requires an exact match with the preview and migration manifest. Unsupported camera-track semantics are used as a visible warning fixture; no unsupported behavior is silently treated as migrated.

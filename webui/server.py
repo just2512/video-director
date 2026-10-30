@@ -1117,6 +1117,7 @@ class Handler(BaseHTTPRequestHandler):
                             "duration": plan["duration"], "track_count": plan["track_count"],
                             "clip_count": plan["clip_count"], "warnings": plan["warnings"],
                             "selected_variant_id": plan.get("selected_variant_id"),
+                            "source_archive": plan.get("source_archive"),
                         },
                     })
                     # Keep ordinary authority probes small; only an explicit preview request

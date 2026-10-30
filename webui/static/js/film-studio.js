@@ -761,7 +761,7 @@
     var message=data.migration_available
       ?'可从当前 Composition 初始化 film.html。预计 '+(preview.duration||0)+' 秒、'+(preview.track_count||0)+' 条轨道、'+(preview.clip_count||0)+' 个片段。'
       :(needsVariantChoice?'旧项目包含多个候选版本，请先选择本次要迁移的版本。':'无法初始化：'+(data.migration_error||'当前项目没有可编辑的 CompositionIR。'));
-    if(warnings.length)message+=' 迁移提示：'+warnings.join('；');
+    if(warnings.length)message+=' 发现 '+warnings.length+' 条迁移提示，详情见下方清单。';
     if(data.migration_available&&!migrationPreviewPayload())
       message+=' 迁移候选画面尚未成功载入；在预览可见前不会创建 film.html。';
     showStatus(message,data.migration_available?'':'error');
@@ -777,7 +777,14 @@
       variantPicker+='</select><small>本次只迁移所选版本；其余版本完整保留在源 Composition 归档中。</small></label>';
     }
     if(data.migration_available||variants.length>1){
-      $('fs-timeline').innerHTML='<div class="fs-migrate-action"><strong>从旧项目迁移到 film.html</strong><p>初始化会创建影片文档。旧工作台不会自动同步 film.html 的编辑。迁移存在警告时会再次要求确认。</p>'+variantPicker+(data.migration_available?'<button type="button" class="fs-btn fs-primary" id="fs-initialize-button">初始化影片文档</button>':'')+'</div>';
+      var sourceArchive=preview.source_archive||{};
+      var archiveHtml=sourceArchive.path&&sourceArchive.sha256
+        ?'<div class="fs-migration-archive"><strong>原始 Composition 快照</strong><code>'+esc(sourceArchive.path)+'</code><small>SHA-256：'+esc(sourceArchive.sha256)+'</small><p>确认初始化后会将该快照写入项目归档。归档只用于追溯和恢复，不代表其中未映射的语义已在 Film Runtime 执行。</p></div>'
+        :'<div class="fs-migration-archive"><strong>原始 Composition 快照</strong><p>快照摘要暂不可用，初始化前无法核对归档摘要。</p></div>';
+      var warningHtml=warnings.length
+        ?'<details class="fs-migration-report" open><summary>迁移提示（'+warnings.length+' 项）</summary><ol>'+warnings.map(function(warning){return '<li>'+esc(warning)+'</li>';}).join('')+'</ol></details>'
+        :'<div class="fs-migration-report fs-migration-report-empty">未发现额外迁移提示；这不代表任意旧项目语义均已覆盖。</div>';
+      $('fs-timeline').innerHTML='<div class="fs-migrate-action"><strong>从旧项目迁移到 film.html</strong><p>初始化会创建影片文档。旧工作台不会自动同步 film.html 的编辑。迁移存在提示时会再次要求确认。</p>'+variantPicker+archiveHtml+warningHtml+(data.migration_available?'<button type="button" class="fs-btn fs-primary" id="fs-initialize-button">初始化影片文档</button>':'')+'</div>';
       var variantSelect=$('fs-migration-variant');
       if(variantSelect)variantSelect.addEventListener('change',async function(){
         variantSelect.disabled=true;

@@ -58,6 +58,12 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
 
     result = fd.build_film_from_composition(project_id, ir)
     snapshot_text = result["pages"]["migration/source-composition.json"]
+    archive_sha256 = __import__("hashlib").sha256(snapshot_text.encode("utf-8")).hexdigest()
+    assert result["source_archive"] == {
+        "path": "migration/source-composition.json",
+        "sha256": archive_sha256,
+        "status": "pending_initialization",
+    }
     snapshot = json.loads(snapshot_text)
     assert snapshot["active_variant_id"] == "alternative"
     assert snapshot["variants"][0]["id"] == "alternative"
