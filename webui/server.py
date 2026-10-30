@@ -3717,14 +3717,15 @@ class Handler(BaseHTTPRequestHandler):
                     "brief": str(bundle.get("brief") or ""),
                     "bundle": bundle,
                     "spec_settings": {
-                        key: spec.get(key) for key in (
+                        "explicit_fields": spec.get("_explicit_fields", []),
+                        **{key: spec.get(key) for key in (
                             "duration", "style_intent", "voice_mode", "voice", "voice_rate",
                             "narration_volume", "subtitle_mode", "bgm", "bgm_volume", "sfx",
                             "fit_mode", "clip_duration", "clip_speed", "concat_mode",
                             "transition_mode", "stop_at", "fps", "watermark",
                             "lower_third_name", "lower_third_role", "confirm_mode",
-                            "visual_source", "platform", "width", "height",
-                        ) if key in spec
+                            "visual_source", "platform", "width", "height", "_explicit_fields",
+                        ) if key in spec},
                     },
                 })
             except Exception as exc:

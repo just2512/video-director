@@ -134,8 +134,16 @@ async function cfPrefillFromProject(pid){
     }
 
     if (window.CF) {
-      window.CF.explicitFields = new Set(Object.keys(CF_EXPLICIT_CONTROL_FIELDS).map(id => CF_EXPLICIT_CONTROL_FIELDS[id])
-        .filter(field => settingFields[Object.keys(CF_EXPLICIT_CONTROL_FIELDS).find(id => CF_EXPLICIT_CONTROL_FIELDS[id] === field)] !== undefined));
+      // 新规格保留原始字段来源；旧项目规格缺少来源时才兼容推断非空字段。
+      const knownFields = new Set(Object.values(CF_EXPLICIT_CONTROL_FIELDS));
+      const restoredExplicit = Array.isArray(spec.explicit_fields)
+        ? spec.explicit_fields
+        : Object.entries(CF_EXPLICIT_CONTROL_FIELDS).filter(([id]) => {
+            const value=settingFields[id];
+            return value !== undefined && value !== null &&
+              (typeof value !== 'string' || value.trim() !== '');
+          }).map(([,field])=>field);
+      window.CF.explicitFields = new Set(restoredExplicit.filter(field => knownFields.has(field)));
     }
     const scriptText = (bundle.script && bundle.script.text) || '';
     const ta = document.getElementById('cf-script');
@@ -167,12 +175,6 @@ async function cfPrefillFromProject(pid){
     if (window._cfRepo) {
       const node=document.getElementById('cf-repo-result');
       if(node)node.innerHTML='<div class="ok-box">已恢复软件项目证据。</div>';
-    }
-    if (window.CF && window.CF.explicitFields) {
-      for (const field of Object.values(CF_EXPLICIT_CONTROL_FIELDS)) {
-        if (settingFields[Object.keys(CF_EXPLICIT_CONTROL_FIELDS).find(id => CF_EXPLICIT_CONTROL_FIELDS[id] === field)] !== undefined)
-          window.CF.explicitFields.add(field);
-      }
     }
     if (typeof cfVoiceModeSync === 'function') cfVoiceModeSync();
     if (typeof cfVisualSourceSync === 'function') cfVisualSourceSync();

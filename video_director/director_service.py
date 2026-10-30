@@ -267,6 +267,7 @@ def create_director_run(payload: dict) -> dict:
     spec = {
         "project_id": pid, "script": script, "creative_brief": brief, "brief": brief,
         "conversation_id": str(payload.get("conversation_id") or ""),
+        "_explicit_fields": sorted(explicit_fields),
         "mode": payload.get("mode") or "auto",
         "voice": choose_setting("voice", payload.get("voice"), default="zh-CN-XiaoxiaoNeural"),
         "voice_mode": choose_setting("voice_mode", payload.get("voice_mode"), default="auto"),

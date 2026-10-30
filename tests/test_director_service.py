@@ -116,6 +116,7 @@ def test_create_director_run_builds_the_same_bundle_and_workflow(monkeypatch):
     assert captured["spec"]["width"] == 1080
     assert captured["spec"]["height"] == 1920
     assert captured["spec"]["platform"] == "douyin"
+    assert captured["spec"]["_explicit_fields"] == []
     assert captured["spec"]["bgm_volume"] == 0
     assert captured["spec"]["narration_volume"] == 0
     assert captured["spec"]["visual_source"] == "local"
@@ -230,6 +231,7 @@ def test_brief_intent_overrides_untouched_ui_defaults_but_not_manual_choices(mon
 
     assert request(["resolution", "voice_rate"])["ok"] is True
     manually_chosen = captured["spec"]
+    assert manually_chosen["_explicit_fields"] == ["resolution", "voice_rate"]
     assert (manually_chosen["width"], manually_chosen["height"]) == (1080, 1920)
     assert manually_chosen["voice_rate"] == "1.0"
     assert manually_chosen["bgm"] == "off"
