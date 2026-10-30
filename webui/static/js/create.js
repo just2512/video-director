@@ -93,7 +93,34 @@ function openCreate(projectId){
 let _cfProjectPrefillRequest = 0;
 function cfResetProjectPrefillState(projectId){
   const form=document.getElementById('cf-form');
-  if(form)form.reset();
+  if(form){
+    // #cf-form is a div host, not an HTMLFormElement. Reproduce native reset
+    // semantics explicitly so project switches cannot inherit the prior form.
+    for(const control of form.querySelectorAll('input,textarea,select')){
+      if(control instanceof HTMLInputElement){
+        if(control.type==='file'){
+          control.value='';
+          continue;
+        }
+        if(control.type==='checkbox'||control.type==='radio'){
+          control.checked=control.defaultChecked;
+          continue;
+        }
+      }
+      if(control instanceof HTMLSelectElement){
+        let hasDefaultSelection=false;
+        for(const option of control.options){
+          option.selected=option.defaultSelected;
+          hasDefaultSelection=hasDefaultSelection||option.defaultSelected;
+        }
+        if(!hasDefaultSelection&&!control.multiple&&control.options.length){
+          control.selectedIndex=0;
+        }
+        continue;
+      }
+      control.value=control.defaultValue;
+    }
+  }
 
   window.CF_DRAFT_CONTEXT={
     assetRefs:[],reference:null,article:null,repo:null,narrationUpload:'',projectId:String(projectId||'')
