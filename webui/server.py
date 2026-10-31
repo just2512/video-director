@@ -1961,6 +1961,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not pid:
                     self._send_json({"error": "缺少 project_id"}, 400)
                     return
+                if self._reject_legacy_composition_access(pid, "读取旧 CompositionIR 连续性报告"):
+                    return
                 ir = vd_editor_mod.load_composition(pid)
                 report = vd_continuity.verify_composition_continuity(ir)
                 self._send_json({
