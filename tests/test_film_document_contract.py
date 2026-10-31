@@ -1912,7 +1912,7 @@ def test_canvas_inspector_submits_the_validated_element_set_operation():
     component = (root / "remotion_runtime" / "src" / "StudioCanvasInspector.tsx").read_text(encoding="utf-8")
     assert "window.filmStudioCommitCanvasElement=async function(operation,options)" in studio
     assert "result.operation, {allowInspectorDraft:true}" in component
-    assert "await filmStudioCommit([operation],{allowInspectorDraft:options&&options.allowInspectorDraft?'canvas':''})" in studio
+    assert "await filmStudioCommitExactRevision([operation],{allowInspectorDraft:options&&options.allowInspectorDraft?'canvas':''})" in studio
     assert 'if kind == "element_set":' in document
     assert "field:'overrides',value:JSON.stringify(overrides)" not in studio
 
