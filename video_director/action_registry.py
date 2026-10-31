@@ -770,12 +770,12 @@ def actions_for_context(selection: Optional[dict], project_id: Optional[str] = N
     return {"context": ctx_name, "actions": out}
 
 
-def manifest_for_project(project_id: str, selection: Optional[dict] = None) -> dict:
+def manifest_for_project(project_id: str, selection: Optional[dict] = None,
+                         context: Optional[dict] = None) -> dict:
     """§62 全上下文 manifest（GET /api/actions?project_id= 无 selection 时用）：
     project/scene/layer.video/layer.image/layer.subtitle/layer.audio/scene_pair 各组。"""
     groups = {}
-    context = None
-    if project_id:
+    if project_id and context is None:
         try:
             from video_director import project_context as _project_context
             context = _project_context.inspect_project_context(project_id, selection or {})
