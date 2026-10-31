@@ -64,6 +64,10 @@ def execute_action_request(payload: dict) -> dict:
         from video_director import project_context
         from video_director import tool_executor
 
+        rejection = tool_executor.film_authority_rejection(pid, "creative.action")
+        if rejection is not None:
+            raise ActionServiceError(rejection, 409)
+
         context = project_context.inspect_project_context(pid, selection)
         availability = actions.action_availability(action_id, pid, context=context)
         if not availability.get("available"):
