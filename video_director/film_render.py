@@ -724,6 +724,57 @@ def _write_qc_report(project_id: str, report: dict) -> Path:
     return report_path
 
 
+def _publish_render_artifacts(
+    project_id: str,
+    revision: str,
+    output_temp: Path,
+    output: Path,
+    report: dict,
+    temp_root: Path,
+) -> tuple[Path, dict]:
+    """Publish MP4 and its QC manifest as one rollback-safe revision transaction."""
+    qc_dir = config.project_dir(project_id) / "qc"
+    qc_dir.mkdir(parents=True, exist_ok=True)
+    report_path = qc_dir / f"film-final-{revision}.json"
+    qc_temp = qc_dir / f".{report_path.name}.{os.getpid()}.{time.time_ns()}.tmp"
+    output_backup = temp_root / "previous-output.mp4"
+    report_backup = temp_root / "previous-qc.json"
+    try:
+        qc_temp.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\\n",
+            encoding="utf-8",
+        )
+        with fd.project_lock(project_id):
+            after = fd.read_project_film(project_id)
+            if after.get("rev") != revision:
+                raise FilmRenderError(
+                    "REVISION_CONFLICT",
+                    "导出期间影片文档已变化；旧 revision 的 MP4 和 QC 报告均未发布。请重新载入最新版本后再导出。",
+                    409,
+                )
+
+            # Preserve the previous same-revision MP4 until both replacements
+            # succeed. QC replacement is the final operation; if it fails,
+            # restore the previous MP4 (or remove the new one).
+            had_output = output.is_file()
+            if had_output:
+                shutil.copy2(output, output_backup)
+            try:
+                os.replace(output_temp, output)
+                os.replace(qc_temp, report_path)
+            except Exception:
+                if had_output and output_backup.is_file():
+                    os.replace(output_backup, output)
+                else:
+                    output.unlink(missing_ok=True)
+                raise
+        return report_path, after
+    finally:
+        qc_temp.unlink(missing_ok=True)
+        output_backup.unlink(missing_ok=True)
+        report_backup.unlink(missing_ok=True)
+
+
 def render_project_film(project_id: str, expected_revision: str, fps: int | None = None) -> dict:
     """Render a pinned film.html revision to MP4; inherit its saved FPS unless overridden."""
     pid = fd.validate_project_id(project_id)
@@ -920,15 +971,6 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
         # not an acceptable export result.
         # Serialize the final revision check and atomic publish with every
         # application-managed film.html edit/undo/redo transaction.
-        with fd.project_lock(pid):
-            after = fd.read_project_film(pid)
-            if after.get("rev") != revision:
-                raise FilmRenderError(
-                    "REVISION_CONFLICT",
-                    "导出期间影片文档已变化；旧 revision 的 MP4 未发布。请重新载入最新版本后再导出。",
-                    409,
-                )
-            os.replace(output_temp, output)
         current_match = True
         warnings = []
         if audio_specs and audio_qc["status"] in {"SILENT", "NEAR_SILENT", "UNKNOWN"}:
@@ -945,8 +987,8 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
             "current_revision_match": current_match,
             "output": {
                 "mp4_path": str(output),
-                "size_bytes": output.stat().st_size,
-                "sha256": _sha256_file(output),
+                "size_bytes": output_temp.stat().st_size,
+                "sha256": _sha256_file(output_temp),
                 "video_codec": probe.codec,
                 "width": probe.width,
                 "height": probe.height,
@@ -974,7 +1016,9 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
             ],
             "warnings": warnings,
         }
-        qc_path = _write_qc_report(pid, qc_report)
+        qc_path, after = _publish_render_artifacts(
+            pid, revision, output_temp, output, qc_report, temp_root
+        )
         return {
             "ok": True, "project_id": pid, "mp4_path": str(output),
             "rendered_revision": revision, "current_revision": after.get("rev"),
