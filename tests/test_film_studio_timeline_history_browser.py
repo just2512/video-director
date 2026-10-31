@@ -763,6 +763,60 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 assert invalid_move["previewOperations"] is None, invalid_move
                 assert invalid_move["operations"] is None, invalid_move
 
+                # Source identity and edit locks must be rechecked at commit preparation,
+                # not inferred from the pointer-down snapshot or destination track alone.
+                source_boundary = page.evaluate("""pixelsPerSecond => {
+                  const controller=window.filmStudioTimelineController;
+                  const base={
+                    gesture:{
+                      members:[{id:'clip-a',originalAt:0,originalEnd:2,
+                        trackId:'video-main',trackIndex:0}],
+                      trackId:'video-main',originalTrackIndex:0,
+                      trackOrder:['video-main','video-secondary'],
+                      targetTrackId:'video-secondary'
+                    },
+                    tracks:[
+                      {id:'video-main',attrs:{},clips:[
+                        {id:'clip-a',at:0,end:2,attrs:{}},
+                        {id:'clip-b',at:6,end:8,attrs:{}}
+                      ]},
+                      {id:'video-secondary',attrs:{},clips:[
+                        {id:'clip-target',at:8,end:10,attrs:{}}
+                      ]}
+                    ],
+                    targetTrackId:'video-secondary',minimumStart:0,
+                    rawDeltaSeconds:0,candidates:[],pixelsPerSecond,
+                    thresholdPixels:8,snapEnabled:false,frameRate:30
+                  };
+                  const check=mutate=>{
+                    const input=structuredClone(base);
+                    mutate(input);
+                    return {
+                      validation:controller.validateMoveTarget(input),
+                      operations:controller.buildMoveOperations(input)
+                    };
+                  };
+                  return {
+                    missingSource:check(input=>{
+                      input.tracks[0].clips=input.tracks[0].clips.filter(item=>item.id!=='clip-a');
+                    }),
+                    lockedSourceTrack:check(input=>{input.tracks[0].attrs={locked:''};}),
+                    lockedSourceClip:check(input=>{input.tracks[0].clips[0].attrs={'data-clip-locked':''};}),
+                    changedSourceStart:check(input=>{input.tracks[0].clips[0].at=0.5;}),
+                    changedSourceEnd:check(input=>{input.tracks[0].clips[0].end=3;})
+                  };
+                }""", pixels_per_second)
+                assert "不存在" in source_boundary["missingSource"]["validation"]
+                assert source_boundary["missingSource"]["operations"] is None
+                assert "已锁定" in source_boundary["lockedSourceTrack"]["validation"]
+                assert source_boundary["lockedSourceTrack"]["operations"] is None
+                assert "已锁定" in source_boundary["lockedSourceClip"]["validation"]
+                assert source_boundary["lockedSourceClip"]["operations"] is None
+                assert "起始时间已变化" in source_boundary["changedSourceStart"]["validation"]
+                assert source_boundary["changedSourceStart"]["operations"] is None
+                assert "持续时间已变化" in source_boundary["changedSourceEnd"]["validation"]
+                assert source_boundary["changedSourceEnd"]["operations"] is None
+
                 # A cross-track drop that would overlap an existing clip must be
                 # rejected before persistence. The clip starts at 0 and is 2s long;
                 # moving its start to 7s would overlap clip-target at 8s.
