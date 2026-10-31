@@ -5,7 +5,7 @@
 // 兼容层：loadReview()/loadPublish() 保留（旧入口调用安全），但不再渲染
 // 独立页面——问题模式面板（review-mode-panel）是唯一宿主。
 
-window.RV = {issues: [], selected: null, projects: [], mode: false};
+window.RV = {issues: [], selected: null, projects: [], mode: false, projectId: '', projectVersion: null, scanGeneration: 0};
 
 /** §3 问题模式开关（工作台顶栏「问题」按钮）。 */
 function reviewModeToggle(){
@@ -19,14 +19,31 @@ function reviewModeToggle(){
 }
 
 /** §47 扫描当前项目：连续性 + 商用预检 → 问题列表（真实验证，非汇总页）。 */
+function reviewContextMatches(projectId, expectedVersion, generation) {
+  if (!projectId || !ED || ED.pid !== projectId) return false;
+  if (generation !== undefined && RV.scanGeneration !== generation) return false;
+  if (typeof editorContextMatches === 'function') return editorContextMatches(projectId, expectedVersion);
+  const selector = document.getElementById('editor-project');
+  return (!selector || !selector.value || selector.value === projectId)
+    && Object.is(ED.version, expectedVersion);
+}
 async function reviewModeScan(){
   const box = document.getElementById('review-mode-list');
   if (!box) return;
-  if (!ED.pid) { box.textContent = '先打开一个项目。'; return; }
+  const pid = ED && ED.pid;
+  const contextVersion = ED && ED.version;
+  const generation = (RV.scanGeneration || 0) + 1;
+  RV.scanGeneration = generation;
+  RV.projectId = pid || '';
+  RV.projectVersion = contextVersion;
+  RV.issues = [];
+  if (!pid) { box.textContent = '先打开一个项目。'; return; }
+  const isCurrent = () => reviewContextMatches(pid, contextVersion, generation);
   box.innerHTML = '<div class="hint">检查中……</div>';
   const issues = [];
   try {
-    const c = await apiGet('/api/continuity?project_id=' + encodeURIComponent(ED.pid));
+    const c = await apiGet('/api/continuity?project_id=' + encodeURIComponent(pid));
+    if (!isCurrent()) return;
     if (c && !c.error) {
       for (const i of (c.issues || [])) issues.push({
         code: i.issue_code, message: i.message, kind: '连续性',
@@ -34,13 +51,15 @@ async function reviewModeScan(){
         from_scene_id: i.from_scene_id || '', to_scene_id: i.to_scene_id || i.scene_id || '',
         target: i.from_scene_id && i.to_scene_id
           ? {type: 'scene_pair', id: `${i.from_scene_id}->${i.to_scene_id}`}
-          : (i.scene_id ? {type: 'scene', id: i.scene_id} : {type: 'project', id: ED.pid}),
+          : (i.scene_id ? {type: 'scene', id: i.scene_id} : {type: 'project', id: pid}),
         recoverable: i.recoverable !== false,
       });
     }
-  } catch (e) { /* 单源失败不阻塞 */ }
+  } catch (e) { if (!isCurrent()) return; /* 单源失败不阻塞 */ }
+  if (!isCurrent()) return;
   try {
-    const pf = await apiGet('/api/preflight?project_id=' + encodeURIComponent(ED.pid));
+    const pf = await apiGet('/api/preflight?project_id=' + encodeURIComponent(pid));
+    if (!isCurrent()) return;
     if (pf && !pf.error) {
       for (const i of (pf.issues || [])) issues.push({
         code: i.code, message: i.message, kind: '商用预检',
@@ -48,11 +67,14 @@ async function reviewModeScan(){
         from_scene_id: '', to_scene_id: '',
         target: (i.targetId && i.targetId.includes('#'))
           ? {type: 'layer', id: i.targetId}
-          : (i.targetId ? {type: 'scene', id: i.targetId} : {type: 'project', id: ED.pid}),
+          : (i.targetId ? {type: 'scene', id: i.targetId} : {type: 'project', id: pid}),
         recoverable: i.recoverable !== false,
       });
     }
-  } catch (e) { /* 同上 */ }
+  } catch (e) { if (!isCurrent()) return; /* 同上 */ }
+  if (!isCurrent()) return;
+  RV.projectId = pid;
+  RV.projectVersion = contextVersion;
   RV.issues = issues;
   const summary = document.getElementById('review-mode-summary');
   if (summary) summary.textContent = issues.length
@@ -77,6 +99,10 @@ async function reviewModeScan(){
 
 /** §47 选中问题 → 定位（工作台内：select target + 打开 Inspector 分区）。 */
 function reviewModeSelect(n){
+  if (!reviewContextMatches(RV.projectId, RV.projectVersion, RV.scanGeneration)) {
+    editorToast('审阅结果属于之前的项目或版本；请重新扫描当前项目。', true);
+    return;
+  }
   const i = RV.issues[n];
   if (!i) return;
   if (i.target.type === 'scene') {
@@ -226,7 +252,14 @@ async function publishDetail(pid){
 // ---------------------------------------------------------------------------
 async function editorPreflight(){
   const box = document.getElementById('editor-preflight-box');
-  const r = await apiGet('/api/preflight?project_id=' + encodeURIComponent(ED.pid));
+  const pid = ED && ED.pid;
+  const contextVersion = ED && ED.version;
+  if (!pid) return {ok:false,status:'NO_PROJECT',error:'先打开项目'};
+  if (!reviewContextMatches(pid,contextVersion)) return {ok:false,status:'PROJECT_CHANGED',project_id:pid};
+  const r = await apiGet('/api/preflight?project_id=' + encodeURIComponent(pid));
+  if (!reviewContextMatches(pid,contextVersion)) return {ok:false,status:'PROJECT_CHANGED',project_id:pid,staleProjectResponse:true};
+  if (!r || r.error) return {ok:false,status:'LOAD_FAILED',project_id:pid,error:(r&&r.error)||'商用预检读取失败'};
+  if (!box) return r;
   if (r.status === 'PASS') {
     box.innerHTML = `<div class="panel ok-box">商用预检通过（${r.issues.length} 项提示，无阻断）`+
       (r.issues.length ? `<div>${r.issues.map(i=>`<div class="hint">提示 ${esc(ISSUE_CODE_CN[i.code] || i.code)}：${esc(i.message)}</div>`).join('')}</div>` : '') + `</div>`;
@@ -237,34 +270,47 @@ async function editorPreflight(){
   return r;
 }
 async function editorRenderFinal(){
+  const pid = ED && ED.pid;
+  const contextVersion = ED && ED.version;
+  if (!pid) { editorToast('先打开项目', true); return {ok:false,status:'NO_PROJECT'}; }
   const pf = await editorPreflight();
-  if (pf.status !== 'PASS') { editorToast('商用预检未通过，渲染中止（先处理阻断项）', true); return; }
+  if (!reviewContextMatches(pid,contextVersion)) return {ok:false,status:'PROJECT_CHANGED',project_id:pid};
+  if (!pf || pf.status === 'PROJECT_CHANGED') return pf || {ok:false,status:'PROJECT_CHANGED',project_id:pid};
+  if (pf.status !== 'PASS') { editorToast('商用预检未通过，渲染中止（先处理阻断项）', true); return pf; }
   editorToast('预检通过，渲染已提交……');
-  const r = await apiPost('/api/confirm', {project_id: ED.pid});
-  if (r.ok) {
-    document.getElementById('editor-preflight-box').innerHTML =
-      `<div class="panel ok-box">成片完成：<a class="dl" href="/file?path=${encodeURIComponent(r.final_path)}" download="final.mp4">下载 final.mp4</a> 质检：${esc((r.qc||{}).verdict||'')}</div>`;
-  } else {
-    document.getElementById('editor-preflight-box').innerHTML =
-      `<div class="err-box">渲染失败：${esc(r.error||'')}</div>`;
+  const r = await apiPost('/api/confirm', {project_id:pid});
+  if (!reviewContextMatches(pid,contextVersion)) {
+    return {ok:false,status:'PROJECT_CHANGED',project_id:pid,staleProjectResponse:true,applied:!!(r&&r.ok)};
   }
+  const box = document.getElementById('editor-preflight-box');
+  if (box && r && r.ok) {
+    box.innerHTML = `<div class="panel ok-box">成片完成：<a class="dl" href="/file?path=${encodeURIComponent(r.final_path)}" download="final.mp4">下载 final.mp4</a> 质检：${esc((r.qc||{}).verdict||'')}</div>`;
+  } else if (box) {
+    box.innerHTML = `<div class="err-box">渲染失败：${esc((r&&r.error)||'')}</div>`;
+  }
+  return r;
 }
 
 /** §40 Draft 级：低分辨率快速草稿（先看效果，满意再渲成片）。 */
 async function editorDraftRender(){
-  if (!ED.pid) { editorToast('先打开项目', true); return; }
+  const pid = ED && ED.pid;
+  const contextVersion = ED && ED.version;
+  if (!pid) { editorToast('先打开项目', true); return {ok:false,status:'NO_PROJECT'}; }
   editorToast('正在快速渲染草稿（低分辨率，速度优先）……');
-  const r = await apiPost('/api/draft', {project_id: ED.pid});
-  if (!r.ok) {
-    document.getElementById('editor-preflight-box').innerHTML =
-      `<div class="err-box">草稿渲染失败：${esc(r.error || '未知')}（项目内容没有变化，可重试）</div>`;
-    return;
+  const r = await apiPost('/api/draft', {project_id:pid});
+  if (!reviewContextMatches(pid,contextVersion)) {
+    return {ok:false,status:'PROJECT_CHANGED',project_id:pid,staleProjectResponse:true,applied:!!(r&&r.ok)};
   }
-  // 草稿直接进中央 Preview（§19 唯一预览宿主）
-  previewShowVideo(r.draft_path, '草稿（低清快速版）');
-  document.getElementById('editor-preflight-box').innerHTML =
+  const box = document.getElementById('editor-preflight-box');
+  if (!r || !r.ok) {
+    if (box) box.innerHTML = `<div class="err-box">草稿渲染失败：${esc((r&&r.error)||'未知')}（项目内容没有变化，可重试）</div>`;
+    return r;
+  }
+  previewShowVideo(r.draft_path, '草稿（低清快速版）', pid, contextVersion);
+  if (box && reviewContextMatches(pid,contextVersion)) box.innerHTML =
     `<div class="panel ok-box">草稿已生成（预览区播放中）。满意后点「渲染成片」出正式版；
       不满意继续在时间线改，改完重新渲染草稿。</div>`;
+  return r;
 }
 
 function editorToast(msg, isErr){

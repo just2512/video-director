@@ -6,7 +6,7 @@
 // 职责：loadDraft / showSelectionOverlay / showMaskOverlay / showScenePair /
 //       play / pause / seek
 
-window.PV = {draftPath: '', finalPath: '', playhead: 0, pairMode: null, mode: 'live', playing: false, timer: null, activeSceneId: '', activeLayerId: ''};
+window.PV = {draftPath: '', finalPath: '', projectId: '', playhead: 0, pairMode: null, mode: 'live', playing: false, timer: null, activeSceneId: '', activeLayerId: ''};
 
 /** One playhead clock shared by the timeline, live preview, and rendered-draft preview. */
 function previewSyncTimelinePlayhead(sec){
@@ -22,10 +22,23 @@ function previewSyncTimelinePlayhead(sec){
 }
 
 /** 加载项目草稿/成片信息（顶栏「预览」与打开项目时调用）。 */
-async function previewLoadDraft(){
-  if (!ED.pid) return {ok: false, error: '无项目'};
-  const info = await apiGet('/api/projects/' + encodeURIComponent(ED.pid) + '/draft_info');
+function previewContextMatches(projectId, expectedVersion) {
+  if (!projectId || !ED || ED.pid !== projectId) return false;
+  if (typeof editorContextMatches === 'function') return editorContextMatches(projectId, expectedVersion);
+  const selector = document.getElementById('editor-project');
+  return (!selector || !selector.value || selector.value === projectId)
+    && Object.is(ED.version, expectedVersion);
+}
+
+async function previewLoadDraft(projectId, expectedVersion){
+  const pid = projectId || (ED && ED.pid);
+  const version = arguments.length >= 2 ? expectedVersion : (ED && ED.version);
+  if (!pid) return {ok:false,error:'无项目'};
+  if (!previewContextMatches(pid,version)) return {ok:false,status:'PROJECT_CHANGED',project_id:pid,staleProjectResponse:true};
+  const info = await apiGet('/api/projects/' + encodeURIComponent(pid) + '/draft_info');
+  if (!previewContextMatches(pid,version)) return {ok:false,status:'PROJECT_CHANGED',project_id:pid,staleProjectResponse:true};
   if (info && !info.error) {
+    PV.projectId = pid;
     PV.draftPath = info.draft_path || '';
     PV.finalPath = info.final_path || '';
   }
@@ -33,7 +46,11 @@ async function previewLoadDraft(){
 }
 
 /** 把视频渲染进中央 Stage（唯一 Preview 宿主 §19）。 */
-function previewShowVideo(path, label){
+function previewShowVideo(path, label, expectedProjectId, expectedVersion){
+  if (expectedProjectId && !previewContextMatches(expectedProjectId, expectedVersion)) {
+    return {ok:false,status:'PROJECT_CHANGED',project_id:expectedProjectId,staleProjectResponse:true};
+  }
+  if (expectedProjectId) PV.projectId = expectedProjectId;
   const stage = document.getElementById('ed-preview-stage');
   const meta = document.getElementById('ed-preview-meta');
   if (!stage) return;
