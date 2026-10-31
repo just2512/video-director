@@ -902,7 +902,7 @@ def _publish_render_artifacts(
     journal = temp_root / "publish-transaction.json"
     try:
         qc_temp.write_text(
-            json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\\n",
+            json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
             encoding="utf-8",
         )
         with fd.project_lock(project_id):
