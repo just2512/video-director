@@ -33,8 +33,8 @@ MAX_RENDER_SECONDS = 600
 MAX_RENDER_FRAMES = 18_000
 MAX_STAGE_EDGE = 3840
 _MEDIA_CHUNK = 64 * 1024
-_RENDER_WORKDIR_RE = re.compile(r"^\\.film-render-([0-9a-f]{64})-(\\d+)-(\\d+)\\.work$")
-_QC_TEMP_RE = re.compile(r"^\\.film-final-([0-9a-f]{64})\\.json\\.(\\d+)\\.(\\d+)\\.tmp$")
+_RENDER_WORKDIR_RE = re.compile(r"^\.film-render-([0-9a-f]{64})-(\d+)-(\d+)\.work$")
+_QC_TEMP_RE = re.compile(r"^\.film-final-([0-9a-f]{64})\.json\.(\d+)\.(\d+)\.tmp$")
 
 
 def _render_process_is_alive(pid: int) -> bool:
@@ -69,7 +69,7 @@ def _write_publish_journal(temp_root: Path, payload: dict) -> Path:
     try:
         with temporary.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-            handle.write("\\n")
+            handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, journal)
