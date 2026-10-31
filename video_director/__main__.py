@@ -400,7 +400,7 @@ def main(argv=None):
             # and must fail closed. Resume always requires an existing project.
             is_new_project = (
                 a.cmd in ("compose", "auto", "text")
-                and not vd_config.project_dir(legacy_project_id).exists()
+                and not (vd_config.composer_storage_root() / legacy_project_id).exists()
             )
             rejection = None if is_new_project else tool_executor.film_authority_rejection(
                 legacy_project_id, f"legacy.cli.{a.cmd}"
