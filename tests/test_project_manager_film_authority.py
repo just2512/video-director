@@ -82,3 +82,21 @@ def test_project_index_never_uses_stale_composition_when_film_html_is_invalid():
     assert entry["timeline_error"]["code"] == "INVALID_FILM"
     assert entry["scene_count"] == 0
     assert entry["duration"] == 0.0
+
+def test_project_index_refreshes_film_authority_when_initial_metadata_is_stale():
+    project_id = "web-film-authority-race"
+    _project_with_film(project_id, FILM_HTML)
+
+    # Simulate a filesystem metadata read that happened immediately before
+    # film.html was created, followed by a locked composition read after it.
+    timeline = pm._timeline_snapshot(project_id, {
+        "has_film": False,
+        "has_composition": True,
+        "has_storyboard": False,
+    })
+
+    assert timeline["authority"] == "film.html"
+    assert timeline["revision"] == film_document.revision_of(FILM_HTML)
+    assert timeline["valid"] is True
+    assert timeline["scene_count"] == 1
+    assert timeline["clip_count"] == 2

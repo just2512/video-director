@@ -197,6 +197,12 @@ def _timeline_snapshot(project_id: str, meta: dict) -> dict:
                 "clip_count": clip_count, "track_count": len(composition.audio) + (1 if visual_count else 0),
             }
         except Exception as exc:  # noqa: BLE001 文件存在但无效时不从旧 storyboard 伪造状态
+            # The filesystem metadata may have been captured before Film
+            # initialization. If the snapshot lock now observes Film authority,
+            # refresh the authority decision rather than exposing a stale
+            # Composition read failure in the project index.
+            if (root / "film.html").is_file():
+                return _timeline_snapshot(project_id, {**meta, "has_film": True})
             return {
                 "authority": "composition.json", "revision": None, "valid": False,
                 "error": {"code": "COMPOSITION_READ_FAILED", "message": str(exc)},
