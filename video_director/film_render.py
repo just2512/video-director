@@ -914,12 +914,20 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
             _visual_frame_qc(frame_dir / f"{frame_number + 1:08d}.png", frame_number, fps)
             for frame_number in sample_frames
         ]
-        os.replace(output_temp, output)
+        # The film may be edited by Studio or an external Agent while Chromium
+        # and FFmpeg are rendering. Re-read the authoritative document immediately
+        # before publishing: a technically valid MP4 from an obsolete revision is
+        # not an acceptable export result.
         after = fd.read_project_film(pid)
-        current_match = after.get("rev") == revision
+        if after.get("rev") != revision:
+            raise FilmRenderError(
+                "REVISION_CONFLICT",
+                "导出期间影片文档已变化；旧 revision 的 MP4 未发布。请重新载入最新版本后再导出。",
+                409,
+            )
+        os.replace(output_temp, output)
+        current_match = True
         warnings = []
-        if not current_match:
-            warnings.append("导出期间影片文档已变化；成片对应 rendered_revision，不对应当前最新 revision。")
         if audio_specs and audio_qc["status"] in {"SILENT", "NEAR_SILENT", "UNKNOWN"}:
             warnings.append("时间线包含音频，但音频信号检测为 " + audio_qc["status"] + "；请人工试听并检查增益。")
         revision_status = "CURRENT" if current_match else "STALE"
