@@ -136,8 +136,10 @@ def test_late_editor_responses_never_mutate_the_new_project_workspace(tmp_path, 
                     // If the normalization GET resolves after another project is active, discard it.
                     setProject('hydrate-a',6,'hydrate-a-before');
                     const hydrationPending=window.executeCommand({command:'delayed-normalized-command',targetId:'project',payload:{}});
-                    await tick();
-                    if(!holds.hydrateA)throw new Error('command normalization GET was not held');
+                    // Let the POST response, JSON decode, and normalization continuation
+                    // cross their async boundaries before asserting the held GET exists.
+                    for (let attempt = 0; attempt < 20 && !holds.hydrateA; attempt++) await tick();
+                    if(!holds.hydrateA)throw new Error('command normalization GET was not held: '+JSON.stringify({pid:ED.pid,version:ED.version,selector:document.getElementById('editor-project')&&document.getElementById('editor-project').value}));
                     setProject('project-b',15,'project-b-after-hydration-switch');
                     holds.hydrateA({
                       project_id:'hydrate-a',version:7,width:160,height:90,duration:2,scenes:[],

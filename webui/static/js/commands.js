@@ -110,7 +110,7 @@ async function _hydrateCommandComposition(projectId, appliedVersion, rawComposit
 
   let fresh = null;
   try {
-    fresh = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(projectId));
+    fresh = await window.apiGet('/api/editor/composition?project_id=' + encodeURIComponent(projectId));
   } catch (_) {
     fresh = null;
   }
