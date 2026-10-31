@@ -171,8 +171,8 @@ def _write_composition_version(project_id: str, version: int) -> None:
             pass
 
 
-def _composition_version_unlocked(project_id: str, revisions: Optional[List[dict]] = None) -> int:
-    """Read the legacy version while the caller already holds project_lock."""
+def _read_legacy_composition_version(project_id: str, revisions: Optional[List[dict]] = None) -> int:
+    """Read the current legacy CompositionIR version without changing authority."""
     from video_director import film_document as fd
     try:
         fd.assert_legacy_composition_access(project_id, "读取旧 CompositionIR 版本")
@@ -194,7 +194,7 @@ def composition_version(project_id: str) -> int:
     Once film.html exists, even reading the old composition version is rejected;
     it is not a valid concurrency token for the authoritative FilmDocument.
     """
-    return _composition_version_unlocked(project_id)
+    return _read_legacy_composition_version(project_id)
 
 
 def load_composition_snapshot(project_id: str) -> tuple[CompositionIR, int, List[dict]]:
@@ -206,7 +206,7 @@ def load_composition_snapshot(project_id: str) -> tuple[CompositionIR, int, List
     with project_lock(project_id):
         ir = _load_composition_unlocked(project_id)
         revisions = load_revisions(project_id)
-        version = _composition_version_unlocked(project_id, revisions)
+        version = _read_legacy_composition_version(project_id, revisions)
         return ir, version, revisions
 
 
