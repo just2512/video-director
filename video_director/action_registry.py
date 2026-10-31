@@ -628,15 +628,19 @@ def action_availability(action_id: str, project_id: str,
                 "reason": f"无法确认项目权威状态，拒绝暴露旧 Action：{exc}",
                 "next_actions": [],
             }
+    # These actions do not read or mutate the legacy CompositionIR timeline:
+    # voice.change persists project-level render metadata; the others are read-only.
+    # Keep them available while timeline authority is unknown or film.html-owned.
+    safe_project_actions = {"voice.change", "voice.preview", "asset.search", "music.preview"}
     if context and (
         context.get("authority") == "unknown" or context.get("authority_error")
-    ):
+    ) and a.id not in safe_project_actions:
         return {
             "action": a.id, "available": False,
             "reason": "无法确认项目时间线权威状态；为防止写入错误工程，旧 Action 暂不可用。",
             "next_actions": [],
         }
-    if context and context.get("authority") == "film.html":
+    if context and context.get("authority") == "film.html" and a.id not in safe_project_actions:
         return {
             "action": a.id, "available": False,
             "reason": "当前项目由 film.html 独占时间线权威；旧 Action Registry 操作已停用，请使用 revision-bound film.* 工具。",
