@@ -473,7 +473,7 @@ def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
     assert "var prepared=timeline.prepareClipGestureCommit(e);" in legacy
     assert "if(Array.isArray(prepared))return finishReactClipGesture(e,prepared);" in legacy
     assert "function finishReactClipGesture(e, preparedOperations)" in legacy
-    assert "await filmStudioCommit(preparedOperations);" in legacy
+    assert "await filmStudioCommit(preparedOperations,{requireExactRevision:true});" in legacy
     assert "if(!Array.isArray(preparedOperations))return onUp(e);" in legacy
     assert "async function onUp(e)" in legacy
 

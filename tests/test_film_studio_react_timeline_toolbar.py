@@ -193,7 +193,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "operations: buildMoveOperationsForResolution(input, resolution)" in controller_source
     assert "moveControllerResult=moveController.buildMovePreview({" in studio
     assert "moveControllerResult&&moveControllerResult.operations" in studio
-    assert "await filmStudioCommit(moveControllerOperations);return;" in studio
+    assert "await filmStudioCommit(moveControllerOperations,{requireExactRevision:true});return;" in studio
     assert "resolveRollGesture" in controller_source
     assert "resolveSlideGesture" in controller_source
     assert "resolveSlipGesture" in controller_source

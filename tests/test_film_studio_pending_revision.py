@@ -18,7 +18,7 @@ def test_studio_discards_timeline_and_envelope_drag_when_external_revision_arriv
     react_finish = source[source.index("function finishReactClipGesture(e, preparedOperations)"):source.index("async function onUp(e)")]
     assert "if(S.pendingExternalRevision)" in react_finish
     assert "本次旧画面拖动未提交" in react_finish
-    assert react_finish.index("if(S.pendingExternalRevision)") < react_finish.index("await filmStudioCommit(preparedOperations);")
+    assert react_finish.index("if(S.pendingExternalRevision)") < react_finish.index("await filmStudioCommit(preparedOperations,{requireExactRevision:true});")
     assert "flushPendingExternalRevision();" in react_finish
     pointer_cancel = source[source.index("document.addEventListener('pointercancel'"):source.index("window.filmStudioSetSideMode")]
     assert "cancelPointerGesture();" in pointer_cancel
