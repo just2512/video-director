@@ -1208,6 +1208,10 @@ def test_late_ai_response_from_previous_project_cannot_clear_new_project_busy_st
                         arg=project_id,
                     )
                     page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                    # Panel visibility survives a switch; wait for the accepted film load.
+                    page.locator(
+                        f'#film-studio-panel[data-project-id="{project_id}"]'
+                    ).wait_for(state="attached", timeout=10_000)
                     page.wait_for_function(
                         "() => !!document.querySelector('#fs-timeline .fs-clip[data-clip=\"clip-a\"]')",
                         timeout=10_000,
