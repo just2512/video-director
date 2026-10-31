@@ -4130,7 +4130,8 @@ def test_shotbook_and_creative_plan_loads_ignore_late_previous_project_responses
                     await Promise.all([newShotbook, newPlan]);
                     const afterSecond = {
                       shotbookProject: SHOTBOOK && SHOTBOOK.project_id,
-                      planStatus: document.querySelector('#creative-plan-status')?.textContent || ''
+                      planStatus: document.querySelector('#creative-plan-status')?.textContent || '',
+                      exportedPlanProject: window.creativePlanExportForFilmDirector()?.project_id || null
                     };
                     held.shotbook();
                     held['creative-plan']();
