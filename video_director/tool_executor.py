@@ -110,10 +110,12 @@ def film_authority_rejection(project_id: str, tool: str, target_id=None):
     try:
         context = project_context.inspect_project_context(project_id)
     except Exception as exc:
-        return _result(
-            tool, False, "REJECTED",
-            error=f"[PROJECT_AUTHORITY_UNKNOWN] 无法确认项目权威状态，拒绝执行旧能力：{exc}",
-        )
+        return {
+            "tool": tool, "ok": False, "status": "REJECTED",
+            "code": "PROJECT_AUTHORITY_UNKNOWN", "result": {},
+            "error": f"无法确认项目权威状态，已拒绝执行旧能力：{exc}",
+            "verify": {},
+        }
     if context.get("authority") != "film.html":
         return None
     if tool in _FILM_AUTHORITY_SAFE_TOOLS:
