@@ -384,6 +384,22 @@ def main(argv=None):
             print(doctor.format_doctor_report(results))
         sys.exit(1 if doctor.has_blocking_failures(results) else 0)
 
+    # Legacy composition pipelines must not write a project whose timeline
+    # authority has already moved to film.html. The dedicated "film" CLI above
+    # remains the only supported editing/rendering path for such projects.
+    if a.cmd in ("compose", "auto", "text", "resume"):
+        from video_director import tool_executor
+        legacy_project_id = getattr(a, "project_id", None) or {
+            "compose": "cli-run", "auto": "auto-run", "text": "text-run",
+        }.get(a.cmd, "")
+        if legacy_project_id:
+            rejection = tool_executor.film_authority_rejection(
+                legacy_project_id, f"legacy.cli.{a.cmd}"
+            )
+            if rejection is not None:
+                print(json.dumps(rejection, ensure_ascii=False, indent=2))
+                sys.exit(2)
+
     from video_director import pipeline
 
     if getattr(a, "init_test_audio", False):
