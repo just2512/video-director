@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import pytest
 
 from video_director import config, editor, film_document as fd, film_mcp_server, tool_executor
 from video_director.agent_gateway import capability_gateway
@@ -193,7 +194,7 @@ def test_film_initialize_requires_the_exact_composition_revision_and_warning_acc
     assert current["rev"] == initialized["rev"]
 
 
-def test_film_authority_blocks_legacy_agent_paths_but_preserves_asset_preparation(tmp_path, monkeypatch):
+def test_film_authority_blocks_legacy_agent_paths_but_preserves_asset_preparation(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
     project_id = "agent-film-authority-hard-gate"
     project_root = config.project_dir(project_id)
@@ -250,6 +251,16 @@ def test_film_authority_blocks_legacy_agent_paths_but_preserves_asset_preparatio
     ):
         assert result["status"] == "REJECTED", result
         assert result["code"] == "FILM_AUTHORITY_ACTIVE", result
+
+    # The legacy Python CLI must not bypass the same authority boundary.
+    from video_director.__main__ import main as cli_main
+    script = tmp_path / "legacy-script.txt"
+    script.write_text("不应覆盖已初始化影片的旧 CLI", encoding="utf-8")
+    with pytest.raises(SystemExit) as cli_exit:
+        cli_main(["text", "--script", str(script), "--project-id", project_id])
+    assert cli_exit.value.code == 2
+    cli_output = capsys.readouterr().out
+    assert '"code": "FILM_AUTHORITY_ACTIVE"' in cli_output
 
     context_result = capability_gateway.creative_execute(
         project_id, "system.context.inspect", {"selection": {"type": "project"}}
