@@ -130,3 +130,15 @@ def test_legacy_authority_check_rejects_filesystem_uncertainty(tmp_path, monkeyp
     assert caught.value.code == "PROJECT_AUTHORITY_UNKNOWN"
     assert caught.value.status == 503
 
+
+
+def test_film_authority_allows_isolated_voice_preview_but_blocks_legacy_narration(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    project_id = "context-film-voice-preview"
+    _write_film(project_id, FILM_HTML)
+
+    assert tool_executor.film_authority_rejection(project_id, "tts.preview_voice") is None
+    rejected = tool_executor.film_authority_rejection(project_id, "tts.preview_narration")
+    assert rejected is not None
+    assert rejected["status"] == "REJECTED"
+    assert rejected["code"] == "FILM_AUTHORITY_ACTIVE"
