@@ -96,9 +96,69 @@ async function executeBatch(spec) {
 }
 
 /**
- * executeCommand({command, targetId, payload}) → {ok, status, data}
- * CONFLICT：不静默覆盖——调用方须 resync 并提示用户刷新。
+ * A command response contains a raw CompositionIR dump. The editor view model
+ * also needs server-enriched fields (project dimensions/duration and manifest
+ * asset metadata). Hydrate from the canonical composition endpoint before any
+ * caller redraws the timeline or Inspector. A delayed GET may not overwrite a
+ * different project or a newer local revision.
  */
+async function _hydrateCommandComposition(projectId, appliedVersion, rawComposition) {
+  const isCurrent = () => !!ED && ED.pid === projectId
+    && Object.is(ED.version, appliedVersion)
+    && editorContextMatches(projectId, appliedVersion);
+  if (!isCurrent()) return {ok:false,status:'PROJECT_CHANGED',project_id:projectId};
+
+  let fresh = null;
+  try {
+    fresh = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(projectId));
+  } catch (_) {
+    fresh = null;
+  }
+  if (!isCurrent()) return {ok:false,status:'PROJECT_CHANGED',project_id:projectId};
+  const freshVersion = Number(fresh && fresh.version);
+  if (fresh && Array.isArray(fresh.scenes) && Number.isFinite(freshVersion)
+      && freshVersion >= Number(appliedVersion)) {
+    const previous = ED.comp || {};
+    if (!fresh.transition_proposals && previous.transition_proposals) {
+      fresh.transition_proposals = previous.transition_proposals;
+    }
+    if ((!fresh.assets || Array.isArray(fresh.assets)) && previous.assets && !Array.isArray(previous.assets)) {
+      fresh.assets = previous.assets;
+    }
+    ED.comp = fresh;
+    ED.version = freshVersion;
+    return {ok:true,mode:'normalized',project_id:projectId,version:freshVersion};
+  }
+
+  // Network/read failure is not allowed to leave the renderer with missing
+  // top-level view fields. Keep known manifest metadata and derive the numeric
+  // project fields from the raw IR's project block.
+  if (!isCurrent() || !rawComposition || typeof rawComposition !== 'object') {
+    return {ok:false,status:'NORMALIZED_COMPOSITION_UNAVAILABLE',project_id:projectId};
+  }
+  const previous = ED.comp || {};
+  const project = rawComposition.project || {};
+  const fallback = Object.assign({}, previous, rawComposition);
+  fallback.width = rawComposition.width ?? project.width ?? previous.width ?? 0;
+  fallback.height = rawComposition.height ?? project.height ?? previous.height ?? 0;
+  fallback.duration = rawComposition.duration ?? project.duration ?? previous.duration ?? 0;
+  fallback.version = appliedVersion;
+  fallback.project_id = projectId;
+  if (previous.assets && !Array.isArray(previous.assets)) {
+    fallback.assets = previous.assets;
+  } else if (Array.isArray(rawComposition.assets)) {
+    fallback.assets = Object.fromEntries(rawComposition.assets
+      .filter(asset => asset && asset.id).map(asset => [String(asset.id), asset]));
+  } else {
+    fallback.assets = rawComposition.assets || {};
+  }
+  if (!fallback.transition_proposals && previous.transition_proposals) {
+    fallback.transition_proposals = previous.transition_proposals;
+  }
+  ED.comp = fallback;
+  return {ok:false,status:'NORMALIZED_COMPOSITION_UNAVAILABLE',project_id:projectId,fallback:true};
+}
+
 async function executeCommand(spec) {
   const pid = ED.pid;
   if (!pid) throw new Error('先打开项目');
@@ -143,24 +203,22 @@ async function executeCommand(spec) {
     };
   }
   if (data.ok) {
-    // 同步版本与 Composition（Server State 单向流入前端）
-    if (typeof data.composition_version === 'number') ED.version = data.composition_version;
+    // Advance the command revision, then hydrate the normalized editor view model.
+    const appliedVersion = typeof data.composition_version === 'number'
+      ? data.composition_version : ED.version;
+    ED.version = appliedVersion;
+    let compositionSync = {ok:true,status:'UNCHANGED'};
     if (data.composition) {
-      // editor command 响应的 composition 是裸 IR dump——不含 server 组装
-      // /api/editor/composition 时附加的展示字段（assets 缩略图映射 /
-      // transition_proposals）。裸赋值会让 PR#9 的缩略图/匹配面板/转场
-      // 待确认区在第一次编辑后全部失效（ED.comp.assets 变 undefined，
-      // 2026-10-09 Playwright H 断言实锚）。保留展示字段，只换 IR 本体。
-      const keepExtras = {
-        assets: ED.comp && ED.comp.assets,
-        transition_proposals: ED.comp && ED.comp.transition_proposals,
-      };
-      ED.comp = Object.assign({}, data.composition);
-      if (keepExtras.assets && !ED.comp.assets) ED.comp.assets = keepExtras.assets;
-      if (keepExtras.transition_proposals && !ED.comp.transition_proposals)
-        ED.comp.transition_proposals = keepExtras.transition_proposals;
+      compositionSync = await _hydrateCommandComposition(pid, appliedVersion, data.composition);
+      if (compositionSync.status === 'PROJECT_CHANGED') {
+        return {
+          ok:false,status:'PROJECT_CHANGED',project_id:pid,staleProjectResponse:true,applied:true,
+          error:'命令已在原项目提交；规范化时间线返回前工作区已变化，未更新当前项目状态。',
+          data,compositionSync,
+        };
+      }
     }
-    return {ok:true,status:'APPLIED',project_id:pid,data};
+    return {ok:true,status:'APPLIED',project_id:pid,data,compositionSync};
   }
   const code = (data.errors && data.errors[0] && data.errors[0].code) || data.status || 'ERROR';
   if (code === 'CONFLICT') {

@@ -57,12 +57,30 @@ def test_late_editor_responses_never_mutate_the_new_project_workspace(tmp_path, 
                       if (body.command === 'immediate-conflict-for-resync') {
                         return Promise.resolve(json({ok:false,status:'CONFLICT',errors:[{code:'CONFLICT'}]}));
                       }
+                      if (body.command === 'normalized-command') {
+                        return Promise.resolve(json({
+                          ok:true,status:'APPLIED',composition_version:6,
+                          composition:{project:{width:160,height:90,duration:2},scenes:[],assets:[],visual_tracks:[],visual_overlays:[]}
+                        }));
+                      }
+                      if (body.command === 'delayed-normalized-command') {
+                        return Promise.resolve(json({
+                          ok:true,status:'APPLIED',composition_version:7,
+                          composition:{project:{width:160,height:90,duration:2},scenes:[],assets:[],visual_tracks:[],visual_overlays:[]}
+                        }));
+                      }
                     }
                     if (url.pathname === '/api/editor/composition' && method === 'GET') {
                       const pid = url.searchParams.get('project_id');
                       if (pid === 'project-b') projectBCompositionReads += 1;
                       if (pid === 'resync-a') return new Promise(resolve => { holds.resyncComposition = resolve; });
                       if (pid === 'refresh-a') return new Promise(resolve => { holds.refreshComposition = resolve; });
+                      if (pid === 'normalized-a') return Promise.resolve(json({
+                        project_id:pid,version:6,width:160,height:90,duration:2,scenes:[],
+                        assets:{'normalized-asset':{id:'normalized-asset',name:'Normalized Asset'}},
+                        visual_tracks:[],visual_overlays:[]
+                      }));
+                      if (pid === 'hydrate-a') return new Promise(resolve => { holds.hydrateA = resolve; });
                     }
                     if (url.pathname === '/api/action/execute' && method === 'POST') {
                       return new Promise(resolve => { holds.actionSuccess = resolve; });
@@ -80,6 +98,27 @@ def test_late_editor_responses_never_mutate_the_new_project_workspace(tmp_path, 
                     setProject('project-b',10,'project-b-state');
                     holds.commandSuccess(json({ok:true,composition_version:4,composition:{marker:'command-a-response'}}));
                     snapshots.command={result:await commandPending,state:state()};
+
+                    // Successful editor commands must restore the server-enriched view model.
+                    setProject('normalized-a',5,'normalized-before');
+                    const normalizedResult=await window.executeCommand({command:'normalized-command',targetId:'project',payload:{}});
+                    snapshots.normalized={result:normalizedResult,state:{
+                      pid:ED.pid,version:ED.version,width:ED.comp&&ED.comp.width,height:ED.comp&&ED.comp.height,
+                      duration:ED.comp&&ED.comp.duration,assetName:ED.comp&&ED.comp.assets&&ED.comp.assets['normalized-asset']&&ED.comp.assets['normalized-asset'].name,
+                      assetMap:!!(ED.comp&&ED.comp.assets&&!Array.isArray(ED.comp.assets))
+                    }};
+
+                    // If the normalization GET resolves after another project is active, discard it.
+                    setProject('hydrate-a',6,'hydrate-a-before');
+                    const hydrationPending=window.executeCommand({command:'delayed-normalized-command',targetId:'project',payload:{}});
+                    await tick();
+                    if(!holds.hydrateA)throw new Error('command normalization GET was not held');
+                    setProject('project-b',15,'project-b-after-hydration-switch');
+                    holds.hydrateA(json({
+                      project_id:'hydrate-a',version:7,width:160,height:90,duration:2,scenes:[],
+                      assets:{},visual_tracks:[],visual_overlays:[]
+                    }));
+                    snapshots.hydrationSwitch={result:await hydrationPending,state:state()};
 
                     setProject('conflict-a',6,'before-conflict');
                     const conflictPending=window.executeCommand({command:'delayed-conflict',targetId:'clip-a',payload:{}});
@@ -127,6 +166,17 @@ def test_late_editor_responses_never_mutate_the_new_project_workspace(tmp_path, 
                 assert result["command"]["result"]["status"] == "PROJECT_CHANGED", result
                 assert result["command"]["result"]["applied"] is True, result
                 assert result["command"]["state"] == {"pid":"project-b","version":10,"marker":"project-b-state"}, result
+                assert result["normalized"]["result"]["ok"] is True, result
+                assert result["normalized"]["result"]["compositionSync"]["mode"] == "normalized", result
+                assert result["normalized"]["state"] == {
+                    "pid":"normalized-a","version":6,"width":160,"height":90,"duration":2,
+                    "assetName":"Normalized Asset","assetMap":True
+                }, result
+                assert result["hydrationSwitch"]["result"]["status"] == "PROJECT_CHANGED", result
+                assert result["hydrationSwitch"]["result"]["applied"] is True, result
+                assert result["hydrationSwitch"]["state"] == {
+                    "pid":"project-b","version":15,"marker":"project-b-after-hydration-switch"
+                }, result
                 assert result["conflict"]["result"]["staleProjectResponse"] is True, result
                 assert result["conflict"]["state"] == {"pid":"project-b","version":11,"marker":"project-b-after-conflict-switch"}, result
                 assert result["conflict"]["projectBReads"] == 0, result
