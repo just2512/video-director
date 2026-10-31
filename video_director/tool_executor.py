@@ -100,6 +100,9 @@ _FILM_AUTHORITY_SAFE_TOOLS = {
     "system.context.inspect", "asset.search", "asset.resolve",
     "stock.search", "stock.preview", "tts.list_voices",
     "music.search", "music.preview", "motion.list", "motion.preview",
+    # Project metadata and generated-asset operations do not mutate the legacy
+    # CompositionIR timeline; they remain valid when film.html owns the timeline.
+    "tts.set_voice", "material.motion.list", "material.motion.create",
 }
 
 
