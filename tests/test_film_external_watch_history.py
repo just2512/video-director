@@ -1,6 +1,7 @@
 """Direct external agent writes are recorded in the same undo/redo revision history."""
 from __future__ import annotations
 
+import os
 import time
 
 from video_director import config, film_document as fd
@@ -222,6 +223,51 @@ def test_external_edit_that_restores_a_historical_revision_is_still_recorded(tmp
     assert history["past"][0]["after"] == restored
     assert history["past"][1]["before"] == restored
     assert history["past"][1]["after"] == initial
+
+
+def test_external_in_place_write_with_restored_mtime_is_detected_by_content_audit(tmp_path, monkeypatch):
+    """Metadata-preserving in-place writes must not bypass the film revision watcher."""
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "external-agent-preserved-metadata"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True, exist_ok=True)
+    film_path = fd._film_path(project_id)
+    film_path.write_text(FILM, encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    events = []
+
+    watcher = FilmRevisionWatcher(
+        lambda topic, payload: events.append((topic, payload)),
+        content_audit_interval_seconds=0.1,
+    )
+    watcher.watch(project_id, initial_revision=initial["rev"], initial_text=initial["text"])
+
+    before_stat = film_path.stat()
+    external = FILM.replace('at="0"', 'at="1"')
+    assert len(external.encode("utf-8")) == before_stat.st_size
+    with film_path.open("r+b") as handle:
+        handle.write(external.encode("utf-8"))
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.utime(film_path, ns=(before_stat.st_atime_ns, before_stat.st_mtime_ns))
+    after_stat = film_path.stat()
+    assert (after_stat.st_dev, after_stat.st_ino, after_stat.st_size, after_stat.st_mtime_ns) == (
+        before_stat.st_dev, before_stat.st_ino, before_stat.st_size, before_stat.st_mtime_ns
+    )
+
+    _poll_changed_file(watcher)
+
+    current = fd.read_project_film(project_id)
+    assert current["rev"] != initial["rev"]
+    assert current["text"] == external
+    history = fd._history_read(project_id)
+    assert len(history["past"]) == 1
+    assert history["past"][0]["source"] == "external_file"
+    assert history["past"][0]["before"] == initial["text"]
+    assert history["past"][0]["after"] == external
+    assert len(events) == 1, events
+    assert events[0][1]["phase"] == "revision_changed"
+    assert events[0][1]["revision"] == current["rev"]
 
 
 def test_external_scene_file_change_publishes_separate_refresh_event_without_film_revision_change(tmp_path, monkeypatch):
