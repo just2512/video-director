@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import json
 
-from video_director import config, editor, film_document as fd, film_mcp_server
+from video_director import config, editor, film_document as fd, film_mcp_server, tool_executor
+from video_director.agent_gateway import capability_gateway
 from video_director.agent_gateway import mcp_server
 from video_director.models import CompositionIR
 
@@ -190,3 +191,64 @@ def test_film_initialize_requires_the_exact_composition_revision_and_warning_acc
     current = fd.read_project_film(project_id)
     assert current["exists"] is True
     assert current["rev"] == initialized["rev"]
+
+
+def test_film_authority_blocks_legacy_agent_paths_but_preserves_asset_preparation(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    project_id = "agent-film-authority-hard-gate"
+    project_root = config.project_dir(project_id)
+    project_root.mkdir(parents=True, exist_ok=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text("""<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=640,height=360"></head>
+<body><section id="v1" data-label="主画面"><video id="clip-a" src="assets/a.mp4" at="0"></video></section></body></html>
+""", encoding="utf-8")
+    original = film_path.read_bytes()
+
+    for tool, payload, target_id in (
+        ("timeline.move", {"clipId": "clip-a", "trackId": "video-main", "at": 2}, None),
+        ("render.final", {}, None),
+        ("generation.image", {"prompt": "替换镜头", "confirmed": True}, "clip-a"),
+        ("music.match_video", {}, None),
+    ):
+        result = tool_executor.execute_tool(project_id, {
+            "tool": tool, "payload": payload, "targetId": target_id,
+        })
+        assert result["ok"] is False, (tool, result)
+        assert result["status"] == "REJECTED", (tool, result)
+        assert result["code"] == "FILM_AUTHORITY_ACTIVE", (tool, result)
+        assert result["result"]["authority"] == "film.html"
+        assert result["result"]["revision"] == fd.read_project_film(project_id)["rev"]
+
+    # High-level direct paths must not fall through to legacy Director/render/verify.
+    monkeypatch.setattr("video_director.director.direct", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("legacy director called")))
+    monkeypatch.setattr("video_director.confirm.render_draft", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("legacy render called")))
+    for result in (
+        capability_gateway.creative_plan(project_id, "调整节奏"),
+        capability_gateway.creative_preview(project_id),
+        capability_gateway.creative_verify(project_id),
+    ):
+        assert result["status"] == "REJECTED", result
+        assert result["code"] == "FILM_AUTHORITY_ACTIVE", result
+
+    context_result = capability_gateway.creative_execute(
+        project_id, "system.context.inspect", {"selection": {"type": "project"}}
+    )
+    assert context_result["ok"] is True, context_result
+    assert context_result["result"]["context"]["authority"] == "film.html"
+
+    # Asset generation without a timeline target remains available; supplying a
+    # target is rejected before the legacy Composition adoption path can run.
+    monkeypatch.setattr(
+        tool_executor, "_execute_generation",
+        lambda pid, tool, payload, target: {
+            "tool": tool, "ok": True, "status": "ASSET_PREPARED",
+            "result": {"project_id": pid, "target_id": target},
+        },
+    )
+    prepared = tool_executor.execute_tool(project_id, {
+        "tool": "generation.image", "payload": {"prompt": "准备素材"},
+    })
+    assert prepared["ok"] is True and prepared["status"] == "ASSET_PREPARED", prepared
+    assert film_path.read_bytes() == original
+    assert fd.read_project_film(project_id)["rev"] == fd.revision_of(original.decode("utf-8"))
