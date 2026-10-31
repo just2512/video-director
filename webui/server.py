@@ -1317,7 +1317,10 @@ class Handler(BaseHTTPRequestHandler):
                 return True
 
             if route == "/api/editor/film/edit":
-                result = fd.edit_project_film(pid, payload.get("base"), payload.get("ops"), source="studio")
+                result = fd.edit_project_film(
+                    pid, payload.get("base"), payload.get("ops"),
+                    require_base=payload.get("require_base") is True, source="studio",
+                )
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"], "base": result["base"],
                              "source": result["source"]})
