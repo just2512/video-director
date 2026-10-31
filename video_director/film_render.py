@@ -6,6 +6,7 @@ from the same stable clip IDs / source ranges.
 """
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -32,6 +33,164 @@ MAX_RENDER_SECONDS = 600
 MAX_RENDER_FRAMES = 18_000
 MAX_STAGE_EDGE = 3840
 _MEDIA_CHUNK = 64 * 1024
+_RENDER_WORKDIR_RE = re.compile(r"^\\.film-render-([0-9a-f]{64})-(\\d+)-(\\d+)\\.work$")
+_QC_TEMP_RE = re.compile(r"^\\.film-final-([0-9a-f]{64})\\.json\\.(\\d+)\\.(\\d+)\\.tmp$")
+
+
+def _render_process_is_alive(pid: int) -> bool:
+    """Fail closed when process liveness cannot be established."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x1000, False, int(pid))
+            if handle:
+                kernel32.CloseHandle(handle)
+                return True
+            return kernel32.GetLastError() not in {87, 1168}
+        except Exception:
+            return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError as exc:
+        return exc.errno != errno.ESRCH
+    return True
+
+
+def _write_publish_journal(temp_root: Path, payload: dict) -> Path:
+    journal = temp_root / "publish-transaction.json"
+    temporary = temp_root / f".publish-transaction.{os.getpid()}.{time.time_ns()}.tmp"
+    try:
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+            handle.write("\\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, journal)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return journal
+
+
+def _restore_render_backup(backup: Path, destination: Path, temporary: Path) -> None:
+    """Restore through an atomic sibling replace; safe to retry after a crash."""
+    if not backup.is_file() or backup.is_symlink():
+        raise RuntimeError(f"render publication backup is missing: {backup.name}")
+    shutil.copy2(backup, temporary)
+    os.replace(temporary, destination)
+
+
+def _recover_render_publication(project_root: Path, workdir: Path, revision: str, pid: int) -> None:
+    journal = workdir / "publish-transaction.json"
+    if journal.is_symlink() or not journal.is_file():
+        raise RuntimeError("render publication journal is missing or unsafe")
+    payload = json.loads(journal.read_text(encoding="utf-8"))
+    if (
+        not isinstance(payload, dict)
+        or payload.get("schema_version") != 1
+        or payload.get("revision") != revision
+        or not isinstance(payload.get("had_output"), bool)
+        or not isinstance(payload.get("had_report"), bool)
+    ):
+        raise RuntimeError("render publication journal is invalid")
+    phase = payload.get("phase")
+    output = project_root / "render" / f"film-final-{revision}.mp4"
+    report = project_root / "qc" / f"film-final-{revision}.json"
+    for parent in (output.parent, report.parent):
+        if parent.is_symlink() or not parent.is_dir():
+            raise RuntimeError(f"render artifact directory is missing or unsafe: {parent.name}")
+
+    if phase == "prepared":
+        if payload["had_output"]:
+            _restore_render_backup(
+                workdir / "previous-output.mp4", output, workdir / "restore-output.tmp"
+            )
+        else:
+            output.unlink(missing_ok=True)
+        if payload["had_report"]:
+            _restore_render_backup(
+                workdir / "previous-qc.json", report, workdir / "restore-qc.tmp"
+            )
+        else:
+            report.unlink(missing_ok=True)
+    elif phase != "committed":
+        raise RuntimeError("render publication journal has an unknown phase")
+
+    qc_temp_name = payload.get("qc_temp_name")
+    if isinstance(qc_temp_name, str) and Path(qc_temp_name).name == qc_temp_name:
+        match = _QC_TEMP_RE.fullmatch(qc_temp_name)
+        if match and match.group(1) == revision and int(match.group(2)) == pid:
+            qc_temp = project_root / "qc" / qc_temp_name
+            if qc_temp.is_symlink():
+                raise RuntimeError("render QC temporary path is a symlink")
+            qc_temp.unlink(missing_ok=True)
+
+
+def cleanup_orphaned_render_artifacts(storage_root: Path | None = None) -> dict:
+    """Recover interrupted MP4/QC publication and remove dead render workdirs.
+
+    Run once during server startup, before accepting new work. Live owner PIDs
+    are skipped. Invalid transactions remain on disk for manual inspection.
+    """
+    root = Path(storage_root) if storage_root is not None else config.composer_storage_root()
+    summary = {"workdirs_removed": 0, "transactions_recovered": 0, "qc_temps_removed": 0, "errors": []}
+    if root.is_symlink() or not root.is_dir():
+        return summary
+
+    for project_root in sorted(root.iterdir(), key=lambda item: item.name):
+        if project_root.is_symlink() or not project_root.is_dir():
+            continue
+        try:
+            fd.validate_project_id(project_root.name)
+        except Exception:
+            continue
+
+        render_dir = project_root / "render"
+        if render_dir.is_dir() and not render_dir.is_symlink():
+            for workdir in sorted(render_dir.iterdir(), key=lambda item: item.name):
+                match = _RENDER_WORKDIR_RE.fullmatch(workdir.name)
+                if not match or workdir.is_symlink() or not workdir.is_dir():
+                    continue
+                revision, raw_pid, _created_ns = match.groups()
+                pid = int(raw_pid)
+                if _render_process_is_alive(pid):
+                    continue
+                try:
+                    journal = workdir / "publish-transaction.json"
+                    if journal.exists() or journal.is_symlink():
+                        _recover_render_publication(project_root, workdir, revision, pid)
+                        state = json.loads(journal.read_text(encoding="utf-8"))
+                        if state.get("phase") == "prepared":
+                            summary["transactions_recovered"] += 1
+                    shutil.rmtree(workdir)
+                    summary["workdirs_removed"] += 1
+                except Exception as exc:
+                    summary["errors"].append(
+                        f"{project_root.name}/{workdir.name}: {type(exc).__name__}: {str(exc)[:240]}"
+                    )
+
+        qc_dir = project_root / "qc"
+        if qc_dir.is_dir() and not qc_dir.is_symlink():
+            for temporary in sorted(qc_dir.iterdir(), key=lambda item: item.name):
+                match = _QC_TEMP_RE.fullmatch(temporary.name)
+                if not match or temporary.is_symlink() or not temporary.is_file():
+                    continue
+                if _render_process_is_alive(int(match.group(2))):
+                    continue
+                try:
+                    temporary.unlink()
+                    summary["qc_temps_removed"] += 1
+                except OSError as exc:
+                    summary["errors"].append(
+                        f"{project_root.name}/{temporary.name}: {type(exc).__name__}: {str(exc)[:240]}"
+                    )
+    return summary
 
 
 class FilmRenderError(Exception):
@@ -732,15 +891,18 @@ def _publish_render_artifacts(
     report: dict,
     temp_root: Path,
 ) -> tuple[Path, dict]:
-    """Publish MP4 and its QC manifest as one rollback-safe revision transaction."""
-    qc_dir = config.project_dir(project_id) / "qc"
+    """Publish MP4/QC as a revision transaction with crash-recoverable rollback."""
+    project_root = config.project_dir(project_id)
+    qc_dir = project_root / "qc"
     qc_dir.mkdir(parents=True, exist_ok=True)
     report_path = qc_dir / f"film-final-{revision}.json"
     qc_temp = qc_dir / f".{report_path.name}.{os.getpid()}.{time.time_ns()}.tmp"
     output_backup = temp_root / "previous-output.mp4"
+    report_backup = temp_root / "previous-qc.json"
+    journal = temp_root / "publish-transaction.json"
     try:
         qc_temp.write_text(
-            json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
+            json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\\n",
             encoding="utf-8",
         )
         with fd.project_lock(project_id):
@@ -752,26 +914,59 @@ def _publish_render_artifacts(
                     409,
                 )
 
-            # Preserve the previous same-revision MP4 until both replacements
-            # succeed. QC replacement is the final operation; if it fails,
-            # restore the previous MP4 (or remove the new one).
             had_output = output.is_file()
+            had_report = report_path.is_file()
             if had_output:
                 shutil.copy2(output, output_backup)
+            if had_report:
+                shutil.copy2(report_path, report_backup)
+            transaction = {
+                "schema_version": 1,
+                "revision": revision,
+                "phase": "prepared",
+                "had_output": had_output,
+                "had_report": had_report,
+                "qc_temp_name": qc_temp.name,
+            }
+            _write_publish_journal(temp_root, transaction)
             try:
                 os.replace(output_temp, output)
                 os.replace(qc_temp, report_path)
+                transaction["phase"] = "committed"
+                _write_publish_journal(temp_root, transaction)
             except Exception:
-                if had_output and output_backup.is_file():
-                    os.replace(output_backup, output)
-                else:
-                    output.unlink(missing_ok=True)
+                try:
+                    if had_output:
+                        _restore_render_backup(
+                            output_backup, output, temp_root / "rollback-output.tmp"
+                        )
+                    else:
+                        output.unlink(missing_ok=True)
+                    if had_report:
+                        _restore_render_backup(
+                            report_backup, report_path, temp_root / "rollback-qc.tmp"
+                        )
+                    else:
+                        report_path.unlink(missing_ok=True)
+                    journal.unlink(missing_ok=True)
+                except Exception as rollback_error:
+                    raise RuntimeError(
+                        f"artifact publication failed and rollback was deferred: {rollback_error}"
+                    ) from rollback_error
                 raise
         return report_path, after
     finally:
         qc_temp.unlink(missing_ok=True)
-        output_backup.unlink(missing_ok=True)
-
+        if journal.is_file() and not journal.is_symlink():
+            try:
+                journal_state = json.loads(journal.read_text(encoding="utf-8"))
+                if journal_state.get("phase") == "committed":
+                    journal.unlink(missing_ok=True)
+            except Exception:
+                pass
+        if not journal.exists():
+            output_backup.unlink(missing_ok=True)
+            report_backup.unlink(missing_ok=True)
 
 def render_project_film(project_id: str, expected_revision: str, fps: int | None = None) -> dict:
     """Render a pinned film.html revision to MP4; inherit its saved FPS unless overridden."""
@@ -1045,7 +1240,19 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
             except Exception:
                 pass
         try:
-            shutil.rmtree(temp_root, ignore_errors=True)
+            # Keep prepared journals and backups when rollback did not complete;
+            # the next server startup can recover them without guessing.
+            journal = temp_root / "publish-transaction.json"
+            preserve_for_recovery = journal.exists() or journal.is_symlink()
+            if not preserve_for_recovery:
+                shutil.rmtree(temp_root, ignore_errors=True)
+            elif journal.is_file() and not journal.is_symlink():
+                try:
+                    state = json.loads(journal.read_text(encoding="utf-8"))
+                    if state.get("phase") == "committed":
+                        shutil.rmtree(temp_root, ignore_errors=True)
+                except Exception:
+                    pass
         except Exception:
             pass
 
