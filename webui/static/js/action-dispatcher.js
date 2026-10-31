@@ -151,20 +151,26 @@ async function _loadUiActions(){
 
 window._renderMonitors = window._renderMonitors || {};
 
-async function _startRenderWorkflow(actionId, pid){
+async function _startRenderWorkflow(actionId, pid, contextVersion){
   const kind = actionId === 'render.final' ? 'render_final' : 'render_draft';
+  const isCurrent = () => typeof editorContextMatches === 'function'
+    ? editorContextMatches(pid, contextVersion)
+    : (!!ED && ED.pid === pid && Object.is(ED.version, contextVersion));
   try {
     const r = await apiPost('/api/workflows', {kind, project_id: pid});
     if (!r || !r.ok || !r.run_id) {
       const msg = (r && (r.error || r.reason)) || '渲染任务提交失败';
-      editorToast(msg, true);
-      return r || {ok:false,error:msg};
+      if (isCurrent()) editorToast(msg, true);
+      return isCurrent() ? (r || {ok:false,error:msg})
+        : {ok:false,status:'PROJECT_CHANGED',project_id:pid,applied:false};
     }
     const runId = r.run_id;
     window._renderMonitors[runId] = true;
-    const meta = document.getElementById('ed-preview-meta');
-    if (meta) meta.textContent = (kind === 'render_draft' ? '草稿渲染中……' : '成片渲染中……');
-    editorToast(kind === 'render_draft' ? '草稿渲染已开始，可继续编辑' : '成片渲染已开始');
+    if (isCurrent()) {
+      const meta = document.getElementById('ed-preview-meta');
+      if (meta) meta.textContent = kind === 'render_draft' ? '草稿渲染中……' : '成片渲染中……';
+      editorToast(kind === 'render_draft' ? '草稿渲染已开始，可继续编辑' : '成片渲染已开始');
+    }
     const poll = async () => {
       if (!window._renderMonitors[runId]) return;
       try {
@@ -172,41 +178,39 @@ async function _startRenderWorkflow(actionId, pid){
         const st = d && d.status;
         if (st === 'COMPLETED') {
           delete window._renderMonitors[runId];
-          const info = await previewLoadDraft();
-          const path = kind === 'render_draft' ? info && info.draft_path : info && info.final_path;
+          if (!isCurrent()) return;
+          const info = await previewLoadDraft(pid, contextVersion);
+          if (!isCurrent() || !info || info.staleProjectResponse) return;
+          const path = kind === 'render_draft' ? info.draft_path : info.final_path;
           if (kind === 'render_draft') {
-            if (path) previewShowVideo(path, '草稿 · 已完成');
+            if (path) previewShowVideo(path, '草稿 · 已完成', pid, contextVersion);
             else previewRenderComposition();
           }
+          if (!isCurrent()) return;
           const meta2 = document.getElementById('ed-preview-meta');
-          if (meta2 && path) meta2.textContent = (kind === 'render_draft' ? '草稿已完成' : '成片已完成');
-          // 成片完成 = 交付（方案节点24）：载入预览 + 给出下载入口。
-          // 此前 final 分支只改状态文字，成片既不进预览也无下载按钮——用户
-          // 渲染完成后找不到视频在哪（2026-10-19 生产反馈）。
+          if (meta2 && path) meta2.textContent = kind === 'render_draft' ? '草稿已完成' : '成片已完成';
           if (kind === 'render_final' && path) {
-            previewShowVideo(path, '成片 · 已完成');
+            previewShowVideo(path, '成片 · 已完成', pid, contextVersion);
             const box = document.getElementById('editor-preflight-box');
-            if (box) {
-              // P1 定格出口：下载链接旁给「定格+2s」小按钮（POST /api/export_freeze
-              // → 生成 final_freeze.mp4 并换成新下载链接）。
+            if (box && isCurrent()) {
               box.innerHTML =
                 `<div class="panel ok-box">成片渲染完成：<a class="dl" href="/file?path=${encodeURIComponent(path)}" download="final.mp4">下载 final.mp4</a>` +
                 `<button class="btn-secondary btn-sm" style="margin-left:8px" onclick="editorExportFreeze('${encodeURIComponent(pid)}', 2)">定格+2s</button>` +
                 `<button class="btn-secondary btn-sm" style="margin-left:8px" onclick="edGenerateMetadata('${encodeURIComponent(pid)}')">生成发布文案</button></div>`;
-              // §66 交付元数据：若项目 params 里已有历史发布文案，直接展示
-              // （成片完成就能看到上次生成结果，不必重复点击）。
-              edMetadataMaybeShow(pid);
+              void edMetadataMaybeShow(pid, contextVersion);
             }
           }
-          if (typeof taskRefresh === 'function') taskRefresh();
-          editorToast(kind === 'render_draft' ? '草稿渲染完成，已载入预览' : '成片渲染完成，已载入预览');
+          if (isCurrent() && typeof taskRefresh === 'function') taskRefresh();
+          if (isCurrent()) editorToast(kind === 'render_draft' ? '草稿渲染完成，已载入预览' : '成片渲染完成，已载入预览');
           return;
         }
         if (['FAILED','INTERRUPTED','CANCELLED'].includes(st)) {
           delete window._renderMonitors[runId];
-          const reason = (d && d.error) || '渲染未完成';
-          editorToast('渲染失败：' + reason, true);
-          if (typeof taskRefresh === 'function') taskRefresh();
+          if (isCurrent()) {
+            const reason = (d && d.error) || '渲染未完成';
+            editorToast('渲染失败：' + reason, true);
+            if (typeof taskRefresh === 'function') taskRefresh();
+          }
           return;
         }
         setTimeout(poll, 800);
@@ -215,21 +219,26 @@ async function _startRenderWorkflow(actionId, pid){
       }
     };
     poll();
-    return r;
+    return isCurrent() ? r : {ok:false,status:'PROJECT_CHANGED',project_id:pid,applied:true,run_id:runId};
   } catch (e) {
-    editorToast('渲染任务提交失败：' + (e.message || e), true);
-    return {ok:false,error:e.message || String(e)};
+    if (isCurrent()) editorToast('渲染任务提交失败：' + (e.message || e), true);
+    return {ok:false,status:isCurrent()?'NETWORK_ERROR':'PROJECT_CHANGED',error:e.message || String(e),project_id:pid};
   }
 }
 
 /** P1 定格出口：POST /api/export_freeze → 成片尾帧定格 N 秒 → 换下载链接。 */
 async function editorExportFreeze(encodedPid, freezeSeconds){
   const pid = decodeURIComponent(encodedPid || '');
-  if (!pid) { editorToast('缺少项目 ID', true); return; }
+  const contextVersion = ED && ED.version;
+  const isCurrent = () => !!pid && (typeof editorContextMatches === 'function'
+    ? editorContextMatches(pid, contextVersion) : (!!ED && ED.pid===pid && Object.is(ED.version,contextVersion)));
+  if (!pid) { editorToast('缺少项目 ID', true); return {ok:false,status:'NO_PROJECT'}; }
+  if (!isCurrent()) return {ok:false,status:'PROJECT_CHANGED',project_id:pid};
   const btn = document.querySelector('#editor-preflight-box button[onclick*="editorExportFreeze"]');
   if (btn) { btn.disabled = true; btn.textContent = '定格中…'; }
   try {
-    const r = await apiPost('/api/export_freeze', {project_id: pid, freeze_seconds: freezeSeconds});
+    const r = await apiPost('/api/export_freeze', {project_id:pid,freeze_seconds:freezeSeconds});
+    if (!isCurrent()) return {ok:false,status:'PROJECT_CHANGED',project_id:pid,staleProjectResponse:true,applied:!!(r&&r.ok)};
     if (!r || !r.ok) throw new Error((r && r.error) || '定格失败');
     const box = document.getElementById('editor-preflight-box');
     const link = box ? box.querySelector('a.dl') : null;
@@ -239,11 +248,16 @@ async function editorExportFreeze(encodedPid, freezeSeconds){
       link.textContent = '下载 final_freeze.mp4（定格+' + freezeSeconds + 's）';
     }
     editorToast('已生成定格版本（+' + freezeSeconds + 's）');
-    // 同步刷新预览信息，让 PV.finalPath 指向定格版
-    if (typeof previewLoadDraft === 'function') await previewLoadDraft();
+    if (typeof previewLoadDraft === 'function') await previewLoadDraft(pid,contextVersion);
+    return r;
   } catch (e) {
-    editorToast('定格失败：' + (e.message || e), true);
-    if (btn) { btn.disabled = false; btn.textContent = '定格+' + freezeSeconds + 's'; }
+    if (isCurrent()) {
+      editorToast('定格失败：' + (e.message || e), true);
+      if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = '定格+' + freezeSeconds + 's'; }
+    }
+    return {ok:false,status:isCurrent()?'ERROR':'PROJECT_CHANGED',error:e.message||String(e),project_id:pid};
+  } finally {
+    if (isCurrent() && btn && btn.isConnected) { btn.disabled = false; btn.textContent = '定格+' + freezeSeconds + 's'; }
   }
 }
 async function executeAction(actionId, params={}, target=null, selection=null){
@@ -259,7 +273,7 @@ async function executeAction(actionId, params={}, target=null, selection=null){
   }
   const sel = selection || _dispatchSelection();
   if (actionId === 'render.draft' || actionId === 'render.final') {
-    return await _startRenderWorkflow(actionId, pid);
+    return await _startRenderWorkflow(actionId, pid, contextVersion);
   }
   const targetValue = target || (
     sel.type === 'project' || !sel.id ? 'project' : 'current_selection'
@@ -346,27 +360,34 @@ document.addEventListener('click', (ev) => {
  */
 async function edGenerateMetadata(encodedPid){
   const pid = decodeURIComponent(encodedPid || '');
+  const contextVersion = ED && ED.version;
+  const isCurrent = () => !!pid && (typeof editorContextMatches === 'function'
+    ? editorContextMatches(pid,contextVersion) : (!!ED && ED.pid===pid && Object.is(ED.version,contextVersion)));
   if (!pid) { editorToast('缺少项目 ID', true); return; }
+  if (!isCurrent()) return {ok:false,status:'PROJECT_CHANGED',project_id:pid};
   const btn = document.querySelector('#editor-preflight-box button[onclick*="edGenerateMetadata"]');
   if (btn) { btn.disabled = true; btn.textContent = '生成中…'; }
   try {
-    const r = await executeAction('delivery.generate_metadata', {project_id: pid}, 'project');
+    const r = await executeAction('delivery.generate_metadata', {project_id:pid}, 'project');
+    if (!isCurrent() || (r && r.staleProjectResponse)) return {ok:false,status:'PROJECT_CHANGED',project_id:pid,applied:!!(r&&r.applied)};
     if (!r || !r.ok) throw new Error((r && r.error) || '生成失败');
-    // execute_action_request 返回 {ok, result: {artifactType, metadata}}——
-    // tool_executor 的 result 字段在顶层 r.result 里。
     const meta = (r.result && r.result.metadata) || null;
     if (!meta) throw new Error('未返回文案内容');
-    edMetadataRender(meta);
+    edMetadataRender(meta,pid,contextVersion);
     editorToast('发布文案已生成并保存到项目参数');
+    return r;
   } catch (e) {
-    editorToast('发布文案生成失败：' + (e.message || e), true);
+    if (isCurrent()) editorToast('发布文案生成失败：' + (e.message || e), true);
+    return {ok:false,status:isCurrent()?'ERROR':'PROJECT_CHANGED',error:e.message||String(e),project_id:pid};
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '生成发布文案'; }
+    if (isCurrent() && btn && btn.isConnected) { btn.disabled = false; btn.textContent = '生成发布文案'; }
   }
 }
 
 /** 把发布文案渲染到成片完成框下方（可复制文本块）。 */
-function edMetadataRender(meta){
+function edMetadataRender(meta, expectedProjectId, expectedVersion){
+  if (expectedProjectId && typeof editorContextMatches === 'function'
+      && !editorContextMatches(expectedProjectId,expectedVersion)) return;
   const box = document.getElementById('editor-preflight-box');
   if (!box) return;
   let panel = document.getElementById('ed-metadata-panel');
@@ -386,12 +407,18 @@ function edMetadataRender(meta){
 }
 
 /** 项目已有历史发布文案（params_json.delivery_metadata）时直接展示。 */
-async function edMetadataMaybeShow(pid){
+async function edMetadataMaybeShow(pid, expectedVersion){
+  const version = arguments.length >= 2 ? expectedVersion : (ED && ED.version);
+  const isCurrent = () => !!pid && (typeof editorContextMatches === 'function'
+    ? editorContextMatches(pid,version) : (!!ED && ED.pid===pid && Object.is(ED.version,version)));
+  if (!isCurrent()) return {ok:false,status:'PROJECT_CHANGED',project_id:pid};
   try {
     const d = await apiGet('/api/project_detail?project_id=' + encodeURIComponent(pid));
+    if (!isCurrent()) return {ok:false,status:'PROJECT_CHANGED',project_id:pid,staleProjectResponse:true};
     const meta = d && d.delivery_metadata;
-    if (meta && meta.title) edMetadataRender(meta);
-  } catch (e) { /* 详情读取失败不阻塞成片展示 */ }
+    if (meta && meta.title) edMetadataRender(meta,pid,version);
+    return {ok:true,project_id:pid,hasMetadata:!!(meta&&meta.title)};
+  } catch (e) { return {ok:false,status:isCurrent()?'LOAD_FAILED':'PROJECT_CHANGED',project_id:pid,error:e.message||String(e)}; }
 }
 
 Object.assign(window, {actionDispatch, executeAction, UI_BEHAVIORS,
