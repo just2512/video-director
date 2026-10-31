@@ -416,9 +416,11 @@ def test_film_preview_rechecks_authority_after_concurrent_initialization(tmp_pat
     )
     editor.save_composition(project_id, ir)
     film_html = (
-        '<!doctype html><html><head><meta charset="utf-8"></head><body>'
+        '<!doctype html><html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=640,height=360">'
+        '<meta name="film-fps" content="30"></head><body>'
         '<section id="main" data-label="主画面">'
-        '<img id="film-clip" src="../assets/still.png#t=0,1" at="0"></img>'
+        '<video id="film-clip" src="assets/still.mp4#t=0,1" at="0"></video>'
         '</section></body></html>'
     )
     film_path = config.project_dir(project_id) / fd.FILM_NAME
