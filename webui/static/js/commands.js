@@ -3,9 +3,12 @@
  * targetId 未显式提供时，从当前 Selection 取得；实际修改仍只经过 backend Command + Revision。
  */
 async function editorCmd(command, payload = {}, targetId = null, refresh = true) {
+  const projectId = (typeof ED !== 'undefined' && ED) ? ED.pid : '';
   const target = targetId || ((typeof SEL !== 'undefined' && SEL.selection) ? (SEL.selection.id || '') : '');
   const result = await executeCommand({command, targetId: target, payload});
-  if (result && result.ok && refresh) {
+  // A late response for another project must not refresh the active workspace.
+  if (result && result.ok && refresh && ED && ED.pid === projectId &&
+      result.project_id === projectId && !result.staleProjectResponse) {
     if (typeof refreshWorkspace === 'function') await refreshWorkspace();
     else {
       if (typeof editorRenderTimeline === 'function') editorRenderTimeline();
@@ -40,23 +43,46 @@ function _bumpChannelStat(command) {
   st.byCommand[c] = (st.byCommand[c] || 0) + 1;
 }
 
-/** 版本冲突 → resync composition（读回最新，刷新时间线）。§20 禁止静默覆盖。 */
-async function resyncComposition(){
-  const pid = ED.pid;
+/**
+ * Check whether an async editor response still belongs to the active project/view.
+ * The selector changes before editorLoad completes, so both identities matter.
+ */
+function editorContextMatches(projectId, expectedVersion, checkVersion = true) {
+  if (!projectId || typeof ED === 'undefined' || !ED || ED.pid !== projectId) return false;
+  const selector = document.getElementById('editor-project');
+  if (selector && selector.value && selector.value !== projectId) return false;
+  if (checkVersion && arguments.length >= 2 && !Object.is(ED.version, expectedVersion)) return false;
+  return true;
+}
+
+/** Conflict recovery is pinned to the originating project and view revision. */
+async function resyncComposition(expectedProjectId, expectedContextVersion){
+  const pid = expectedProjectId || ED.pid;
+  const contextVersion = arguments.length >= 2 ? expectedContextVersion : ED.version;
   if (!pid) return {ok: false, error: '无项目'};
+  if (!editorContextMatches(pid, contextVersion)) {
+    return {ok:false,status:'PROJECT_CHANGED',project_id:pid};
+  }
   const fresh = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(pid));
-  if (fresh.error) return {ok: false, error: fresh.error};
+  if (!editorContextMatches(pid, contextVersion)) {
+    return {ok:false,status:'PROJECT_CHANGED',project_id:pid};
+  }
+  if (!fresh || fresh.error || !fresh.scenes) {
+    return {ok:false,status:'LOAD_FAILED',project_id:pid,error:(fresh && fresh.error)||'读取最新项目失败'};
+  }
   ED.version = fresh.version ?? ED.version;
   ED.comp = fresh;
   if (typeof editorRenderTimeline === 'function') editorRenderTimeline();
-  return {ok: true, version: ED.version};
+  return {ok:true,project_id:pid,version:ED.version};
 }
 
-/** CONFLICT 处理：resync + 明确提示（不静默重试）。 */
-function handleConflict(){
-  resyncComposition();
-  return {ok: false, status: 'CONFLICT',
-          error: '内容已被其他操作更新，已为你刷新到最新版本，请重试'};
+/** A conflict may refresh only the still-active originating project. */
+function handleConflict(expectedProjectId, expectedContextVersion){
+  const pid = expectedProjectId || ED.pid;
+  const version = arguments.length >= 2 ? expectedContextVersion : ED.version;
+  if (editorContextMatches(pid, version)) void resyncComposition(pid, version);
+  return {ok:false,status:'CONFLICT',project_id:pid,
+    error:'内容已被其他操作更新；请确认当前项目后重新载入并重试'};
 }
 
 /**
@@ -76,6 +102,11 @@ async function executeBatch(spec) {
 async function executeCommand(spec) {
   const pid = ED.pid;
   if (!pid) throw new Error('先打开项目');
+  const contextVersion = ED.version;
+  if (!editorContextMatches(pid, contextVersion)) {
+    return {ok:false,status:'PROJECT_CHANGED',project_id:pid,staleProjectResponse:true,applied:false,
+      error:'项目选择已变化；当前命令未发送，请重新打开所选项目。'};
+  }
   // §82 命令级 Action 通道计数（Failure 前不落：projectId 缺失直接抛错，不计入通道）
   _bumpChannelStat(spec && spec.command);
   const body = {
@@ -83,7 +114,7 @@ async function executeCommand(spec) {
     command: spec.command,
     targetId: spec.targetId || '',
     payload: spec.payload || {},
-    expectedVersion: (spec.expectedVersion !== undefined) ? spec.expectedVersion : ED.version,
+    expectedVersion: (spec.expectedVersion !== undefined) ? spec.expectedVersion : contextVersion,
     author: spec.author || 'user',
     commandId: 'cmd-' + Date.now().toString(36) + '-' + (++_cmdSeq),
   };
@@ -97,6 +128,19 @@ async function executeCommand(spec) {
     data = await resp.json().catch(() => ({}));
   } catch (e) {
     return {ok: false, status: 'NETWORK_ERROR', error: '网络异常：' + e.message};
+  }
+  // The HTTP request is pinned to pid, while ED is a single active-project view.
+  // A response must not replace another project or a newer view of the same project.
+  if (!editorContextMatches(pid, contextVersion)) {
+    const applied = !!(data && data.ok === true);
+    return {
+      ok:false,status:'PROJECT_CHANGED',project_id:pid,staleProjectResponse:true,applied,
+      requestStatus:applied?'APPLIED':((data && data.status) || 'REJECTED'),
+      error:applied
+        ? '命令已在原项目提交；当前工作区已切换，未更新当前项目状态。'
+        : '原项目请求已返回；当前工作区已切换，未触碰当前项目状态。',
+      data,
+    };
   }
   if (data.ok) {
     // 同步版本与 Composition（Server State 单向流入前端）
@@ -116,11 +160,11 @@ async function executeCommand(spec) {
       if (keepExtras.transition_proposals && !ED.comp.transition_proposals)
         ED.comp.transition_proposals = keepExtras.transition_proposals;
     }
-    return {ok: true, status: 'APPLIED', data};
+    return {ok:true,status:'APPLIED',project_id:pid,data};
   }
   const code = (data.errors && data.errors[0] && data.errors[0].code) || data.status || 'ERROR';
   if (code === 'CONFLICT') {
-    return handleConflict();
+    return handleConflict(pid, contextVersion);
   }
   if (code === 'CAPABILITY_UNAVAILABLE') {
     return {ok: false, status: 'CAPABILITY_UNAVAILABLE',
@@ -145,6 +189,7 @@ Object.assign(window, {
   executeBatch,
   resyncComposition,
   handleConflict,
+  editorContextMatches,
   friendlyError,
   cmdChannelStats: () => window.__cmdChannelStats,
 });

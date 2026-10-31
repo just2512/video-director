@@ -259,21 +259,28 @@
 
   async function materialMatch(){
     if(!ED||!ED.pid){editorToast('先打开项目',true);return;}
+    const pid=ED.pid, contextVersion=ED.version;
     const box=document.getElementById('director-control-grid');
     if(box) box.classList.add('loading');
     try{
-      const r=await apiGet('/api/editor/material_match?project_id='+encodeURIComponent(ED.pid));
+      const r=await apiGet('/api/editor/material_match?project_id='+encodeURIComponent(pid));
+      if(typeof editorContextMatches==='function'?!editorContextMatches(pid,contextVersion):(ED.pid!==pid||!Object.is(ED.version,contextVersion)))return;
       if(!r || r.error) throw new Error((r&&r.error)||'素材匹配失败');
-      EDX.materialMatch=r;
+      EDX.materialMatch=Object.assign({},r,{project_id:pid});
       renderMaterialMatch();
       editorToast((r.matches||[]).length?'已生成素材匹配建议，尚未修改时间线':'没有可形成的素材匹配');
-    }catch(e){editorToast('素材匹配失败：'+(e.message||e),true);}
-    finally{if(box)box.classList.remove('loading');}
+    }catch(e){
+      if(ED&&ED.pid===pid)editorToast('素材匹配失败：'+(e.message||e),true);
+    }finally{
+      if(box)box.classList.remove('loading');
+    }
   }
 
   async function applyMaterialMatch(){
     const m=EDX.materialMatch;
+    const pid=ED&&ED.pid;
     if(!m || !m.matches || !m.matches.length){editorToast('先生成素材匹配建议');return;}
+    if(!pid||m.project_id!==pid){editorToast('素材匹配建议属于其他项目；请重新生成当前项目的匹配建议。',true);return;}
     const ops=[];
     for(const x of m.matches){
       if(!x.layer_target || !x.asset_id) continue;
@@ -289,12 +296,17 @@
     if(!ops.length){editorToast('没有可以应用的匹配项');return;}
     // executeCommand 不支持任意子命令 batch，顺序提交并在每次成功后同步版本。
     for(const op of ops){
+      if(!ED||ED.pid!==pid)return;
       const r=await executeCommand(op);
-      if(!r.ok){editorToast('应用在 '+(op.targetId||'项目')+' 处停止，已保留已成功的修改',true);return;}
+      if(!r.ok){if(ED&&ED.pid===pid)editorToast(r.applied
+        ? '素材匹配已应用到原项目，但工作区已切换；剩余操作已停止。'
+        : '应用在 '+(op.targetId||'项目')+' 处停止，已保留已成功的修改',true);return;}
+      if(r.project_id!==pid||r.staleProjectResponse||!ED||ED.pid!==pid)return;
     }
+    if(!ED||ED.pid!==pid)return;
     EDX.materialMatch=null;
     await refreshComposition();
-    editorToast('素材匹配已应用；原声已按素材片段保留');
+    if(ED&&ED.pid===pid)editorToast('素材匹配已应用；原声已按素材片段保留');
   }
 
   function renderMaterialMatch(){
@@ -335,7 +347,9 @@
   async function approveTransition(i){
     const p=EDX.transitionProposal&&EDX.transitionProposal[i]; if(!p)return;
     if(p.status==='APPROVED')return;
+    const pid=ED&&ED.pid;
     const r=await executeCommand({command:'set_transition',targetId:p.from,payload:{type:'crossfade',duration:.5}});
+    if(!ED||ED.pid!==pid||r.project_id!==pid||r.staleProjectResponse)return;
     if(r.ok){
       p.status='APPROVED';
       await refreshComposition();

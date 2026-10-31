@@ -182,7 +182,12 @@ async function shotbookSave(){
 async function shotbookApplyMotion(sceneId){
   const card=document.querySelector('#shotbook-list .sb-shot[data-scene-key="'+CSS.escape(sceneId)+'"]');
   const status=document.getElementById('shotbook-status');
+  const pid=sbGetProjectId();
   if(!card||!SHOTBOOK)return;
+  if(!pid||!ED||ED.pid!==pid||SHOTBOOK.project_id!==pid){
+    if(status)status.textContent='项目上下文已变化；未应用动效，请重新载入当前项目分镜。';
+    return;
+  }
   const motionId=card.querySelector('.sb-motion').value;
   const targetId=card.querySelector('.sb-motion-layer').value;
   const motion=(SHOTBOOK.motions||[]).find(function(m){return m.id===motionId;});
@@ -196,26 +201,35 @@ async function shotbookApplyMotion(sceneId){
     return;
   }
   if(status)status.textContent='正在通过 Editor Command 应用动效并创建 Revision……';
-  const result=await editorCmd('replace_motion',{motionRecipeId:motion.id,motionVersion:motion.version,duration:motion.duration_recommended},targetId);
-  if(!result||!result.ok){if(status)status.textContent='动效未应用：'+((result&&result.error)||'应用失败')+'。时间线保持原样。';return;}
+  const result=await editorCmd('replace_motion',{motionRecipeId:motion.id,motionVersion:motion.version,duration:motion.duration_recommended},targetId,false);
+  if(sbGetProjectId()!==pid||ED.pid!==pid||!SHOTBOOK||SHOTBOOK.project_id!==pid)return;
+  if(!result||!result.ok){if(status)status.textContent=(result&&result.applied?'动效已应用到原项目，但当前工作区已切换；请返回原项目载入分镜。':'动效未应用：'+((result&&result.error)||'应用失败')+'。时间线保持原样。');return;}
   shot.motion_recipe_id=motion.id;shot.motion_layer_target=targetId;shot.reviewed=false;
   const reviewed=card.querySelector('.sb-reviewed');if(reviewed)reviewed.checked=false;
   SHOTBOOK_DIRTY=true;
   if(typeof refreshComposition==='function')await refreshComposition();
+  if(sbGetProjectId()!==pid||ED.pid!==pid||!SHOTBOOK||SHOTBOOK.project_id!==pid)return;
   await shotbookSave();
 }
 async function shotbookApplyRecipe(sceneId){
   const card=document.querySelector('#shotbook-list .sb-shot[data-scene-key="'+CSS.escape(sceneId)+'"]'),status=document.getElementById('shotbook-status');
+  const pid=sbGetProjectId();
   if(!card)return;
+  if(!pid||!ED||ED.pid!==pid||!SHOTBOOK||SHOTBOOK.project_id!==pid){
+    if(status)status.textContent='项目上下文已变化；未应用配方，请重新载入当前项目分镜。';
+    return;
+  }
   const recipeId=card.querySelector('.sb-recipe').value,recipe=(SHOTBOOK.recipes||[]).find(function(r){return r.id===recipeId;});
   if(!recipeId||!recipe){if(status)status.textContent='先为这镜选择一个有效的 Shot Registry 配方。';return;}
   if(status)status.textContent='正在检查素材槽位并应用配方……';
-  const result=await editorCmd('replace_recipe',{recipeId:recipeId,recipeVersion:recipe.version},sceneId);
-  if(!result||!result.ok){if(status)status.textContent='配方未应用，时间线没有因此被覆盖：'+((result&&result.error)||'应用失败');return;}
+  const result=await editorCmd('replace_recipe',{recipeId:recipeId,recipeVersion:recipe.version},sceneId,false);
+  if(sbGetProjectId()!==pid||ED.pid!==pid||!SHOTBOOK||SHOTBOOK.project_id!==pid)return;
+  if(!result||!result.ok){if(status)status.textContent=(result&&result.applied?'配方已应用到原项目，但当前工作区已切换；请返回原项目载入分镜。':'配方未应用，时间线没有因此被覆盖：'+((result&&result.error)||'应用失败'));return;}
   const shot=SHOTBOOK.shots.find(function(s){return s.scene_id===sceneId;});if(shot){shot.shot_recipe_id=recipeId;shot.reviewed=false;}
   const reviewed=card.querySelector('.sb-reviewed');if(reviewed)reviewed.checked=false;
   SHOTBOOK_DIRTY=true;
   if(typeof refreshComposition==='function')await refreshComposition();
+  if(sbGetProjectId()!==pid||ED.pid!==pid||!SHOTBOOK||SHOTBOOK.project_id!==pid)return;
   await shotbookSave();
 }
 function shotbookPreviewScene(sceneId){

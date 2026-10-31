@@ -175,13 +175,25 @@ function refreshWorkspace(){
 
 /** Composition 变化（命令应用后）：重读最新 + 全区域刷新（单一刷新语义）。 */
 async function refreshComposition(){
-  if (!ED.pid) return;
-  const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(ED.pid));
-  if (comp && comp.scenes) {
-    ED.comp = comp;
-    ED.version = comp.version ?? ED.version;
+  const pid = ED && ED.pid;
+  if (!pid) return {ok:false,status:'NO_PROJECT'};
+  const contextVersion = ED.version;
+  if (typeof editorContextMatches === 'function' && !editorContextMatches(pid, contextVersion)) {
+    return {ok:false,status:'PROJECT_CHANGED',project_id:pid};
   }
+  const comp = await apiGet('/api/editor/composition?project_id=' + encodeURIComponent(pid));
+  if (typeof editorContextMatches === 'function'
+      ? !editorContextMatches(pid, contextVersion)
+      : (ED.pid !== pid || !Object.is(ED.version, contextVersion))) {
+    return {ok:false,status:'PROJECT_CHANGED',project_id:pid};
+  }
+  if (!comp || !comp.scenes) {
+    return {ok:false,status:'LOAD_FAILED',project_id:pid,error:(comp && comp.error)||'读取项目时间线失败'};
+  }
+  ED.comp = comp;
+  ED.version = comp.version ?? ED.version;
   refreshWorkspace();
+  return {ok:true,project_id:pid,version:ED.version};
 }
 
 Object.assign(window, {

@@ -252,6 +252,11 @@ async function executeAction(actionId, params={}, target=null, selection=null){
     editorToast('先打开项目，再执行该操作。', true);
     return {ok:false,status:'NO_PROJECT'};
   }
+  const contextVersion = ED.version;
+  if (typeof editorContextMatches === 'function' && !editorContextMatches(pid, contextVersion)) {
+    return {ok:false,status:'PROJECT_CHANGED',project_id:pid,staleProjectResponse:true,applied:false,
+      error:'项目选择已变化；当前动作未发送，请重新打开所选项目。'};
+  }
   const sel = selection || _dispatchSelection();
   if (actionId === 'render.draft' || actionId === 'render.final') {
     return await _startRenderWorkflow(actionId, pid);
@@ -267,6 +272,18 @@ async function executeAction(actionId, params={}, target=null, selection=null){
       params: params || {},
       selection: sel,
     });
+    const contextCurrent = typeof editorContextMatches === 'function'
+      ? editorContextMatches(pid, contextVersion)
+      : (typeof ED !== 'undefined' && ED.pid === pid && Object.is(ED.version, contextVersion));
+    if (!contextCurrent) {
+      return Object.assign({}, r || {}, {
+        ok:false,status:'PROJECT_CHANGED',project_id:pid,staleProjectResponse:true,
+        applied:!!(r && r.ok),
+        error:r && r.ok
+          ? '动作已在原项目提交；当前工作区已切换，未更新当前项目状态。'
+          : '原项目动作已返回；当前工作区已切换，未触碰当前项目状态。',
+      });
+    }
     if (!r.ok) {
       const reason = r.reason || r.error || '操作未生效';
       editorToast(reason, true);
