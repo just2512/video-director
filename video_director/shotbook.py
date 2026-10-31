@@ -463,7 +463,10 @@ def _gates(shots: list[dict], recipes: list[dict], timing_source: str) -> list[d
 def _get_project_shotbook_unlocked(project_id: str) -> dict:
     pid = _project_id(project_id)
     try:
-        ir = editor.load_composition(pid)
+        # This function is only called while _project_plan_lock holds the shared
+        # project lock. Use the lock-aware internal reader to avoid re-entering
+        # the non-reentrant cross-process lock through editor.load_composition().
+        ir = editor._load_composition_unlocked(pid)
     except Exception as exc:
         raise ShotbookError("PROJECT_NOT_FOUND", "无法读取项目时间线：" + str(exc)) from exc
     path = _plan_path(pid)

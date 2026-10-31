@@ -299,3 +299,39 @@ def test_project_audio_anchor_refuses_traversal(tmp_path, monkeypatch):
     assert shotbook._resolve_project_audio("demo", "C:/windows/system32/x.mp3") is None
     assert shotbook._resolve_project_audio("demo", "") is None
     assert shotbook._resolve_project_audio("demo", "audio/../../escape.mp3") is None
+
+def test_project_shotbook_read_does_not_reenter_shared_project_lock(tmp_path, monkeypatch):
+    import threading
+    from video_director import config, editor, shotbook
+    from video_director.models import CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+
+    project_id = "shotbook-project-lock-read"
+    project_root = tmp_path / "composer" / project_id
+    monkeypatch.setattr(config, "project_dir", lambda _pid: project_root)
+    ir = CompositionIR(
+        project=ProjectSpec(width=160, height=90, fps=30, duration=1.0),
+        scenes=[SceneIR(
+            id="shotbook-scene", start=0, duration=1.0, text="镜头锁回归",
+            layers=[Layer(type=LayerType.image, duration=1.0)],
+        )],
+    )
+    editor.save_composition(project_id, ir)
+
+    finished = threading.Event()
+    outcome = {}
+
+    def read_shotbook():
+        try:
+            outcome["result"] = shotbook.get_project_shotbook(project_id)
+        except Exception as exc:
+            outcome["error"] = exc
+        finally:
+            finished.set()
+
+    worker = threading.Thread(target=read_shotbook, daemon=True)
+    worker.start()
+    assert finished.wait(timeout=15), "Shotbook re-entered the non-reentrant project lock"
+    assert "error" not in outcome, outcome.get("error")
+    assert outcome["result"]["ok"] is True
+    assert outcome["result"]["project_id"] == project_id
+    assert [shot["scene_id"] for shot in outcome["result"]["shots"]] == ["shotbook-scene"]
