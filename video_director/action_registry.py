@@ -628,6 +628,14 @@ def action_availability(action_id: str, project_id: str,
                 "reason": f"无法确认项目权威状态，拒绝暴露旧 Action：{exc}",
                 "next_actions": [],
             }
+    if context and (
+        context.get("authority") == "unknown" or context.get("authority_error")
+    ):
+        return {
+            "action": a.id, "available": False,
+            "reason": "无法确认项目时间线权威状态；为防止写入错误工程，旧 Action 暂不可用。",
+            "next_actions": [],
+        }
     if context and context.get("authority") == "film.html":
         return {
             "action": a.id, "available": False,
