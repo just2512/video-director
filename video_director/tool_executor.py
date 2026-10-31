@@ -104,37 +104,44 @@ _FILM_AUTHORITY_SAFE_TOOLS = {
 
 
 def film_authority_rejection(project_id: str, tool: str, target_id=None):
-    """Reject legacy CompositionIR operations while film.html owns the project."""
+    """Reject legacy CompositionIR operations unless its authority is positively known."""
     from video_director import project_context
 
     try:
         context = project_context.inspect_project_context(project_id, {})
     except Exception as exc:
+        context = {"authority": "unknown", "authority_error": str(exc)}
+
+    authority = context.get("authority")
+    safe_read_or_asset_tools = (
+        tool in _FILM_AUTHORITY_SAFE_TOOLS
+        or (tool in _GENERATION and target_id in (None, ""))
+    )
+    if authority == "composition.json":
+        return None
+    if authority == "film.html":
+        if safe_read_or_asset_tools:
+            return None
         return {
             "tool": tool, "ok": False, "status": "REJECTED",
-            "code": "PROJECT_AUTHORITY_UNKNOWN", "result": {},
-            "error": f"无法确认项目权威状态，已拒绝执行旧能力：{exc}",
+            "code": "FILM_AUTHORITY_ACTIVE",
+            "result": {
+                "authority": "film.html", "revision": context.get("revision"),
+                "required_tools": ["film.status", "film.validate", "film.edit", "film.render"],
+            },
+            "error": (
+                "当前项目已由 film.html 独占时间线权威；旧 CompositionIR 能力已被服务端门禁。"
+                "请先调用 film.status 获取当前 revision，再使用 revision-bound film.* 工具。"
+            ),
             "verify": {},
         }
-    if context.get("authority") != "film.html":
+    if safe_read_or_asset_tools:
         return None
-    if tool in _FILM_AUTHORITY_SAFE_TOOLS:
-        return None
-    # Targetless generation only writes generated media/assets. The legacy
-    # Composition adoption path is entered exclusively when target_id is set.
-    if tool in _GENERATION and target_id in (None, ""):
-        return None
+    detail = context.get("authority_error") or "项目上下文未提供可确认的时间线权威"
     return {
         "tool": tool, "ok": False, "status": "REJECTED",
-        "code": "FILM_AUTHORITY_ACTIVE",
-        "result": {
-            "authority": "film.html", "revision": context.get("revision"),
-            "required_tools": ["film.status", "film.validate", "film.edit", "film.render"],
-        },
-        "error": (
-            "当前项目已由 film.html 独占时间线权威；旧 CompositionIR 能力已被服务端门禁。"
-            "请先调用 film.status 获取当前 revision，再使用 revision-bound film.* 工具。"
-        ),
+        "code": "PROJECT_AUTHORITY_UNKNOWN", "result": {},
+        "error": f"无法确认项目权威状态，已拒绝执行旧能力：{detail}",
         "verify": {},
     }
 
