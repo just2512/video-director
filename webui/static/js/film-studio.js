@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', seekGeneration:0, data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, initializingRequests:Object.create(null), poll:null, messages:[], aiController:null, aiRequestId:'', aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', seekGeneration:0, data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, initializingRequests:Object.create(null), poll:null, messages:[], aiController:null, aiRequestId:'', aiRequestGeneration:0, aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null};
   var gestureDomRefs = null;
   var envelopeDomCanvas = null;
   var skipClipClickGeneration = 0;
@@ -2142,6 +2142,13 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       return false;
     }
     if(changed){
+      // Invalidate the previous project's AI request before clearing its UI state.
+      // Its late response/finally must not mutate the next project's state.
+      if(S.aiController&&typeof window.filmStudioCancelAi==='function'){
+        window.filmStudioCancelAi();
+      }
+      S.aiRequestGeneration=(S.aiRequestGeneration||0)+1;
+      S.busy=false;
       mountDirectorPlanning(false);
       // Chat messages and streaming metadata are project context, not global UI
       // history. Do not republish the previous project's conversation after load.
@@ -4536,6 +4543,9 @@ window.filmStudioCopyClips=function(){
     if(S.proposal){window.filmStudioRejectProposal();}
     if(!alreadyShown)appendMessage(message,'user');
     input.value='';S.busy=true;S.aiActiveMessage=message;S.aiStreamText='';
+    var aiRequestGeneration=(S.aiRequestGeneration||0)+1;
+    S.aiRequestGeneration=aiRequestGeneration;
+    var aiProjectId=S.projectId;
     S.aiRequestId=(window.crypto&&typeof window.crypto.randomUUID==='function')
       ?window.crypto.randomUUID()
       :'ai-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,12);
@@ -4568,6 +4578,7 @@ window.filmStudioCopyClips=function(){
         result=await response.json();
         if(!response.ok||!result||!result.ok)throw new Error((result&&result.error)||('AI 请求失败（HTTP '+response.status+'）'));
       }
+      if(aiRequestGeneration!==S.aiRequestGeneration||aiProjectId!==S.projectId)return;
       if(!result||!result.ok){
         updateAiLiveMessage((result&&result.error)||'AI 提案生成失败。');
         showStatus((result&&result.error)||'AI 提案生成失败。','error');return;
@@ -4584,6 +4595,7 @@ window.filmStudioCopyClips=function(){
       updateAiLiveMessage((result.proposal.summary||'AI 已生成候选编辑。')+'（'+result.proposal.operations.length+' 项，尚未应用）');
       window.filmStudioPreviewProposal();
     }catch(error){
+      if(aiRequestGeneration!==S.aiRequestGeneration||aiProjectId!==S.projectId)return;
       if(error&&error.name==='AbortError'){
         updateAiLiveMessage(S.aiPendingSteer?'当前生成已停止，正在按新的剪辑方向重新规划…':'本轮已取消；正式影片没有修改。');
       }else{
@@ -4591,12 +4603,15 @@ window.filmStudioCopyClips=function(){
         showStatus(String(error&&error.message||error),'error');
       }
     }finally{
-      if(S.aiController===controller)S.aiController=null;
-      if(S.aiRequestId===requestId)S.aiRequestId='';
-      S.busy=false;flushPendingExternalRevision();
-      var pending=S.aiPendingSteer;S.aiPendingSteer='';
-      if(pending&&S.open&&S.data&&S.data.exists&&!S.broken){
-        Promise.resolve().then(function(){return window.filmStudioAsk(pending,true);});
+      // A superseded request owns no state in the newly selected project.
+      if(aiRequestGeneration===S.aiRequestGeneration&&aiProjectId===S.projectId){
+        if(S.aiController===controller)S.aiController=null;
+        if(S.aiRequestId===requestId)S.aiRequestId='';
+        S.busy=false;flushPendingExternalRevision();
+        var pending=S.aiPendingSteer;S.aiPendingSteer='';
+        if(pending&&S.open&&S.data&&S.data.exists&&!S.broken){
+          Promise.resolve().then(function(){return window.filmStudioAsk(pending,true);});
+        }
       }
     }
   };
