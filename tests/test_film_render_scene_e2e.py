@@ -727,6 +727,51 @@ def test_film_render_marks_old_revision_when_document_changes_during_export(tmp_
     assert any("rendered_revision" in warning or "导出期间影片文档已变化" in warning
                for warning in report["warnings"])
 
+
+def test_look_aborts_before_publishing_when_film_changes_during_sampling(tmp_path, monkeypatch):
+    """A contact sheet must not be published from an obsolete film revision."""
+    pytest.importorskip("playwright.sync_api")
+    from video_director import config, film_document as fd, film_render
+
+    project_id, original_revision = _write_html_film_project(tmp_path, monkeypatch)
+    project = config.project_dir(project_id)
+    original_diff = film_render._frame_diff_stats
+    mutation = {"count": 0, "revision": None}
+
+    def change_document_after_final_sample(*args, **kwargs):
+        result = original_diff(*args, **kwargs)
+        mutation["count"] += 1
+        if mutation["count"] == 2:
+            current = fd.read_project_film(project_id)
+            assert current["rev"] == original_revision
+            changed = fd.edit_project_film(
+                project_id,
+                original_revision,
+                [{"op": "set", "clip": "moving-red", "field": "at", "value": "0.1"}],
+                require_base=True,
+                source="concurrent-look-revision-test",
+            )
+            assert changed.get("ok") is True, changed
+            mutation["revision"] = changed["rev"]
+        return result
+
+    # Two requested timestamps cause two reverse-order deterministic comparisons;
+    # mutate only after the final comparison, immediately before contact-sheet publish.
+    monkeypatch.setattr(film_render, "_frame_diff_stats", change_document_after_final_sample)
+    with pytest.raises(film_render.FilmRenderError) as raised:
+        film_render.look_project_film(
+            project_id, expected_revision=original_revision, times=[0.0, 0.5]
+        )
+
+    assert mutation["count"] == 2
+    assert mutation["revision"] and mutation["revision"] != original_revision
+    assert raised.value.code == "REVISION_CONFLICT"
+    assert raised.value.status == 409
+    output = project / ".film" / "cache" / "look" / f"contact-{original_revision}.png"
+    assert not output.exists(), "an obsolete preview contact sheet must not be published"
+    assert not list(output.parent.glob(f"contact-{original_revision}.tmp.png")) if output.parent.exists() else True
+
+
 @pytest.mark.parametrize("expected_revision", ["", "   ", None])
 def test_film_render_rejects_missing_or_blank_expected_revision_before_side_effects(
     tmp_path, monkeypatch, expected_revision,
