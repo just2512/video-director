@@ -243,6 +243,14 @@ def test_film_authority_blocks_legacy_agent_paths_but_preserves_asset_preparatio
         assert result["status"] == "REJECTED", result
         assert result["code"] == "FILM_AUTHORITY_ACTIVE", result
 
+    for result in (
+        capability_gateway.director_create({"project_id": project_id}),
+        capability_gateway.director_retry(project_id),
+        capability_gateway.director_continue(project_id),
+    ):
+        assert result["status"] == "REJECTED", result
+        assert result["code"] == "FILM_AUTHORITY_ACTIVE", result
+
     context_result = capability_gateway.creative_execute(
         project_id, "system.context.inspect", {"selection": {"type": "project"}}
     )
