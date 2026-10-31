@@ -186,3 +186,16 @@ def test_creative_plan_export_is_bound_to_the_active_project():
     source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "creative-plan.js").read_text(encoding="utf-8")
     export = source[source.index("window.creativePlanExportForFilmDirector"):source.index("window.creativePlanValidate = async function")]
     assert "if (!state.plan || !state.projectId || state.projectId !== projectId()) return null;" in export
+
+
+
+def test_stale_export_rejection_reloads_authoritative_film_document():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    start = source.index("window.filmStudioRender=async function()")
+    end = source.index("function findProposalClip", start)
+    render = source[start:end]
+
+    assert "/REVISION_CONFLICT|影片文档已变化/.test(renderError)" in render
+    assert "await filmStudioLoad(true);" in render
+    assert "旧版本没有发布" in render
+    assert render.index("S.rendering=false;") < render.index("await filmStudioLoad(true);")
