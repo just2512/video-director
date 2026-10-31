@@ -84,17 +84,11 @@ def creative_render(project_id: str) -> dict:
 
 
 def creative_verify(project_id: str, aspect: str = "all") -> dict:
-    """verify：旧 CompositionIR 校验；film.html active 时应调用 film.validate。"""
+    """旧 CompositionIR 校验；film.html active 时应调用 film.validate。"""
     rejection = tool_executor.film_authority_rejection(project_id, "creative.verify")
     if rejection is not None:
         return rejection
-    # Existing legacy verification path is retained only for CompositionIR projects.
-    """verify：组合校验（composition/continuity 全量读回断言）。
 
-    composition.verify 的 TargetRequest schema 要求 targetId（该能力
-    原设计为逐目标断言）；网关层以「断言整个项目 Composition」语义传
-    project_id 作 target（全量校验），不改变 verify 能力本身契约。
-    """
     checks: Dict[str, dict] = {}
     r1 = tool_executor.execute_tool(project_id, {
         "tool": "composition.verify",
