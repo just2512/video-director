@@ -23,6 +23,9 @@ def test_auto_confirm_flag_is_forwarded(tmp_path, monkeypatch, capsys):
         return _Result()
 
     monkeypatch.setattr(pipeline, "compose_auto", fake_compose_auto)
+    # Isolate the CLI's implicit auto-run project id from persistent runner data;
+    # this test verifies argument forwarding, not reopening an existing project.
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
     code = main(["auto", "--script", str(script), "--confirm", "--json"])
     assert code is None or code == 0
     assert seen["auto_confirm"] is False
