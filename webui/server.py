@@ -1309,7 +1309,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise fd.FilmError("INVALID_PLACEMENT_MODE", "素材放置模式只允许 new-track、ripple 或 overwrite", 422)
                 result = fd.edit_project_film(
                     pid, payload.get("base"), operations,
-                    require_base=placement_mode == "overwrite", source="studio_asset_insert",
+                    require_base=True, source="studio_asset_insert",
                 )
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"], "source": result["source"],

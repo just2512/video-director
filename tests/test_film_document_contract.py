@@ -608,6 +608,104 @@ def test_insert_asset_route_requires_exact_revision_for_every_placement_mode(tmp
         thread.join(timeout=5)
 
 
+@pytest.mark.parametrize("placement_mode", ["new-track", "ripple", "overwrite"])
+def test_insert_asset_route_rejects_revision_change_during_asset_resolution(tmp_path, monkeypatch, placement_mode):
+    import importlib
+    import json
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+
+    storage_root = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-asset-race-" + placement_mode
+    root = storage_root / project_id
+    root.mkdir(parents=True)
+    film_path = root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    original = fd.read_project_film(project_id)
+    asset_resolution_started = threading.Event()
+    release_asset_resolution = threading.Event()
+
+    def delayed_asset_clip(pid, asset_id, at, still_duration):
+        asset_resolution_started.set()
+        if not release_asset_resolution.wait(timeout=10):
+            raise RuntimeError("test did not release asset resolution")
+        clip_id = "race-asset-" + placement_mode
+        return {
+            "id": clip_id,
+            "tag": "video",
+            "attrs": {
+                "id": clip_id,
+                "src": "../assets/new.mp4#t=0,2",
+                "at": str(at),
+                "volume": "1",
+            },
+        }
+
+    monkeypatch.setattr(fd, "library_asset_clip", delayed_asset_clip)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    url = f"http://127.0.0.1:{server.server_port}/api/editor/film/insert-asset"
+    response_result = {}
+
+    def send_insert():
+        payload = {
+            "project_id": project_id,
+            "base": original["rev"],
+            "asset_id": "fixture-asset",
+            "placement_mode": placement_mode,
+            "track_id": "video-main",
+            "at": 2,
+            "still_duration": 2,
+        }
+        request = urllib.request.Request(
+            url, data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                response_result.update(status=response.status,
+                                       body=json.loads(response.read().decode("utf-8")))
+        except urllib.error.HTTPError as error:
+            response_result.update(status=error.code,
+                                   body=json.loads(error.read().decode("utf-8")))
+
+    request_thread = threading.Thread(target=send_insert, daemon=True)
+    try:
+        request_thread.start()
+        assert asset_resolution_started.wait(timeout=5), "asset resolution was not reached"
+
+        # The HTTP request passed its initial base check, then an external writer wins the race.
+        advanced = fd.edit_project_film(
+            project_id, original["rev"],
+            [{"op": "set", "clip": "clip-b", "field": "title", "value": "external"}],
+            source="external_file",
+        )
+        external_bytes = film_path.read_bytes()
+    finally:
+        release_asset_resolution.set()
+        request_thread.join(timeout=10)
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=5)
+
+    assert not request_thread.is_alive(), "insert request did not finish"
+    assert response_result.get("status") == 409, response_result
+    assert response_result.get("body", {}).get("code") == "REVISION_CONFLICT", response_result
+    final = fd.read_project_film(project_id)
+    assert final["rev"] == advanced["rev"], final
+    assert film_path.read_bytes() == external_bytes
+    assert final["doc"]["tracks"][0]["clips"][1]["attrs"].get("title") == "external"
+
+
 def test_head_script_is_rejected():
     with pytest.raises(fd.FilmError,match="head 禁止 script"):
         fd.parse_film(SAMPLE.replace("</head>","<script>alert(1)</script></head>"))
