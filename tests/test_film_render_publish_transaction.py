@@ -86,3 +86,103 @@ def test_revision_conflict_publishes_neither_mp4_nor_qc(tmp_path, monkeypatch):
     assert not report_path.exists()
     assert output_temp.exists()
     assert list(temp_root.iterdir()) == []
+
+
+def test_startup_recovers_interrupted_mp4_qc_publication(tmp_path, monkeypatch):
+    root = tmp_path / "composer"
+    project_root = root / "interrupted-render-recovery"
+    render_dir = project_root / "render"
+    qc_dir = project_root / "qc"
+    render_dir.mkdir(parents=True)
+    qc_dir.mkdir()
+    revision = "a" * 64
+    dead_pid = 424240
+    workdir = render_dir / f".film-render-{revision}-{dead_pid}-123.work"
+    workdir.mkdir()
+    output = render_dir / f"film-final-{revision}.mp4"
+    report = qc_dir / f"film-final-{revision}.json"
+    qc_temp_name = f".film-final-{revision}.json.{dead_pid}.456.tmp"
+
+    # The old artifacts were backed up; the process died after replacing both
+    # public paths but before changing the journal from prepared to committed.
+    (workdir / "previous-output.mp4").write_bytes(b"previous-mp4")
+    (workdir / "previous-qc.json").write_bytes(b'{"status":"PREVIOUS"}')
+    output.write_bytes(b"new-mp4")
+    report.write_bytes(b'{"status":"PASS"}')
+    (qc_dir / qc_temp_name).write_text("staged", encoding="utf-8")
+    (workdir / "publish-transaction.json").write_text(json.dumps({
+        "schema_version": 1,
+        "revision": revision,
+        "phase": "prepared",
+        "had_output": True,
+        "had_report": True,
+        "qc_temp_name": qc_temp_name,
+    }), encoding="utf-8")
+    monkeypatch.setattr(film_render, "_render_process_is_alive", lambda _pid: False)
+
+    result = film_render.cleanup_orphaned_render_artifacts(root)
+
+    assert result["workdirs_removed"] == 1
+    assert result["transactions_recovered"] == 1
+    assert output.read_bytes() == b"previous-mp4"
+    assert report.read_bytes() == b'{"status":"PREVIOUS"}'
+    assert not (qc_dir / qc_temp_name).exists()
+    assert not workdir.exists()
+
+
+def test_startup_removes_uncommitted_artifacts_when_no_previous_pair_existed(tmp_path, monkeypatch):
+    root = tmp_path / "composer"
+    project_root = root / "new-render-recovery"
+    render_dir = project_root / "render"
+    qc_dir = project_root / "qc"
+    render_dir.mkdir(parents=True)
+    qc_dir.mkdir()
+    revision = "b" * 64
+    dead_pid = 424241
+    workdir = render_dir / f".film-render-{revision}-{dead_pid}-123.work"
+    workdir.mkdir()
+    output = render_dir / f"film-final-{revision}.mp4"
+    report = qc_dir / f"film-final-{revision}.json"
+    output.write_bytes(b"partial-new-mp4")
+    report.write_text('{"status":"PASS"}', encoding="utf-8")
+    (workdir / "publish-transaction.json").write_text(json.dumps({
+        "schema_version": 1,
+        "revision": revision,
+        "phase": "prepared",
+        "had_output": False,
+        "had_report": False,
+        "qc_temp_name": "",
+    }), encoding="utf-8")
+    monkeypatch.setattr(film_render, "_render_process_is_alive", lambda _pid: False)
+
+    result = film_render.cleanup_orphaned_render_artifacts(root)
+
+    assert result["transactions_recovered"] == 1
+    assert not output.exists()
+    assert not report.exists()
+    assert not workdir.exists()
+
+
+def test_startup_keeps_workdirs_and_qc_temps_owned_by_live_processes(tmp_path, monkeypatch):
+    root = tmp_path / "composer"
+    project_root = root / "active-render-preserved"
+    render_dir = project_root / "render"
+    qc_dir = project_root / "qc"
+    render_dir.mkdir(parents=True)
+    qc_dir.mkdir()
+    revision = "c" * 64
+    active_pid = 424242
+    workdir = render_dir / f".film-render-{revision}-{active_pid}-123.work"
+    workdir.mkdir()
+    marker = workdir / "still-running"
+    marker.write_text("do not remove", encoding="utf-8")
+    qc_temp = qc_dir / f".film-final-{revision}.json.{active_pid}.456.tmp"
+    qc_temp.write_text("still writing", encoding="utf-8")
+    monkeypatch.setattr(film_render, "_render_process_is_alive", lambda pid: pid == active_pid)
+
+    result = film_render.cleanup_orphaned_render_artifacts(root)
+
+    assert result["workdirs_removed"] == 0
+    assert result["qc_temps_removed"] == 0
+    assert marker.is_file()
+    assert qc_temp.is_file()
