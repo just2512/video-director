@@ -1144,7 +1144,7 @@ def test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture(tmp_path
                 assert final["rev"] == changed_revision, final
                 assert film_path.read_bytes() == external_bytes
                 assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 7.0}
-                # The stale gesture reaches the endpoint but is rejected before any write.
+                # The notification path discards the stale drag before it reaches the edit endpoint.
                 assert len(edit_requests) == 1, edit_requests
                 assert edit_requests[0].get("base") == start_revision, edit_requests
                 operations = edit_requests[0].get("ops") or []
@@ -1209,6 +1209,7 @@ def test_react_clip_drag_revision_conflict_reloads_when_notifications_are_delaye
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", capture_edit)
             allow_poll_reload = {"value": False}
+            hold_revision_reads = {"value": False}
             conflict_responses: list[int] = []
 
             def hold_film_poll(route):
@@ -1216,6 +1217,7 @@ def test_react_clip_drag_revision_conflict_reloads_when_notifications_are_delaye
                 if (
                     request.method == "GET"
                     and "/api/editor/film?project_id=" in request.url
+                    and hold_revision_reads["value"]
                     and not allow_poll_reload["value"]
                 ):
                     route.abort()
@@ -1233,6 +1235,7 @@ def test_react_clip_drag_revision_conflict_reloads_when_notifications_are_delaye
 
             # Suppress both notification channels until the stale gesture receives 409.
             page.route("**/api/events", lambda route: route.abort())
+            page.route("**/api/editor/film*", hold_film_poll)
             page.on("response", observe_revision_conflict)
             try:
                 response = page.goto(
@@ -1264,7 +1267,7 @@ def test_react_clip_drag_revision_conflict_reloads_when_notifications_are_delaye
                     timeout=10000,
                 )
 
-                page.route("**/api/editor/film*", hold_film_poll)
+                hold_revision_reads["value"] = True
                 clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
                 clip.wait_for(state="visible")
                 scale = float(page.evaluate("window.filmStudioStore.getSnapshot().pixelsPerSecond"))
@@ -1337,7 +1340,7 @@ def test_react_clip_drag_revision_conflict_reloads_when_notifications_are_delaye
                 assert final["rev"] == changed_revision, final
                 assert film_path.read_bytes() == external_bytes
                 assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 7.0}
-                # Only the concurrent external edit may have reached the edit endpoint.
+                # The external edit and stale gesture both reach the endpoint; the latter is rejected.
                 assert conflict_responses == [409], conflict_responses
                 assert len(edit_requests) == 2, edit_requests
                 external_request, stale_gesture_request = edit_requests
