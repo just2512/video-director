@@ -3028,7 +3028,7 @@ def test_ai_stream_endpoint_delivers_token_fragments_and_rejects_stale_proposal(
 def test_legacy_composition_save_serializes_with_film_initialization(tmp_path, monkeypatch):
     """A legacy writer queued before migration must not persist after film.html wins authority."""
     from video_director import config, editor
-    from video_director.models import CompositionIR, ProjectSpec, SceneIR
+    from video_director.models import CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
     from video_director.project_lock import project_lock
 
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
@@ -3039,7 +3039,10 @@ def test_legacy_composition_save_serializes_with_film_initialization(tmp_path, m
 
     original_ir = CompositionIR(
         project=ProjectSpec(width=160, height=90, fps=30, duration=1.0),
-        scenes=[SceneIR(id="legacy-scene", start=0, duration=1.0, text="before", layers=[])],
+        scenes=[SceneIR(
+            id="legacy-scene", start=0, duration=1.0, text="before",
+            layers=[Layer(type=LayerType.image, duration=1.0)],
+        )],
     )
     editor.save_composition(project_id, original_ir)
     composition_path = plans / "composition.json"
