@@ -310,7 +310,7 @@ function pmRenderFinalPreview(pid, info, generation){
     if (box) {
       box.style.display = '';
       box.innerHTML = `<b>成品预览：${esc(pid)}</b>
-        <video controls src="/file?path="${encodeURIComponent(info.final_path)}"></video>`;
+        <video controls src="/file?path=${encodeURIComponent(info.final_path)}"></video>`;
       box.scrollIntoView({behavior:'smooth'});
     }
     return {ok:true,project_id:pid,final_path:info.final_path};
