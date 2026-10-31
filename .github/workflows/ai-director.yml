@@ -567,7 +567,7 @@ jobs:
           env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
             -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
             -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
-            timeout --signal=TERM --kill-after=15s 22m "$PY311_BIN/python3.11" -m pytest -vv --tb=short -o faulthandler_timeout=45 --junitxml=junit.xml > pytest-output.log 2>&1
+            timeout --signal=TERM --kill-after=15s 22m "$PY311_BIN/python3.11" -m pytest -vv --tb=short -o faulthandler_timeout=45 --junitxml=junit.xml 2>&1 | tee pytest-output.log
           test_exit=$?
           set -e
           if [ -f pytest-output.log ]; then
@@ -673,7 +673,7 @@ jobs:
             tests/test_film_variant_transform_keyframes.py \
             tests/test_film_volume_keyframe_migration.py \
             tests/test_film_runtime_mask_keyframes_browser.py \
-            tests/test_studio_build_contract.py > timeline-regression-output.log 2>&1
+            tests/test_studio_build_contract.py 2>&1 | tee timeline-regression-output.log
           test_exit=$?
           set -e
           if [ -f timeline-regression-output.log ]; then
