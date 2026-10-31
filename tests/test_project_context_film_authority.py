@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from video_director import config, film_document
+from pathlib import Path
+
+import pytest
+
+from video_director import config, film_document, tool_executor
 from video_director.agent_gateway.context import project_context_snapshot
 from video_director.project_context import inspect_project_context
 
@@ -84,3 +88,45 @@ def test_agent_gateway_context_exposes_same_film_revision(tmp_path, monkeypatch)
     assert gateway["film"]["revision"] == shared["film"]["revision"]
     assert gateway["composition_version"] is None
     assert gateway["selection"]["ids"] == ["voice-1"]
+
+def test_unreadable_film_authority_is_unknown_and_blocks_legacy_tool(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    project_id = "context-unreadable-film"
+    _write_film(project_id, FILM_HTML)
+    film_path = config.project_dir(project_id) / film_document.FILM_NAME
+    original_read_text = Path.read_text
+
+    def deny_film_read(path, *args, **kwargs):
+        if path == film_path:
+            raise PermissionError("film.html read denied")
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", deny_film_read)
+    context = inspect_project_context(project_id, {"type": "clip", "id": "shot-1"})
+
+    assert context["authority"] == "unknown"
+    assert "PermissionError" in context["authority_error"]
+    rejected = tool_executor.film_authority_rejection(project_id, "timeline.move")
+    assert rejected is not None
+    assert rejected["status"] == "REJECTED"
+    assert rejected["code"] == "PROJECT_AUTHORITY_UNKNOWN"
+
+
+def test_legacy_authority_check_rejects_filesystem_uncertainty(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    project_id = "context-film-stat-denied"
+    _write_film(project_id, FILM_HTML)
+    film_path = config.project_dir(project_id) / film_document.FILM_NAME
+    original_stat = Path.stat
+
+    def deny_film_stat(path, *args, **kwargs):
+        if path == film_path:
+            raise PermissionError("film.html stat denied")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", deny_film_stat)
+    with pytest.raises(film_document.FilmError) as caught:
+        film_document.assert_legacy_composition_access(project_id, "编辑旧时间线")
+    assert caught.value.code == "PROJECT_AUTHORITY_UNKNOWN"
+    assert caught.value.status == 503
+
