@@ -2563,7 +2563,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._send_json({
                         "build_id": vd_actions.BUILD_ID,
                         "system": vd_actions.system_context(),
-                        "groups": vd_actions.manifest_for_project(pid or None),
+                        "groups": vd_actions.manifest_for_project(pid or None, context=context),
                     })
             except Exception as exc:
                 self._send_json({"error": str(exc)}, 500)
