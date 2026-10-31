@@ -890,7 +890,7 @@ async function directorExecute(){
 // ---------------------------------------------------------------------------
 // 统一命令入口（editorCmd / editorBatchCmd / editorApplyDuration / 提示式操作）
 // ---------------------------------------------------------------------------
-async function editorCmd(cmd, extra, targetOverride, useRawTarget){
+async function editorLegacyCmd(cmd, extra, targetOverride, useRawTarget){
   if (!ED.pid) { editorToast('先打开项目', true); return; }
   let target = targetOverride !== undefined ? targetOverride
     : (SEL.selection ? SEL.selection.id : '');
@@ -936,14 +936,14 @@ async function editorBatchCmd(subcommand){
 function editorApplyDuration(sceneId){
   const v = parseFloat((document.getElementById('ed-dur')||{}).value);
   if (!(v > 0.3)) { editorToast('时长需不小于 0.3 秒', true); return; }
-  editorCmd('set_duration', {duration: v}, sceneId);
+  editorLegacyCmd('set_duration', {duration: v}, sceneId);
 }
 function editorMovePrompt(){
   const hostId = 'ed-move-host';
   _ensureInlineHost(hostId);
   uiInlineInput(hostId, {type: 'number', def: 1, min: 1, max: 99, step: 1, unit: '第几位'},
     (v) => { const target = SEL.selection && SEL.selection.type === 'scene' ? SEL.selection.id : undefined;
-             if (v >= 1) editorCmd('move', {toIndex: Math.round(v) - 1}, target); });
+             if (v >= 1) editorLegacyCmd('move', {toIndex: Math.round(v) - 1}, target); });
 }
 function editorAddBrollPrompt(){
   if (!SEL.selection || SEL.selection.type !== 'scene') { editorToast('先在时间线选中一个场景', true); return; }
@@ -1006,6 +1006,6 @@ Object.assign(window, {
   edLibOpenTemplate, instantiateTemplate, AP,
   directorRefreshContext, directorLoadCapCount, directorRenderPlan, directorLoadRun, directorLoadLatestRun, directorExecute,
   directorLoadBrief, directorSaveBrief, directorRerunFromBrief,
-  editorCmd, editorBatchCmd, editorApplyDuration, editorMovePrompt, editorAddBrollPrompt,
+  editorLegacyCmd, editorBatchCmd, editorApplyDuration, editorMovePrompt, editorAddBrollPrompt,
   editorOpenMotionPicker, editorOpenShotPicker, editorApplyShot, edLibApplyMotionTo,
 });

@@ -145,3 +145,17 @@ def test_late_editor_responses_never_mutate_the_new_project_workspace(tmp_path, 
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+def test_library_legacy_command_helper_does_not_shadow_shared_editor_command():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    commands = (root / "webui/static/js/commands.js").read_text(encoding="utf-8")
+    library = (root / "webui/static/js/library.js").read_text(encoding="utf-8")
+
+    assert "async function editorCmd(" in commands
+    assert "  editorCmd," in commands
+    assert "async function editorLegacyCmd(" in library
+    assert "async function editorCmd(" not in library
+    assert "editorLegacyCmd," in library
+    assert "  editorCmd," not in library
