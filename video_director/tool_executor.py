@@ -782,12 +782,12 @@ def _execute_project_mgmt(project_id: str, tool: str, payload: dict, target_id) 
         # project.save 语义=确认落盘存在 + 版本号上报
         from video_director import editor
         try:
-            ir = editor.load_composition(project_id)
+            ir, version, _revisions = editor.load_composition_snapshot(project_id)
         except Exception as exc:
             return _result(tool, False, "LOAD_FAILED", error=str(exc)[:150])
         return _result(tool, True, "OK",
                        result={"project_id": project_id,
-                               "version": editor.composition_version(project_id),
+                               "version": version,
                                "duration": ir.project.duration})
     # project.create：新建空项目目录结构
     import uuid as _uuid

@@ -171,3 +171,38 @@ def test_legacy_project_context_uses_one_composition_revision_snapshot(tmp_path,
     assert context["authority"] == "composition.json"
     assert context["revision"] == original_snapshot(project_id)[1]
     assert context["composition_version"] == context["revision"]
+
+def test_project_save_reports_version_from_the_same_composition_snapshot(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    from video_director import editor
+    from video_director.models import CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+
+    project_id = "project-save-snapshot"
+    ir = CompositionIR(
+        project=ProjectSpec(width=160, height=90, fps=30, duration=1.0),
+        scenes=[SceneIR(
+            id="save-scene", start=0, duration=1.0, text="save snapshot",
+            layers=[Layer(type=LayerType.image, duration=1.0)],
+        )],
+    )
+    editor.save_composition(project_id, ir)
+    original_snapshot = editor.load_composition_snapshot
+    snapshots = []
+
+    def tracked_snapshot(pid):
+        snapshots.append(pid)
+        return original_snapshot(pid)
+
+    def forbidden_split_read(*_args, **_kwargs):
+        raise AssertionError("project.save must not split CompositionIR and version reads")
+
+    monkeypatch.setattr(editor, "load_composition_snapshot", tracked_snapshot)
+    monkeypatch.setattr(editor, "load_composition", forbidden_split_read)
+    monkeypatch.setattr(editor, "composition_version", forbidden_split_read)
+    result = tool_executor.execute_tool(project_id, {"tool": "project.save"})
+
+    assert result["ok"] is True, result
+    assert result["status"] == "OK"
+    assert result["result"]["version"] == original_snapshot(project_id)[1]
+    assert result["result"]["duration"] == 1.0
+    assert snapshots == [project_id, project_id]
