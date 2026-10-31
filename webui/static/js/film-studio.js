@@ -2442,7 +2442,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
           if(options.requireExactRevision===true&&r&&r.code==='REVISION_CONFLICT'){
             S.pendingExternalRevision='__reload__';
             pendingRevisionSource='';
-            showStatus('影片 revision 在手势提交前已变化；本次拖动未写入，正在重新载入最新版本。','error');
+            showStatus('影片 revision 在提交前已变化；本次操作未写入，正在重新载入最新版本。','error');
             return false;
           }
           var failureMessage=(r&&r.error)||'编辑提交失败。';

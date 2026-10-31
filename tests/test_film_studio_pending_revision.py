@@ -214,15 +214,24 @@ def test_revision_derived_timeline_actions_use_exact_revision_except_manual_clip
     assert any(line.startswith("async function filmStudioCommit(ops, options)") for line in raw_calls)
     assert any("return filmStudioCommit(ops,Object.assign({},options||{},{requireExactRevision:true}));" in line for line in raw_calls)
     assert any("filmStudioCommit(ops,{allowInspectorDraft:'clip'})" in line for line in raw_calls)
+    assert "影片 revision 在提交前已变化；本次操作未写入" in source
     for entry in (
-        "window.filmStudioToggleTrackLock", "window.filmStudioToggleTrackFlag",
-        "window.filmStudioAddTrack", "window.filmStudioRemoveEmptyTrack",
-        "window.filmStudioSetClipLock", "window.filmStudioAddTimelineMarker",
-        "window.filmStudioEditTimelineMarker", "window.filmStudioSplit",
-        "window.filmStudioRemove", "window.filmStudioPasteClips",
-        "window.filmStudioApplyFadeTransition", "window.filmStudioApplyCrossfadeTransition",
-        "window.filmStudioJoinThroughEdit", "window.filmStudioRippleDelete",
-        "window.filmStudioCommitCanvasElement", "window.filmStudioSaveSelectedElement",
+        "window.filmStudioToggleTrackLock = function(trackId)",
+        "window.filmStudioToggleTrackFlag = function(trackId,field)",
+        "window.filmStudioAddTrack=async function()",
+        "window.filmStudioRemoveEmptyTrack=async function()",
+        "window.filmStudioSetClipLock=async function(clipId,locked)",
+        "window.filmStudioAddTimelineMarker=async function()",
+        "window.filmStudioEditTimelineMarker=async function(markerId)",
+        "window.filmStudioSplit=async function()",
+        "window.filmStudioRemove=async function()",
+        "window.filmStudioPasteClips=async function()",
+        "window.filmStudioApplyFadeTransition=async function(clipId,requestedDuration)",
+        "window.filmStudioApplyCrossfadeTransition=async function(clipId,requestedDuration)",
+        "window.filmStudioJoinThroughEdit=async function()",
+        "window.filmStudioRippleDelete=async function()",
+        "window.filmStudioCommitCanvasElement=async function(operation,options)",
+        "window.filmStudioSaveSelectedElement=async function()",
     ):
         start = source.index(entry)
         next_entry = source.find("\n  window.", start + len(entry))
