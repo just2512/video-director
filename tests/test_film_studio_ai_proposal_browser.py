@@ -1193,16 +1193,25 @@ def test_late_ai_response_from_previous_project_cannot_clear_new_project_busy_st
                 )
 
                 def select_project(project_id: str) -> None:
-                    page.evaluate(
-                        """pid => {
-                          const select = document.querySelector('#editor-project');
-                          let option = [...select.options].find(item => item.value === pid);
-                          if (!option) { option = new Option(pid, pid); select.add(option); }
-                          select.value = pid;
-                          select.dispatchEvent(new Event('change', {bubbles:true}));
-                        }""",
-                        project_id,
-                    )
+                    with page.expect_response(
+                        lambda response: (
+                            "/api/editor/film?project_id=" in response.url
+                            and f"project_id={project_id}" in response.url
+                        ),
+                        timeout=15_000,
+                    ) as film_response:
+                        page.evaluate(
+                            """pid => {
+                              const select = document.querySelector('#editor-project');
+                              let option = [...select.options].find(item => item.value === pid);
+                              if (!option) { option = new Option(pid, pid); select.add(option); }
+                              select.value = pid;
+                              select.dispatchEvent(new Event('change', {bubbles:true}));
+                            }""",
+                            project_id,
+                        )
+                    payload = film_response.value.json()
+                    assert payload.get("ok") is True and payload.get("exists") is True, payload
                     page.wait_for_function(
                         "pid => document.querySelector('#editor-project')?.value === pid",
                         arg=project_id,
