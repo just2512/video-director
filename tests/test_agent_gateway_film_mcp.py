@@ -220,6 +220,18 @@ def test_film_authority_blocks_legacy_agent_paths_but_preserves_asset_preparatio
         assert result["result"]["authority"] == "film.html"
         assert result["result"]["revision"] == fd.read_project_film(project_id)["rev"]
 
+    # MCP and CLI both dispatch through the same guarded gateway.
+    mcp_result, mcp_error = _gateway_call("creative.execute", {
+        "project_id": project_id, "tool": "timeline.move",
+        "payload": {"clipId": "clip-a", "trackId": "video-main", "at": 3},
+    }, request_id=901)
+    assert mcp_error is True and mcp_result["code"] == "FILM_AUTHORITY_ACTIVE", mcp_result
+    cli_result = capability_gateway.dispatch(
+        "creative.execute", project_id=project_id, tool="render.final", payload={}
+    )
+    assert cli_result["status"] == "REJECTED"
+    assert cli_result["code"] == "FILM_AUTHORITY_ACTIVE"
+
     # High-level direct paths must not fall through to legacy Director/render/verify.
     monkeypatch.setattr("video_director.director.direct", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("legacy director called")))
     monkeypatch.setattr("video_director.confirm.render_draft", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("legacy render called")))
