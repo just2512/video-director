@@ -24071,13 +24071,6 @@
   );
   var minimumSelectedStart = (gesture) => gesture.members.reduce((minimum, member) => Math.min(minimum, member.originalAt), Number.POSITIVE_INFINITY);
   var tracksFor = (input) => Array.isArray(input.tracks) ? input.tracks : [];
-  var findClip = (tracks, clipId) => {
-    for (const track of tracks) {
-      const clip = (track.clips || []).find((item) => item.id === clipId);
-      if (clip) return clip;
-    }
-    return void 0;
-  };
   var validateMoveTarget = (input, resolved) => {
     const gesture = input.gesture;
     const order = gesture.trackOrder || [];
@@ -24110,10 +24103,33 @@
       if (Object.prototype.hasOwnProperty.call(destination.attrs || {}, "locked")) {
         return "\u76EE\u6807\u8F68\u9053 " + destinationId + " \u5DF2\u9501\u5B9A\uFF0C\u591A\u9009\u79FB\u52A8\u5DF2\u53D6\u6D88\u3002";
       }
-      const sourceClip = findClip(tracks, member.id);
-      if (!sourceClip || sourceClip.end == null || !Number.isFinite(Number(sourceClip.end))) continue;
+      if (!member.id || !Number.isInteger(member.trackIndex) || order[member.trackIndex] !== member.trackId) {
+        return "\u6E90\u7247\u6BB5 " + member.id + " \u7684\u8D77\u59CB\u8F68\u9053\u5FEB\u7167\u65E0\u6548\uFF0C\u64CD\u4F5C\u5DF2\u53D6\u6D88\u3002";
+      }
+      const sourceTrack = tracks.find((track) => track.id === member.trackId);
+      if (!sourceTrack) return "\u6E90\u8F68\u9053 " + member.trackId + " \u5DF2\u4E0D\u5B58\u5728\uFF0C\u64CD\u4F5C\u5DF2\u53D6\u6D88\u3002";
+      if (Object.prototype.hasOwnProperty.call(sourceTrack.attrs || {}, "locked")) {
+        return "\u6E90\u8F68\u9053 " + member.trackId + " \u5DF2\u9501\u5B9A\uFF0C\u64CD\u4F5C\u5DF2\u53D6\u6D88\u3002";
+      }
+      const sourceClip = (sourceTrack.clips || []).find((clip) => clip.id === member.id);
+      if (!sourceClip) return "\u6E90\u7247\u6BB5 " + member.id + " \u5DF2\u4E0D\u5B58\u5728\u6216\u8F68\u9053\u5F52\u5C5E\u5DF2\u53D8\u5316\uFF0C\u64CD\u4F5C\u5DF2\u53D6\u6D88\u3002";
+      if (Object.prototype.hasOwnProperty.call(sourceClip.attrs || {}, "data-clip-locked")) {
+        return "\u6E90\u7247\u6BB5 " + member.id + " \u5DF2\u9501\u5B9A\uFF0C\u64CD\u4F5C\u5DF2\u53D6\u6D88\u3002";
+      }
+      const sourceAt = Number(sourceClip.at);
+      if (!Number.isFinite(sourceAt) || Math.abs(sourceAt - member.originalAt) > 1e-3) {
+        return "\u6E90\u7247\u6BB5 " + member.id + " \u7684\u8D77\u59CB\u65F6\u95F4\u5DF2\u53D8\u5316\uFF0C\u64CD\u4F5C\u5DF2\u53D6\u6D88\u3002";
+      }
+      if (sourceClip.end == null) continue;
+      const sourceEnd = Number(sourceClip.end);
+      if (!Number.isFinite(sourceEnd) || sourceEnd < sourceAt) {
+        return "\u6E90\u7247\u6BB5 " + member.id + " \u7684\u7ED3\u675F\u65F6\u95F4\u65E0\u6548\uFF0C\u64CD\u4F5C\u5DF2\u53D6\u6D88\u3002";
+      }
+      if (member.originalEnd !== void 0 && Number.isFinite(member.originalEnd) && Math.abs(sourceEnd - member.originalEnd) > 1e-3) {
+        return "\u6E90\u7247\u6BB5 " + member.id + " \u7684\u6301\u7EED\u65F6\u95F4\u5DF2\u53D8\u5316\uFF0C\u64CD\u4F5C\u5DF2\u53D6\u6D88\u3002";
+      }
       const targetStart = Math.max(0, member.originalAt + horizontalDelta);
-      const duration = Math.max(0, Number(sourceClip.end) - Number(sourceClip.at));
+      const duration = Math.max(0, sourceEnd - sourceAt);
       const targetEnd = targetStart + duration;
       for (const other of destination.clips || []) {
         if (selectedIds.has(other.id) || other.end == null) continue;
