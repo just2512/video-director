@@ -295,7 +295,7 @@ def test_film_authority_blocks_legacy_agent_paths_but_preserves_asset_preparatio
     edited = _payload(film_mcp_server.call_tool("film.edit", {
         "project_id": project_id,
         "base_revision": status["revision"],
-        "operations": [{"op": "move", "clip": "clip-a", "track_id": "video-main", "at": 1.0}],
+        "operations": [{"op": "move", "clip": "clip-a", "track_id": "v1", "at": 1.0}],
     }))
     assert edited["ok"] is True, edited
     assert edited["revision"] != status["revision"]
