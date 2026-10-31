@@ -63,8 +63,12 @@ def build_contexts(project_id: str, selection: Optional[dict] = None) -> dict:
         except Exception:  # noqa: BLE001 推导失败按通用层处理
             pass
     project_ctx = project_context.inspect_project_context(project_id, sel)
-    if not project_ctx:
-        raise DirectorError("PROJECT_NOT_READABLE", f"项目 {project_id} 无法读取（先在工作台打开）")
+    if not project_ctx or project_ctx.get("authority") == "unknown":
+        detail = (project_ctx or {}).get("authority_error") or "项目上下文为空"
+        raise DirectorError(
+            "PROJECT_NOT_READABLE",
+            f"项目 {project_id} 无法读取（先在工作台打开）：{detail}",
+        )
     system_ctx = action_registry.system_context()
     action_ctx = action_registry.actions_for_context(
         sel, project_id=project_id, context=project_ctx)
