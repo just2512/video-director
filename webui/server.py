@@ -5342,6 +5342,25 @@ def main(port: int = 8501):
     except Exception as exc:
         print(f"[web] WorkflowRun 恢复检查失败（不阻塞启动）: {exc}", file=sys.stderr)
     try:
+        from video_director import film_render as _vd_film_render
+        recovered = _vd_film_render.cleanup_orphaned_render_artifacts(COMPOSER_ROOT)
+        if any(recovered.get(key) for key in ("workdirs_removed", "transactions_recovered", "qc_temps_removed")):
+            print(
+                "[web] 导出残留恢复："
+                f"工作目录 {recovered['workdirs_removed']}，"
+                f"事务回滚 {recovered['transactions_recovered']}，"
+                f"QC 临时文件 {recovered['qc_temps_removed']}",
+                file=sys.stderr,
+            )
+        if recovered.get("errors"):
+            print(
+                "[web] 部分导出残留无法自动恢复，已保留现场："
+                + " | ".join(recovered["errors"][:5]),
+                file=sys.stderr,
+            )
+    except Exception as exc:
+        print(f"[web] 导出残留恢复检查失败（不阻塞启动）: {exc}", file=sys.stderr)
+    try:
         vd_audio.ensure_audio_library()
         # 扩库：风格化 BGM（ffmpeg 合成免费，中文标签），幂等
         vd_audio.generate_style_bgm_library()
