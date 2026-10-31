@@ -30,7 +30,8 @@ def test_late_editor_responses_never_mutate_the_new_project_workspace(tmp_path, 
                 response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 assert response and response.status == 200
                 page.wait_for_function(
-                    "() => typeof window.executeCommand === 'function' && "
+                    "() => typeof window.editorCmd === 'function' && "
+                    "typeof window.executeCommand === 'function' && "
                     "typeof window.executeAction === 'function' && "
                     "typeof window.refreshComposition === 'function'"
                 )

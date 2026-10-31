@@ -185,6 +185,7 @@ function friendlyError(data) {
 }
 
 Object.assign(window, {
+  editorCmd,
   executeCommand,
   executeBatch,
   resyncComposition,
