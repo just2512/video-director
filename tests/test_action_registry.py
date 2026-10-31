@@ -216,3 +216,30 @@ def _comp_json(with_watermark: bool = False) -> str:
         ],
         "audio": [], "watermarks": wms,
     }, ensure_ascii=False)
+
+
+def test_film_authority_disables_legacy_action_manifest(tmp_path, monkeypatch):
+    from video_director import config, film_document as fd
+
+    monkeypatch.setattr(config, "composer_storage_root", lambda: tmp_path / "composer")
+    project_id = "action-manifest-film-authority"
+    root = config.project_dir(project_id)
+    root.mkdir(parents=True, exist_ok=True)
+    (root / fd.FILM_NAME).write_text(
+        '<!doctype html>\\n<html><head><meta charset="utf-8"></head>\\n'
+        '<body><section id="video-main"><video id="clip-a" '
+        'src="../assets/a.mp4#t=0,2" at="0"></video></section></body></html>',
+        encoding="utf-8",
+    )
+
+    groups = ar.manifest_for_project(project_id)
+    exposed = [action for actions in groups.values() for action in actions]
+    assert exposed, "legacy action manifest should remain discoverable for migration guidance"
+    assert all(action["available"] is False for action in exposed)
+    assert all("film.html" in action["reason"] for action in exposed)
+
+    selected = ar.actions_for_context(
+        {"type": "scene", "id": "scene-1"}, project_id=project_id
+    )
+    assert selected["actions"]
+    assert all(action["available"] is False for action in selected["actions"])
