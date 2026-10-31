@@ -106,20 +106,51 @@ def _normalize_selection(selection: Optional[Dict[str, Any]]) -> dict:
     return value
 
 
+def _unknown_authority_context(project_id: str, selection: Optional[Dict[str, Any]], error: Exception) -> dict:
+    """Represent unreadable or indeterminate project state without enabling legacy writes."""
+    message = f"{type(error).__name__}: {error}"
+    return {
+        "authority": "unknown",
+        "authority_error": message,
+        "project": {"id": project_id},
+        "selection": _normalize_selection(selection),
+        "film": {
+            "exists": None, "valid": None,
+            "error": {"code": "PROJECT_AUTHORITY_UNKNOWN", "message": message},
+        },
+    }
+
+
 def _invalid_film_context(project_id: str, selection: Optional[Dict[str, Any]], error: Exception) -> dict:
-    """Return a fail-closed context for a present but unreadable film.html."""
+    """Return film authority for malformed content; unknown when the file cannot be read."""
+    from pathlib import Path
+    import stat
     from video_director import film_document
     from video_director.project_lock import validate_project_id
 
     try:
         pid = validate_project_id(project_id)
         path = config.composer_storage_root() / pid / film_document.FILM_NAME
-        if not path.is_file():
-            return {}
+    except Exception as path_error:
+        return _unknown_authority_context(project_id, selection, path_error)
+
+    try:
+        metadata = path.stat()
+    except FileNotFoundError:
+        # Only a positively observed missing path permits legacy CompositionIR fallback.
+        return None
+    except OSError as stat_error:
+        return _unknown_authority_context(project_id, selection, stat_error)
+    if not stat.S_ISREG(metadata.st_mode):
+        return _unknown_authority_context(
+            project_id, selection, OSError("film.html path is not a regular file")
+        )
+
+    try:
         raw = path.read_text(encoding="utf-8")
         revision = film_document.revision_of(raw)
-    except Exception:
-        return {}
+    except Exception as read_error:
+        return _unknown_authority_context(project_id, selection, read_error)
 
     return {
         "authority": "film.html",
@@ -147,12 +178,30 @@ def _active_film_context(project_id: str, selection: Optional[Dict[str, Any]]) -
     from video_director import film_document
     from video_director.project_lock import validate_project_id
 
+    import stat
+    try:
+        pid = validate_project_id(project_id)
+        path = config.composer_storage_root() / pid / film_document.FILM_NAME
+        metadata = path.stat()
+    except FileNotFoundError:
+        return None
+    except Exception as exc:
+        return _unknown_authority_context(project_id, selection, exc)
+    if not stat.S_ISREG(metadata.st_mode):
+        return _unknown_authority_context(
+            project_id, selection, OSError("film.html path is not a regular file")
+        )
+
     try:
         state = film_document.read_project_film(project_id)
     except Exception as exc:
         return _invalid_film_context(project_id, selection, exc)
     if not state.get("exists"):
-        return None
+        # stat() already confirmed the file exists. A false "missing" response
+        # from a higher-level reader is indeterminate, never permission to fall back.
+        return _unknown_authority_context(
+            project_id, selection, OSError("film.html exists but document reader reported it missing")
+        )
 
     document = state["doc"]
     tracks = document.get("tracks") or []
@@ -275,8 +324,8 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
 
     try:
         ir = load_composition(project_id)
-    except Exception:
-        return {}
+    except Exception as exc:
+        return _unknown_authority_context(project_id, selection, exc)
 
     video = sum(1 for sc in ir.scenes for layer in sc.layers if layer.type.value == "video")
     image = sum(1 for sc in ir.scenes for layer in sc.layers if layer.type.value == "image")
