@@ -918,14 +918,17 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
         # and FFmpeg are rendering. Re-read the authoritative document immediately
         # before publishing: a technically valid MP4 from an obsolete revision is
         # not an acceptable export result.
-        after = fd.read_project_film(pid)
-        if after.get("rev") != revision:
-            raise FilmRenderError(
-                "REVISION_CONFLICT",
-                "导出期间影片文档已变化；旧 revision 的 MP4 未发布。请重新载入最新版本后再导出。",
-                409,
-            )
-        os.replace(output_temp, output)
+        # Serialize the final revision check and atomic publish with every
+        # application-managed film.html edit/undo/redo transaction.
+        with fd.project_lock(pid):
+            after = fd.read_project_film(pid)
+            if after.get("rev") != revision:
+                raise FilmRenderError(
+                    "REVISION_CONFLICT",
+                    "导出期间影片文档已变化；旧 revision 的 MP4 未发布。请重新载入最新版本后再导出。",
+                    409,
+                )
+            os.replace(output_temp, output)
         current_match = True
         warnings = []
         if audio_specs and audio_qc["status"] in {"SILENT", "NEAR_SILENT", "UNKNOWN"}:
@@ -1158,15 +1161,18 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
         # A look result is a preview of one immutable film revision. Do not
         # publish its contact sheet if the authoritative document changed while
         # Chromium was sampling frames.
-        after = fd.read_project_film(pid)
-        if after.get("rev") != revision:
-            temp_output.unlink(missing_ok=True)
-            raise FilmRenderError(
-                "REVISION_CONFLICT",
-                "look 检查期间影片文档已变化；旧 revision 的预览接触表未发布。请重新载入最新版本后再检查。",
-                409,
-            )
-        os.replace(temp_output, output)
+        # Keep the revision check and contact-sheet publication in the same
+        # project transaction as Studio/CLI edits.
+        with fd.project_lock(pid):
+            after = fd.read_project_film(pid)
+            if after.get("rev") != revision:
+                temp_output.unlink(missing_ok=True)
+                raise FilmRenderError(
+                    "REVISION_CONFLICT",
+                    "look 检查期间影片文档已变化；旧 revision 的预览接触表未发布。请重新载入最新版本后再检查。",
+                    409,
+                )
+            os.replace(temp_output, output)
         return {
             "ok": True,
             "project_id": pid,
