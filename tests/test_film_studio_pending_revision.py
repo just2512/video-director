@@ -225,6 +225,6 @@ def test_revision_derived_timeline_actions_use_exact_revision_except_manual_clip
         "window.filmStudioCommitCanvasElement", "window.filmStudioSaveSelectedElement",
     ):
         start = source.index(entry)
-        next_entry = source.find("\\n  window.", start + len(entry))
+        next_entry = source.find("\n  window.", start + len(entry))
         body = source[start:next_entry if next_entry >= 0 else len(source)]
         assert "filmStudioCommitExactRevision(" in body, entry
