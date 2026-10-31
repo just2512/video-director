@@ -134,6 +134,11 @@ def system_capabilities_list() -> dict:
 
 def director_create(payload: Optional[Dict] = None) -> dict:
     """director.create：通过共享服务提交混合输入的完整导演任务。"""
+    project_id = str((payload or {}).get("project_id") or "").strip()
+    if project_id:
+        rejection = tool_executor.film_authority_rejection(project_id, "director.create")
+        if rejection is not None:
+            return rejection
     from video_director.director_service import create_director_run, DirectorServiceError
     try:
         return create_director_run(payload or {})
@@ -161,6 +166,9 @@ def director_status(run_id: str) -> dict:
 
 def director_retry(project_id: str) -> dict:
     """director.retry：按持久化输入重新执行失败的导演项目。"""
+    rejection = tool_executor.film_authority_rejection(project_id, "director.retry")
+    if rejection is not None:
+        return rejection
     from video_director.director_service import retry_director_project, DirectorServiceError
     try:
         return retry_director_project(project_id)
@@ -170,6 +178,9 @@ def director_retry(project_id: str) -> dict:
 
 def director_continue(project_id: str, target: str = "preview") -> dict:
     """director.continue：从已保存的导演检查点继续执行。"""
+    rejection = tool_executor.film_authority_rejection(project_id, "director.continue")
+    if rejection is not None:
+        return rejection
     from video_director.director_service import continue_director_project, DirectorServiceError
     try:
         return continue_director_project(project_id, target=target)
