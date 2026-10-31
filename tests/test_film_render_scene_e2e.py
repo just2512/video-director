@@ -674,9 +674,10 @@ def test_offline_scene_renderer_fails_for_missing_project_local_css_or_media_res
 
 
 
-def test_film_render_marks_old_revision_when_document_changes_during_export(tmp_path, monkeypatch):
+def test_film_render_aborts_when_document_changes_during_export(tmp_path, monkeypatch):
+    """A render must use the revision captured before work starts and abort on mutation."""
     pytest.importorskip("playwright.sync_api")
-    from video_director import film_document as fd, film_render, renderer
+    from video_director import config, film_document as fd, film_render, renderer
 
     try:
         renderer._ffmpeg()
@@ -684,48 +685,43 @@ def test_film_render_marks_old_revision_when_document_changes_during_export(tmp_
         pytest.skip(f"FFmpeg is unavailable in this environment: {exc}")
 
     project_id, revision = _write_html_film_project(tmp_path, monkeypatch)
+    project = config.project_dir(project_id)
+    film_path = project / fd.FILM_NAME
+    original_bytes = film_path.read_bytes()
     original_audio_specs = film_render._audio_specs
-    external_change_done = False
+    mutation = {"done": False, "revision": None}
 
     def change_film_after_frames(pid, doc, duration):
-        nonlocal external_change_done
         specs = original_audio_specs(pid, doc, duration)
-        if not external_change_done:
+        if not mutation["done"]:
             current = fd.read_project_film(project_id)
             assert current["rev"] == revision
-            fd.edit_project_film(
+            changed = fd.edit_project_film(
                 project_id,
-                current["rev"],
+                revision,
                 [{"op": "set", "clip": "moving-red", "field": "title",
                   "value": "由外部 Agent 在导出期间修改"}],
+                require_base=True,
+                source="concurrent-render-revision-test",
             )
-            external_change_done = True
+            assert changed.get("ok") is True, changed
+            mutation["done"] = True
+            mutation["revision"] = changed["rev"]
         return specs
 
     monkeypatch.setattr(film_render, "_audio_specs", change_film_after_frames)
-    result = film_render.render_project_film(
-        project_id, fd.read_project_film(project_id)["rev"], fps=2
-    )
+    with pytest.raises(film_render.FilmRenderError) as raised:
+        film_render.render_project_film(project_id, expected_revision=revision, fps=2)
 
-    current = fd.read_project_film(project_id)
-    output = Path(result["mp4_path"])
-    assert external_change_done is True
-    assert result["ok"] is True
-    assert result["rendered_revision"] == revision
-    assert result["current_revision"] == current["rev"]
-    assert result["current_revision"] != revision
-    assert result["current"] is False
-    assert output.name == f"film-final-{revision}.mp4"
-    assert output.is_file() and output.stat().st_size > 0
-    assert any("导出期间影片文档已变化" in warning for warning in result["warnings"])
-
-    qc_path = Path(result["qc_report_path"])
-    report = json.loads(qc_path.read_text(encoding="utf-8"))
-    assert report["source_revision"] == revision
-    assert report["current_revision"] == current["rev"]
-    assert report["current_revision_match"] is False
-    assert any("rendered_revision" in warning or "导出期间影片文档已变化" in warning
-               for warning in report["warnings"])
+    assert mutation["done"] is True
+    assert mutation["revision"] and mutation["revision"] != revision
+    assert raised.value.code == "REVISION_CONFLICT"
+    assert raised.value.status == 409
+    assert film_path.read_bytes() != original_bytes
+    output = project / "render" / f"film-final-{revision}.mp4"
+    assert not output.exists(), "an obsolete MP4 must not be published"
+    qc_dir = project / "qc"
+    assert not qc_dir.exists() or not list(qc_dir.glob(f"film-final-{revision}.json"))
 
 
 def test_look_aborts_before_publishing_when_film_changes_during_sampling(tmp_path, monkeypatch):
