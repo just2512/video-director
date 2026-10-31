@@ -4077,7 +4077,16 @@ window.filmStudioCopyClips=function(){
           }
         }else if(run.status==='FAILED'||run.status==='INTERRUPTED'||run.status==='CANCELLED'){
           terminal=true;S.rendering=false;
-          if(S.projectId===pid)showStatus((run.error&&String(run.error))||'MP4 导出失败，请检查素材范围与任务详情。','error');
+          var renderError=(run.error&&String(run.error))||'MP4 导出失败，请检查素材范围与任务详情。';
+          if(S.projectId===pid&&/REVISION_CONFLICT|影片文档已变化/.test(renderError)){
+            // A render can detect a disk edit before the file watcher delivers its
+            // SSE event. Refresh the authoritative document instead of leaving
+            // the user on a stale timeline after the export hard gate rejects it.
+            await filmStudioLoad(true);
+            if(S.projectId===pid)showStatus('导出因影片 revision 已变化而拒绝；当前时间线已重新载入，旧版本没有发布。','error');
+          }else if(S.projectId===pid){
+            showStatus(renderError,'error');
+          }
         }
       }
     }catch(error){
