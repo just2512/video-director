@@ -193,7 +193,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "operations: buildMoveOperationsForResolution(input, resolution)" in controller_source
     assert "moveControllerResult=moveController.buildMovePreview({" in studio
     assert "moveControllerResult&&moveControllerResult.operations" in studio
-    assert "await filmStudioCommit(moveControllerOperations,{requireExactRevision:true});return;" in studio
+    assert "await filmStudioCommitExactRevision(moveControllerOperations,{requireExactRevision:true});return;" in studio
     assert "resolveRollGesture" in controller_source
     assert "resolveSlideGesture" in controller_source
     assert "resolveSlipGesture" in controller_source
@@ -217,7 +217,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     gesture_preview = studio[studio.index("function onMove(e)"):studio.index("async function onUp(e)")]
 
     assert "async function finishReactClipGesture(e, preparedOperations)" in studio
-    assert "await filmStudioCommit(preparedOperations,{requireExactRevision:true});" in studio
+    assert "await filmStudioCommitExactRevision(preparedOperations,{requireExactRevision:true});" in studio
     assert "if(Array.isArray(prepared))return finishReactClipGesture(e,prepared);" in studio
     assert "reactPreparedOperations" not in studio
 

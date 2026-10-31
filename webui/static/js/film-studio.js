@@ -1525,7 +1525,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     var track=(S.data&&S.data.tracks||[]).find(function(item){return item.id===String(trackId);});
     if(!track)return Promise.resolve(false);
     var locked=Object.prototype.hasOwnProperty.call(track.attrs||{},'locked');
-    return filmStudioCommit([{op:'track',track_id:track.id,field:'locked',value:!locked}]);
+    return filmStudioCommitExactRevision([{op:'track',track_id:track.id,field:'locked',value:!locked}]);
   };
   window.filmStudioToggleTrackFlag = function(trackId,field){
     if(['sync-lock','hidden','muted'].indexOf(field)<0){
@@ -1535,7 +1535,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     var track=(S.data&&S.data.tracks||[]).find(function(item){return item.id===String(trackId);});
     if(!track)return Promise.resolve(false);
     var enabled=Object.prototype.hasOwnProperty.call(track.attrs||{},field);
-    return filmStudioCommit([{op:'track',track_id:track.id,field:field,value:!enabled}]);
+    return filmStudioCommitExactRevision([{op:'track',track_id:track.id,field:field,value:!enabled}]);
   };
   function renderTimeline() {
     if(!S.data||!S.data.exists)return;
@@ -1640,7 +1640,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       el.addEventListener('click',function(e){
         e.stopPropagation();var track=(S.data.tracks||[]).find(function(t){return t.id===el.getAttribute('data-track-lock');});if(!track)return;
         var locked=Object.prototype.hasOwnProperty.call(track.attrs||{},'locked');
-        filmStudioCommit([{op:'track',track_id:track.id,field:'locked',value:!locked}]);
+        filmStudioCommitExactRevision([{op:'track',track_id:track.id,field:'locked',value:!locked}]);
       });
     });
     $('fs-timeline').querySelectorAll('[data-track-flag]').forEach(function(el){
@@ -1651,7 +1651,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
         var track=(S.data.tracks||[]).find(function(t){return t.id===el.getAttribute('data-track-key');});
         if(!track)return;
         var field=el.getAttribute('data-track-flag'),on=Object.prototype.hasOwnProperty.call(track.attrs||{},field);
-        filmStudioCommit([{op:'track',track_id:track.id,field:field,value:!on}]);
+        filmStudioCommitExactRevision([{op:'track',track_id:track.id,field:field,value:!on}]);
       });
     });
     }
@@ -1829,7 +1829,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       if(resolution.kind==='none')return false;
       if(resolution.kind==='minimum-points'){showStatus('至少需要两个音量关键帧。','error');return false;}
       if(resolution.kind==='remove'){
-        filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(resolution.points)}],{requireExactRevision:true});
+        filmStudioCommitExactRevision([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(resolution.points)}],{requireExactRevision:true});
         return false;
       }
       points=resolution.points;index=resolution.index;added=resolution.added;
@@ -1845,7 +1845,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       if((e.button===2||e.shiftKey)&&nearest>=0&&nearestPx<=12){
         points.splice(nearest,1);
         if(points.length<2){showStatus('至少需要两个音量关键帧。','error');return false;}
-        filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(points)}],{requireExactRevision:true});
+        filmStudioCommitExactRevision([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(points)}],{requireExactRevision:true});
         return false;
       }
       if(e.button!==0)return false;
@@ -2473,6 +2473,12 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       flushPendingExternalRevision();
     }
   }
+  // Every UI action derived from the visible timeline must commit against the exact revision it inspected.
+  // Only the explicit clip Inspector path retains ID-based manual rebase semantics.
+  function filmStudioCommitExactRevision(ops, options) {
+    return filmStudioCommit(ops,Object.assign({},options||{},{requireExactRevision:true}));
+  }
+
   async function filmStudioHistory(action) {
     if(!S.data||S.busy)return;
     if(hasUncommittedInspectorEdits()){
@@ -2780,7 +2786,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       flushPendingExternalRevision();
       return;
     }
-    await filmStudioCommit(preparedOperations,{requireExactRevision:true});
+    await filmStudioCommitExactRevision(preparedOperations,{requireExactRevision:true});
   }
 
   async function onUp(e) {
@@ -2806,7 +2812,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
           unique=[];
           normalized.forEach(function(p){if(unique.length&&Math.abs(unique[unique.length-1].t-p.t)<0.001)unique[unique.length-1]=p;else unique.push(p);});
         }
-        if(unique.length>=2)await filmStudioCommit([{op:'set',clip:envelopeEdit.clipId,field:'volume_envelope',value:JSON.stringify(unique)}],{requireExactRevision:true});
+        if(unique.length>=2)await filmStudioCommitExactRevision([{op:'set',clip:envelopeEdit.clipId,field:'volume_envelope',value:JSON.stringify(unique)}],{requireExactRevision:true});
       }else if(S.data&&S.data.exists)renderTimeline();
       clearTimelineEnvelopePreview();
       flushPendingExternalRevision();
@@ -2864,13 +2870,13 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       var slideCommitResolution=resolveTimelineSlide(d,deltaSeconds,8);
       var slideDelta=slideCommitResolution.deltaSeconds;
       if(Math.abs(slideDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
-      await filmStudioCommit([slideCommitResolution.operation||{op:'slide',clip:d.centerClipId,delta:timelineOperationNumber(slideDelta,(slideCommitResolution.snapCandidate&&slideCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(slideCommitResolution.targetAt))}],{requireExactRevision:true});return;
+      await filmStudioCommitExactRevision([slideCommitResolution.operation||{op:'slide',clip:d.centerClipId,delta:timelineOperationNumber(slideDelta,(slideCommitResolution.snapCandidate&&slideCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(slideCommitResolution.targetAt))}],{requireExactRevision:true});return;
     }
     if(d.mode==='roll'){
       var rollCommitResolution=resolveTimelineRoll(d,deltaSeconds,8);
       var rollDelta=rollCommitResolution.deltaSeconds;
       if(Math.abs(rollDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
-      await filmStudioCommit([rollCommitResolution.operation||{op:'roll',clip:d.leftClipId,other_clip:d.rightClipId,delta:timelineOperationNumber(rollDelta,(rollCommitResolution.snapCandidate&&rollCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(rollCommitResolution.targetAt))}],{requireExactRevision:true});return;
+      await filmStudioCommitExactRevision([rollCommitResolution.operation||{op:'roll',clip:d.leftClipId,other_clip:d.rightClipId,delta:timelineOperationNumber(rollDelta,(rollCommitResolution.snapCandidate&&rollCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(rollCommitResolution.targetAt))}],{requireExactRevision:true});return;
     }
     if(d.mode==='slip'){
       var slipClip=findClip(d.id);
@@ -2878,7 +2884,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       var slipResolution=resolveTimelineSlip(deltaSeconds,num(slipClip.attrs.speed,1),d.id);
       var sourceDelta=slipResolution.sourceDeltaSeconds;
       if(Math.abs(sourceDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
-      await filmStudioCommit([slipResolution.operation||{op:'slip',clip:d.id,delta_source:timelineOperationNumber(sourceDelta,S.snapEnabled)}],{requireExactRevision:true});return;
+      await filmStudioCommitExactRevision([slipResolution.operation||{op:'slip',clip:d.id,delta_source:timelineOperationNumber(sourceDelta,S.snapEnabled)}],{requireExactRevision:true});return;
     }
     if(d.mode==='trim-start'){
       var startTrimCommitController=window.filmStudioTimelineController;
@@ -2890,9 +2896,9 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
           pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
         })
         :null;
-      if(startTrimCommitResult){await filmStudioCommit([startTrimCommitResult.operation],{requireExactRevision:true});return;}
+      if(startTrimCommitResult){await filmStudioCommitExactRevision([startTrimCommitResult.operation],{requireExactRevision:true});return;}
       var trimStartCommit=resolveTimelineTrim('start',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
-      await filmStudioCommit([{op:'trim',clip:d.id,edge:'start',at:timelineOperationNumber(trimStartCommit.target,(trimStartCommit.snapCandidate&&trimStartCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimStartCommit.target))}],{requireExactRevision:true});return;
+      await filmStudioCommitExactRevision([{op:'trim',clip:d.id,edge:'start',at:timelineOperationNumber(trimStartCommit.target,(trimStartCommit.snapCandidate&&trimStartCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimStartCommit.target))}],{requireExactRevision:true});return;
     }
     if(d.mode==='trim-end'){
       var endTrimCommitController=window.filmStudioTimelineController;
@@ -2904,9 +2910,9 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
           pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
         })
         :null;
-      if(endTrimCommitResult){await filmStudioCommit([endTrimCommitResult.operation],{requireExactRevision:true});return;}
+      if(endTrimCommitResult){await filmStudioCommitExactRevision([endTrimCommitResult.operation],{requireExactRevision:true});return;}
       var trimEndCommit=resolveTimelineTrim('end',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
-      await filmStudioCommit([{op:'trim',clip:d.id,edge:'end',end:timelineOperationNumber(trimEndCommit.target,(trimEndCommit.snapCandidate&&trimEndCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimEndCommit.target))}],{requireExactRevision:true});return;
+      await filmStudioCommitExactRevision([{op:'trim',clip:d.id,edge:'end',end:timelineOperationNumber(trimEndCommit.target,(trimEndCommit.snapCandidate&&trimEndCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimEndCommit.target))}],{requireExactRevision:true});return;
     }
     var moveController=window.filmStudioTimelineController;
     if(moveController&&typeof moveController.buildMovePreview==='function'){
@@ -2921,7 +2927,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       if(!moveControllerOperations||(d.members||[]).length!==moveControllerOperations.length){
         clearTimelineGesturePreview();renderTimeline();return;
       }
-      await filmStudioCommit(moveControllerOperations,{requireExactRevision:true});return;
+      await filmStudioCommitExactRevision(moveControllerOperations,{requireExactRevision:true});return;
     }
     var chosen=(d.members||[]).map(function(member){return member.id;});
     var minStart=Math.min.apply(null,(d.members||[]).map(function(member){return member.originalAt;}));
@@ -2939,7 +2945,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     if(!operations.length||(operations.length!==(d.members||[]).length)){
       clearTimelineGesturePreview();renderTimeline();return;
     }
-    await filmStudioCommit(operations,{requireExactRevision:true});
+    await filmStudioCommitExactRevision(operations,{requireExactRevision:true});
   }
   // The React timeline owns move/up dispatch for clips that captured the pointer.
   // Native document listeners remain a fallback and still serve audio-envelope drags.
@@ -3288,7 +3294,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       showStatus('画布编辑目标与当前选择不一致；本次没有写入。','error');return;
     }
     var previousRevision=S.rev;
-    var committed=await filmStudioCommit([operation],{allowInspectorDraft:options&&options.allowInspectorDraft?'canvas':''});
+    var committed=await filmStudioCommitExactRevision([operation],{allowInspectorDraft:options&&options.allowInspectorDraft?'canvas':''});
     if(!committed||!S.data||!S.data.exists||S.rev===previousRevision)return;
     S.selectedElement=null;
     var selectionBox=$('fs-element-selection');if(selectionBox)selectionBox.hidden=true;
@@ -3365,7 +3371,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     var elementOp={op:'element_set',clip:clip.id,selector:selected.selector,style:elementStyle};
     if(elementTextChanged)elementOp.text=textInput.value;
     var previousRevision=S.rev;
-    var committed=await filmStudioCommit([elementOp],{allowInspectorDraft:'canvas'});
+    var committed=await filmStudioCommitExactRevision([elementOp],{allowInspectorDraft:'canvas'});
     if(!committed||S.rev===previousRevision)return;
     // The commit triggers a full, revision-bound reload. Keep selection context
     // visible, but the user can reselect when CSS/structure changes the selector.
@@ -3491,7 +3497,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     var label=window.prompt('新轨道名称','画面轨道');if(label==null)return;label=label.trim();
     if(!label){showStatus('轨道名称不能为空。','error');return;}
     var id='track-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
-    await filmStudioCommit([{op:'track_add',track_id:id,label:label,index:0}]);
+    await filmStudioCommitExactRevision([{op:'track_add',track_id:id,label:label,index:0}]);
   };
   window.filmStudioRemoveEmptyTrack=async function(){
     if(!S.data||!S.data.exists||S.busy)return;
@@ -3499,13 +3505,13 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     if(!empty.length){showStatus('当前没有可删除的空轨道。');return;}
     var track=empty[0];
     if(!window.confirm('删除空轨道「'+((track.attrs||{})['data-label']||track.id)+'」？'))return;
-    await filmStudioCommit([{op:'track_remove',track_id:track.id}]);
+    await filmStudioCommitExactRevision([{op:'track_remove',track_id:track.id}]);
   };
   window.filmStudioSetClipLock=async function(clipId,locked){
     var clip=findClip(clipId||S.selectedId);
     if(!clip){showStatus('请先选择片段。','error');return;}
     if(typeof locked!=='boolean'){showStatus('锁定状态必须是明确的布尔值。','error');return;}
-    await filmStudioCommit([{op:'clip_lock',clip:clip.id,locked:locked}]);
+    await filmStudioCommitExactRevision([{op:'clip_lock',clip:clip.id,locked:locked}]);
   };
   window.filmStudioSaveInspector=async function(){
     // The React inspector owns its own draft state; ask it to run its validated
@@ -3602,7 +3608,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     label=String(label).trim();
     if(!label){showStatus('影片标记名称不能为空。','error');return false;}
     var id='marker-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
-    try{return await filmStudioCommit([{op:'marker_add',id:id,at:at,label:label}]);}
+    try{return await filmStudioCommitExactRevision([{op:'marker_add',id:id,at:at,label:label}]);}
     catch(error){showStatus(String(error&&error.message||error),'error');return false;}
   };
   window.filmStudioEditTimelineMarker=async function(markerId){
@@ -3614,14 +3620,14 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     try{
       if(!label){
         if(!window.confirm('删除影片标记“'+String(marker.label||marker.id)+'”？此操作可撤销。'))return false;
-        return await filmStudioCommit([{op:'marker_remove',id:marker.id}]);
+        return await filmStudioCommitExactRevision([{op:'marker_remove',id:marker.id}]);
       }
       if(label===marker.label)return true;
-      return await filmStudioCommit([{op:'marker_set',id:marker.id,label:label}]);
+      return await filmStudioCommitExactRevision([{op:'marker_set',id:marker.id,label:label}]);
     }catch(error){showStatus(String(error&&error.message||error),'error');return false;}
   };
-  window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommit([{op:'split',clip:clip.id,at:S.playhead}]);};
-  window.filmStudioRemove=async function(){var ids=(S.selectedIds||[]).filter(function(id){return !!findClip(id);});if(!ids.length&&S.selectedId)ids=[S.selectedId];if(!ids.length){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除选中的 '+ids.length+' 个片段并保留时间线空隙？此操作可撤销。'))return;var committed=await filmStudioCommit(ids.map(function(id){return {op:'remove',clip:id};}));if(!committed)return;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';render();};
+  window.filmStudioSplit=async function(){var clip=findClip(S.selectedId);if(!clip){showStatus('请先选择需要切分的片段。','error');return;}await filmStudioCommitExactRevision([{op:'split',clip:clip.id,at:S.playhead}]);};
+  window.filmStudioRemove=async function(){var ids=(S.selectedIds||[]).filter(function(id){return !!findClip(id);});if(!ids.length&&S.selectedId)ids=[S.selectedId];if(!ids.length){showStatus('请先选择片段。','error');return;}if(!window.confirm('删除选中的 '+ids.length+' 个片段并保留时间线空隙？此操作可撤销。'))return;var committed=await filmStudioCommitExactRevision(ids.map(function(id){return {op:'remove',clip:id};}));if(!committed)return;S.selectedId='';S.selectedIds=[];S.selectionAnchor='';render();};
 window.filmStudioCopyClips=function(){
     if(!S.data||!S.data.exists||!S.projectId){showStatus('请先打开一个有效的 film.html 项目。','error');return false;}
     var ids=(S.selectedIds||[]).filter(function(id,index,all){return !!findClip(id)&&all.indexOf(id)===index;});
@@ -3701,7 +3707,7 @@ window.filmStudioCopyClips=function(){
       ops.push({op:'insert',track_id:item.trackId,clip:{id:id,tag:item.tag,attrs:attrs}});
       created.push(id);
     });
-    var committed=await filmStudioCommit(ops);
+    var committed=await filmStudioCommitExactRevision(ops);
     if(!committed)return false;
     S.selectedIds=created.slice();S.selectedId=created[0]||'';S.selectionAnchor=S.selectedId;
     renderTimeline();syncClipSelectionVisual();renderInspector();renderAssets();
@@ -3812,7 +3818,7 @@ window.filmStudioCopyClips=function(){
     }
     if(!ops.length){showStatus('这两个片段已经有对应的淡化衔接，无需更改。');return true;}
     showStatus('正在为两个相邻片段提交淡出/淡入衔接（各 '+duration.toFixed(3)+' 秒）；片段位置不变。');
-    return await filmStudioCommit(ops);
+    return await filmStudioCommitExactRevision(ops);
   };
   window.filmStudioApplyCrossfadeTransition=async function(clipId,requestedDuration){
     var durationOverride=transitionDurationOverride(requestedDuration);
@@ -3938,7 +3944,7 @@ window.filmStudioCopyClips=function(){
       });
     });
     showStatus('正在提交 '+duration.toFixed(3)+' 秒交叉淡化：下一片段与当前片段重叠，同轨后续片段随之左移；其他轨道不变。');
-    return await filmStudioCommit(ops);
+    return await filmStudioCommitExactRevision(ops);
   };
   window.filmStudioContextMenuAction=function(action,clipId,requestedDuration){
     closeTimelineContextMenu();
@@ -4036,14 +4042,14 @@ window.filmStudioCopyClips=function(){
     }else{
       showStatus('所选片段附近没有时间上相邻的切口。','error');return;
     }
-    await filmStudioCommit([{op:'join',clip:left.id,other_clip:right.id}]);
+    await filmStudioCommitExactRevision([{op:'join',clip:left.id,other_clip:right.id}]);
   };
   window.filmStudioRippleDelete=async function(){
     var clip=findClip(S.selectedId);
     if(!clip){showStatus('请选择一个有明确时长的片段作为波纹删除范围。','error');return;}
     if(clip.end==null||clip.end<=clip.at){showStatus('目标片段时长未知，不能执行波纹删除。','error');return;}
     if(!window.confirm('将删除 '+fmtTime(clip.at)+'–'+fmtTime(clip.end)+'，并收拢全部轨道后续内容。跨越该时间段的片段会被切分；锁定轨道或未知时长会导致整笔拒绝。继续？'))return;
-    await filmStudioCommit([{op:'ripple_delete',clip:clip.id,scope:'all'}]);
+    await filmStudioCommitExactRevision([{op:'ripple_delete',clip:clip.id,scope:'all'}]);
   };
   window.filmStudioUndo=function(){return filmStudioHistory('undo');};window.filmStudioRedo=function(){return filmStudioHistory('redo');};
   window.filmStudioRender=async function(){

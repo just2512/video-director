@@ -15,12 +15,12 @@ def test_studio_discards_timeline_and_envelope_drag_when_external_revision_arriv
     source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     assert "本次旧画面拖动未提交，先载入外部版本" in source
     assert "本次拖动未提交，先载入外部版本" in source
-    assert "filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(points)}],{requireExactRevision:true});" in source
-    assert "filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(resolution.points)}],{requireExactRevision:true});" in source
+    assert "filmStudioCommitExactRevision([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(points)}],{requireExactRevision:true});" in source
+    assert "filmStudioCommitExactRevision([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(resolution.points)}],{requireExactRevision:true});" in source
     react_finish = source[source.index("function finishReactClipGesture(e, preparedOperations)"):source.index("async function onUp(e)")]
     assert "if(S.pendingExternalRevision)" in react_finish
     assert "本次旧画面拖动未提交" in react_finish
-    assert react_finish.index("if(S.pendingExternalRevision)") < react_finish.index("await filmStudioCommit(preparedOperations,{requireExactRevision:true});")
+    assert react_finish.index("if(S.pendingExternalRevision)") < react_finish.index("await filmStudioCommitExactRevision(preparedOperations,{requireExactRevision:true});")
     assert "flushPendingExternalRevision();" in react_finish
     pointer_cancel = source[source.index("document.addEventListener('pointercancel'"):source.index("window.filmStudioSetSideMode")]
     assert "cancelPointerGesture();" in pointer_cancel
@@ -73,7 +73,7 @@ def test_explicit_reload_confirms_discard_and_canvas_save_reports_failure_honest
     save_end = source.index("window.addEventListener('message',function(event)", save_start)
     save = source[save_start:save_end]
     assert "window.filmStudioReactInspector.saveSelected()" in save
-    assert "var committed=await filmStudioCommit([operation],{allowInspectorDraft:options&&options.allowInspectorDraft?'canvas':''});" in source
+    assert "var committed=await filmStudioCommitExactRevision([operation],{allowInspectorDraft:options&&options.allowInspectorDraft?'canvas':''});" in source
     assert "if(!committed||!S.data||!S.data.exists||S.rev===previousRevision)return;" in source
     assert "flushPendingExternalRevision();" in save
 
@@ -94,7 +94,7 @@ def test_dirty_inspector_blocks_export_history_and_project_switch():
 def test_timeline_remove_preserves_selection_when_dirty_commit_is_rejected():
     source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     remove = source[source.index("window.filmStudioRemove=async function"):source.index("window.filmStudioJoinThroughEdit")]
-    assert "var committed=await filmStudioCommit(" in remove
+    assert "var committed=await filmStudioCommitExactRevision(" in remove
     assert "if(!committed)return;" in remove
 
 
@@ -204,3 +204,27 @@ def test_stale_export_rejection_reloads_authoritative_film_document():
     assert "await filmStudioLoad(true);" in render
     assert "旧版本没有发布" in render
     assert render.index("S.rendering=false;") < render.index("await filmStudioLoad(true);")
+
+def test_revision_derived_timeline_actions_use_exact_revision_except_manual_clip_inspector():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    assert "function filmStudioCommitExactRevision(ops, options)" in source
+    assert "Object.assign({},options||{},{requireExactRevision:true})" in source
+    raw_calls = [line.strip() for line in source.splitlines() if "filmStudioCommit(" in line]
+    assert len(raw_calls) == 3, raw_calls
+    assert any(line.startswith("async function filmStudioCommit(ops, options)") for line in raw_calls)
+    assert any("return filmStudioCommit(ops,Object.assign({},options||{},{requireExactRevision:true}));" in line for line in raw_calls)
+    assert any("filmStudioCommit(ops,{allowInspectorDraft:'clip'})" in line for line in raw_calls)
+    for entry in (
+        "window.filmStudioToggleTrackLock", "window.filmStudioToggleTrackFlag",
+        "window.filmStudioAddTrack", "window.filmStudioRemoveEmptyTrack",
+        "window.filmStudioSetClipLock", "window.filmStudioAddTimelineMarker",
+        "window.filmStudioEditTimelineMarker", "window.filmStudioSplit",
+        "window.filmStudioRemove", "window.filmStudioPasteClips",
+        "window.filmStudioApplyFadeTransition", "window.filmStudioApplyCrossfadeTransition",
+        "window.filmStudioJoinThroughEdit", "window.filmStudioRippleDelete",
+        "window.filmStudioCommitCanvasElement", "window.filmStudioSaveSelectedElement",
+    ):
+        start = source.index(entry)
+        next_entry = source.find("\\n  window.", start + len(entry))
+        body = source[start:next_entry if next_entry >= 0 else len(source)]
+        assert "filmStudioCommitExactRevision(" in body, entry

@@ -224,7 +224,7 @@ def test_crossfade_action_has_strict_overlap_and_single_transaction_contract():
         "window.filmStudioApplyCrossfadeTransition=async function(clipId,requestedDuration)", 1
     )[1].split("window.filmStudioContextMenuAction=function", 1)[0]
     assert "track_id:track.id,at:newAt" in helper
-    assert "return await filmStudioCommit(ops)" in helper
+    assert "return await filmStudioCommitExactRevision(ops)" in helper
     assert "previousFade.out>0.001" in helper
     assert "current.attrs.volume_envelope" in helper
     assert "field:'volume_envelope',value:outgoingAudioEnvelope" in helper
@@ -245,7 +245,7 @@ def test_fade_transition_action_is_explicitly_same_track_adjacent_and_one_transa
         "window.filmStudioApplyFadeTransition=async function(clipId,requestedDuration)", 1
     )[1].split("window.filmStudioContextMenuAction=function", 1)[0]
     assert "Math.abs(previousEnd-nextAt)>0.001" in helper
-    assert "filmStudioCommit(ops)" in helper
+    assert "filmStudioCommitExactRevision(ops)" in helper
     assert "action==='fade-transition'" in runtime
     assert "requestedDuration" in runtime
     assert "transitionDurationTouched?transitionDuration:undefined" in component
@@ -473,7 +473,7 @@ def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
     assert "var prepared=timeline.prepareClipGestureCommit(e);" in legacy
     assert "if(Array.isArray(prepared))return finishReactClipGesture(e,prepared);" in legacy
     assert "function finishReactClipGesture(e, preparedOperations)" in legacy
-    assert "await filmStudioCommit(preparedOperations,{requireExactRevision:true});" in legacy
+    assert "await filmStudioCommitExactRevision(preparedOperations,{requireExactRevision:true});" in legacy
     assert "if(!Array.isArray(preparedOperations))return onUp(e);" in legacy
     assert "async function onUp(e)" in legacy
 
