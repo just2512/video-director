@@ -360,34 +360,37 @@ document.addEventListener('click', (ev) => {
  */
 async function edGenerateMetadata(encodedPid){
   const pid = decodeURIComponent(encodedPid || '');
-  const contextVersion = ED && ED.version;
-  const isCurrent = () => !!pid && (typeof editorContextMatches === 'function'
-    ? editorContextMatches(pid,contextVersion) : (!!ED && ED.pid===pid && Object.is(ED.version,contextVersion)));
+  const isActiveProject = () => {
+    const selector = document.getElementById('editor-project');
+    return !!pid && !!ED && ED.pid===pid && (!selector || !selector.value || selector.value===pid);
+  };
   if (!pid) { editorToast('缺少项目 ID', true); return; }
-  if (!isCurrent()) return {ok:false,status:'PROJECT_CHANGED',project_id:pid};
+  if (!isActiveProject()) return {ok:false,status:'PROJECT_CHANGED',project_id:pid};
   const btn = document.querySelector('#editor-preflight-box button[onclick*="edGenerateMetadata"]');
   if (btn) { btn.disabled = true; btn.textContent = '生成中…'; }
   try {
     const r = await executeAction('delivery.generate_metadata', {project_id:pid}, 'project');
-    if (!isCurrent() || (r && r.staleProjectResponse)) return {ok:false,status:'PROJECT_CHANGED',project_id:pid,applied:!!(r&&r.applied)};
+    if (!isActiveProject() || (r && r.staleProjectResponse)) return {ok:false,status:'PROJECT_CHANGED',project_id:pid,applied:!!(r&&r.applied)};
     if (!r || !r.ok) throw new Error((r && r.error) || '生成失败');
     const meta = (r.result && r.result.metadata) || null;
     if (!meta) throw new Error('未返回文案内容');
-    edMetadataRender(meta,pid,contextVersion);
+    edMetadataRender(meta,pid);
     editorToast('发布文案已生成并保存到项目参数');
     return r;
   } catch (e) {
-    if (isCurrent()) editorToast('发布文案生成失败：' + (e.message || e), true);
-    return {ok:false,status:isCurrent()?'ERROR':'PROJECT_CHANGED',error:e.message||String(e),project_id:pid};
+    if (isActiveProject()) editorToast('发布文案生成失败：' + (e.message || e), true);
+    return {ok:false,status:isActiveProject()?'ERROR':'PROJECT_CHANGED',error:e.message||String(e),project_id:pid};
   } finally {
-    if (isCurrent() && btn && btn.isConnected) { btn.disabled = false; btn.textContent = '生成发布文案'; }
+    if (isActiveProject() && btn && btn.isConnected) { btn.disabled = false; btn.textContent = '生成发布文案'; }
   }
 }
 
 /** 把发布文案渲染到成片完成框下方（可复制文本块）。 */
-function edMetadataRender(meta, expectedProjectId, expectedVersion){
-  if (expectedProjectId && typeof editorContextMatches === 'function'
-      && !editorContextMatches(expectedProjectId,expectedVersion)) return;
+function edMetadataRender(meta, expectedProjectId){
+  if (expectedProjectId) {
+    const selector = document.getElementById('editor-project');
+    if (!ED || ED.pid!==expectedProjectId || (selector && selector.value && selector.value!==expectedProjectId)) return;
+  }
   const box = document.getElementById('editor-preflight-box');
   if (!box) return;
   let panel = document.getElementById('ed-metadata-panel');

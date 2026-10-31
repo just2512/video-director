@@ -50,12 +50,15 @@ def test_late_preview_review_and_render_responses_do_not_replace_active_project(
                   const ensure=id=>{let el=document.getElementById(id);if(!el){el=document.createElement('div');el.id=id;document.body.appendChild(el);}return el;};
                   ensure('review-mode-list');ensure('review-mode-summary');ensure('review-mode-fix');
                   const stage=ensure('ed-preview-stage'),preflight=ensure('editor-preflight-box');
+                  const pmPreview=ensure('pm-preview-box');
                   window.fetch=(input,init={})=>{
                     const url=new URL(typeof input==='string'?input:input.url,location.href);
                     const method=String(init.method||'GET').toUpperCase();
                     if(url.pathname.endsWith('/draft_info')){
                       const pid=url.pathname.split('/').slice(-2)[0];
                       counts['draft:'+pid]=(counts['draft:'+pid]||0)+1;
+                      if(pid==='pm-a')return new Promise(resolve=>{holds.pmA=resolve;});
+                      if(pid==='pm-b')return Promise.resolve(json({final_path:'/tmp/pm-b-final.mp4'}));
                       if(pid==='preview-a')return new Promise(resolve=>{holds.previewA=resolve;});
                       if(pid==='preview-b')return Promise.resolve(json({draft_path:'/tmp/B.mp4',final_path:'/tmp/B-final.mp4'}));
                     }
@@ -76,6 +79,23 @@ def test_late_preview_review_and_render_responses_do_not_replace_active_project(
                   };
                   const output={};
                   try{
+                    // Project manager previews are independent from ED.pid, but latest selection wins.
+                    const pmA=window.pmPreviewFinal('pm-a');await tick();
+                    const pmB=await window.pmPreviewFinal('pm-b');
+                    holds.pmA(json({final_path:'/tmp/pm-a-final.mp4'}));
+                    output.pmPreview={b:pmB,a:await pmA,html:pmPreview.innerHTML};
+
+                    // A metadata write can bump this project's version without changing its identity.
+                    setProject('metadata-a',11);
+                    const nativeExecuteAction=window.executeAction;
+                    window.executeAction=async()=>{
+                      ED.version=12;
+                      return {ok:true,result:{metadata:{title:'metadata success',description:'same project',tags:['test']}}};
+                    };
+                    output.metadataResult=await window.edGenerateMetadata(encodeURIComponent('metadata-a'));
+                    output.metadata={version:ED.version,panel:document.getElementById('ed-metadata-panel')?.textContent||''};
+                    window.executeAction=nativeExecuteAction;
+
                     setProject('preview-a',1);
                     const previewA=window.previewLoadDraft('preview-a',1);await tick();
                     setProject('preview-b',2);
@@ -114,6 +134,13 @@ def test_late_preview_review_and_render_responses_do_not_replace_active_project(
                     return output;
                   }finally{window.fetch=nativeFetch;window.setTimeout=nativeSetTimeout;}
                 }""")
+                assert result["pmPreview"]["b"]["final_path"] == "/tmp/pm-b-final.mp4", result
+                assert result["pmPreview"]["a"]["status"] == "PREVIEW_SUPERSEDED", result
+                assert "pm-b-final.mp4" in result["pmPreview"]["html"], result
+                assert "pm-a-final.mp4" not in result["pmPreview"]["html"], result
+                assert result["metadataResult"]["ok"] is True, result
+                assert result["metadata"]["version"] == 12, result
+                assert "metadata success" in result["metadata"]["panel"], result
                 assert result["preview"]["b"]["draft_path"] == "/tmp/B.mp4", result
                 assert result["preview"]["draftPath"] == "/tmp/B.mp4", result
                 assert result["preview"]["a"]["status"] == "PROJECT_CHANGED", result

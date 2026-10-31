@@ -7,7 +7,7 @@
 // Project Index（§52）由服务端解释状态：status/editable/legacy/archived/
 // scene_count/duration/has_draft/has_final/actions——前端不猜。
 
-window.PM = {index: [], filter: 'all', query: '', shown: 50, busy: {}, selected: new Set()};
+window.PM = {index: [], filter: 'all', query: '', shown: 50, busy: {}, selected: new Set(), previewGeneration: 0};
 
 const PM_PAGE = 50;  // §8 大量项目：列表分页渲染（默认 50，「显示更多」追加）
 
@@ -302,29 +302,38 @@ async function pmReopenFailed(pid){
   if (typeof taskRefresh === 'function') taskRefresh();
   setTimeout(loadProjects, 1200);
 }
-/** 预览成品（中央 preview 语义：项目页就地播放，不跳页）。 */
-async function pmPreviewFinal(pid){
-  const info = await apiGet('/api/projects/' + encodeURIComponent(pid) + '/draft_info');
+/** 项目管理页预览采用请求代次隔离，不依赖 ED.pid（可预览当前编辑项目以外的项目）。 */
+function pmRenderFinalPreview(pid, info, generation){
+  if (generation !== PM.previewGeneration) return {ok:false,status:'PREVIEW_SUPERSEDED',project_id:pid};
   if (info && info.final_path) {
     const box = document.getElementById('pm-preview-box');
     if (box) {
       box.style.display = '';
       box.innerHTML = `<b>成品预览：${esc(pid)}</b>
-        <video controls src="/file?path=${encodeURIComponent(info.final_path)}"></video>`;
-      box.scrollIntoView({behavior: 'smooth'});
+        <video controls src="/file?path="${encodeURIComponent(info.final_path)}"></video>`;
+      box.scrollIntoView({behavior:'smooth'});
     }
-  } else {
-    editorToast('该项目还没有可预览的成品', true);
+    return {ok:true,project_id:pid,final_path:info.final_path};
   }
+  editorToast('该项目还没有可预览的成品',true);
+  return {ok:false,status:'NO_FINAL',project_id:pid};
+}
+/** 预览成品（中央 preview 语义：项目页就地播放，不跳页）。 */
+async function pmPreviewFinal(pid, generation){
+  const requestGeneration = generation === undefined ? ++PM.previewGeneration : generation;
+  if (requestGeneration !== PM.previewGeneration) return {ok:false,status:'PREVIEW_SUPERSEDED',project_id:pid};
+  const info = await apiGet('/api/projects/' + encodeURIComponent(pid) + '/draft_info');
+  if (requestGeneration !== PM.previewGeneration) return {ok:false,status:'PREVIEW_SUPERSEDED',project_id:pid};
+  return pmRenderFinalPreview(pid,info,requestGeneration);
 }
 /** 旧版项目「预览旧成品」（legacy 也可能有 final.mp4）。 */
 async function pmPreviewLegacy(pid){
+  const generation = ++PM.previewGeneration;
   const info = await apiGet('/api/projects/' + encodeURIComponent(pid) + '/draft_info');
-  if (info && info.final_path) {
-    pmPreviewFinal(pid);
-  } else {
-    editorToast('该旧版项目没有留下成品文件（可转换后再生成）', true);
-  }
+  if (generation !== PM.previewGeneration) return {ok:false,status:'PREVIEW_SUPERSEDED',project_id:pid};
+  if (info && info.final_path) return pmRenderFinalPreview(pid,info,generation);
+  editorToast('该旧版项目没有留下成品文件（可转换后再生成）',true);
+  return {ok:false,status:'NO_FINAL',project_id:pid};
 }
 
 // ---- 删除（§6.4 项目级 Modal，不用 confirm()）----
