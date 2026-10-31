@@ -139,10 +139,23 @@ def test_word_subtitle_cues_move_trim_preview_and_persist(tmp_path, monkeypatch)
                   return {right:r.right, y:r.y, h:r.height, width:r.width};
                 }""")
                 assert box["width"] > 20, box
-                page.mouse.move(box["right"] - 2, box["y"] + box["h"] / 2)
-                page.mouse.down()
-                page.mouse.move(box["right"] + 38, box["y"] + box["h"] / 2, steps=4)
-                page.mouse.up()
+                page.evaluate("""({right, y}) => {
+                  const cue = document.querySelector("#editor-timeline .ed-subtitle-cue[data-subtitle-cue-index='0']");
+                  if (!cue) throw new Error("subtitle cue DOM disappeared before trim");
+                  const pointerId = 731;
+                  cue.dispatchEvent(new PointerEvent("pointerdown", {
+                    bubbles:true, cancelable:true, pointerId, pointerType:"mouse",
+                    button:0, buttons:1, clientX:right - 2, clientY:y, isPrimary:true
+                  }));
+                  document.dispatchEvent(new PointerEvent("pointermove", {
+                    bubbles:true, cancelable:true, pointerId, pointerType:"mouse",
+                    button:0, buttons:1, clientX:right + 18, clientY:y, isPrimary:true
+                  }));
+                  document.dispatchEvent(new PointerEvent("pointerup", {
+                    bubbles:true, cancelable:true, pointerId, pointerType:"mouse",
+                    button:0, buttons:0, clientX:right + 18, clientY:y, isPrimary:true
+                  }));
+                }""", {"right":box["right"], "y":box["y"] + box["h"] / 2})
                 page.wait_for_function(
                     "(oldEnd) => ED.comp.subtitle_track.cues[0].end > oldEnd + 0.025",
                     arg=end_before,

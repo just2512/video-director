@@ -37,6 +37,7 @@ def test_late_editor_responses_never_mutate_the_new_project_workspace(tmp_path, 
                 )
                 result = page.evaluate("""async () => {
                   const nativeFetch = window.fetch.bind(window);
+                  const nativeApiGet = window.apiGet.bind(window);
                   const nativeRefresh = window.refreshWorkspace;
                   const nativeToast = window.editorToast;
                   let refreshCalls = 0, toastCalls = 0, projectBCompositionReads = 0;
@@ -47,6 +48,25 @@ def test_late_editor_responses_never_mutate_the_new_project_workspace(tmp_path, 
                   const tick = () => new Promise(resolve => setTimeout(resolve, 0));
                   window.refreshWorkspace = () => { refreshCalls += 1; };
                   window.editorToast = () => { toastCalls += 1; };
+                  // commands.js normalizes successful writes via the apiGet abstraction.
+                  // Stub that boundary directly instead of depending on the browser's
+                  // replaceable window.fetch property from a different script realm.
+                  window.apiGet = url => {
+                    const requestUrl = new URL(String(url), location.href);
+                    if (requestUrl.pathname === '/api/editor/composition') {
+                      const pid = requestUrl.searchParams.get('project_id');
+                      if (pid === 'project-b') projectBCompositionReads += 1;
+                      if (pid === 'resync-a') return new Promise(resolve => { holds.resyncComposition = resolve; });
+                      if (pid === 'refresh-a') return new Promise(resolve => { holds.refreshComposition = resolve; });
+                      if (pid === 'normalized-a') return Promise.resolve({
+                        project_id:pid,version:6,width:160,height:90,duration:2,scenes:[],
+                        assets:{'normalized-asset':{id:'normalized-asset',name:'Normalized Asset'}},
+                        visual_tracks:[],visual_overlays:[]
+                      });
+                      if (pid === 'hydrate-a') return new Promise(resolve => { holds.hydrateA = resolve; });
+                    }
+                    return nativeApiGet(url);
+                  };
                   window.fetch = (input, init = {}) => {
                     const url = new URL(typeof input === 'string' ? input : input.url, location.href);
                     const method = String(init.method || 'GET').toUpperCase();
@@ -71,16 +91,8 @@ def test_late_editor_responses_never_mutate_the_new_project_workspace(tmp_path, 
                       }
                     }
                     if (url.pathname === '/api/editor/composition' && method === 'GET') {
-                      const pid = url.searchParams.get('project_id');
-                      if (pid === 'project-b') projectBCompositionReads += 1;
-                      if (pid === 'resync-a') return new Promise(resolve => { holds.resyncComposition = resolve; });
-                      if (pid === 'refresh-a') return new Promise(resolve => { holds.refreshComposition = resolve; });
-                      if (pid === 'normalized-a') return Promise.resolve(json({
-                        project_id:pid,version:6,width:160,height:90,duration:2,scenes:[],
-                        assets:{'normalized-asset':{id:'normalized-asset',name:'Normalized Asset'}},
-                        visual_tracks:[],visual_overlays:[]
-                      }));
-                      if (pid === 'hydrate-a') return new Promise(resolve => { holds.hydrateA = resolve; });
+                      // Composition normalization is mocked at apiGet below.
+                      return nativeFetch(input, init);
                     }
                     if (url.pathname === '/api/action/execute' && method === 'POST') {
                       return new Promise(resolve => { holds.actionSuccess = resolve; });
@@ -127,10 +139,10 @@ def test_late_editor_responses_never_mutate_the_new_project_workspace(tmp_path, 
                     await tick();
                     if(!holds.hydrateA)throw new Error('command normalization GET was not held');
                     setProject('project-b',15,'project-b-after-hydration-switch');
-                    holds.hydrateA(json({
+                    holds.hydrateA({
                       project_id:'hydrate-a',version:7,width:160,height:90,duration:2,scenes:[],
                       assets:{},visual_tracks:[],visual_overlays:[]
-                    }));
+                    });
                     snapshots.hydrationSwitch={result:await hydrationPending,state:state()};
 
                     setProject('conflict-a',6,'before-conflict');
@@ -172,6 +184,7 @@ def test_late_editor_responses_never_mutate_the_new_project_workspace(tmp_path, 
                     return snapshots;
                   } finally {
                     window.fetch=nativeFetch;
+                    window.apiGet=nativeApiGet;
                     window.refreshWorkspace=nativeRefresh;
                     window.editorToast=nativeToast;
                   }
