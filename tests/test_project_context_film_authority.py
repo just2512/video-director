@@ -146,12 +146,15 @@ def test_film_authority_allows_isolated_voice_preview_but_blocks_legacy_narratio
 def test_legacy_project_context_uses_one_composition_revision_snapshot(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
     from video_director import editor
-    from video_director.models import CompositionIR, ProjectSpec, SceneIR
+    from video_director.models import CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
 
     project_id = "context-legacy-snapshot"
     ir = CompositionIR(
         project=ProjectSpec(width=160, height=90, fps=30, duration=1.0),
-        scenes=[SceneIR(id="legacy-scene", start=0, duration=1.0, text="legacy", layers=[])],
+        scenes=[SceneIR(
+            id="legacy-scene", start=0, duration=1.0, text="legacy",
+            layers=[Layer(type=LayerType.image, duration=1.0)],
+        )],
     )
     editor.save_composition(project_id, ir)
     original_snapshot = editor.load_composition_snapshot
