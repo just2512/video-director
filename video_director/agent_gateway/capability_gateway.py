@@ -45,7 +45,10 @@ def creative_inspect(project_id: str = "", selection: Optional[Dict] = None) -> 
 
 
 def creative_plan(project_id: str, instruction: str) -> dict:
-    """plan：AI 规划（Director）。只出计划（proposal），不落 Composition。"""
+    """plan：AI 规划；film.html active 时旧 Director/Composition 路径必须拒绝。"""
+    rejection = tool_executor.film_authority_rejection(project_id, "creative.plan")
+    if rejection is not None:
+        return rejection
     from video_director import director
     return director.direct(project_id, instruction)
 
@@ -62,7 +65,10 @@ def creative_execute(project_id: str, tool: str, payload: Optional[Dict] = None,
 
 
 def creative_preview(project_id: str, scale: float = 0.5) -> dict:
-    """preview：生成草稿预览（低清快渲染）。"""
+    """preview：旧 CompositionIR 草稿；film.html active 时必须使用 film.*。"""
+    rejection = tool_executor.film_authority_rejection(project_id, "creative.preview")
+    if rejection is not None:
+        return rejection
     from video_director import confirm
     try:
         out = confirm.render_draft(project_id, scale=scale)
@@ -78,6 +84,11 @@ def creative_render(project_id: str) -> dict:
 
 
 def creative_verify(project_id: str, aspect: str = "all") -> dict:
+    """verify：旧 CompositionIR 校验；film.html active 时应调用 film.validate。"""
+    rejection = tool_executor.film_authority_rejection(project_id, "creative.verify")
+    if rejection is not None:
+        return rejection
+    # Existing legacy verification path is retained only for CompositionIR projects.
     """verify：组合校验（composition/continuity 全量读回断言）。
 
     composition.verify 的 TargetRequest schema 要求 targetId（该能力
