@@ -929,25 +929,31 @@ def _publish_render_artifacts(
                 "qc_temp_name": qc_temp.name,
             }
             _write_publish_journal(temp_root, transaction)
+            output_published = False
+            report_published = False
             try:
                 os.replace(output_temp, output)
+                output_published = True
                 os.replace(qc_temp, report_path)
+                report_published = True
                 transaction["phase"] = "committed"
                 _write_publish_journal(temp_root, transaction)
             except Exception:
                 try:
-                    if had_output:
-                        _restore_render_backup(
-                            output_backup, output, temp_root / "rollback-output.tmp"
-                        )
-                    else:
-                        output.unlink(missing_ok=True)
-                    if had_report:
-                        _restore_render_backup(
-                            report_backup, report_path, temp_root / "rollback-qc.tmp"
-                        )
-                    else:
-                        report_path.unlink(missing_ok=True)
+                    if output_published:
+                        if had_output:
+                            _restore_render_backup(
+                                output_backup, output, temp_root / "rollback-output.tmp"
+                            )
+                        else:
+                            output.unlink(missing_ok=True)
+                    if report_published:
+                        if had_report:
+                            _restore_render_backup(
+                                report_backup, report_path, temp_root / "rollback-qc.tmp"
+                            )
+                        else:
+                            report_path.unlink(missing_ok=True)
                     journal.unlink(missing_ok=True)
                 except Exception as rollback_error:
                     raise RuntimeError(
