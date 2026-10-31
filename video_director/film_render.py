@@ -44,12 +44,15 @@ def _render_process_is_alive(pid: int) -> bool:
     if os.name == "nt":
         try:
             import ctypes
-            kernel32 = ctypes.windll.kernel32
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+            kernel32.OpenProcess.restype = ctypes.c_void_p
+            kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
             handle = kernel32.OpenProcess(0x1000, False, int(pid))
             if handle:
                 kernel32.CloseHandle(handle)
                 return True
-            return kernel32.GetLastError() not in {87, 1168}
+            return ctypes.get_last_error() not in {87, 1168}
         except Exception:
             return True
     try:
