@@ -3103,3 +3103,77 @@ def test_legacy_composition_save_serializes_with_film_initialization(tmp_path, m
     assert outcome["error"].code == "FILM_DOCUMENT_AUTHORITATIVE"
     assert composition_path.read_bytes() == before
 
+
+def test_legacy_composition_read_waits_for_film_initialization(tmp_path, monkeypatch):
+    """A legacy reader queued before migration must recheck authority after the lock."""
+    from contextlib import contextmanager
+    from video_director import config, editor, film_document as fd
+    from video_director.models import CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+    from video_director.project_lock import project_lock
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "legacy-read-film-init-race"
+    root = config.project_dir(project_id)
+    plans = root / "plans"
+    plans.mkdir(parents=True, exist_ok=True)
+
+    original_ir = CompositionIR(
+        project=ProjectSpec(width=160, height=90, fps=30, duration=1.0),
+        scenes=[SceneIR(
+            id="legacy-scene", start=0, duration=1.0, text="before",
+            layers=[Layer(type=LayerType.image, duration=1.0)],
+        )],
+    )
+    editor.save_composition(project_id, original_ir)
+
+    lock_held = threading.Event()
+    release_initializer = threading.Event()
+    read_started = threading.Event()
+    read_lock_attempted = threading.Event()
+    read_finished = threading.Event()
+    outcome = {}
+    original_editor_lock = editor.project_lock
+
+    @contextmanager
+    def observe_read_lock(pid):
+        read_lock_attempted.set()
+        with original_editor_lock(pid):
+            yield
+
+    monkeypatch.setattr(editor, "project_lock", observe_read_lock)
+
+    def initialize_film_under_project_lock():
+        with project_lock(project_id):
+            lock_held.set()
+            assert release_initializer.wait(timeout=5)
+            (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+
+    def legacy_read():
+        read_started.set()
+        try:
+            outcome["composition"] = editor.load_composition(project_id)
+        except Exception as exc:
+            outcome["error"] = exc
+        finally:
+            read_finished.set()
+
+    initializer = threading.Thread(target=initialize_film_under_project_lock, daemon=True)
+    initializer.start()
+    assert lock_held.wait(timeout=5)
+
+    reader = threading.Thread(target=legacy_read, daemon=True)
+    reader.start()
+    assert read_started.wait(timeout=5)
+    assert read_lock_attempted.wait(timeout=5), "legacy read never entered the project lock"
+    assert not read_finished.wait(timeout=0.1), "legacy read bypassed the project lock"
+
+    release_initializer.set()
+    initializer.join(timeout=5)
+    reader.join(timeout=5)
+    assert not initializer.is_alive()
+    assert not reader.is_alive()
+    assert (root / fd.FILM_NAME).is_file()
+    assert isinstance(outcome.get("error"), editor.EditorError)
+    assert outcome["error"].code == "FILM_DOCUMENT_AUTHORITATIVE"
+    assert "composition" not in outcome
+
