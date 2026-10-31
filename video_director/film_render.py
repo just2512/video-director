@@ -738,7 +738,6 @@ def _publish_render_artifacts(
     report_path = qc_dir / f"film-final-{revision}.json"
     qc_temp = qc_dir / f".{report_path.name}.{os.getpid()}.{time.time_ns()}.tmp"
     output_backup = temp_root / "previous-output.mp4"
-    report_backup = temp_root / "previous-qc.json"
     try:
         qc_temp.write_text(
             json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\\n",
@@ -772,7 +771,6 @@ def _publish_render_artifacts(
     finally:
         qc_temp.unlink(missing_ok=True)
         output_backup.unlink(missing_ok=True)
-        report_backup.unlink(missing_ok=True)
 
 
 def render_project_film(project_id: str, expected_revision: str, fps: int | None = None) -> dict:
@@ -983,7 +981,7 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
             "created_at": datetime.now(timezone.utc).isoformat(),
             "project_id": pid,
             "source_revision": revision,
-            "current_revision": after.get("rev"),
+            "current_revision": revision,
             "current_revision_match": current_match,
             "output": {
                 "mp4_path": str(output),
