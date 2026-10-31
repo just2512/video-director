@@ -111,6 +111,13 @@ def load_composition(project_id: str) -> CompositionIR:
 
 
 def save_composition(project_id: str, ir: CompositionIR) -> None:
+    """Serialize legacy CompositionIR persistence against FilmDocument initialization."""
+    with project_lock(project_id):
+        _save_composition_unlocked(project_id, ir)
+
+
+def _save_composition_unlocked(project_id: str, ir: CompositionIR) -> None:
+    """Persist while the caller holds project_lock; recheck FilmDocument authority."""
     """Atomically replace the persisted IR so a crash cannot leave partial JSON."""
     from video_director import film_document as fd
     try:
@@ -291,7 +298,7 @@ def _undo_redo(
                 "code": "SNAPSHOT_INVALID", "message": f"快照恢复失败: {exc}",
                 "recoverable": True}])
         _write_composition_version(project_id, version + 1)
-        save_composition(project_id, ir)
+        _save_composition_unlocked(project_id, ir)
         state["undone"] = (undone_ids + [target.get("revision_id")])[-200:]
         _write_undo_state(project_id, state)
         return CommandResult(
@@ -324,7 +331,7 @@ def _undo_redo(
         return CommandResult(status="REJECTED", errors=[{
             "code": "SNAPSHOT_INVALID", "message": f"快照恢复失败: {exc}", "recoverable": True}])
     _write_composition_version(project_id, version + 1)
-    save_composition(project_id, ir)
+    _save_composition_unlocked(project_id, ir)
     state["undone"] = undone_ids[:-1]
     _write_undo_state(project_id, state)
     return CommandResult(
@@ -870,7 +877,7 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
     undo_state = _read_undo_state(project_id)
     abandoned_redo_ids = list(undo_state["undone"])
     _write_composition_version(project_id, current + 1)
-    save_composition(project_id, ir)
+    _save_composition_unlocked(project_id, ir)
     revision_id = f"rev-{uuid.uuid4().hex[:8]}"
     revision = {
         "revision_id": revision_id,

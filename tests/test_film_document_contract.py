@@ -3023,3 +3023,67 @@ def test_ai_stream_endpoint_delivers_token_fragments_and_rejects_stale_proposal(
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+def test_legacy_composition_save_serializes_with_film_initialization(tmp_path, monkeypatch):
+    """A legacy writer queued before migration must not persist after film.html wins authority."""
+    from video_director import config, editor
+    from video_director.models import CompositionIR, ProjectSpec, SceneIR
+    from video_director.project_lock import project_lock
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "legacy-save-film-init-race"
+    root = config.project_dir(project_id)
+    plans = root / "plans"
+    plans.mkdir(parents=True, exist_ok=True)
+
+    original_ir = CompositionIR(
+        project=ProjectSpec(width=160, height=90, fps=30, duration=1.0),
+        scenes=[SceneIR(id="legacy-scene", start=0, duration=1.0, text="before", layers=[])],
+    )
+    editor.save_composition(project_id, original_ir)
+    composition_path = plans / "composition.json"
+    before = composition_path.read_bytes()
+
+    lock_held = threading.Event()
+    release_initializer = threading.Event()
+    save_started = threading.Event()
+    save_finished = threading.Event()
+    outcome = {}
+
+    def initialize_film_under_project_lock():
+        with project_lock(project_id):
+            lock_held.set()
+            assert release_initializer.wait(timeout=5)
+            (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+
+    def legacy_save():
+        changed_ir = original_ir.model_copy(deep=True)
+        changed_ir.scenes[0].text = "stale legacy write"
+        save_started.set()
+        try:
+            editor.save_composition(project_id, changed_ir)
+            outcome["saved"] = True
+        except Exception as exc:  # the expected authority rejection is asserted below
+            outcome["error"] = exc
+        finally:
+            save_finished.set()
+
+    initializer = threading.Thread(target=initialize_film_under_project_lock, daemon=True)
+    initializer.start()
+    assert lock_held.wait(timeout=5)
+
+    writer = threading.Thread(target=legacy_save, daemon=True)
+    writer.start()
+    assert save_started.wait(timeout=5)
+    assert not save_finished.wait(timeout=0.1), "legacy persistence bypassed the project lock"
+
+    release_initializer.set()
+    initializer.join(timeout=5)
+    writer.join(timeout=5)
+    assert not initializer.is_alive()
+    assert not writer.is_alive()
+    assert (root / fd.FILM_NAME).is_file()
+    assert isinstance(outcome.get("error"), editor.EditorError)
+    assert outcome["error"].code == "FILM_DOCUMENT_AUTHORITATIVE"
+    assert composition_path.read_bytes() == before
+
