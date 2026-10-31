@@ -77,8 +77,8 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert "export const buildClipInspectorOperations" in component
     assert "buildClipInspectorOperations(clip, {...form})" in component
     assert "filmStudioCommitInspectorOperations=async function(ops)" in studio
-    assert "await filmStudioCommit(ops)" in studio
-    assert "var committed=await filmStudioCommit(ops)" in studio
+    assert "await filmStudioCommit(ops,{allowInspectorDraft:'clip'})" in studio
+    assert "var committed=await filmStudioCommit(ops,{allowInspectorDraft:'clip'})" in studio
     assert "if(!committed)" in studio
     assert "片段属性没有保存，请检查影片状态后重试。" in studio
     assert "return false;" in studio[studio.index("async function filmStudioCommit(ops, options)"):studio.index("async function filmStudioHistory(action)")]
