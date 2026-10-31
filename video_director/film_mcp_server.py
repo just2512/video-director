@@ -213,11 +213,10 @@ def call_tool(name: str, arguments: Any) -> dict[str, Any]:
                 raise ValueError("accept_warnings 必须是布尔值。")
             pid = fd.validate_project_id(project_id)
             try:
-                ir = vd_editor.load_composition(pid)
+                ir, current_version, _revisions = vd_editor.load_composition_snapshot(pid)
             except Exception as exc:
                 return _json_result({"ok": False, "code": getattr(exc, "code", "COMPOSITION_NOT_FOUND"),
                                      "error": str(exc)}, True)
-            current_version = vd_editor.composition_version(pid)
             if current_version != expected:
                 return _json_result({
                     "ok": False, "code": "COMPOSITION_CHANGED",
@@ -330,8 +329,7 @@ def call_tool(name: str, arguments: Any) -> dict[str, Any]:
                 raise ValueError("selected_variant_id 必须是非空字符串。")
             try:
                 pid = fd.validate_project_id(project_id)
-                ir = vd_editor.load_composition(pid)
-                source_version = vd_editor.composition_version(pid)
+                ir, source_version, _revisions = vd_editor.load_composition_snapshot(pid)
                 status["source_composition_available"] = True
                 status["source_composition_version"] = source_version
                 try:

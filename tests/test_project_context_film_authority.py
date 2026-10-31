@@ -142,3 +142,29 @@ def test_film_authority_allows_isolated_voice_preview_but_blocks_legacy_narratio
     assert rejected is not None
     assert rejected["status"] == "REJECTED"
     assert rejected["code"] == "FILM_AUTHORITY_ACTIVE"
+
+def test_legacy_project_context_uses_one_composition_revision_snapshot(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    from video_director import editor
+    from video_director.models import CompositionIR, ProjectSpec, SceneIR
+
+    project_id = "context-legacy-snapshot"
+    ir = CompositionIR(
+        project=ProjectSpec(width=160, height=90, fps=30, duration=1.0),
+        scenes=[SceneIR(id="legacy-scene", start=0, duration=1.0, text="legacy", layers=[])],
+    )
+    editor.save_composition(project_id, ir)
+    original_snapshot = editor.load_composition_snapshot
+    calls = []
+
+    def tracked_snapshot(pid):
+        calls.append(pid)
+        return original_snapshot(pid)
+
+    monkeypatch.setattr(editor, "load_composition_snapshot", tracked_snapshot)
+    context = inspect_project_context(project_id)
+
+    assert calls == [project_id]
+    assert context["authority"] == "composition.json"
+    assert context["revision"] == original_snapshot(project_id)[1]
+    assert context["composition_version"] == context["revision"]

@@ -11,7 +11,6 @@ import math
 from typing import Any, Dict, List, Optional
 
 from video_director import config, editor
-from video_director.editor import load_composition
 
 
 def _ratio_of(w: int, h: int) -> str:
@@ -323,8 +322,14 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
         return film_context
 
     try:
-        ir = load_composition(project_id)
+        ir, version, _revisions = editor.load_composition_snapshot(project_id)
     except Exception as exc:
+        # Film initialization may have won the project lock after the first
+        # authority probe. Re-read the authoritative document before reporting
+        # an indeterminate legacy context.
+        film_context = _active_film_context(project_id, selection)
+        if film_context is not None:
+            return film_context
         return _unknown_authority_context(project_id, selection, exc)
 
     video = sum(1 for sc in ir.scenes for layer in sc.layers if layer.type.value == "video")
@@ -346,15 +351,6 @@ def inspect_project_context(project_id: str, selection: Optional[Dict[str, Any]]
             track_types.append("MainVisual")
     if "Subtitle" not in track_types:
         track_types.append("Subtitle")
-
-    version = None
-    try:
-        version = int(editor.composition_version(project_id))
-    except Exception:
-        try:
-            version = len(editor.load_revisions(project_id)) + 1
-        except Exception:
-            version = None
 
     active: List[str] = []
     if any(track.type.value == "original" for track in ir.audio):

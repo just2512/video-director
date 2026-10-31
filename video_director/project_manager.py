@@ -187,11 +187,7 @@ def _timeline_snapshot(project_id: str, meta: dict) -> dict:
         from video_director import editor
 
         try:
-            composition = editor.load_composition(project_id)
-            try:
-                revision = editor.composition_version(project_id)
-            except Exception:
-                revision = None
+            composition, revision, _revisions = editor.load_composition_snapshot(project_id)
             visual_count = sum(1 for scene in composition.scenes for layer in scene.layers
                                if getattr(layer.type, "value", layer.type) in {"video", "image"})
             clip_count = sum(len(scene.layers) for scene in composition.scenes) + len(composition.audio)

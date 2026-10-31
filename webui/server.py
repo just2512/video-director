@@ -1088,8 +1088,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 try:
                     from video_director import editor as vd_editor
-                    ir = vd_editor.load_composition(pid)
-                    version = vd_editor.composition_version(pid)
+                    ir, version, _revisions = vd_editor.load_composition_snapshot(pid)
                     raw_variants = getattr(ir, "variants", []) or []
                     variant_options = []
                     for variant in raw_variants:
@@ -1217,13 +1216,12 @@ class Handler(BaseHTTPRequestHandler):
                     return True
                 from video_director import editor as vd_editor
                 expected = payload.get("expected_composition_version")
-                current_version = vd_editor.composition_version(pid)
+                ir, current_version, _revisions = vd_editor.load_composition_snapshot(pid)
                 if expected is None or int(expected) != current_version:
                     self._send_json({"ok": False, "code": "COMPOSITION_CHANGED",
                                      "error": "初始化前项目 Composition 已变化，请重新载入迁移预览",
                                      "source_composition_version": current_version}, 409)
                     return True
-                ir = vd_editor.load_composition(pid)
                 selected_variant_id = str(payload.get("selected_variant_id") or "").strip() or None
                 plan = fd.build_film_from_composition(pid, ir, selected_variant_id=selected_variant_id)
                 if plan["warnings"] and not payload.get("accept_warnings", False):
@@ -2297,8 +2295,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 from video_director import editor as vd_editor
-                ir = vd_editor.load_composition(pid)
-                revs = vd_editor.load_revisions(pid)
+                ir, composition_version, revs = vd_editor.load_composition_snapshot(pid)
                 # 素材元数据只读项目 manifest，不在 composition 请求中触发 ffmpeg。
                 manifest_by_id = {}
                 manifest_path = vd_config.project_dir(pid) / "assets" / "manifest.json"
@@ -2337,7 +2334,7 @@ class Handler(BaseHTTPRequestHandler):
                     # 必须与冲突检查用同一个权威版本：len(revs)+1 会在
                     # undo_stack 版本更高时落后，导致前端拿旧版本号发命令
                     # → 每条命令 CONFLICT（Playwright 实测：9 vs 11）。
-                    "version": vd_editor.composition_version(pid),
+                    "version": composition_version,
                     "width": ir.project.width, "height": ir.project.height,
                     "duration": ir.project.duration,
                     "origin_template_id": ir.origin_template_id,

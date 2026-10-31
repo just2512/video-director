@@ -171,24 +171,43 @@ def _write_composition_version(project_id: str, version: int) -> None:
             pass
 
 
-def composition_version(project_id: str) -> int:
-    """Return a monotonic version for legacy CompositionIR only.
-
-    Once film.html exists, even reading the old composition version is rejected;
-    it is not a valid concurrency token for the authoritative FilmDocument.
-    """
+def _composition_version_unlocked(project_id: str, revisions: Optional[List[dict]] = None) -> int:
+    """Read the legacy version while the caller already holds project_lock."""
     from video_director import film_document as fd
     try:
         fd.assert_legacy_composition_access(project_id, "读取旧 CompositionIR 版本")
     except fd.FilmError as exc:
         raise EditorError(exc.code, str(exc), recoverable=False) from exc
-    revision_floor = len(load_revisions(project_id)) + 1
+    revision_rows = revisions if revisions is not None else load_revisions(project_id)
+    revision_floor = len(revision_rows) + 1
     try:
         stored = json.loads(_composition_version_path(project_id).read_text(encoding="utf-8"))
         persisted = int(stored.get("version", revision_floor))
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         persisted = revision_floor
     return max(revision_floor, persisted)
+
+
+def composition_version(project_id: str) -> int:
+    """Return a monotonic version for legacy CompositionIR only.
+
+    Once film.html exists, even reading the old composition version is rejected;
+    it is not a valid concurrency token for the authoritative FilmDocument.
+    """
+    return _composition_version_unlocked(project_id)
+
+
+def load_composition_snapshot(project_id: str) -> tuple[CompositionIR, int, List[dict]]:
+    """Read CompositionIR, its concurrency version and revision rows atomically.
+
+    The shared project lock prevents a writer or FilmDocument initialization from
+    splitting the composition and revision observations across two project states.
+    """
+    with project_lock(project_id):
+        ir = _load_composition_unlocked(project_id)
+        revisions = load_revisions(project_id)
+        version = _composition_version_unlocked(project_id, revisions)
+        return ir, version, revisions
 
 
 def _append_revision(project_id: str, revision: dict) -> None:
