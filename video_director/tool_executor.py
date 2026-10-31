@@ -108,7 +108,7 @@ def film_authority_rejection(project_id: str, tool: str, target_id=None):
     from video_director import project_context
 
     try:
-        context = project_context.inspect_project_context(project_id)
+        context = project_context.inspect_project_context(project_id, {})
     except Exception as exc:
         return {
             "tool": tool, "ok": False, "status": "REJECTED",
