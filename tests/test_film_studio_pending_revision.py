@@ -237,3 +237,14 @@ def test_revision_derived_timeline_actions_use_exact_revision_except_manual_clip
         next_entry = source.find("\n  window.", start + len(entry))
         body = source[start:next_entry if next_entry >= 0 else len(source)]
         assert "filmStudioCommitExactRevision(" in body, entry
+
+def test_asset_insert_revision_conflict_schedules_safe_reload():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    insert = source[source.index("window.filmStudioAddAsset=async function(assetId)"):source.index("function reactOwnsTimelineToolbar")]
+    assert "base:S.rev" in insert
+    assert "response.code==='REVISION_CONFLICT'" in insert
+    assert "if(!S.pendingExternalRevision)S.pendingExternalRevision='__reload__';" in insert
+    assert "pendingRevisionSource='';" in insert
+    assert "flushPendingExternalRevision();" in insert
+
+

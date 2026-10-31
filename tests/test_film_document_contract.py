@@ -537,6 +537,77 @@ def test_film_edit_http_route_can_require_exact_revision_without_disabling_manua
         thread.join(timeout=5)
 
 
+def test_insert_asset_route_requires_exact_revision_for_every_placement_mode(tmp_path, monkeypatch):
+    import importlib
+    import json
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+
+    storage_root = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-asset-insert-exact-revision"
+    root = storage_root / project_id
+    root.mkdir(parents=True)
+    film_path = root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    original = fd.read_project_film(project_id)
+    advanced = fd.edit_project_film(
+        project_id, original["rev"],
+        [{"op": "set", "clip": "clip-b", "field": "at", "value": 7}],
+        source="external_file",
+    )
+    external_bytes = film_path.read_bytes()
+
+    def must_not_resolve_asset(*args, **kwargs):
+        raise AssertionError("stale insert-asset request reached asset resolution")
+
+    monkeypatch.setattr(fd, "library_asset_clip", must_not_resolve_asset)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_port}/api/editor/film/insert-asset"
+
+    def post(mode):
+        payload = {
+            "project_id": project_id,
+            "base": original["rev"],
+            "asset_id": "stale-fixture-asset",
+            "placement_mode": mode,
+            "track_id": "video-main",
+            "at": 2,
+            "still_duration": 5,
+        }
+        request = urllib.request.Request(
+            url, data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read().decode("utf-8"))
+
+    try:
+        for mode in ("new-track", "ripple", "overwrite"):
+            status, body = post(mode)
+            assert status == 409, (mode, body)
+            assert body["code"] == "REVISION_CONFLICT", (mode, body)
+            current = fd.read_project_film(project_id)
+            assert current["rev"] == advanced["rev"], (mode, current)
+            assert film_path.read_bytes() == external_bytes, mode
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_head_script_is_rejected():
     with pytest.raises(fd.FilmError,match="head 禁止 script"):
         fd.parse_film(SAMPLE.replace("</head>","<script>alert(1)</script></head>"))

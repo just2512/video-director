@@ -960,7 +960,16 @@
         op:'insert-asset',asset_id:String(assetId),placement_mode:placementMode,at:S.playhead,track_id:request.track_id||null
       }],async function(){
         var response=await apiPost('/api/editor/film/insert-asset',request);
-        if(!response||!response.ok){showStatus((response&&response.error)||'素材加入时间线失败。','error');return false;}
+        if(!response||!response.ok){
+          if(response&&response.code==='REVISION_CONFLICT'){
+            if(!S.pendingExternalRevision)S.pendingExternalRevision='__reload__';
+            pendingRevisionSource='';
+            showStatus('影片 revision 已变化；本次素材插入未写入，正在重新载入最新版本。','error');
+          }else{
+            showStatus((response&&response.error)||'素材加入时间线失败。','error');
+          }
+          return false;
+        }
         S.data=response;S.rev=response.rev;S.selectedId=response.inserted_clip_id||'';
         S.assetMode='clips';window.filmStudioShowAssetMode('clips');render();
         showStatus(response.placement_mode==='overwrite'

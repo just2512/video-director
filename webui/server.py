@@ -1272,8 +1272,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not state["exists"]:
                     raise fd.FilmError("FILM_NOT_INITIALIZED", "请先初始化 film.html", 409)
                 placement_mode = str(payload.get("placement_mode") or "new-track")
-                if placement_mode == "overwrite" and payload.get("base") != state["rev"]:
-                    raise fd.FilmError("REVISION_CONFLICT", "影片文档已变化；请刷新后重新执行覆盖编辑。", 409)
+                if payload.get("base") != state["rev"]:
+                    raise fd.FilmError(
+                        "REVISION_CONFLICT",
+                        "影片文档已变化；本次素材插入未写入，请重新载入后重试。",
+                        409,
+                    )
                 clip = fd.library_asset_clip(
                     pid, str(payload.get("asset_id") or ""),
                     payload.get("at", 0), payload.get("still_duration", 5))
