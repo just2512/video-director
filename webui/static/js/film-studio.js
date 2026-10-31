@@ -2189,7 +2189,10 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     // A user can start a drag while this GET is in flight. Never replace the
     // timeline DOM mid-gesture; defer an external reload and tell the caller it
     // has not completed as an authoritative view switch.
-    if(S.busy||S.drag||S.envelopeDrag||hasUncommittedInspectorEdits()){
+    // A project switch has already invalidated and detached the previous
+    // project's AI request above. Its transient busy flag must not defer the
+    // newly selected project's authoritative document load.
+    if((!changed&&S.busy)||S.drag||S.envelopeDrag||hasUncommittedInspectorEdits()){
       S.pendingExternalRevision=(r&&r.rev&&r.rev!==S.rev)?r.rev:'__reload__';
       pendingRevisionSource=(r&&r.rev&&r.rev!==S.rev)?'external_file':'';
       if(hasUncommittedInspectorEdits())showStatus('影片读取结果已暂存；Inspector 有未提交的属性草稿。应用修改或选择重新载入。','error');
