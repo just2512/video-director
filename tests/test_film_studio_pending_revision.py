@@ -158,13 +158,14 @@ def test_broken_external_document_preserves_current_view_and_defers_reload_until
 def test_studio_restores_project_selector_when_switch_is_blocked_by_busy_transaction():
     source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     load = source[source.index("async function filmStudioLoad("):source.index("async function filmStudioInitialize")]
-    busy_guard = load.split("if(S.busy&&!changed){", 1)[1].split("var changed=", 1)[0]
+    busy_guard = load.split("if(S.busy&&(!changed||S.pendingTransaction)){", 1)[1]
 
     assert "if(selector&&S.projectId)selector.value=S.projectId;" in busy_guard
     assert busy_guard.index("selector.value=S.projectId") < busy_guard.index("return false;")
     assert "上一项影片操作仍在保存；本次项目切换未执行。" in busy_guard
     assert "var changed=nextId!==S.projectId;" in load
-    assert "if(S.busy&&!changed){" in load
+    assert "if(S.busy&&(!changed||S.pendingTransaction)){" in load
+    assert "var changed=nextId!==S.projectId;" in load
 
     store = (Path(__file__).resolve().parents[1] / "remotion_runtime" / "src" / "film-store.ts").read_text(encoding="utf-8")
     bindings = store[store.index("const bindings: Array"):store.index("for (const [legacyKey")]
