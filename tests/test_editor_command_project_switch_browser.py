@@ -87,7 +87,20 @@ def test_late_editor_responses_never_mutate_the_new_project_workspace(tmp_path, 
                     }
                     return nativeFetch(input, init);
                   };
-                  const setProject = (pid, version, marker) => { ED.pid=pid; ED.version=version; ED.comp={marker}; };
+                  const setProject = (pid, version, marker) => {
+                    ED.pid=pid; ED.version=version; ED.comp={marker};
+                    const selector = document.getElementById('editor-project');
+                    if (selector) {
+                      let option = Array.from(selector.options).find(item => item.value === pid);
+                      if (!option) {
+                        option = document.createElement('option');
+                        option.value = pid;
+                        option.textContent = pid;
+                        selector.add(option);
+                      }
+                      selector.value = pid;
+                    }
+                  };
                   const state = () => ({pid:ED.pid,version:ED.version,marker:ED.comp && ED.comp.marker});
                   const snapshots = {};
                   try {

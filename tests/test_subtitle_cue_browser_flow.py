@@ -113,6 +113,23 @@ def test_word_subtitle_cues_move_trim_preview_and_persist(tmp_path, monkeypatch)
                 moved = page.evaluate("() => ({start:ED.comp.subtitle_track.cues[0].start,end:ED.comp.subtitle_track.cues[0].end})")
                 assert moved["end"] > moved["start"] and moved["start"] > 0.25, moved
                 assert moved["end"] < 0.75, "moving cue unexpectedly crossed the next subtitle"
+                # ED.comp is hydrated before command callers finish their synchronous
+                # workspace redraw. Wait for the timeline DOM to reflect the persisted
+                # cue geometry before starting the next pointer gesture; otherwise the
+                # next drag can race the first command's redraw and lose pointer capture.
+                page.wait_for_function(
+                    """(expected) => {
+                      const cue = document.querySelector("#editor-timeline .ed-subtitle-cue[data-subtitle-cue-index='0']");
+                      const total = Number(ED.comp && ED.comp.duration) || 1;
+                      if (!cue || !total) return false;
+                      const left = Number.parseFloat(cue.style.left) / 100 * total;
+                      const width = Number.parseFloat(cue.style.width) / 100 * total;
+                      return Math.abs(left - expected.start) < 0.002 &&
+                        Math.abs(left + width - expected.end) < 0.002;
+                    }""",
+                    arg=moved,
+                    timeout=5000,
+                )
 
                 # Drag the right edge to trim the end, not merely stretch a CSS block.
                 end_before = moved["end"]
