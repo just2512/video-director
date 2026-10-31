@@ -44,6 +44,11 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
     payload = tool_call.get("payload") or {}
     target_id = tool_call.get("targetId")
 
+    # Central server-side authority gate shared by MCP, CLI and ActionService.
+    rejection = film_authority_rejection(project_id, tool, target_id)
+    if rejection is not None:
+        return rejection
+
     # 1. 能力存在 + payload 契约校验（§9 Server Validation）
     from video_director.capability_registry.manifest import manifest as _mf
     if tool not in _mf():
@@ -88,6 +93,48 @@ def execute_tool(project_id: str, tool_call: dict) -> dict:
     except Exception as exc:  # noqa: BLE001 逐 tool 落在结果里，上层不应崩
         logger.exception(f"tool_executor: {tool} 执行异常")
         return _result(tool, False, "EXECUTION_ERROR", error=str(exc)[:200])
+
+
+_FILM_AUTHORITY_SAFE_TOOLS = {
+    "system.capabilities.list", "system.capabilities.describe",
+    "system.context.inspect", "asset.search", "asset.resolve",
+    "stock.search", "stock.preview", "tts.list_voices",
+    "music.search", "music.preview", "motion.list", "motion.preview",
+}
+
+
+def film_authority_rejection(project_id: str, tool: str, target_id=None):
+    """Reject legacy CompositionIR operations while film.html owns the project."""
+    from video_director import project_context
+
+    try:
+        context = project_context.inspect_project_context(project_id)
+    except Exception as exc:
+        return _result(
+            tool, False, "REJECTED",
+            error=f"[PROJECT_AUTHORITY_UNKNOWN] 无法确认项目权威状态，拒绝执行旧能力：{exc}",
+        )
+    if context.get("authority") != "film.html":
+        return None
+    if tool in _FILM_AUTHORITY_SAFE_TOOLS:
+        return None
+    # Targetless generation only writes generated media/assets. The legacy
+    # Composition adoption path is entered exclusively when target_id is set.
+    if tool in _GENERATION and target_id in (None, ""):
+        return None
+    return {
+        "tool": tool, "ok": False, "status": "REJECTED",
+        "code": "FILM_AUTHORITY_ACTIVE",
+        "result": {
+            "authority": "film.html", "revision": context.get("revision"),
+            "required_tools": ["film.status", "film.validate", "film.edit", "film.render"],
+        },
+        "error": (
+            "当前项目已由 film.html 独占时间线权威；旧 CompositionIR 能力已被服务端门禁。"
+            "请先调用 film.status 获取当前 revision，再使用 revision-bound film.* 工具。"
+        ),
+        "verify": {},
+    }
 
 
 # ---------------------------------------------------------------------------
