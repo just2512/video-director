@@ -211,10 +211,36 @@ const validateMoveTarget = (
       return "目标轨道 " + destinationId + " 已锁定，多选移动已取消。";
     }
 
-    const sourceClip = findClip(tracks, member.id);
-    if (!sourceClip || sourceClip.end == null || !Number.isFinite(Number(sourceClip.end))) continue;
+    if (!member.id || !Number.isInteger(member.trackIndex) ||
+        order[member.trackIndex] !== member.trackId) {
+      return "源片段 " + member.id + " 的起始轨道快照无效，操作已取消。";
+    }
+    const sourceTrack = tracks.find(track => track.id === member.trackId);
+    if (!sourceTrack) return "源轨道 " + member.trackId + " 已不存在，操作已取消。";
+    if (Object.prototype.hasOwnProperty.call(sourceTrack.attrs || {}, "locked")) {
+      return "源轨道 " + member.trackId + " 已锁定，操作已取消。";
+    }
+    const sourceClip = (sourceTrack.clips || []).find(clip => clip.id === member.id);
+    if (!sourceClip) return "源片段 " + member.id + " 已不存在或轨道归属已变化，操作已取消。";
+    if (Object.prototype.hasOwnProperty.call(sourceClip.attrs || {}, "data-clip-locked")) {
+      return "源片段 " + member.id + " 已锁定，操作已取消。";
+    }
+    const sourceAt = Number(sourceClip.at);
+    if (!Number.isFinite(sourceAt) || Math.abs(sourceAt - member.originalAt) > 0.001) {
+      return "源片段 " + member.id + " 的起始时间已变化，操作已取消。";
+    }
+    if (sourceClip.end == null) continue;
+    const sourceEnd = Number(sourceClip.end);
+    if (!Number.isFinite(sourceEnd) || sourceEnd < sourceAt) {
+      return "源片段 " + member.id + " 的结束时间无效，操作已取消。";
+    }
+    if (member.originalEnd !== undefined &&
+        Number.isFinite(member.originalEnd) &&
+        Math.abs(sourceEnd - member.originalEnd) > 0.001) {
+      return "源片段 " + member.id + " 的持续时间已变化，操作已取消。";
+    }
     const targetStart = Math.max(0, member.originalAt + horizontalDelta);
-    const duration = Math.max(0, Number(sourceClip.end) - Number(sourceClip.at));
+    const duration = Math.max(0, sourceEnd - sourceAt);
     const targetEnd = targetStart + duration;
     for (const other of destination.clips || []) {
       if (selectedIds.has(other.id) || other.end == null) continue;
