@@ -201,7 +201,7 @@ def test_film_authority_blocks_legacy_agent_paths_but_preserves_asset_preparatio
     film_path = project_root / fd.FILM_NAME
     film_path.write_text("""<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=640,height=360"></head>
-<body><section id="v1" data-label="主画面"><video id="clip-a" src="assets/a.mp4" at="0"></video></section></body></html>
+<body><section id="v1" data-label="主画面"><video id="clip-a" src="../assets/a.mp4#t=0,10" at="0"></video></section></body></html>
 """, encoding="utf-8")
     original = film_path.read_bytes()
 
