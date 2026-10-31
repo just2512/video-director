@@ -1152,3 +1152,119 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_late_ai_response_from_previous_project_cannot_clear_new_project_busy_state(tmp_path, monkeypatch):
+    """A superseded project's response/finally must not mutate the newly active AI request."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+    project_a = "film-studio-ai-switch-a"
+    project_b = "film-studio-ai-switch-b"
+    for project_id in (project_a, project_b):
+        project_root = storage_root / project_id
+        project_root.mkdir(parents=True)
+        (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioAsk === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => !!document.querySelector('#editor-project')?.options.length"
+                )
+
+                def select_project(project_id: str) -> None:
+                    page.evaluate(
+                        """pid => {
+                          const select = document.querySelector('#editor-project');
+                          let option = [...select.options].find(item => item.value === pid);
+                          if (!option) { option = new Option(pid, pid); select.add(option); }
+                          select.value = pid;
+                          select.dispatchEvent(new Event('change', {bubbles:true}));
+                        }""",
+                        project_id,
+                    )
+                    page.wait_for_function(
+                        "pid => document.querySelector('#editor-project')?.value === pid",
+                        arg=project_id,
+                    )
+                    page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                    page.wait_for_function(
+                        "() => !!document.querySelector('#fs-timeline .fs-clip[data-clip=\"clip-a\"]')",
+                        timeout=10_000,
+                    )
+                    page.evaluate("window.filmStudioSetSideMode('ai')")
+                    page.locator("#fs-chat-input").wait_for(state="visible")
+
+                select_project(project_a)
+                page.evaluate("""() => {
+                  const nativeFetch = window.fetch.bind(window);
+                  window.__aiDeferredRequests = [];
+                  window.fetch = (input, init = {}) => {
+                    const url = typeof input === 'string' ? input : input.url;
+                    if (url.includes('/api/editor/film/command/cancel')) {
+                      return Promise.resolve(new Response('{"ok":true}', {
+                        status: 200, headers: {'Content-Type':'application/json'}
+                      }));
+                    }
+                    if (url.includes('/api/editor/film/command')) {
+                      return new Promise(resolve => window.__aiDeferredRequests.push({
+                        resolve, body: JSON.parse(init.body || '{}')
+                      }));
+                    }
+                    return nativeFetch(input, init);
+                  };
+                }""")
+
+                page.locator("#fs-chat-input").fill("项目 A 的旧请求")
+                page.locator('[data-film-action="ask"]:visible').click()
+                page.wait_for_function("window.__aiDeferredRequests.length === 1")
+
+                select_project(project_b)
+                page.locator("#fs-chat-input").fill("项目 B 的当前请求")
+                page.locator('[data-film-action="ask"]:visible').click()
+                page.wait_for_function("window.__aiDeferredRequests.length === 2")
+
+                # The old fetch deliberately ignores AbortSignal and returns late,
+                # simulating an upstream/proxy that cannot be cancelled in time.
+                page.evaluate("""() => window.__aiDeferredRequests[0].resolve(new Response(
+                  JSON.stringify({ok:true, no_op:true, message:'项目 A 的迟到响应'}),
+                  {status:200, headers:{'Content-Type':'application/json'}}
+                ))""")
+                page.wait_for_timeout(100)
+
+                # The second request must still own busy state. A third instruction
+                # should steer/cancel it, not start a competing third model request.
+                page.locator("#fs-chat-input").fill("项目 B 的补充方向")
+                page.locator('[data-film-action="ask"]:visible').click()
+                assert page.evaluate("window.__aiDeferredRequests.length") == 2
+                assert page.evaluate(
+                    "window.__aiDeferredRequests[1].body.project_id"
+                ) == project_b
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                context.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
