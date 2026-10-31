@@ -393,7 +393,16 @@ def main(argv=None):
             "compose": "cli-run", "auto": "auto-run", "text": "text-run",
         }.get(a.cmd, "")
         if legacy_project_id:
-            rejection = tool_executor.film_authority_rejection(
+            from video_director import config as vd_config
+            # compose/auto/text may legitimately create a fresh project. Only
+            # bypass the legacy-authority preflight when no project directory
+            # exists at all; an existing but unreadable project remains UNKNOWN
+            # and must fail closed. Resume always requires an existing project.
+            is_new_project = (
+                a.cmd in ("compose", "auto", "text")
+                and not vd_config.project_dir(legacy_project_id).exists()
+            )
+            rejection = None if is_new_project else tool_executor.film_authority_rejection(
                 legacy_project_id, f"legacy.cli.{a.cmd}"
             )
             if rejection is not None:
