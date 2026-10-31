@@ -1829,7 +1829,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       if(resolution.kind==='none')return false;
       if(resolution.kind==='minimum-points'){showStatus('至少需要两个音量关键帧。','error');return false;}
       if(resolution.kind==='remove'){
-        filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(resolution.points)}]);
+        filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(resolution.points)}],{requireExactRevision:true});
         return false;
       }
       points=resolution.points;index=resolution.index;added=resolution.added;
@@ -1845,7 +1845,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       if((e.button===2||e.shiftKey)&&nearest>=0&&nearestPx<=12){
         points.splice(nearest,1);
         if(points.length<2){showStatus('至少需要两个音量关键帧。','error');return false;}
-        filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(points)}]);
+        filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(points)}],{requireExactRevision:true});
         return false;
       }
       if(e.button!==0)return false;

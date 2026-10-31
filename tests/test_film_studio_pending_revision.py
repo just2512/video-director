@@ -15,6 +15,8 @@ def test_studio_discards_timeline_and_envelope_drag_when_external_revision_arriv
     source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     assert "本次旧画面拖动未提交，先载入外部版本" in source
     assert "本次拖动未提交，先载入外部版本" in source
+    assert "filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(points)}],{requireExactRevision:true});" in source
+    assert "filmStudioCommit([{op:'set',clip:clip.id,field:'volume_envelope',value:JSON.stringify(resolution.points)}],{requireExactRevision:true});" in source
     react_finish = source[source.index("function finishReactClipGesture(e, preparedOperations)"):source.index("async function onUp(e)")]
     assert "if(S.pendingExternalRevision)" in react_finish
     assert "本次旧画面拖动未提交" in react_finish
