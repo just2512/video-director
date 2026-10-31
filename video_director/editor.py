@@ -117,8 +117,7 @@ def save_composition(project_id: str, ir: CompositionIR) -> None:
 
 
 def _save_composition_unlocked(project_id: str, ir: CompositionIR) -> None:
-    """Persist while the caller holds project_lock; recheck FilmDocument authority."""
-    """Atomically replace the persisted IR so a crash cannot leave partial JSON."""
+    """Atomically persist IR under project_lock after rechecking FilmDocument authority."""
     from video_director import film_document as fd
     try:
         fd.assert_legacy_composition_access(project_id, "保存 CompositionIR")

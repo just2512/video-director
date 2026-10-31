@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import threading
 
 from pathlib import Path
 
@@ -3047,8 +3048,19 @@ def test_legacy_composition_save_serializes_with_film_initialization(tmp_path, m
     lock_held = threading.Event()
     release_initializer = threading.Event()
     save_started = threading.Event()
+    save_lock_attempted = threading.Event()
     save_finished = threading.Event()
     outcome = {}
+    from contextlib import contextmanager
+    original_editor_lock = editor.project_lock
+
+    @contextmanager
+    def observe_save_lock(project_id):
+        save_lock_attempted.set()
+        with original_editor_lock(project_id):
+            yield
+
+    monkeypatch.setattr(editor, "project_lock", observe_save_lock)
 
     def initialize_film_under_project_lock():
         with project_lock(project_id):
@@ -3075,6 +3087,7 @@ def test_legacy_composition_save_serializes_with_film_initialization(tmp_path, m
     writer = threading.Thread(target=legacy_save, daemon=True)
     writer.start()
     assert save_started.wait(timeout=5)
+    assert save_lock_attempted.wait(timeout=5), "legacy save never entered the project lock"
     assert not save_finished.wait(timeout=0.1), "legacy persistence bypassed the project lock"
 
     release_initializer.set()
