@@ -927,6 +927,7 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 assert len(edit_requests) == 1, edit_requests
                 request = edit_requests[0]
                 assert request.get("base") == before_revision, request
+                assert request.get("require_base") is True, request
                 operations = request.get("ops") or []
                 assert len(operations) == 1, request
                 assert operations[0].get("op") == "move", request
