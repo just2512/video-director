@@ -23,6 +23,7 @@ class FilmRevisionWatcher:
         settle_seconds: float = 0.12,
         interval_seconds: float = 0.05,
         scene_scan_interval_seconds: float = 0.2,
+        content_audit_interval_seconds: float = 1.0,
         stale_after_seconds: float = 600.0,
     ):
         self.publish = publish
@@ -30,6 +31,9 @@ class FilmRevisionWatcher:
         self.settle_seconds = max(0.05, float(settle_seconds))
         self.interval_seconds = max(0.02, float(interval_seconds))
         self.scene_scan_interval_seconds = max(0.1, float(scene_scan_interval_seconds))
+        # Stat signatures catch normal writes cheaply. Periodic content audits
+        # also catch in-place edits that preserve inode, size and mtime_ns.
+        self.content_audit_interval_seconds = max(0.1, float(content_audit_interval_seconds))
         self.stale_after_seconds = max(10.0, float(stale_after_seconds))
         self._lock = threading.RLock()
         self._projects: dict[str, dict] = {}
@@ -164,6 +168,7 @@ class FilmRevisionWatcher:
                     "pending_signature": signature,
                     "processed_signature": signature if matched_initial_snapshot else None,
                     "changed_at": now - self.settle_seconds if not matched_initial_snapshot else now,
+                    "last_content_audit_at": now,
                     "last_access": now,
                     "scene_root": watched_scene_root,
                     "scene_files": scene_files,
@@ -206,6 +211,36 @@ class FilmRevisionWatcher:
                         live["changed_at"] = current_time
                 continue
             if signature == snapshot["processed_signature"]:
+                if current_time - float(snapshot.get("last_content_audit_at", current_time)) < self.content_audit_interval_seconds:
+                    continue
+                # A few external writers update a file in place and restore its
+                # timestamp (or run on filesystems with coarse timestamp
+                # resolution). Stat-only polling would miss that revision forever.
+                try:
+                    audit_source = path.read_text(encoding="utf-8")
+                    audit_error = None
+                except UnicodeError as exc:
+                    audit_source = ""
+                    audit_error = exc
+                except OSError as exc:
+                    audit_source = ""
+                    audit_error = exc
+                audit_signature = self._signature(path)
+                with self._lock:
+                    live = self._projects.get(pid)
+                    if live is None or live.get("pending_signature") != signature:
+                        continue
+                    live["last_content_audit_at"] = current_time
+                    if audit_signature != signature:
+                        live["pending_signature"] = audit_signature
+                        live["changed_at"] = current_time
+                        continue
+                    audit_revision = fd.revision_of(audit_source)
+                    if audit_error is not None or audit_revision != snapshot.get("last_revision"):
+                        # Re-enter the normal settled-read/history path. Keep the
+                        # same stat signature but invalidate its processed marker.
+                        live["processed_signature"] = None
+                        live["changed_at"] = current_time - self.settle_seconds
                 continue
             if current_time - snapshot["changed_at"] < self.settle_seconds:
                 continue
