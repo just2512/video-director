@@ -121,9 +121,8 @@ def _unknown_authority_context(project_id: str, selection: Optional[Dict[str, An
     }
 
 
-def _invalid_film_context(project_id: str, selection: Optional[Dict[str, Any]], error: Exception) -> dict:
+def _invalid_film_context(project_id: str, selection: Optional[Dict[str, Any]], error: Exception) -> Optional[dict]:
     """Return film authority for malformed content; unknown when the file cannot be read."""
-    from pathlib import Path
     import stat
     from video_director import film_document
     from video_director.project_lock import validate_project_id
@@ -136,9 +135,10 @@ def _invalid_film_context(project_id: str, selection: Optional[Dict[str, Any]], 
 
     try:
         metadata = path.stat()
-    except FileNotFoundError:
-        # Only a positively observed missing path permits legacy CompositionIR fallback.
-        return None
+    except FileNotFoundError as stat_error:
+        # _active_film_context already observed the file; disappearance during
+        # recovery is a race, not evidence that legacy authority is safe.
+        return _unknown_authority_context(project_id, selection, stat_error)
     except OSError as stat_error:
         return _unknown_authority_context(project_id, selection, stat_error)
     if not stat.S_ISREG(metadata.st_mode):
