@@ -772,7 +772,27 @@ def actions_for_context(selection: Optional[dict], project_id: Optional[str] = N
             continue
         avail = {"action": a.id, "available": True, "reason": "", "next_actions": []}
         if project_id:
-            avail = action_availability(a.id, project_id, context)
+            # Discovery is deliberately stricter than execution. The manifest
+            # is consumed by Agents as a capability menu, so never advertise
+            # legacy actions while film.html owns the timeline or authority is
+            # indeterminate. ActionService may still evaluate narrowly-scoped
+            # safe project capabilities at execution time.
+            authority = (context or {}).get("authority")
+            authority_unknown = authority == "unknown" or bool((context or {}).get("authority_error"))
+            if authority_unknown:
+                avail = {
+                    "action": a.id, "available": False,
+                    "reason": "无法确认项目权威状态；旧 Action Discovery 已关闭。",
+                    "next_actions": [],
+                }
+            elif authority == "film.html":
+                avail = {
+                    "action": a.id, "available": False,
+                    "reason": "当前项目由 film.html 独占时间线权威；旧 Action Discovery 已关闭，请使用 revision-bound film.* 工具。",
+                    "next_actions": [],
+                }
+            else:
+                avail = action_availability(a.id, project_id, context)
         out.append({
             "id": a.id, "label": a.label, "aliases": a.aliases,
             "targets": a.targets, "undo": a.undo, "preview": a.preview,
