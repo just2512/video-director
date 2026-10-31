@@ -2435,8 +2435,16 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     if(busyTimeline)busyTimeline.style.pointerEvents='none';
     try{
       return await dispatchStudioTransaction('film-edit',S.rev,ops,async function(){
-        var r=await apiPost('/api/editor/film/edit',{project_id:S.projectId,base:S.rev,ops:ops});
+        var editRequest={project_id:S.projectId,base:S.rev,ops:ops};
+        if(options.requireExactRevision===true)editRequest.require_base=true;
+        var r=await apiPost('/api/editor/film/edit',editRequest);
         if(!r||!r.ok){
+          if(options.requireExactRevision===true&&r&&r.code==='REVISION_CONFLICT'){
+            S.pendingExternalRevision='__reload__';
+            pendingRevisionSource='';
+            showStatus('影片 revision 在手势提交前已变化；本次拖动未写入，正在重新载入最新版本。','error');
+            return false;
+          }
           var failureMessage=(r&&r.error)||'编辑提交失败。';
           if(S.data&&S.data.exists&&!allowedDraft)render();
           showStatus(failureMessage,'error');
@@ -2772,7 +2780,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       flushPendingExternalRevision();
       return;
     }
-    await filmStudioCommit(preparedOperations);
+    await filmStudioCommit(preparedOperations,{requireExactRevision:true});
   }
 
   async function onUp(e) {
@@ -2798,7 +2806,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
           unique=[];
           normalized.forEach(function(p){if(unique.length&&Math.abs(unique[unique.length-1].t-p.t)<0.001)unique[unique.length-1]=p;else unique.push(p);});
         }
-        if(unique.length>=2)await filmStudioCommit([{op:'set',clip:envelopeEdit.clipId,field:'volume_envelope',value:JSON.stringify(unique)}]);
+        if(unique.length>=2)await filmStudioCommit([{op:'set',clip:envelopeEdit.clipId,field:'volume_envelope',value:JSON.stringify(unique)}],{requireExactRevision:true});
       }else if(S.data&&S.data.exists)renderTimeline();
       clearTimelineEnvelopePreview();
       flushPendingExternalRevision();
@@ -2856,13 +2864,13 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       var slideCommitResolution=resolveTimelineSlide(d,deltaSeconds,8);
       var slideDelta=slideCommitResolution.deltaSeconds;
       if(Math.abs(slideDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
-      await filmStudioCommit([slideCommitResolution.operation||{op:'slide',clip:d.centerClipId,delta:timelineOperationNumber(slideDelta,(slideCommitResolution.snapCandidate&&slideCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(slideCommitResolution.targetAt))}]);return;
+      await filmStudioCommit([slideCommitResolution.operation||{op:'slide',clip:d.centerClipId,delta:timelineOperationNumber(slideDelta,(slideCommitResolution.snapCandidate&&slideCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(slideCommitResolution.targetAt))}],{requireExactRevision:true});return;
     }
     if(d.mode==='roll'){
       var rollCommitResolution=resolveTimelineRoll(d,deltaSeconds,8);
       var rollDelta=rollCommitResolution.deltaSeconds;
       if(Math.abs(rollDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
-      await filmStudioCommit([rollCommitResolution.operation||{op:'roll',clip:d.leftClipId,other_clip:d.rightClipId,delta:timelineOperationNumber(rollDelta,(rollCommitResolution.snapCandidate&&rollCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(rollCommitResolution.targetAt))}]);return;
+      await filmStudioCommit([rollCommitResolution.operation||{op:'roll',clip:d.leftClipId,other_clip:d.rightClipId,delta:timelineOperationNumber(rollDelta,(rollCommitResolution.snapCandidate&&rollCommitResolution.snapCandidate.kind==='帧')||timelineIsFrameAligned(rollCommitResolution.targetAt))}],{requireExactRevision:true});return;
     }
     if(d.mode==='slip'){
       var slipClip=findClip(d.id);
@@ -2870,7 +2878,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       var slipResolution=resolveTimelineSlip(deltaSeconds,num(slipClip.attrs.speed,1),d.id);
       var sourceDelta=slipResolution.sourceDeltaSeconds;
       if(Math.abs(sourceDelta)<0.001){clearTimelineGesturePreview();renderTimeline();return;}
-      await filmStudioCommit([slipResolution.operation||{op:'slip',clip:d.id,delta_source:timelineOperationNumber(sourceDelta,S.snapEnabled)}]);return;
+      await filmStudioCommit([slipResolution.operation||{op:'slip',clip:d.id,delta_source:timelineOperationNumber(sourceDelta,S.snapEnabled)}],{requireExactRevision:true});return;
     }
     if(d.mode==='trim-start'){
       var startTrimCommitController=window.filmStudioTimelineController;
@@ -2882,9 +2890,9 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
           pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
         })
         :null;
-      if(startTrimCommitResult){await filmStudioCommit([startTrimCommitResult.operation]);return;}
+      if(startTrimCommitResult){await filmStudioCommit([startTrimCommitResult.operation],{requireExactRevision:true});return;}
       var trimStartCommit=resolveTimelineTrim('start',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
-      await filmStudioCommit([{op:'trim',clip:d.id,edge:'start',at:timelineOperationNumber(trimStartCommit.target,(trimStartCommit.snapCandidate&&trimStartCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimStartCommit.target))}]);return;
+      await filmStudioCommit([{op:'trim',clip:d.id,edge:'start',at:timelineOperationNumber(trimStartCommit.target,(trimStartCommit.snapCandidate&&trimStartCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimStartCommit.target))}],{requireExactRevision:true});return;
     }
     if(d.mode==='trim-end'){
       var endTrimCommitController=window.filmStudioTimelineController;
@@ -2896,9 +2904,9 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
           pixelsPerSecond:S.pxPerSec,thresholdPixels:8,snapEnabled:S.snapEnabled,frameRate:timelineFrameRate()
         })
         :null;
-      if(endTrimCommitResult){await filmStudioCommit([endTrimCommitResult.operation]);return;}
+      if(endTrimCommitResult){await filmStudioCommit([endTrimCommitResult.operation],{requireExactRevision:true});return;}
       var trimEndCommit=resolveTimelineTrim('end',d.originalAt,d.originalEnd,deltaSeconds,[d.id],8);
-      await filmStudioCommit([{op:'trim',clip:d.id,edge:'end',end:timelineOperationNumber(trimEndCommit.target,(trimEndCommit.snapCandidate&&trimEndCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimEndCommit.target))}]);return;
+      await filmStudioCommit([{op:'trim',clip:d.id,edge:'end',end:timelineOperationNumber(trimEndCommit.target,(trimEndCommit.snapCandidate&&trimEndCommit.snapCandidate.kind==='帧')||timelineIsFrameAligned(trimEndCommit.target))}],{requireExactRevision:true});return;
     }
     var moveController=window.filmStudioTimelineController;
     if(moveController&&typeof moveController.buildMovePreview==='function'){
@@ -2913,7 +2921,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       if(!moveControllerOperations||(d.members||[]).length!==moveControllerOperations.length){
         clearTimelineGesturePreview();renderTimeline();return;
       }
-      await filmStudioCommit(moveControllerOperations);return;
+      await filmStudioCommit(moveControllerOperations,{requireExactRevision:true});return;
     }
     var chosen=(d.members||[]).map(function(member){return member.id;});
     var minStart=Math.min.apply(null,(d.members||[]).map(function(member){return member.originalAt;}));
@@ -2931,7 +2939,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     if(!operations.length||(operations.length!==(d.members||[]).length)){
       clearTimelineGesturePreview();renderTimeline();return;
     }
-    await filmStudioCommit(operations);
+    await filmStudioCommit(operations,{requireExactRevision:true});
   }
   // The React timeline owns move/up dispatch for clips that captured the pointer.
   // Native document listeners remain a fallback and still serve audio-envelope drags.
