@@ -95,7 +95,13 @@ def load_revisions(project_id: str) -> List[dict]:
 
 
 def load_composition(project_id: str) -> CompositionIR:
-    """读项目 composition.json；film.html 生效后，旧 IR 读取同样必须被拒绝。"""
+    """Read legacy CompositionIR under the same lock used by film initialization."""
+    with project_lock(project_id):
+        return _load_composition_unlocked(project_id)
+
+
+def _load_composition_unlocked(project_id: str) -> CompositionIR:
+    """Read legacy CompositionIR while the caller already holds project_lock."""
     from video_director import film_document as fd
     try:
         fd.assert_legacy_composition_access(project_id, "读取旧 CompositionIR")
@@ -635,7 +641,7 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
             for key in ("at", "start")
         )
         if needs_snap:
-            ir_probe = load_composition(project_id)
+            ir_probe = _load_composition_unlocked(project_id)
             new_payload = dict(payload_in)
             for key in ("at", "start"):
                 raw_time = new_payload.get(key)
@@ -689,7 +695,7 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
     if cmd_name in ("undo", "redo"):
         return _undo_redo(project_id, cmd_name, current_version=current)
 
-    ir = load_composition(project_id)
+    ir = _load_composition_unlocked(project_id)
     before_ir = ir.model_copy(deep=True)  # §46 undo 快照基线
     target_id = command.get("targetId") or ""
     payload = command.get("payload") or {}
