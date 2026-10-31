@@ -64,10 +64,6 @@ def execute_action_request(payload: dict) -> dict:
         from video_director import project_context
         from video_director import tool_executor
 
-        rejection = tool_executor.film_authority_rejection(pid, "creative.action")
-        if rejection is not None:
-            raise ActionServiceError(rejection, 409)
-
         context = project_context.inspect_project_context(pid, selection)
         availability = actions.action_availability(action_id, pid, context=context)
         if not availability.get("available"):
@@ -96,6 +92,15 @@ def execute_action_request(payload: dict) -> dict:
                 "error": "这是需要浏览器交互的界面动作；Agent 应调用对应的业务动作或生成能力",
                 "ui_action": spec.ui,
             }, 409)
+
+        # Authority is capability-scoped, not action-wrapper-scoped. Checking
+        # "creative.action" rejects even safe project metadata and read-only
+        # actions, and can mask the more precise headless-UI rejection above.
+        rejection = tool_executor.film_authority_rejection(
+            pid, resolved["capability"], resolved.get("targetId")
+        )
+        if rejection is not None:
+            raise ActionServiceError(rejection, 409)
 
         selection_type = selection.get("type") or "project"
         target_type = (
