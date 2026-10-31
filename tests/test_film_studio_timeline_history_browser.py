@@ -1144,7 +1144,7 @@ def test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture(tmp_path
                 assert final["rev"] == changed_revision, final
                 assert film_path.read_bytes() == external_bytes
                 assert _clip_positions(project_id) == {"clip-a": 0.0, "clip-b": 7.0}
-                # Only the concurrent external edit may have reached the edit endpoint.
+                # The stale gesture reaches the endpoint but is rejected before any write.
                 assert len(edit_requests) == 1, edit_requests
                 assert edit_requests[0].get("base") == start_revision, edit_requests
                 operations = edit_requests[0].get("ops") or []
