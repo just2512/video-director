@@ -283,3 +283,16 @@ def test_film_authority_blocks_legacy_agent_paths_but_preserves_asset_preparatio
     assert prepared["ok"] is True and prepared["status"] == "ASSET_PREPARED", prepared
     assert film_path.read_bytes() == original
     assert fd.read_project_film(project_id)["rev"] == fd.revision_of(original.decode("utf-8"))
+
+    # The new authority remains editable through the revision-bound MCP surface.
+    status = _payload(film_mcp_server.call_tool("film.status", {"project_id": project_id}))
+    assert status["ok"] is True and status["revision"] == fd.revision_of(original.decode("utf-8"))
+    validation = _payload(film_mcp_server.call_tool("film.validate", {"project_id": project_id}))
+    assert validation["ok"] is True, validation
+    edited = _payload(film_mcp_server.call_tool("film.edit", {
+        "project_id": project_id,
+        "base_revision": status["revision"],
+        "operations": [{"op": "move", "clip": "clip-a", "track_id": "video-main", "at": 1.0}],
+    }))
+    assert edited["ok"] is True, edited
+    assert edited["revision"] != status["revision"]
