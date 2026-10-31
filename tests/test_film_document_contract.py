@@ -459,6 +459,84 @@ def test_atomic_edits_revision_rebase_and_undo_redo(tmp_path,monkeypatch):
     assert redone["rev"]==rebased["rev"]
 
 
+def test_film_edit_http_route_can_require_exact_revision_without_disabling_manual_rebase(tmp_path, monkeypatch):
+    import importlib
+    import json
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+
+    storage_root = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-edit-exact-gesture-revision"
+    root = storage_root / project_id
+    root.mkdir(parents=True)
+    (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    original = fd.read_project_film(project_id)
+
+    # A concurrent writer advances the document after the browser's gesture snapshot.
+    advanced = fd.edit_project_film(
+        project_id, original["rev"],
+        [{"op": "set", "clip": "clip-b", "field": "at", "value": 7}],
+        source="external_file",
+    )
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = f"http://127.0.0.1:{server.server_port}/api/editor/film/edit"
+
+    def post(payload):
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=10) as response:
+                return response.status, json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as error:
+            return error.code, json.loads(error.read().decode("utf-8"))
+
+    try:
+        status, rejected = post({
+            "project_id": project_id,
+            "base": original["rev"],
+            "require_base": True,
+            "ops": [{"op": "move", "clip": "clip-a", "track_id": "video-main", "at": 2}],
+        })
+        assert status == 409, rejected
+        assert rejected["code"] == "REVISION_CONFLICT"
+        after_rejection = fd.read_project_film(project_id)
+        assert after_rejection["rev"] == advanced["rev"]
+        assert after_rejection["doc"]["tracks"][0]["clips"][0]["attrs"]["at"] == "0"
+
+        # Existing explicit manual-rebase behavior remains available when strict mode is absent.
+        status, rebased = post({
+            "project_id": project_id,
+            "base": original["rev"],
+            "ops": [{"op": "set", "clip": "clip-a", "field": "title", "value": "manual rebase"}],
+        })
+        assert status == 200, rebased
+        assert rebased["rebased"] is True
+        final = fd.read_project_film(project_id)
+        assert final["rev"] == rebased["rev"]
+        clips = {clip["id"]: clip for track in final["doc"]["tracks"] for clip in track["clips"]}
+        assert clips["clip-b"]["attrs"]["at"] == "7"
+        assert clips["clip-a"]["attrs"]["title"] == "manual rebase"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_head_script_is_rejected():
     with pytest.raises(fd.FilmError,match="head 禁止 script"):
         fd.parse_film(SAMPLE.replace("</head>","<script>alert(1)</script></head>"))
