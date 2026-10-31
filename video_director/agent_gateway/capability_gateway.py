@@ -38,10 +38,8 @@ def creative_inspect(project_id: str = "", selection: Optional[Dict] = None) -> 
         projects = store.list_projects(limit=30)
         from video_director.capability_registry import list_capabilities
         return {"projects": projects, "capabilities": len(list_capabilities())}
-    if selection is not None:
-        return tool_executor.execute_tool(project_id, {
-            "tool": "system.context.inspect", "payload": {"selection": selection}})
-    return tool_executor.execute_tool(project_id, {"tool": "project.inspect", "payload": {}})
+    return tool_executor.execute_tool(project_id, {
+        "tool": "system.context.inspect", "payload": {"selection": selection or {}}})
 
 
 def creative_plan(project_id: str, instruction: str) -> dict:
