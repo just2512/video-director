@@ -618,6 +618,22 @@ def action_availability(action_id: str, project_id: str,
     if a is None:
         return {"action": action_id, "available": False,
                 "reason": f"未知动作 {action_id}", "next_actions": []}
+    if context is None and project_id:
+        try:
+            from video_director import project_context as _project_context
+            context = _project_context.inspect_project_context(project_id, {})
+        except Exception as exc:
+            return {
+                "action": a.id, "available": False,
+                "reason": f"无法确认项目权威状态，拒绝暴露旧 Action：{exc}",
+                "next_actions": [],
+            }
+    if context and context.get("authority") == "film.html":
+        return {
+            "action": a.id, "available": False,
+            "reason": "当前项目由 film.html 独占时间线权威；旧 Action Registry 操作已停用，请使用 revision-bound film.* 工具。",
+            "next_actions": [],
+        }
     if not a.preconditions:
         return {"action": a.id, "available": True, "reason": "", "next_actions": []}
     reason = None
@@ -724,6 +740,12 @@ def actions_for_context(selection: Optional[dict], project_id: Optional[str] = N
         key = ("layer", layer_type)
     else:
         key = (sel_type, None)
+    if project_id and context is None:
+        try:
+            from video_director import project_context as _project_context
+            context = _project_context.inspect_project_context(project_id, selection or {})
+        except Exception as exc:
+            context = {"authority": "unknown", "authority_error": str(exc)}
     ids = _CONTEXT_KEYS.get(key)
     if ids is None:
         # 回退：layer 未知类型 → 通用组
@@ -752,12 +774,19 @@ def manifest_for_project(project_id: str, selection: Optional[dict] = None) -> d
     """§62 全上下文 manifest（GET /api/actions?project_id= 无 selection 时用）：
     project/scene/layer.video/layer.image/layer.subtitle/layer.audio/scene_pair 各组。"""
     groups = {}
+    context = None
+    if project_id:
+        try:
+            from video_director import project_context as _project_context
+            context = _project_context.inspect_project_context(project_id, selection or {})
+        except Exception as exc:
+            context = {"authority": "unknown", "authority_error": str(exc)}
     for (sel_type, ltype), _ in _CONTEXT_KEYS.items():
         name = f"layer.{ltype}" if sel_type == "layer" and ltype else sel_type
         if name in groups:
             continue
         r = actions_for_context({"type": sel_type, "layer_type": ltype},
-                                project_id=project_id)
+                                project_id=project_id, context=context)
         groups[name] = r["actions"]
     return groups
 
