@@ -6,6 +6,7 @@ import importlib
 import json
 import threading
 from http.server import ThreadingHTTPServer
+from urllib.request import urlopen
 
 from playwright.sync_api import sync_playwright
 
@@ -397,6 +398,60 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 browser.close()
     finally:
         release_initialize_request.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+def test_film_preview_rechecks_authority_after_concurrent_initialization(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "film-preview-authority-race"
+    store.create_project(project_id, "Film preview authority race", {"name": "Film preview authority race"})
+    ir = CompositionIR(
+        project=ProjectSpec(width=160, height=90, fps=10, duration=1.0),
+        scenes=[SceneIR(
+            id="legacy-scene", start=0, duration=1.0, text="legacy",
+            layers=[Layer(type=LayerType.image, duration=1.0)],
+        )],
+    )
+    editor.save_composition(project_id, ir)
+    film_html = (
+        '<!doctype html><html><head><meta charset="utf-8"></head><body>'
+        '<section id="main" data-label="主画面">'
+        '<img id="film-clip" src="../assets/still.png#t=0,1" at="0"></img>'
+        '</section></body></html>'
+    )
+    film_path = config.project_dir(project_id) / fd.FILM_NAME
+    original_snapshot = editor.load_composition_snapshot
+    initialized = []
+
+    def initialize_between_authority_probe_and_snapshot(pid):
+        if pid == project_id and not initialized:
+            film_path.write_text(film_html, encoding="utf-8")
+            initialized.append(True)
+        return original_snapshot(pid)
+
+    monkeypatch.setattr(editor, "load_composition_snapshot", initialize_between_authority_probe_and_snapshot)
+
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with urlopen(
+            f"http://127.0.0.1:{server.server_port}/api/editor/film?project_id={project_id}",
+            timeout=10,
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        assert initialized == [True]
+        assert payload["exists"] is True
+        assert payload["project_id"] == project_id
+        assert payload["rev"] == fd.revision_of(film_html)
+        assert "migration_available" not in payload
+    finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)

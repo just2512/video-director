@@ -1131,6 +1131,19 @@ class Handler(BaseHTTPRequestHandler):
                             ),
                         })
                 except Exception as exc:
+                    # Film may have become authoritative after the initial
+                    # exists probe but before the locked legacy snapshot. Re-read
+                    # the authority state so this request cannot return a stale
+                    # exists=false migration response.
+                    if fd._film_path(pid).is_file():
+                        latest_state = fd.read_project_film(pid)
+                        if latest_state.get("exists"):
+                            _FILM_REVISION_WATCHER.watch(
+                                pid, latest_state.get("rev"),
+                                initial_text=latest_state.get("text"),
+                            )
+                            self._send_json(fd.film_payload(pid, latest_state))
+                            return True
                     preview["migration_error"] = str(exc)
                     preview["migration_error_code"] = getattr(exc, "code", None)
                 self._send_json({"ok": True, "exists": False, "project_id": pid, "rev": state["rev"], **preview})
