@@ -980,7 +980,14 @@
         return true;
       });
     }catch(error){
-      showStatus('素材加入时间线失败：'+String(error&&error.message||error),'error');
+      var transactionErrorCode=error&&error.code||'';
+      if(transactionErrorCode==='FILM_REVISION_CONFLICT'||transactionErrorCode==='FILM_EXTERNAL_REVISION_PENDING'){
+        if(!S.pendingExternalRevision)S.pendingExternalRevision='__reload__';
+        pendingRevisionSource='';
+        showStatus('影片 revision 已变化；本次素材插入未写入，正在重新载入最新版本。','error');
+      }else{
+        showStatus('素材加入时间线失败：'+String(error&&error.message||error),'error');
+      }
     }finally{flushPendingExternalRevision();}
   };
   function reactOwnsTimelineToolbar(){

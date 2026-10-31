@@ -246,5 +246,6 @@ def test_asset_insert_revision_conflict_schedules_safe_reload():
     assert "if(!S.pendingExternalRevision)S.pendingExternalRevision='__reload__';" in insert
     assert "pendingRevisionSource='';" in insert
     assert "flushPendingExternalRevision();" in insert
+    assert "transactionErrorCode==='FILM_REVISION_CONFLICT'||transactionErrorCode==='FILM_EXTERNAL_REVISION_PENDING'" in insert
 
 
