@@ -1155,6 +1155,17 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                       f"t={timestamp:.3f}s  revision={revision[:12]}", fill=(235, 235, 235))
         temp_output = output.with_suffix(".tmp.png")
         sheet.save(temp_output, format="PNG")
+        # A look result is a preview of one immutable film revision. Do not
+        # publish its contact sheet if the authoritative document changed while
+        # Chromium was sampling frames.
+        after = fd.read_project_film(pid)
+        if after.get("rev") != revision:
+            temp_output.unlink(missing_ok=True)
+            raise FilmRenderError(
+                "REVISION_CONFLICT",
+                "look 检查期间影片文档已变化；旧 revision 的预览接触表未发布。请重新载入最新版本后再检查。",
+                409,
+            )
         os.replace(temp_output, output)
         return {
             "ok": True,
