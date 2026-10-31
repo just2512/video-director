@@ -1176,6 +1176,7 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                     select.add(new Option(pid, pid));
                   }
                   store.setField('busy', true);
+                  store.setField('pendingTransaction', {});
                   select.value = pid;
                   const opened = await window.filmStudioOpenIfCurrentProjectHasFilm(pid, {
                     project_id: pid, exists: true, ok: false,
@@ -1187,6 +1188,7 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
                     activeProjectId: store.getField('projectId')
                   };
                   store.setField('busy', false);
+                  store.setField('pendingTransaction', null);
                   return state;
                 }""", broken_project_id)
                 assert busy_switch == {
