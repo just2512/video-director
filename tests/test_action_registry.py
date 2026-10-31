@@ -243,3 +243,18 @@ def test_film_authority_disables_legacy_action_manifest(tmp_path, monkeypatch):
     )
     assert selected["actions"]
     assert all(action["available"] is False for action in selected["actions"])
+
+
+def test_action_discovery_fails_closed_when_project_authority_is_unknown(monkeypatch):
+    from video_director import project_context
+
+    def unavailable(*args, **kwargs):
+        raise OSError("film document storage is unavailable")
+
+    monkeypatch.setattr(project_context, "inspect_project_context", unavailable)
+    result = ar.actions_for_context(
+        {"type": "project"}, project_id="authority-unavailable"
+    )
+    assert result["actions"]
+    assert all(action["available"] is False for action in result["actions"])
+    assert all("无法确认" in action["reason"] for action in result["actions"])
