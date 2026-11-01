@@ -189,12 +189,15 @@ def _read_legacy_composition_version(project_id: str, revisions: Optional[List[d
 
 
 def composition_version(project_id: str) -> int:
-    """Return a monotonic version for legacy CompositionIR only.
+    """Return a monotonic legacy version as a lock-consistent public read.
 
-    Once film.html exists, even reading the old composition version is rejected;
-    it is not a valid concurrency token for the authoritative FilmDocument.
+    Internal command handlers already hold project_lock and must use
+    _read_legacy_composition_version directly; acquiring the public lock again
+    from those paths would deadlock because the project lock is non-reentrant.
     """
-    return _read_legacy_composition_version(project_id)
+    with project_lock(project_id):
+        revisions = load_revisions(project_id)
+        return _read_legacy_composition_version(project_id, revisions)
 
 
 def load_composition_snapshot(project_id: str) -> tuple[CompositionIR, int, List[dict]]:
@@ -640,12 +643,12 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
     if cmd_name not in SUPPORTED_COMMANDS:
         return CommandResult(
             status="REJECTED",
-            composition_version=composition_version(project_id),
+            composition_version=_read_legacy_composition_version(project_id),
             errors=[{"code": "COMMAND_NOT_SUPPORTED", "message": f"命令 {cmd_name!r} 不支持"}],
         )
     if cmd_name == "select":
         # selection 是前端 transient 态（§35），不产生 revision
-        return CommandResult(status="APPLIED", composition_version=composition_version(project_id))
+        return CommandResult(status="APPLIED", composition_version=_read_legacy_composition_version(project_id))
     # 统一编辑切点契约（filmcraft 整数 Tick 精神的防御层）：所有携带时间轴
     # payload 的命令在入口先 snap 到项目帧钟。各命令内部的 _project_frame_time
     # 保留（幂等）作为语义兜底；此集中层消灭"新命令忘 snap"的漏网类。
@@ -671,7 +674,7 @@ def _execute_command_unlocked(project_id: str, command: dict) -> CommandResult:
                     new_payload[key] = _project_frame_time(ir_probe, float(raw_time))
             command["payload"] = new_payload
     expected = command.get("expectedVersion")
-    current = composition_version(project_id)
+    current = _read_legacy_composition_version(project_id)
     if expected is not None:
         # int(True) == 1 and int(1.5) == 1 in Python: coercing a malformed
         # optimistic-lock token can let a stale edit pass the version gate.

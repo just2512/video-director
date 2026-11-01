@@ -93,3 +93,34 @@ def test_command_accepts_version_reported_by_composition_version(tmp_path, monke
     r = _apply(pid, "set_duration", "S01", {"duration": 9.0}, v)
     assert r.status == "APPLIED", r.errors
     assert abs(float(load_composition(pid).scenes[0].duration) - 9.0) < 1e-6
+
+def test_public_composition_version_waits_for_project_transaction_lock(tmp_path, monkeypatch):
+    import threading
+    from video_director.project_lock import project_lock
+
+    pid = _project(tmp_path, monkeypatch, name="version-read-lock")
+    started = threading.Event()
+    finished = threading.Event()
+    outcome = {}
+
+    def read_version():
+        started.set()
+        try:
+            outcome["version"] = composition_version(pid)
+        except Exception as exc:
+            outcome["error"] = exc
+        finally:
+            finished.set()
+
+    with project_lock(pid):
+        worker = threading.Thread(target=read_version, daemon=True)
+        worker.start()
+        assert started.wait(timeout=5)
+        assert not finished.wait(timeout=0.1), (
+            "composition_version returned while a project mutation transaction held the lock"
+        )
+
+    worker.join(timeout=5)
+    assert not worker.is_alive(), "composition_version did not resume after the project lock was released"
+    assert "error" not in outcome, outcome.get("error")
+    assert outcome["version"] == composition_version(pid)
