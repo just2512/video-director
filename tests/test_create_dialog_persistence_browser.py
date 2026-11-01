@@ -782,7 +782,11 @@ def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monk
                     ],
                     "articles": [],
                     "software_project": {},
-                }
+                },
+                "request_options": {
+                    "voice_mode": "upload",
+                    "narration_upload": "staged-audio/legacy-narration.wav",
+                },
             },
         )
 
@@ -814,6 +818,10 @@ def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monk
                 assert page.locator("#cf-duration").input_value() == "45"
                 assert page.locator("#cf-style").input_value() == "旧版纪录片风格"
                 assert page.locator("#cf-visual-source").input_value() == "local"
+                assert page.locator("#cf-voice-mode").input_value() == "upload"
+                assert page.locator("#cf-voice-upload-wrap").is_visible()
+                assert page.evaluate("window.CF_DRAFT_CONTEXT.narrationUpload") == "staged-audio/legacy-narration.wav"
+                assert page.evaluate("window._cfNarrationUpload") == "staged-audio/legacy-narration.wav"
                 assert not errors
             finally:
                 browser.close()

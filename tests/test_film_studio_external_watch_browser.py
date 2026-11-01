@@ -67,7 +67,9 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
             context = browser.new_context(viewport={"width": 1440, "height": 1000})
             page = context.new_page()
             page_errors: list[str] = []
+            console_errors: list[str] = []
             film_edit_requests: list[dict] = []
+            page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
 
             def capture_edit(request):
                 if request.url.endswith("/api/editor/film/edit"):
@@ -862,10 +864,34 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                   };
                 }""")
                 assert close_state_before == {"menuOpen":True,"gesture":True,"envelope":True}, close_state_before
-                page.wait_for_function(
-                    """() => !!document.querySelector('[data-react-context-menu="true"]')""",
-                    timeout=5000,
-                )
+                try:
+                    page.wait_for_function(
+                        """() => !!document.querySelector('[data-react-context-menu="true"]')""",
+                        timeout=5000,
+                    )
+                except Exception as error:
+                    diagnostic = page.evaluate("""() => {
+                      const bridge=window.filmStudioReactTimeline;
+                      const store=window.filmStudioStore;
+                      const root=document.getElementById('fs-react-root');
+                      const surface=document.querySelector('#fs-timeline .fs-react-timeline-surface');
+                      return {
+                        timelineVisible:store?.getField('timelineVisible') ?? null,
+                        bridgeHasSurface:bridge?.hasSurface?.() ?? null,
+                        bridgeMethods:bridge?Object.keys(bridge).sort():[],
+                        contextMenu:store?.getField('timelineContextMenu') ?? null,
+                        menuNodes:document.querySelectorAll('[data-react-context-menu="true"]').length,
+                        rootExists:!!root,
+                        rootChildren:root?.childElementCount ?? null,
+                        surfaceExists:!!surface,
+                        timelineHostExists:!!document.getElementById('fs-timeline'),
+                        documentReadyState:document.readyState
+                      };
+                    }""")
+                    raise AssertionError(
+                        f"React context menu portal did not remount after timeline gestures: "
+                        f"{diagnostic}; pageerrors={page_errors}; consoleerrors={console_errors}"
+                    ) from error
                 page.evaluate("window.filmStudioClose()")
                 page.wait_for_function("""() => {
                   const store = window.filmStudioStore;

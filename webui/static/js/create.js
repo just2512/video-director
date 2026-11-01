@@ -2100,6 +2100,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       window.CF_DRAFT_CONTEXT.reference=window._cfReference;
       window.CF_DRAFT_CONTEXT.article=window._cfArticle;
       window.CF_DRAFT_CONTEXT.repo=window._cfRepo;
+      window.CF_DRAFT_CONTEXT.narrationUpload=legacyOptions.narration_upload||d.narration_upload||'';
+      window._cfNarrationUpload=window.CF_DRAFT_CONTEXT.narrationUpload;
       const legacyFields={
         'cf-platform':d.platform,
         'cf-duration':d.duration,
@@ -2157,6 +2159,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       }
       if(!legacyOptions.resolution&&d.platform&&typeof createPlatformSync==='function')createPlatformSync();
     }
+    // Both snapshot generations must refresh dependent controls after restoration.
+    if(typeof cfVoiceModeSync==='function')cfVoiceModeSync();
+    if(typeof cfVisualSourceSync==='function')cfVisualSourceSync();
+    if(typeof cfSeriesSync==='function')cfSeriesSync();
     const restoredContext=window.CF_DRAFT_CONTEXT||{};
     const restoredScript=(document.getElementById('cf-script')||{}).value||'';
     const supplement=document.getElementById('cf-input-context-details');
