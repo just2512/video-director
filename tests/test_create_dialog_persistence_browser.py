@@ -690,7 +690,7 @@ def test_app_html_escape_prevents_dynamic_text_and_attribute_injection(tmp_path,
             try:
                 page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
                 result = page.evaluate("""() => {
-                    const payload = '" autofocus onfocus="window.__escapeInjected=true"><img src=x onerror="window.__escapeInjected=true">&';
+                    const payload = '\'" autofocus onfocus="window.__escapeInjected=true"><img src=x onerror="window.__escapeInjected=true">&';
                     window.__escapeInjected = false;
                     const host = document.createElement('div');
                     host.innerHTML =
@@ -710,8 +710,10 @@ def test_app_html_escape_prevents_dynamic_text_and_attribute_injection(tmp_path,
                 assert result["textContent"] == result["payload"]
                 assert result["injectedNodes"] == 0
                 assert result["injected"] is False
-                assert "&quot;" in result["escaped"] and "&#39;" not in result["escaped"] or True
-                assert "&lt;img" in result["escaped"] and "&amp;" in result["escaped"]
+                assert "&quot;" in result["escaped"]
+                assert "&#39;" in result["escaped"]
+                assert "&lt;img" in result["escaped"]
+                assert "&amp;" in result["escaped"]
             finally:
                 browser.close()
     finally:
