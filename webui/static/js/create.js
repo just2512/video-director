@@ -2050,10 +2050,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     // History snapshots can be older/partial. Start from a clean form so
     // fields absent from that snapshot cannot leak in from the active draft.
     cfResetProjectPrefillState('');
-    const snapshot=c.snapshot||{},formSnapshot=snapshot.form||snapshot;
-    if(formSnapshot.fields)applySnapshot(formSnapshot);
-    else if(snapshot.director_inputs){
-      const d=snapshot.director_inputs;
+    const historySnapshot=c.snapshot||{},historyFormSnapshot=historySnapshot.form||historySnapshot;
+    if(historyFormSnapshot.fields)applySnapshot(historyFormSnapshot);
+    else if(historySnapshot.director_inputs){
+      const d=historySnapshot.director_inputs;
       const brief=document.getElementById('cf-director-brief'),script=document.getElementById('cf-script');
       if(brief)brief.value=d.brief||'';
       if(script)script.value=(d.script&&d.script.text)||'';
