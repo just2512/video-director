@@ -4110,10 +4110,21 @@ window.filmStudioCopyClips=function(){
             resultBox.hidden=false;
           }
           if(S.projectId===pid){
-            showStatus(out.current===false
-              ?'MP4 已完成，但导出期间影片文档发生变化。成片对应 revision '+(out.rendered_revision||revision)+'，不是当前 revision。'
-              :'MP4 已完成并通过视频流/时长检查。导出 revision：'+(out.rendered_revision||revision),
-              out.current===false?'':'success');
+            var qcStatus=String(out.qc_status||'UNKNOWN').toUpperCase();
+            var qcWarnings=Array.isArray(out.warnings)
+              ?out.warnings.map(function(item){return String(item||'').trim();}).filter(Boolean).join('；'):'';
+            var exportRevision=out.rendered_revision||revision;
+            if(out.current===false){
+              showStatus('MP4 已完成，但导出期间影片文档发生变化。成片对应 revision '+exportRevision+'，不是当前 revision。'
+                +(qcStatus==='WARNING'?'此外 QC 有警告：'+(qcWarnings||'请打开 QC 记录检查')+'。':''));
+            }else if(qcStatus==='WARNING'){
+              showStatus('MP4 已完成，但 QC 有警告：'+(qcWarnings||'请打开 QC 记录检查')
+                +'。成片已发布，请人工检查后再验收。导出 revision：'+exportRevision);
+            }else if(qcStatus==='PASS'){
+              showStatus('MP4 已完成并通过 QC 检查。导出 revision：'+exportRevision,'success');
+            }else{
+              showStatus('MP4 已完成，但 QC 状态为 '+qcStatus+'；请打开 QC 记录检查。导出 revision：'+exportRevision);
+            }
           }
         }else if(run.status==='FAILED'||run.status==='INTERRUPTED'||run.status==='CANCELLED'){
           terminal=true;S.rendering=false;
