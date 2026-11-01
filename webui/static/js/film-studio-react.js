@@ -27655,7 +27655,8 @@
                           const pointerId = event.nativeEvent.pointerId;
                           if (activePointerId.current !== pointerId) return;
                           finishReactDragAutoScroll(pointerId);
-                          window.filmStudioCancelClipGesture?.(event.nativeEvent);
+                          event.stopPropagation();
+                          window.filmStudioReactTimeline?.cancelClipGesture(event.nativeEvent);
                           Promise.resolve().then(() => {
                             if (activePointerId.current === pointerId) activePointerId.current = null;
                           });
@@ -27692,8 +27693,10 @@
                                 event.stopPropagation();
                                 const pointerId = event.nativeEvent.pointerId;
                                 const bounds = event.currentTarget.getBoundingClientRect();
-                                const started = window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, {
+                                const started = window.filmStudioReactTimeline?.beginEnvelopeGesture(event.nativeEvent, {
                                   clipId: clip.id,
+                                  duration: clip.duration ?? 0,
+                                  points: clip.envelopePoints,
                                   rect: { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height }
                                 });
                                 if (started) {
@@ -27706,8 +27709,10 @@
                               },
                               onPointerMove: (event) => {
                                 if (activeEnvelopePointerId.current === event.nativeEvent.pointerId) {
+                                  event.preventDefault();
+                                  event.stopPropagation();
                                   const bounds = event.currentTarget.getBoundingClientRect();
-                                  window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent, {
+                                  window.filmStudioReactTimeline?.moveEnvelopeGesture(event.nativeEvent, {
                                     left: bounds.left,
                                     top: bounds.top,
                                     width: bounds.width,
@@ -27718,7 +27723,9 @@
                               onPointerUp: (event) => {
                                 const pointerId = event.nativeEvent.pointerId;
                                 if (activeEnvelopePointerId.current !== pointerId) return;
-                                const pending = window.filmStudioEndEnvelopeGesture?.(event.nativeEvent);
+                                event.preventDefault();
+                                event.stopPropagation();
+                                const pending = window.filmStudioReactTimeline?.endEnvelopeGesture(event.nativeEvent);
                                 const clear = () => {
                                   if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
                                 };
@@ -27727,7 +27734,9 @@
                               onPointerCancel: (event) => {
                                 const pointerId = event.nativeEvent.pointerId;
                                 if (activeEnvelopePointerId.current !== pointerId) return;
-                                window.filmStudioCancelEnvelopeGesture?.(event.nativeEvent);
+                                event.preventDefault();
+                                event.stopPropagation();
+                                window.filmStudioReactTimeline?.cancelEnvelopeGesture(event.nativeEvent);
                                 Promise.resolve().then(() => {
                                   if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
                                 });
@@ -28369,6 +28378,132 @@
     },
     setEnvelopePreview(preview) {
       filmStore.setField("timelineEnvelopePreview", preview);
+    },
+    beginEnvelopeGesture(event, context) {
+      const state = filmStore.getSnapshot();
+      const rect = context?.rect;
+      const clipId = String(context?.clipId || "");
+      const duration = Number(context?.duration);
+      const points = Array.isArray(context?.points) ? context.points : [];
+      if (!event || !clipId || event.button !== 0 && event.button !== 2 || !Number.isFinite(duration) || duration <= 0.02 || !rect || ![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0 || points.length < 2 || state.busy || state.broken || state.pendingTransaction !== null || state.pendingExternalRevision || state.timelineGestureContext || state.timelineEnvelopeGesture || !state.film || state.film.exists !== true) {
+        return false;
+      }
+      if (window.filmStudioCanBeginEnvelopeGesture?.() === false) return false;
+      const resolution = filmTimelineMath.resolveEnvelopePointerDown(
+        points,
+        duration,
+        rect.width,
+        rect.height,
+        event.clientX - rect.left,
+        event.clientY - rect.top,
+        event.button,
+        event.shiftKey
+      );
+      if (resolution.kind === "none") return false;
+      if (resolution.kind === "minimum-points") {
+        window.filmStudioShowTimelineStatus?.("\u81F3\u5C11\u9700\u8981\u4E24\u4E2A\u97F3\u91CF\u5173\u952E\u5E27\u3002", "error");
+        return false;
+      }
+      if (resolution.kind === "remove") {
+        const commit = window.filmStudioCommitEnvelopePoints;
+        if (!commit) {
+          window.filmStudioShowTimelineStatus?.("\u97F3\u91CF\u66F2\u7EBF\u63D0\u4EA4\u63A5\u53E3\u4E0D\u53EF\u7528\uFF1B\u672C\u6B21\u5220\u9664\u672A\u5199\u5165\u3002", "error");
+          return false;
+        }
+        void commit(clipId, resolution.points).catch((error) => {
+          window.filmStudioShowTimelineStatus?.("\u5220\u9664\u97F3\u91CF\u5173\u952E\u5E27\u5931\u8D25\uFF1A" + String(error instanceof Error ? error.message : error), "error");
+        });
+        return false;
+      }
+      const gesture = {
+        clipId,
+        pointerId: event.pointerId,
+        rect: { ...rect },
+        points: resolution.points,
+        index: resolution.index,
+        duration,
+        active: resolution.added,
+        changed: resolution.added
+      };
+      filmStore.setField("timelineEnvelopeGesture", gesture);
+      filmStore.setField("timelineEnvelopePreview", { clipId, points: resolution.points });
+      return true;
+    },
+    moveEnvelopeGesture(event, rect) {
+      const gesture = filmStore.getField("timelineEnvelopeGesture");
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      const state = filmStore.getSnapshot();
+      if (state.pendingExternalRevision || !rect || ![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return;
+      const points = filmTimelineMath.moveEnvelopeKeyframe(
+        gesture.points,
+        gesture.index,
+        gesture.duration,
+        rect.width,
+        rect.height,
+        event.clientX - rect.left,
+        event.clientY - rect.top
+      );
+      if (!points) return;
+      filmStore.setField("timelineEnvelopeGesture", {
+        ...gesture,
+        rect: { ...rect },
+        points,
+        active: true,
+        changed: true
+      });
+      filmStore.setField("timelineEnvelopePreview", { clipId: gesture.clipId, points });
+    },
+    async endEnvelopeGesture(event) {
+      const gesture = filmStore.getField("timelineEnvelopeGesture");
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      filmStore.setField("timelineEnvelopeGesture", null);
+      filmStore.setField("timelineEnvelopePreview", null);
+      const state = filmStore.getSnapshot();
+      if (state.pendingExternalRevision) {
+        window.filmStudioShowTimelineStatus?.("\u5F71\u7247 revision \u5728\u97F3\u91CF\u66F2\u7EBF\u62D6\u52A8\u671F\u95F4\u53D8\u5316\uFF1B\u672C\u6B21\u62D6\u52A8\u672A\u63D0\u4EA4\uFF0C\u6B63\u5728\u8F7D\u5165\u5916\u90E8\u7248\u672C\u3002", "error");
+        window.filmStudioFlushPendingExternalRevision?.();
+        return;
+      }
+      if (!gesture.changed) {
+        window.filmStudioFlushPendingExternalRevision?.();
+        return;
+      }
+      const points = filmTimelineMath.normalizeEnvelopePoints(gesture.points);
+      if (points.length < 2) {
+        window.filmStudioShowTimelineStatus?.("\u97F3\u91CF\u66F2\u7EBF\u81F3\u5C11\u9700\u8981\u4E24\u4E2A\u5173\u952E\u5E27\uFF1B\u672C\u6B21\u4FEE\u6539\u672A\u63D0\u4EA4\u3002", "error");
+        window.filmStudioFlushPendingExternalRevision?.();
+        return;
+      }
+      const commit = window.filmStudioCommitEnvelopePoints;
+      if (!commit) {
+        window.filmStudioShowTimelineStatus?.("\u97F3\u91CF\u66F2\u7EBF\u63D0\u4EA4\u63A5\u53E3\u4E0D\u53EF\u7528\uFF1B\u672C\u6B21\u4FEE\u6539\u672A\u5199\u5165\u3002", "error");
+        window.filmStudioFlushPendingExternalRevision?.();
+        return;
+      }
+      try {
+        await commit(gesture.clipId, points);
+      } catch (error) {
+        window.filmStudioShowTimelineStatus?.("\u4FDD\u5B58\u97F3\u91CF\u66F2\u7EBF\u5931\u8D25\uFF1A" + String(error instanceof Error ? error.message : error), "error");
+      } finally {
+        window.filmStudioFlushPendingExternalRevision?.();
+      }
+    },
+    cancelEnvelopeGesture(event) {
+      const gesture = filmStore.getField("timelineEnvelopeGesture");
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      filmStore.setField("timelineEnvelopeGesture", null);
+      filmStore.setField("timelineEnvelopePreview", null);
+      window.filmStudioFlushPendingExternalRevision?.();
+    },
+    cancelClipGesture(event) {
+      const gesture = filmStore.getField("timelineGestureContext");
+      if (gesture && gesture.pointerId !== event.pointerId) return;
+      filmStore.setField("timelineGestureContext", null);
+      filmStore.setField("timelineGesturePreview", null);
+      filmStore.setField("timelineSnapGuide", null);
+      filmStore.setField("timelineDropTarget", null);
+      filmStore.setField("timelineActiveDragIds", null);
+      window.filmStudioFlushPendingExternalRevision?.();
     },
     clearSurface() {
       (0, import_react_dom.flushSync)(() => {
