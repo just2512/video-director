@@ -333,7 +333,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "restoreDirectorPlanningNode('director-bar-card')" in studio
     assert "if(!reactTimeline){" in studio
     assert "window.filmStudioMoveClipGesture = function(e)" in studio
-    assert "window.filmStudioCancelClipGesture?.(event.nativeEvent)" in component
+    assert "window.filmStudioReactTimeline?.cancelClipGesture(event.nativeEvent)" in component
     assert "window.filmStudioCancelClipGesture=function(e)" in studio
     assert "sourceLabels={" in studio
     assert "已载入影片新 revision。修改来源：" in studio

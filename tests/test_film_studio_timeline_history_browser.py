@@ -502,6 +502,14 @@ def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_p
                 target_track = page.locator('#fs-timeline .fs-track[data-track="video-secondary"]')
                 source_clip.wait_for(state="visible")
                 target_track.wait_for(state="visible")
+                page.evaluate("""() => {
+                  window.__legacyClipCancelCalls = 0;
+                  const previous = window.filmStudioCancelClipGesture;
+                  window.filmStudioCancelClipGesture = function(...args) {
+                    window.__legacyClipCancelCalls += 1;
+                    return previous?.apply(this,args);
+                  };
+                }""")
 
                 scale = float(page.evaluate("window.filmStudioStore.getSnapshot().pixelsPerSecond"))
                 source_box = source_clip.bounding_box()
@@ -614,6 +622,7 @@ def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_p
                 assert edit_requests == []
                 assert film_path.read_bytes() == original_bytes
                 assert fd.read_project_film(project_id)["rev"] == original["rev"]
+                assert page.evaluate("window.__legacyClipCancelCalls") == 0
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 page.close()

@@ -648,6 +648,7 @@ interface FilmStudioReactTimelineBridge {
   moveEnvelopeGesture(event: PointerEvent, rect: {left: number; top: number; width: number; height: number}): void;
   endEnvelopeGesture(event: Pick<PointerEvent,"pointerId">): Promise<void>;
   cancelEnvelopeGesture(event: Pick<PointerEvent,"pointerId">): void;
+  cancelClipGesture(event: Pick<PointerEvent,"pointerId">): void;
   clearSurface(): void;
   hasSurface(): boolean;
   openContextMenu(model: FilmTimelineContextMenu): void;
@@ -2249,7 +2250,8 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                 const pointerId=event.nativeEvent.pointerId;
                 if(activePointerId.current!==pointerId)return;
                 finishReactDragAutoScroll(pointerId);
-                window.filmStudioCancelClipGesture?.(event.nativeEvent);
+                event.stopPropagation();
+                window.filmStudioReactTimeline?.cancelClipGesture(event.nativeEvent);
                 Promise.resolve().then(() => {
                   if(activePointerId.current===pointerId)activePointerId.current=null;
                 });
@@ -2989,6 +2991,16 @@ window.filmStudioReactTimeline = {
     if (!gesture || gesture.pointerId !== event.pointerId) return;
     filmStore.setField("timelineEnvelopeGesture",null);
     filmStore.setField("timelineEnvelopePreview",null);
+    window.filmStudioFlushPendingExternalRevision?.();
+  },
+  cancelClipGesture(event) {
+    const gesture = filmStore.getField("timelineGestureContext");
+    if (gesture && gesture.pointerId !== event.pointerId) return;
+    filmStore.setField("timelineGestureContext",null);
+    filmStore.setField("timelineGesturePreview",null);
+    filmStore.setField("timelineSnapGuide",null);
+    filmStore.setField("timelineDropTarget",null);
+    filmStore.setField("timelineActiveDragIds",null);
     window.filmStudioFlushPendingExternalRevision?.();
   },
   clearSurface() {
