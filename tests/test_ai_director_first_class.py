@@ -121,9 +121,11 @@ def test_generated_visual_is_adopted(monkeypatch, pid):
 
     monkeypatch.setattr(Path, "is_file", generated_asset_exists)
 
+    source_version = editor.composition_version(pid)
     original = editor.execute_command
     def fake_execute(project_id, command):
         if command["command"] == "replace_source":
+            assert command["expectedVersion"] == source_version
             from video_director.editor import CommandResult
             ir = editor.load_composition(project_id)
             layer = ir.scenes[0].layers[0]
@@ -225,3 +227,63 @@ def test_director_context_refresh_clears_selection_cache_when_nothing_is_selecte
     assert "const ctx = getSelectionContext();" in function_body
     assert "await apiPost('/api/director/context', {project_id: ED.pid, selection: ctx});" in function_body
     assert "if (ctx.type !== 'none')" not in function_body
+
+def test_generated_visual_adoption_rejects_stale_composition_revision(monkeypatch, pid):
+    class G:
+        asset_id = "generated-stale-1"
+        variant = "A"
+        type = "image"
+        file = "/tmp/generated-stale-1.png"
+        width = 1080
+        height = 1920
+        input_fingerprint = "in"
+        output_fingerprint = "out"
+        provider_id = "test"
+
+        def model_dump(self):
+            return {
+                "asset_id": self.asset_id, "variant": self.variant, "type": self.type,
+                "file": self.file, "width": self.width, "height": self.height,
+                "input_fingerprint": self.input_fingerprint,
+                "output_fingerprint": self.output_fingerprint,
+                "provider_id": self.provider_id,
+            }
+
+    import video_director.generation as gen
+    from video_director.editor import CommandResult
+
+    monkeypatch.setattr(gen, "generate", lambda *args, **kwargs: [G()])
+    original_is_file = Path.is_file
+    monkeypatch.setattr(
+        Path, "is_file",
+        lambda path: True if path == Path(G.file) else original_is_file(path),
+    )
+    source_version = editor.load_composition_snapshot(pid)[1]
+    captured = {}
+
+    def reject_stale_adoption(project_id, command):
+        captured.update(command)
+        return CommandResult(
+            status="REJECTED",
+            composition_version=source_version + 1,
+            errors=[{
+                "code": "CONFLICT",
+                "message": "生成期间项目时间线已变化，请重新生成或手动采用素材",
+                "recoverable": True,
+            }],
+        )
+
+    monkeypatch.setattr(editor, "execute_command", reject_stale_adoption)
+    result = tool_executor.execute_tool(pid, {
+        "tool": "generation.image",
+        "targetId": "scene-1",
+        "payload": {"prompt": "并发修改后不得覆盖用户选择"},
+    })
+
+    assert captured["expectedVersion"] == source_version
+    assert result["ok"] is False
+    assert result["status"] == "REJECTED"
+    assert result["result"]["results"][0]["asset_id"] == "generated-stale-1"
+    assert "CONFLICT" in result["error"]
+
+

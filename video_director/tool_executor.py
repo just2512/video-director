@@ -659,7 +659,11 @@ def _execute_generation(project_id: str, tool: str, payload: dict, target_id) ->
     if gen_type in ("image", "video") and results and target_id:
         first = results[0]
         try:
-            ir = editor.load_composition(project_id)
+            # Generation can take a long time. Pin adoption to the exact
+            # Composition revision used to resolve the target layer so a
+            # concurrent manual edit cannot redirect the generated asset onto
+            # a different layer or overwrite a newer user choice.
+            ir, source_version, _revisions = editor.load_composition_snapshot(project_id)
             target_layer = target_id
             if "#" not in str(target_id):
                 scene = next((s for s in ir.scenes if s.id == target_id), None)
@@ -670,6 +674,7 @@ def _execute_generation(project_id: str, tool: str, payload: dict, target_id) ->
                     "command": "replace_source",
                     "targetId": target_layer,
                     "payload": {"assetId": first.asset_id},
+                    "expectedVersion": source_version,
                     "author": "ai-director",
                 })
                 if result.status == "APPLIED":
