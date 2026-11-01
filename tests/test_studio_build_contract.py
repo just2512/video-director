@@ -440,6 +440,12 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     assert "selectClipWithModifiers(id,e)" not in click_route
     assert "S.playhead=pointerClickedClip.at;" in click_route
     assert "setPlayheadVisual();previewCurrent();" in click_route
+    pointer_down_start = component.index("onPointerDown={event => {", component.index("data-react-timeline-clip={clip.id}"))
+    pointer_down_end = component.index("onPointerMove={event => {", pointer_down_start)
+    pointer_down = component[pointer_down_start:pointer_down_end]
+    assert "timelineBridge.beginClipGesture(event.nativeEvent,gestureContext)" in pointer_down
+    assert "window.filmStudioBeginClipGesture" not in pointer_down
+    assert "React 时间线片段起手接口不可用" in pointer_down
     pointer_move_marker = component.index("dispatchReactClipGesturePreview(pointerEvent);")
     pointer_up_start = component.index("onPointerUp={event => {", pointer_move_marker)
     pointer_up_end = component.index("onPointerCancel={event => {", pointer_up_start)

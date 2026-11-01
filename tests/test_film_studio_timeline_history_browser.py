@@ -536,6 +536,31 @@ def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_p
                   };
                 }""")
 
+                # If the mounted React surface loses its typed start method, refuse the
+                # edit instead of delegating pointerdown to the legacy JS editor. Native
+                # click-to-seek remains available because pointerdown is not default-prevented.
+                page.evaluate("""() => {
+                  window.filmStudioSeek(2);
+                  window.__savedReactClipBegin=window.filmStudioReactTimeline.beginClipGesture;
+                  window.filmStudioReactTimeline.beginClipGesture=undefined;
+                }""")
+                source_clip.click()
+                page.wait_for_function(
+                    "() => Math.abs(window.filmStudioStore.getSnapshot().playhead) < 0.001"
+                )
+                assert page.evaluate(
+                    "window.filmStudioStore.getSnapshot().timelineGestureContext"
+                ) is None
+                assert page.evaluate("window.__legacyClipBeginCalls") == 0
+                assert page.evaluate("window.__reactClipBeginCalls") == 0
+                assert fd.read_project_film(project_id)["rev"] == original["rev"]
+                assert film_path.read_bytes() == original_bytes
+                assert edit_requests == []
+                page.evaluate("""() => {
+                  window.filmStudioReactTimeline.beginClipGesture=window.__savedReactClipBegin;
+                  delete window.__savedReactClipBegin;
+                }""")
+
                 scale = float(page.evaluate("window.filmStudioStore.getSnapshot().pixelsPerSecond"))
                 source_box = source_clip.bounding_box()
                 target_box = target_track.bounding_box()

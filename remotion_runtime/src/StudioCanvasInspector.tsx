@@ -2295,9 +2295,16 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                   targetIsButton:!!elementTarget?.closest("button"),
                 };
                 const timelineBridge=window.filmStudioReactTimeline;
-                const started=timelineBridge && typeof timelineBridge.beginClipGesture === "function"
-                  ? timelineBridge.beginClipGesture(event.nativeEvent,gestureContext)
-                  : window.filmStudioBeginClipGesture?.(event.nativeEvent,gestureContext);
+                if (!timelineBridge || typeof timelineBridge.beginClipGesture !== "function") {
+                  // A mounted React timeline must not fall back into the legacy
+                  // pointer/DOM editor when its typed start contract is incomplete.
+                  event.stopPropagation();
+                  window.filmStudioShowTimelineStatus?.(
+                    "React 时间线片段起手接口不可用；本次编辑已拒绝，未回退到旧版编辑路径。","error"
+                  );
+                  return;
+                }
+                const started=timelineBridge.beginClipGesture(event.nativeEvent,gestureContext);
                 if(started){
                   activePointerId.current=event.nativeEvent.pointerId;
                   try { event.currentTarget.setPointerCapture(event.nativeEvent.pointerId); } catch { /* synthetic events have no active pointer to capture */ }
