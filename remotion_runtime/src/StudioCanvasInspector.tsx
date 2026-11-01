@@ -2268,9 +2268,19 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                 updateReactGestureTarget(event.nativeEvent);
                 finishReactDragAutoScroll(pointerId);
                 const timelineBridge=window.filmStudioReactTimeline;
-                const pending=timelineBridge && typeof timelineBridge.endClipGesture === "function"
-                  ? timelineBridge.endClipGesture(event.nativeEvent)
-                  : window.filmStudioEndClipGesture?.(event.nativeEvent);
+                let pending:Promise<void>|void|boolean;
+                if (timelineBridge && typeof timelineBridge.endClipGesture === "function") {
+                  pending = timelineBridge.endClipGesture(event.nativeEvent);
+                } else if (timelineBridge) {
+                  // A mounted React surface must never finish through the legacy editor.
+                  timelineBridge.cancelClipGesture(event.nativeEvent);
+                } else {
+                  // If the typed bridge vanished after pointerdown, cancel the
+                  // FilmStore gesture through the fail-closed diagnostic adapter.
+                  pending = window.filmStudioCancelReactTimelineGesture?.(
+                    event.nativeEvent,"React pointer-up bridge unavailable"
+                  );
+                }
                 const clear=()=>{if(activePointerId.current===pointerId)activePointerId.current=null;};
                 Promise.resolve(pending).then(clear,clear);
               }}
