@@ -48,7 +48,7 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
     film_path = project_root / fd.FILM_NAME
     film_path.write_text(FILM_HTML, encoding="utf-8")
     initial = fd.read_project_film(project_id)
-    assert initial["ok"] is True and initial["exists"] is True
+    assert initial["exists"] is True and initial["rev"]
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
