@@ -2273,7 +2273,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                   pending = timelineBridge.endClipGesture(event.nativeEvent);
                 } else if (timelineBridge) {
                   // A mounted React surface must never finish through the legacy editor.
-                  timelineBridge.cancelClipGesture(event.nativeEvent);
+                  pending = timelineBridge.cancelClipGesture(event.nativeEvent);
                 } else {
                   // If the typed bridge vanished after pointerdown, cancel the
                   // FilmStore gesture through the fail-closed diagnostic adapter.
