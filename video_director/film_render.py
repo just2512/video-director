@@ -867,6 +867,31 @@ def _visual_frame_qc(path: Path, frame_number: int, fps: int) -> dict:
     }
 
 
+def _audio_signal_qc_finding(audio_specs, audio_qc):
+    """Return a reportable audio-signal check without blocking intentional silence."""
+    if not audio_specs:
+        return None
+    signal_status = str((audio_qc or {}).get("status") or "UNKNOWN").upper()
+    if signal_status == "AUDIBLE":
+        return {"name": "audio_signal", "status": "PASS"}
+    detail = (
+        "时间线包含音频，但音频信号检测为 "
+        + signal_status
+        + "；成片仍可发布，请人工试听并检查增益。"
+    )
+    return {"name": "audio_signal", "status": "WARNING", "detail": detail}
+
+
+def _qc_report_status(checks):
+    """Keep a technically publishable render distinct from unresolved QC warnings."""
+    statuses = {str(check.get("status") or "").upper() for check in checks}
+    if "FAIL" in statuses:
+        return "FAIL"
+    if "WARNING" in statuses:
+        return "WARNING"
+    return "PASS"
+
+
 def _write_qc_report(project_id: str, report: dict) -> Path:
     qc_dir = config.project_dir(project_id) / "qc"
     qc_dir.mkdir(parents=True, exist_ok=True)
@@ -1174,13 +1199,26 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
         # Serialize the final revision check and atomic publish with every
         # application-managed film.html edit/undo/redo transaction.
         current_match = True
-        warnings = []
-        if audio_specs and audio_qc["status"] in {"SILENT", "NEAR_SILENT", "UNKNOWN"}:
-            warnings.append("时间线包含音频，但音频信号检测为 " + audio_qc["status"] + "；请人工试听并检查增益。")
+        audio_signal_check = _audio_signal_qc_finding(audio_specs, audio_qc)
+        warnings = (
+            [audio_signal_check["detail"]]
+            if audio_signal_check and audio_signal_check["status"] == "WARNING"
+            else []
+        )
         revision_status = "CURRENT" if current_match else "STALE"
+        qc_checks = [
+            {"name": "mp4_nonempty", "status": "PASS"},
+            {"name": "video_stream", "status": "PASS"},
+            {"name": "canvas_dimensions", "status": "PASS"},
+            {"name": "timeline_duration", "status": "PASS"},
+            {"name": "audio_stream", "status": "PASS" if (probe.has_audio_stream or not audio_specs) else "FAIL"},
+        ]
+        if audio_signal_check is not None:
+            qc_checks.append(audio_signal_check)
+        qc_checks.append({"name": "deterministic_frames", "status": "PASS"})
         qc_report = {
             "schema_version": 1,
-            "status": "PASS",
+            "status": _qc_report_status(qc_checks),
             "revision_status": revision_status,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "project_id": pid,
@@ -1208,14 +1246,7 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
                 "sample_frames": sample_frames,
             },
             "visual_samples": visual_samples,
-            "checks": [
-                {"name": "mp4_nonempty", "status": "PASS"},
-                {"name": "video_stream", "status": "PASS"},
-                {"name": "canvas_dimensions", "status": "PASS"},
-                {"name": "timeline_duration", "status": "PASS"},
-                {"name": "audio_stream", "status": "PASS" if (probe.has_audio_stream or not audio_specs) else "FAIL"},
-                {"name": "deterministic_frames", "status": "PASS"},
-            ],
+            "checks": qc_checks,
             "warnings": warnings,
         }
         qc_path, after = _publish_render_artifacts(

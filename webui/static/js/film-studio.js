@@ -4105,7 +4105,7 @@ window.filmStudioCopyClips=function(){
             if(qcLink){
               qcLink.hidden=!qcPath;
               qcLink.href=qcPath?'/file?path='+encodeURIComponent(qcPath):'#';
-              qcLink.textContent=out.qc_status==='PASS'?'打开 QC 记录（PASS）':'打开 QC 记录';
+              qcLink.textContent=out.qc_status==='PASS'?'打开 QC 记录（PASS）':(out.qc_status==='WARNING'?'打开 QC 记录（有警告）':'打开 QC 记录');
             }
             resultBox.hidden=false;
           }

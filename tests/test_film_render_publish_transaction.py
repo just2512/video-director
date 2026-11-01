@@ -186,3 +186,31 @@ def test_startup_keeps_workdirs_and_qc_temps_owned_by_live_processes(tmp_path, m
     assert result["qc_temps_removed"] == 0
     assert marker.is_file()
     assert qc_temp.is_file()
+
+
+def test_audio_signal_qc_reports_warning_without_rejecting_a_render():
+    for signal_status in ("SILENT", "NEAR_SILENT", "UNKNOWN"):
+        finding = film_render._audio_signal_qc_finding(
+            [{"clip_id": "voice-1"}],
+            {"status": signal_status},
+        )
+
+        assert finding["name"] == "audio_signal"
+        assert finding["status"] == "WARNING"
+        assert signal_status in finding["detail"]
+        assert film_render._qc_report_status([
+            {"name": "video_stream", "status": "PASS"},
+            finding,
+        ]) == "WARNING"
+
+
+def test_audio_signal_qc_is_pass_for_audible_audio_and_absent_when_no_audio_track():
+    audible = film_render._audio_signal_qc_finding(
+        [{"clip_id": "music-1"}],
+        {"status": "AUDIBLE"},
+    )
+
+    assert audible == {"name": "audio_signal", "status": "PASS"}
+    assert film_render._qc_report_status([audible]) == "PASS"
+    assert film_render._audio_signal_qc_finding([], {"status": "NOT_PRESENT"}) is None
+
