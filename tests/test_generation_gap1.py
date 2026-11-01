@@ -142,3 +142,74 @@ def test_non_generated_candidate_never_triggers_generation(tmp_path, monkeypatch
     # 对抗审查 CRITICAL 1 回归锁：order 遮蔽曾让 asset_order=None 崩掉 planner；
     # 缺 generation_type 时整个补位块被跳过，asset_order 保持函数开头的 list
     assert isinstance(state.get("asset_order"), (list, type(None))) or "asset_order" not in state
+
+
+def test_generation_commit_preserves_assets_imported_during_provider_execution(tmp_path, monkeypatch):
+    """A long-running provider must merge its result into the latest manifest snapshot."""
+    import json
+
+    from video_director import asset_catalog, config, generation, project_manifest
+
+    storage = tmp_path / "composer"
+    monkeypatch.setattr(config, "composer_storage_root", lambda: storage)
+    project_id = "generation-manifest-concurrent"
+    base = config.project_dir(project_id)
+    assets = base / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "manifest.json").write_text(json.dumps([{
+        "id": "pre-existing",
+        "type": "image",
+        "file": "assets/pre-existing.png",
+    }]), encoding="utf-8")
+
+    generated_file = assets / "generated" / "generated-during-provider.png"
+    concurrent_import = {
+        "id": "uploaded-during-provider",
+        "type": "video",
+        "file": "assets/imported/uploaded-during-provider.mp4",
+    }
+
+    def fake_provider(project_id, prompt, width, height, variants, assets_dir, input_fp,
+                      manifest, model=None):
+        # Simulate an upload/stock import finishing while this generation call
+        # still holds its earlier in-memory manifest snapshot.
+        project_manifest.merge_project_manifest_entries(project_id, [concurrent_import])
+        generated_file.parent.mkdir(parents=True, exist_ok=True)
+        generated_file.write_bytes(b"generated fixture")
+        manifest.append({
+            "id": "generated-during-provider",
+            "type": "image",
+            "file": str(generated_file),
+            "source": "generated",
+        })
+        return [generation.GenerationResult(
+            asset_id="generated-during-provider",
+            variant="A",
+            type="image",
+            file=str(generated_file),
+            width=320,
+            height=180,
+            input_fingerprint=input_fp,
+            output_fingerprint=generation._fingerprint(generated_file.read_bytes()),
+            provider_id="test-provider",
+        )]
+
+    monkeypatch.setattr(generation, "_generate_image_or_fallback", fake_provider)
+    monkeypatch.setattr(asset_catalog, "register_generated", lambda *args, **kwargs: {})
+
+    result = generation.generate(
+        project_id,
+        "并发素材清单合并",
+        gen_type="image",
+        width=320,
+        height=180,
+        variant="A",
+    )
+
+    assert [item.asset_id for item in result] == ["generated-during-provider"]
+    manifest = project_manifest.read_project_manifest(project_id)
+    assert {item["id"] for item in manifest} == {
+        "pre-existing",
+        "uploaded-during-provider",
+        "generated-during-provider",
+    }
