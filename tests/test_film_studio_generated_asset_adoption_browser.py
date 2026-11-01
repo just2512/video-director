@@ -1,8 +1,11 @@
 """End-to-end generated-asset adoption and FilmDocument reload recovery in Chromium."""
 from __future__ import annotations
 
+import hashlib
 import importlib
+import json
 import threading
+import wave
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
@@ -22,6 +25,9 @@ FILM_HTML = """<!doctype html>
 <body>
 <section id="video-main" data-label="主画面">
   <img id="base-still" src="assets/base.png#t=0,1" at="0">
+</section>
+<section id="audio-main" data-label="静音验收音轨">
+  <audio id="silent-bed" src="assets/silence.wav#t=0,5" at="0" volume="1"></audio>
 </section>
 </body>
 </html>
@@ -45,6 +51,12 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
     Image.new("RGB", (32, 18), (120, 90, 60)).save(
         project_root / "assets" / "base.png"
     )
+    silent_audio_path = project_root / "assets" / "silence.wav"
+    with wave.open(str(silent_audio_path), "wb") as silent_audio:
+        silent_audio.setnchannels(1)
+        silent_audio.setsampwidth(2)
+        silent_audio.setframerate(44100)
+        silent_audio.writeframes(b"\\x00\\x00" * (44100 * 5))
     film_path = project_root / fd.FILM_NAME
     film_path.write_text(FILM_HTML, encoding="utf-8")
     initial = fd.read_project_film(project_id)
@@ -192,6 +204,50 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
                     timeout=15000,
                 )
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
+
+                # Carry the manually adopted generated still through the actual
+                # Film renderer. A real silent WAV track exercises the report's
+                # WARNING semantics without blocking a technically valid MP4.
+                from video_director import film_render, prober
+
+                rendered = film_render.render_project_film(
+                    project_id, expected_revision=adopted["rev"], fps=2
+                )
+                output = Path(rendered["mp4_path"])
+                qc_path = Path(rendered["qc_report_path"])
+                assert rendered["ok"] is True
+                assert rendered["current"] is True
+                assert rendered["rendered_revision"] == adopted["rev"]
+                assert rendered["revision_status"] == "CURRENT"
+                assert rendered["qc_status"] == "WARNING"
+                assert rendered["audio_signal_status"] in {"SILENT", "NEAR_SILENT"}
+                assert output.is_file() and output.stat().st_size > 0
+                assert qc_path.is_file() and qc_path.stat().st_size > 0
+
+                probe = prober.probe_media(str(output))
+                assert probe.has_video_stream is True
+                assert probe.has_audio_stream is True
+                assert (probe.width, probe.height) == (320, 180)
+                assert probe.duration is not None and abs(float(probe.duration) - 5.0) <= 0.25
+
+                qc = json.loads(qc_path.read_text(encoding="utf-8"))
+                assert qc["status"] == "WARNING"
+                assert qc["source_revision"] == adopted["rev"]
+                assert qc["current_revision"] == adopted["rev"]
+                assert qc["current_revision_match"] is True
+                assert qc["revision_status"] == "CURRENT"
+                assert qc["output"]["size_bytes"] == output.stat().st_size
+                assert qc["output"]["sha256"] == hashlib.sha256(output.read_bytes()).hexdigest()
+                assert qc["audio"]["stream_present"] is True
+                assert qc["audio"]["status"] in {"SILENT", "NEAR_SILENT"}
+                assert qc["warnings"]
+                audio_check = next(
+                    check for check in qc["checks"] if check["name"] == "audio_signal"
+                )
+                assert audio_check["status"] == "WARNING"
+                assert all(
+                    check["status"] in {"PASS", "WARNING"} for check in qc["checks"]
+                )
             finally:
                 page.close()
                 browser.close()
