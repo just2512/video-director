@@ -1,6 +1,7 @@
 """Contracts for the OpenFilm-inspired film document editor."""
 from __future__ import annotations
 
+import concurrent.futures
 import importlib
 import json
 import re
@@ -3309,6 +3310,118 @@ def test_apply_proposal_http_route_is_single_use_and_ignores_client_operations(t
         after_retry = fd.read_project_film(project_id)
         assert after_retry["rev"] == applied["rev"], "replaying a proposal must not create another revision"
         assert film_path.read_bytes() == applied_bytes, "replaying a proposal must not rewrite film.html"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+def test_apply_proposal_concurrent_http_requests_commit_exactly_once(tmp_path, monkeypatch):
+    """Two simultaneous approvals of one proposal must produce one write and one 409."""
+    storage_root = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-proposal-concurrent-api"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    original_bytes = film_path.read_bytes()
+    before = fd.read_project_film(project_id)
+    assert before["exists"] and before["rev"]
+
+    class FakeModel:
+        def generate(self, _prompt):
+            return json.dumps({
+                "summary": "将第二个片段移动到 8.5 秒",
+                "operations": [{
+                    "op": "move", "clip": "clip-b",
+                    "track_id": "video-main", "at": 8.5,
+                }],
+            }, ensure_ascii=False)
+
+    monkeypatch.setattr(web_server.vd_llm, "get_llm", lambda: FakeModel())
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    endpoint = f"http://127.0.0.1:{server.server_port}"
+
+    def send_json(route, payload):
+        request = urllib.request.Request(
+            endpoint + route,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+
+    try:
+        status, generated = send_json("/api/editor/film/command", {
+            "project_id": project_id,
+            "base": before["rev"],
+            "message": "将 clip-b 移动到 8.5 秒",
+        })
+        assert status == 200, generated
+        proposal = generated.get("proposal")
+        assert isinstance(proposal, dict) and proposal.get("id"), generated
+        assert proposal["base_revision"] == before["rev"]
+        assert film_path.read_bytes() == original_bytes
+        assert fd.read_project_film(project_id)["rev"] == before["rev"]
+
+        approval = {
+            "project_id": project_id,
+            "proposal_id": proposal["id"],
+            "base_revision": before["rev"],
+            "ops": [{"op": "remove", "clip": "clip-a"}],
+        }
+        barrier = threading.Barrier(2)
+
+        def approve_once():
+            barrier.wait(timeout=10)
+            request = urllib.request.Request(
+                endpoint + "/api/editor/film/apply-proposal",
+                data=json.dumps(approval, ensure_ascii=False).encode("utf-8"),
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(request, timeout=20) as response:
+                    return response.status, json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as error:
+                return error.code, json.loads(error.read().decode("utf-8"))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(approve_once) for _ in range(2)]
+            results = [future.result(timeout=25) for future in futures]
+
+        successes = [(status, body) for status, body in results if status == 200]
+        conflicts = [(status, body) for status, body in results if status == 409]
+        assert len(successes) == 1, results
+        assert len(conflicts) == 1, results
+        applied_status, applied_payload = successes[0]
+        assert applied_payload.get("ok") is True, applied_payload
+        assert applied_payload.get("base") == before["rev"], applied_payload
+        assert applied_payload.get("source") == "ai_proposal", applied_payload
+        assert applied_payload.get("applied_proposal") == proposal["id"], applied_payload
+        assert applied_payload.get("rev") != before["rev"], applied_payload
+        assert conflicts[0][1].get("code") == "PROPOSAL_NOT_FOUND_OR_STALE", results
+
+        final = fd.read_project_film(project_id)
+        final_bytes = film_path.read_bytes()
+        assert final["rev"] == applied_payload["rev"]
+        assert final_bytes != original_bytes
+        clips = {
+            clip["id"]: clip
+            for track in final["doc"]["tracks"]
+            for clip in track["clips"]
+        }
+        assert "clip-a" in clips, "client-supplied operations must never replace registered proposal operations"
+        assert abs(float(clips["clip-b"]["attrs"]["at"]) - 8.5) < 0.001
+        assert applied_status == 200
     finally:
         server.shutdown()
         server.server_close()
