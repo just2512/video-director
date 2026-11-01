@@ -473,16 +473,6 @@ def project_reference(project_id: str, asset_id: str) -> bool:
     entry = get_asset(asset_id)
     if entry is None:
         raise AssetLibraryError("NOT_FOUND", f"Library 里没有 {asset_id}")
-    base = config.project_dir(project_id)
-    manifest_path = base / "assets" / "manifest.json"
-    existing = []
-    if manifest_path.is_file():
-        try:
-            existing = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            existing = []
-    if any(a.get("id") == asset_id for a in existing):
-        return False  # 已引用（幂等）
     ref = {
         "id": asset_id, "type": entry["type"], "file": entry["file"],
         "duration": entry.get("duration"), "width": entry.get("width"),
@@ -491,11 +481,8 @@ def project_reference(project_id: str, asset_id: str) -> bool:
         "description": entry.get("description", ""),
         "content_hash": entry.get("content_hash", ""),
     }
-    existing.append(ref)
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    manifest_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2),
-                             encoding="utf-8")
-    return True
+    from video_director import project_manifest
+    return bool(project_manifest.merge_project_manifest_entries(project_id, [ref]))
 
 
 # ---------------------------------------------------------------------------

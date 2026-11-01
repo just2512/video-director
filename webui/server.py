@@ -3268,21 +3268,14 @@ class Handler(BaseHTTPRequestHandler):
                     new_assets, _order = vd_assets_mod.build_manifest(
                         video_paths, image_paths,
                         license_note="user-imported-from-picker")
-                    manifest_path = base / "assets" / "manifest.json"
-                    existing = []
-                    if manifest_path.is_file():
-                        try:
-                            existing = json.loads(manifest_path.read_text(encoding="utf-8"))
-                        except (OSError, json.JSONDecodeError):
-                            existing = []
-                    have = {a["id"] for a in existing}
-                    for k, ref in new_assets.items():
-                        if k not in have:
-                            existing.append(json.loads(ref.model_dump_json()))
-                            asset_ids.append(k)
-                    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-                    manifest_path.write_text(
-                        json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+                    from video_director import project_manifest
+                    additions = [
+                        json.loads(ref.model_dump_json())
+                        for ref in new_assets.values()
+                    ]
+                    asset_ids.extend(
+                        project_manifest.merge_project_manifest_entries(project_id, additions)
+                    )
                 # §48 SSE：素材导入事件
                 sse_publish("asset", {"phase": "imported", "project_id": project_id,
                                      "count": len(asset_ids)})
@@ -3938,22 +3931,13 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         new_assets, _ = vd_assets_mod.build_manifest(
                             [], [out["file"]], license_note=f"stock-{asset.provider}")
-                    manifest_path = base / "assets" / "manifest.json"
-                    existing = []
-                    if manifest_path.is_file():
-                        try:
-                            existing = json.loads(manifest_path.read_text(encoding="utf-8"))
-                        except (OSError, json.JSONDecodeError):
-                            existing = []
-                    have = {a["id"] for a in existing}
-                    local_id = None
-                    for k, ref in new_assets.items():
-                        if k not in have:
-                            existing.append(json.loads(ref.model_dump_json()))
-                        local_id = k
-                    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-                    manifest_path.write_text(
-                        json.dumps(existing, ensure_ascii=False, indent=2), encoding="utf-8")
+                    from video_director import project_manifest
+                    additions = [
+                        json.loads(ref.model_dump_json())
+                        for ref in new_assets.values()
+                    ]
+                    project_manifest.merge_project_manifest_entries(pid, additions)
+                    local_id = next(iter(new_assets), None)
                     if local_id:
                         out["asset_id"] = local_id
                     # §31/§39 Stock 素材入 Asset Registry（Library 级台账：
@@ -4738,14 +4722,8 @@ class Handler(BaseHTTPRequestHandler):
                                      "code": "UNAVAILABLE"}, 503)
                     return
                 base = Path(vd_config.composer_storage_root()) / pid
-                manifest_path = base / "assets" / "manifest.json"
-                existing = []
-                if manifest_path.is_file():
-                    try:
-                        existing = json.loads(manifest_path.read_text(encoding="utf-8"))
-                    except (OSError, json.JSONDecodeError):
-                        existing = []
-                src = next((a for a in existing if a.get("id") == layer.asset_id), None)
+                from video_director import project_manifest
+                existing = project_manifest.read_project_manifest(pid)
                 if not src or not src.get("file"):
                     self._send_json({"error": f"素材 {layer.asset_id} 不在项目库"}, 404)
                     return
@@ -4764,19 +4742,18 @@ class Handler(BaseHTTPRequestHandler):
                 new_assets, _ = vd_assets_mod.build_manifest(
                     [str(out_path)], [], license_note="chromakey-matte")
                 new_id = f"{layer.asset_id}-matte"
-                have = {a.get("id") for a in existing}
-                existing = [a for a in existing if a.get("id") != new_id]
-                for k, ref in new_assets.items():
+                additions = []
+                for ref in new_assets.values():
                     ref_dict = json.loads(ref.model_dump_json())
                     ref_dict["id"] = new_id
                     ref_dict["source"] = "extracted"
                     ref_dict["description"] = f"抠像产物（ChromaKey，源自 {layer.asset_id}）"
                     ref_dict["provenance"] = {"provider": "ChromaKey",
                                               "source_asset": layer.asset_id}
-                    existing.append(ref_dict)
-                manifest_path.parent.mkdir(parents=True, exist_ok=True)
-                manifest_path.write_text(json.dumps(existing, ensure_ascii=False, indent=2),
-                                         encoding="utf-8")
+                    additions.append(ref_dict)
+                project_manifest.merge_project_manifest_entries(
+                    pid, additions, replace_ids={new_id},
+                )
                 self._send_json({"ok": True, "asset_id": new_id, "file": str(out_path)})
             except StopIteration:
                 self._send_json({"error": f"目标层 {target} 不存在"}, 404)

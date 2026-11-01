@@ -355,19 +355,13 @@ def _manifest_path(project_id: str) -> Path:
 
 
 def _load_manifest(project_id: str) -> List[dict]:
-    p = _manifest_path(project_id)
-    if not p.is_file():
-        return []
-    try:
-        return json.loads(p.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
+    from video_director.project_manifest import read_project_manifest
+    return read_project_manifest(project_id)
 
 
-def _save_manifest(project_id: str, entries: List[dict]) -> None:
-    p = _manifest_path(project_id)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+def _save_manifest(project_id: str, additions: List[dict]) -> None:
+    from video_director.project_manifest import merge_project_manifest_entries
+    merge_project_manifest_entries(project_id, additions, reject_conflicting_ids=True)
 
 
 def generate(
@@ -444,6 +438,9 @@ def generate(
     input_fp = hashlib.sha256(fp_src.encode("utf-8")).hexdigest()[:16]
     results: List[GenerationResult] = []
     manifest = _load_manifest(project_id)
+    manifest_ids_before_generation = {
+        item.get("id") for item in manifest if isinstance(item.get("id"), str)
+    }
 
     if gen_type == "image":
         results = _generate_image_or_fallback(
@@ -485,7 +482,14 @@ def generate(
         results = _generate_graphic(
             prompt, width, height, variants, assets_dir, input_fp, manifest)
 
-    _save_manifest(project_id, manifest)
+    # Save only this run's additions. The merge helper re-reads the current
+    # manifest under project_lock, preserving uploads and concurrent jobs.
+    manifest_additions = [
+        item for item in manifest
+        if isinstance(item.get("id"), str)
+        and item.get("id") not in manifest_ids_before_generation
+    ]
+    _save_manifest(project_id, manifest_additions)
     # §39 生成产物入 Asset Registry（AI 图片/视频 = 普通 Asset：Library 全局可复用，
     # 与本地/Stock 无差别；失败不阻断生成主链——项目 manifest 已有）。
     try:
