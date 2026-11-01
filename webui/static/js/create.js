@@ -2017,6 +2017,11 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const hasCurrentDraft=!!(
       String(currentFields['cf-director-brief']||'').trim()
       ||String(currentFields['cf-script']||'').trim()
+      ||String(currentFields['cf-article-url']||'').trim()
+      ||String(currentFields['cf-repo-root']||'').trim()
+      ||String(currentFields['cf-series-name']||'').trim()
+      ||String(currentFields['cf-enhanced']||'').trim()
+      ||currentFields['cf-scope']==='series'
       ||(currentContext.asset_refs||[]).length
       ||currentContext.reference||currentContext.article||currentContext.repo
       ||currentContext.narration_upload||currentContext.project_id

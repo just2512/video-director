@@ -777,6 +777,28 @@ def test_history_restore_confirms_before_replacing_active_draft(tmp_path, monkey
                 assert page.locator("#cf-script").input_value() == ""
                 assert "当前草稿保持不变" in (page.locator("#cf-draft-status").text_content() or "")
 
+                # Unsubmitted article and repository inputs are form data too; protect them
+                # even before import/scan has produced a context object.
+                page.evaluate("""() => {
+                    window.CF_DRAFT_CONTEXT.narrationUpload = "";
+                    window.CF_DRAFT_CONTEXT.projectId = "";
+                    window.CF.explicitFields.clear();
+                }""")
+                page.locator("#cf-article-url").fill("https://example.test/unsubmitted-article")
+                page.locator("#cf-repo-root").fill("D:/Projects/unsubmitted")
+                page.evaluate("window.cfPersistCreateDraftNow()")
+                page.wait_for_function("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    const fields = (await response.json())?.draft?.data?.fields || {};
+                    return fields['cf-article-url'] === "https://example.test/unsubmitted-article"
+                      && fields['cf-repo-root'] === "D:/Projects/unsubmitted";
+                }""", timeout=10000)
+                page.evaluate("window.confirm = () => false")
+                page.evaluate("window.cfHistoryRestoreSnapshot('conv-history-restore-protection')")
+                assert page.locator("#cf-article-url").input_value() == "https://example.test/unsubmitted-article"
+                assert page.locator("#cf-repo-root").input_value() == "D:/Projects/unsubmitted"
+                assert "当前草稿保持不变" in (page.locator("#cf-draft-status").text_content() or "")
+
                 page.evaluate("window.confirm = () => true")
                 page.evaluate("window.cfHistoryRestoreSnapshot('conv-history-restore-protection')")
                 assert page.locator("#cf-director-brief").input_value() == "历史对话中的创作要求"
