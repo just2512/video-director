@@ -195,6 +195,40 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
                     for clip in track["clips"]
                 )
 
+                # A delayed action carrying the pre-edit revision must be rejected.
+                # The user can then adopt the same generated asset explicitly from the
+                # refreshed library, where Studio submits the current revision.
+                stale_insert = page.evaluate(
+                    """async ({projectId, base, assetId}) => {
+                      const response = await fetch('/api/editor/film/insert-asset', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                          project_id: projectId,
+                          base,
+                          asset_id: assetId,
+                          at: 0,
+                          still_duration: 5
+                        })
+                      });
+                      return {status: response.status, body: await response.json()};
+                    }""",
+                    {
+                        "projectId": project_id,
+                        "base": initial["rev"],
+                        "assetId": asset_id,
+                    },
+                )
+                assert stale_insert["status"] == 409, stale_insert
+                assert stale_insert["body"].get("code") == "REVISION_CONFLICT", stale_insert
+                after_rejection = fd.read_project_film(project_id)
+                assert after_rejection["rev"] == edited_revision
+                assert not any(
+                    clip["attrs"].get("data-asset-id") == asset_id
+                    for track in after_rejection["doc"]["tracks"]
+                    for clip in track["clips"]
+                )
+
                 page.evaluate("() => window.filmStudioLoadLibrary()")
                 add_button = page.locator(f'[data-add-asset="{asset_id}"]')
                 add_button.wait_for(state="visible")
