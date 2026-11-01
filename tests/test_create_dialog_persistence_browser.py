@@ -68,15 +68,21 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                 assert page.evaluate("""() => {
                     const brief=document.getElementById('cf-director-brief');
                     const script=document.getElementById('cf-script');
-                    const actions=document.getElementById('cf-quick-actions');
-                    return !!brief&&!!script&&!!actions
-                      && script.closest('.panel')?.contains(actions)
-                      && !brief.parentElement?.contains(actions);
+                    const goalActions=document.getElementById('cf-quick-actions');
+                    const scriptActions=document.getElementById('cf-script-actions');
+                    return !!brief&&!!script&&!!goalActions&&!!scriptActions
+                      && brief.closest('.panel')?.contains(goalActions)
+                      && !!goalActions.querySelector('[onclick="cfGenerateScript()"]')
+                      && !!goalActions.querySelector('[onclick="cfMakeGraphicPlan()"]')
+                      && script.closest('.panel')?.contains(scriptActions)
+                      && !!scriptActions.querySelector('[onclick="createEnhance()"]');
                 }""")
                 page.locator("#cf-director-brief").fill("持久化测试：保留我的创作目标")
                 page.locator("#cf-input-context-details summary").click()
                 page.locator("#cf-script").fill("持久化测试：保留我的权威文案")
                 page.locator("#cf-platform").select_option("xhs")
+                page.locator("#cf-input-context-details summary").click()
+                assert page.locator("#cf-input-context-details").evaluate("(node) => !node.open")
 
                 page.wait_for_function("""async () => {
                   const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
@@ -120,7 +126,7 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                   document.getElementById('cf-director-brief')?.value === '持久化测试：保留我的创作目标'
                   && document.getElementById('cf-script')?.value === '持久化测试：保留我的权威文案'
                 """, timeout=10000)
-                assert page.locator("#cf-input-context-details").evaluate("(node) => node.open")
+                assert page.locator("#cf-input-context-details").evaluate("(node) => !node.open")
                 assert not errors
             finally:
                 browser.close()
@@ -170,7 +176,7 @@ def test_script_generation_and_polish_reveal_and_persist_content(tmp_path, monke
                 assert page.locator("#cf-script").is_visible()
                 assert page.locator("#cf-script-gen-status").is_visible()
 
-                page.locator('#cf-quick-actions button[onclick="createEnhance()"]').click()
+                page.locator('#cf-script-actions button[onclick="createEnhance()"]').click()
                 page.wait_for_function("""() =>
                     document.getElementById('cf-enhance-box')?.style.display !== 'none'
                     && document.getElementById('cf-input-context-details')?.open
@@ -626,6 +632,45 @@ def test_sfx_duplicate_labels_are_disambiguated_and_select_options_are_safe(tmp_
                 assert page.locator("#cf-sfx img").count() == 0
                 assert page.locator("#cf-sfx option").first.text_content() == unsafe_label
                 assert page.evaluate("window.__sfxInjected") is False
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+
+def test_active_draft_with_only_explicit_settings_is_resumable_from_history(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("openCreate()")
+                page.locator("#cf-input-context-details").wait_for(state="attached")
+                page.locator("#cf-platform").select_option("xhs")
+                page.wait_for_function("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    const payload = await response.json();
+                    return payload?.draft?.data?.explicit_fields?.includes('platform');
+                }""", timeout=10000)
+
+                page.locator("#cf-history-inline-launch").click()
+                draft_card = page.locator("#cf-history-draft")
+                draft_card.locator('button[data-history-action="resume-draft"]').wait_for()
+                assert "平台" in draft_card.inner_text()
+                assert "已调整" in draft_card.inner_text()
+
+                draft_card.locator('button[data-history-action="resume-draft"]').click()
+                page.wait_for_function("document.getElementById('cf-history-drawer') === null")
+                assert page.locator("#cf-mask").evaluate("(node) => node.style.display === 'flex'")
+                assert page.locator("#cf-platform").input_value() == "xhs"
                 assert not errors
             finally:
                 browser.close()

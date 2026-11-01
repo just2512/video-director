@@ -1641,7 +1641,13 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
             ||!!(context.asset_refs&&context.asset_refs.length)
             ||!!context.reference||!!context.article||!!context.repo;
           const supplement=document.getElementById('cf-input-context-details');
-          if(supplement&&hasSupplementaryContent)supplement.open=true;
+          const savedDisclosures=data.ui?.disclosures||{};
+          const hasSavedSupplementState=Object.prototype.hasOwnProperty.call(
+            savedDisclosures,'cf-input-context-details'
+          );
+          // Preserve an explicit user choice. Auto-open only for snapshots
+          // written before disclosure state was persisted.
+          if(supplement&&hasSupplementaryContent&&!hasSavedSupplementState)supplement.open=true;
           writeLocalDraft(snapshot());
           const st=document.getElementById('cf-draft-status');
           if(st)st.textContent=useLocal?'已恢复本机草稿，正在同步到项目服务':'已恢复上次保存的创作草稿';
@@ -1668,24 +1674,36 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       const close=header.querySelector('button[onclick="closeCreate()"]');if(close){close.textContent='收起';close.title='隐藏窗口，保留当前草稿';}
     }
     const brief=document.getElementById('cf-director-brief');
+    const goalPanel=brief?.closest('.panel');
     const scriptPanel=document.getElementById('cf-script')?.closest('.panel');
-    // 文案工具只放在权威文案区，避免把“创作目标”和“文案编辑”混成同一输入。
-    if(brief&&scriptPanel&&!document.getElementById('cf-quick-actions')){
+
+    // 文案生成与图形预览属于创作目标操作，保持常驻可见。
+    if(brief&&goalPanel&&!document.getElementById('cf-quick-actions')){
       const actions=document.createElement('div');actions.id='cf-quick-actions';actions.className='btn-row';actions.style.marginTop='8px';
-      actions.innerHTML='<button type="button" class="btn-secondary btn-sm" onclick="cfGenerateScript()">单独生成文案</button><button type="button" class="btn-secondary btn-sm" onclick="createEnhance()">AI 润色文案</button><button type="button" class="btn-secondary btn-sm" onclick="cfMakeGraphicPlan()">图形方案预览</button>';
+      actions.innerHTML='<button type="button" class="btn-secondary btn-sm" onclick="cfGenerateScript()">单独生成文案</button><button type="button" class="btn-secondary btn-sm" onclick="cfMakeGraphicPlan()">图形方案预览</button>';
+      goalPanel.appendChild(actions);
+    }
+    // 润色依赖权威文案，因此放在文案字段旁边。
+    if(scriptPanel&&!document.getElementById('cf-script-actions')){
+      const actions=document.createElement('div');actions.id='cf-script-actions';actions.className='btn-row';actions.style.marginTop='8px';
+      actions.innerHTML='<button type="button" class="btn-secondary btn-sm" onclick="createEnhance()">AI 润色文案</button>';
       scriptPanel.appendChild(actions);
     }
     const quickActions=document.getElementById('cf-quick-actions');
-    form.querySelectorAll('button[onclick="createEnhance()"],button[onclick="cfMakeGraphicPlan()"]').forEach(button=>{
-      if(!quickActions || !quickActions.contains(button)) button.remove();
+    const scriptActions=document.getElementById('cf-script-actions');
+    form.querySelectorAll('button[onclick="createEnhance()"]').forEach(button=>{
+      if(!scriptActions?.contains(button))button.remove();
+    });
+    form.querySelectorAll('button[onclick="cfMakeGraphicPlan()"]').forEach(button=>{
+      if(!quickActions?.contains(button))button.remove();
     });
     const scriptStatus=document.getElementById('cf-script-gen-status');
     const enhanceStatus=document.getElementById('cf-enhance-status');
     const enhanceStatusRow=enhanceStatus?.closest('.btn-row');
     if(quickActions&&scriptStatus){scriptStatus.style.flexBasis='100%';quickActions.appendChild(scriptStatus);}
-    if(quickActions&&enhanceStatus){
-      enhanceStatus.style.flexBasis='100%';quickActions.appendChild(enhanceStatus);
-      if(enhanceStatusRow&&enhanceStatusRow!==quickActions)enhanceStatusRow.remove();
+    if(scriptActions&&enhanceStatus){
+      enhanceStatus.style.flexBasis='100%';scriptActions.appendChild(enhanceStatus);
+      if(enhanceStatusRow&&enhanceStatusRow!==scriptActions)enhanceStatusRow.remove();
     }
     const enhanceBox=document.getElementById('cf-enhance-box');
     if(scriptPanel&&enhanceBox&&!scriptPanel.contains(enhanceBox))scriptPanel.appendChild(enhanceBox);
@@ -1883,8 +1901,22 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const script=String(fields['cf-script']||'').trim();
     const refs=Array.isArray(context.asset_refs)?context.asset_refs:[];
     const hasContext=!!(refs.length||context.reference||context.article||context.repo||context.narration_upload);
-    if(!draft||(!brief&&!script&&!hasContext)){host.innerHTML='';return;}
-    const preview=(brief||script||(refs.length?'已保存 '+refs.length+' 个素材':'已保存补充资料')).slice(0,160);
+    const explicitFields=Array.isArray(data.explicit_fields)?data.explicit_fields:[];
+    const settingLabels={
+      platform:'平台',duration:'时长',style:'风格',resolution:'分辨率',voice:'音色',
+      voice_mode:'配音方式',voice_rate:'语速',narration_volume:'旁白音量',
+      bgm:'背景音乐',bgm_volume:'背景音乐音量',sfx:'音效',subtitle_mode:'字幕',
+      fit_mode:'画面适配',clip_duration:'单段时长',clip_speed:'播放速度',
+      concat_mode:'素材顺序',transition_mode:'转场',watermark:'水印',
+      lower_third_name:'人物条姓名',lower_third_role:'人物条头衔'
+    };
+    const changedSettings=explicitFields.map(field=>settingLabels[field]||'').filter(Boolean);
+    const hasSettings=changedSettings.length>0;
+    if(!draft||(!brief&&!script&&!hasContext&&!hasSettings)){host.innerHTML='';return;}
+    const detail=refs.length?'已保存 '+refs.length+' 个素材'
+      :hasContext?'已保存补充资料'
+      :hasSettings?'已调整：'+changedSettings.join('、'):'已保存补充资料';
+    const preview=(brief||script||detail).slice(0,160);
     const updated=Number(draft.updated_at||0);
     const source=draft.local_only?'本机草稿':'已同步草稿';
     host.innerHTML='<div class="panel" style="padding:10px;margin:0 0 10px">'+
@@ -1945,10 +1977,12 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     });
     await window.cfHistoryRefresh();
   };
-  window.cfHistoryResumeDraft=async function(){
-    const result=await window.openCreate();
-    document.getElementById('cf-history-drawer')?.remove();
-    return result;
+  window.cfHistoryResumeDraft=function(){
+    const drawer=document.getElementById('cf-history-drawer');
+    const mask=document.getElementById('cf-mask');
+    drawer?.remove();
+    if(mask&&mask.style.display!=='none')return Promise.resolve(true);
+    return window.openCreate();
   };
   window.cfHistoryOpenConversation=async function(id){
     const list=document.getElementById('cf-history-list');if(!list)return;
