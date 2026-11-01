@@ -141,7 +141,12 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     )
 
     from video_director import editor as vd_editor
-    monkeypatch.setattr(vd_editor, "composition_version", lambda _project_id: 7)
+    # Film initialization already holds project_lock and intentionally uses
+    # the internal unlocked reader rather than re-entering the public API.
+    monkeypatch.setattr(
+        vd_editor, "_read_legacy_composition_version",
+        lambda _project_id, revisions=None: 7,
+    )
     initialized = fd.initialize_project_film(
         project_id, result["document"], result["pages"], 7, result["warnings"],
         selected_variant_id=result["selected_variant_id"],
