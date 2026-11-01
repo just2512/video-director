@@ -37,7 +37,7 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
     web_server = importlib.reload(web_server)
     web_server.COMPOSER_ROOT = storage_root
 
-    project_id = "film-generated-asset-adoption-e2e"
+    project_id = "web-film-generated-asset-adoption-e2e"
     project_root = config.project_dir(project_id)
     config.init_project_dirs(project_root)
     store.create_project(project_id, "生成素材手动采用回归", {"name": "生成素材手动采用回归"})
