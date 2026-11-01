@@ -772,6 +772,12 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 page.evaluate("""() => {
                   window.__reactClipEndCalls = 0;
                   window.__legacyClipEndCalls = 0;
+                  window.__reactClipCommitAdapterCalls = 0;
+                  const commitAdapter = window.filmStudioCommitPreparedClipOperations;
+                  window.filmStudioCommitPreparedClipOperations = function(...args) {
+                    window.__reactClipCommitAdapterCalls += 1;
+                    return commitAdapter.apply(this,args);
+                  };
                   const bridge = window.filmStudioReactTimeline;
                   const reactEnd = bridge.endClipGesture;
                   bridge.endClipGesture = function(...args) {
@@ -1038,9 +1044,12 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 assert len(edit_requests) == 1, edit_requests
                 pointerup_ownership = page.evaluate("""() => ({
                   reactEnd:window.__reactClipEndCalls,
-                  legacyEnd:window.__legacyClipEndCalls
+                  legacyEnd:window.__legacyClipEndCalls,
+                  commitAdapter:window.__reactClipCommitAdapterCalls
                 })""")
-                assert pointerup_ownership == {"reactEnd": 2, "legacyEnd": 0}, pointerup_ownership
+                assert pointerup_ownership == {
+                  "reactEnd": 2, "legacyEnd": 0, "commitAdapter": 1
+                }, pointerup_ownership
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 page.close()

@@ -3041,8 +3041,9 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     }
     onMove(e);
   };
-  window.filmStudioFinishReactClipGesture = function(e,operations){
-    return finishReactClipGesture(e,operations);
+  window.filmStudioCommitPreparedClipOperations = function(operations){
+    if(!Array.isArray(operations))return Promise.resolve(false);
+    return filmStudioCommitExactRevision(operations,{requireExactRevision:true});
   };
   window.filmStudioCancelReactTimelineGesture = function(e,reason){
     return cancelReactTimelineGestureAfterContractLoss(e,reason);

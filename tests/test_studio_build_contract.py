@@ -449,7 +449,8 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     assert "window.filmStudioEndClipGesture?.(event.nativeEvent)" not in pointer_up
     assert "endClipGesture(event:PointerEvent): Promise<void> | void;" in component
     assert "typeof bridge.endClipGesture==='function'&&" in legacy
-    assert "window.filmStudioFinishReactClipGesture = function(e,operations)" in legacy
+    assert "window.filmStudioCommitPreparedClipOperations = function(operations)" in legacy
+    assert "return filmStudioCommitExactRevision(operations,{requireExactRevision:true});" in legacy
 
     finish_start = legacy.index("async function finishReactClipGesture(e, preparedOperations)")
     finish_end = legacy.index("async function onUp(e)", finish_start)
@@ -492,7 +493,11 @@ def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
     end_end = component.index("zoom(direction,anchorClientX)", end_start)
     end_body = component[end_start:end_end]
     assert "bridge.prepareClipGestureCommit(event)" in end_body
-    assert "return finish(event,prepared);" in end_body
+    assert "const commit = window.filmStudioCommitPreparedClipOperations;" in end_body
+    assert "filmStore.setField(\"timelineGesturePreview\",null);" in end_body
+    assert "filmStore.setField(\"timelineGestureContext\",null);" in end_body
+    assert "suppressReactClipClick()" in end_body
+    assert "return Promise.resolve(commit!(prepared)).then(" in end_body
     assert "cancel(\"missing commit runtime bridge/controller contract\")" in end_body
 
 def test_self_hosted_workflows_share_runner_checkout_concurrency_lock():

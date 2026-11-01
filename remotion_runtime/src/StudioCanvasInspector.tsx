@@ -49,6 +49,21 @@ const dispatchReactClipGesturePreview = (event:FilmStudioGesturePointerInput):vo
   window.filmStudioMoveClipGesture?.(event);
 };
 
+let reactClipClickSuppressionGeneration = 0;
+const clearReactClipClickSuppression = ():void => {
+  reactClipClickSuppressionGeneration += 1;
+  filmStore.setField("timelineSkipNextClipClick",false);
+};
+const suppressReactClipClick = ():void => {
+  const generation = ++reactClipClickSuppressionGeneration;
+  filmStore.setField("timelineSkipNextClipClick",true);
+  window.setTimeout(() => {
+    if (generation === reactClipClickSuppressionGeneration) {
+      filmStore.setField("timelineSkipNextClipClick",false);
+    }
+  },500);
+};
+
 function useFilmStoreField<K extends keyof FilmStudioStoreSnapshot>(key: K): FilmStudioStoreSnapshot[K] {
   const subscribe = useCallback((listener: () => void) => filmStore.subscribeField(key, listener), [key]);
   const getSnapshot = useCallback(() => filmStore.getField(key), [key]);
@@ -718,7 +733,7 @@ declare global {
     }) => boolean | void;
     filmStudioMoveClipGesture?: (event: FilmStudioGesturePointerInput) => void;
     filmStudioEndClipGesture?: (event: PointerEvent) => Promise<void> | void;
-    filmStudioFinishReactClipGesture?: (event:PointerEvent,operations:FilmOperation[]) => Promise<void>;
+    filmStudioCommitPreparedClipOperations?: (operations:FilmOperation[]) => Promise<boolean>;
     filmStudioCancelReactTimelineGesture?: (event:PointerEvent,reason:string) => boolean;
     filmStudioCancelClipGesture?: (event: PointerEvent) => void;
     filmStudioOwnsClipGesturePointer?: (pointerId: number) => boolean;
@@ -2868,6 +2883,7 @@ window.filmStudioReactTimeline = {
       !!initial.pendingExternalRevision || !!initial.timelineGestureContext ||
       !!initial.timelineEnvelopeGesture;
     if (!event || event.button !== 0 || !context?.clipId || context.targetIsButton) return false;
+    clearReactClipClickSuppression();
     if (blocked || !initial.film || timelineRecord(initial.film).exists !== true) {
       event.preventDefault();
       window.filmStudioShowTimelineStatus?.(
@@ -2991,20 +3007,92 @@ window.filmStudioReactTimeline = {
       cancel("missing commit runtime bridge/controller contract");
       return;
     }
+
+    let prepared:FilmOperation[]|undefined;
     try {
-      const prepared = bridge.prepareClipGestureCommit(event);
-      if (!Array.isArray(prepared)) {
-        cancel("prepareClipGestureCommit returned "+(prepared === null ? "null" : typeof prepared));
-        return;
-      }
-      const finish = window.filmStudioFinishReactClipGesture;
-      if (typeof finish !== "function") {
-        cancel("missing exact-revision finalizer adapter");
-        return;
-      }
-      return finish(event,prepared);
+      prepared = bridge.prepareClipGestureCommit(event);
     } catch (error) {
       cancel("prepareClipGestureCommit threw: "+String(error instanceof Error ? error.stack || error.message : error));
+      return;
+    }
+    if (!Array.isArray(prepared)) {
+      cancel("prepareClipGestureCommit returned "+(prepared === null ? "null" : typeof prepared));
+      return;
+    }
+
+    const finalState = filmStore.getSnapshot();
+    const finalGesture = finalState.timelineGestureContext;
+    if (!finalGesture || finalGesture.pointerId !== event.pointerId) return;
+    const commit = window.filmStudioCommitPreparedClipOperations;
+    if (prepared.length && typeof commit !== "function") {
+      cancel("missing exact-revision commit adapter");
+      return;
+    }
+
+    // React owns the entire gesture lifecycle. Clear all transient FilmStore fields
+    // before any revision-bound write; React derives its classes and geometry from them.
+    if (finalGesture.active) suppressReactClipClick();
+    flushSync(() => {
+      filmStore.setField("timelineGesturePreview",null);
+      filmStore.setField("timelineSnapGuide",null);
+      filmStore.setField("timelineDropTarget",null);
+      filmStore.setField("timelineActiveDragIds",null);
+      filmStore.setField("timelineGestureContext",null);
+    });
+
+    if (finalState.pendingExternalRevision) {
+      window.filmStudioShowTimelineStatus?.(
+        "影片 revision 在拖动期间变化；本次旧画面拖动未提交，先载入外部版本。","error"
+      );
+      window.filmStudioFlushPendingExternalRevision?.();
+      return;
+    }
+    if (!finalGesture.active) {
+      if (finalGesture.mode === "slide" || finalGesture.mode === "slip") {
+        const film = timelineRecord(finalState.film);
+        const tracks = Array.isArray(film.tracks) ? film.tracks : [];
+        let clickedAt:number|null = null;
+        for (const rawTrack of tracks) {
+          const track = timelineRecord(rawTrack);
+          const clips = Array.isArray(track.clips) ? track.clips : [];
+          for (const rawClip of clips) {
+            const clip = timelineRecord(rawClip);
+            if (String(clip.id || "") !== finalGesture.id) continue;
+            const at = Number(clip.at);
+            if (Number.isFinite(at)) clickedAt = at;
+            break;
+          }
+          if (clickedAt !== null) break;
+        }
+        if (clickedAt !== null) window.filmStudioSeek?.(clickedAt);
+      }
+      window.filmStudioFlushPendingExternalRevision?.();
+      return;
+    }
+    if (finalGesture.invalidTargetMessage) {
+      window.filmStudioShowTimelineStatus?.(finalGesture.invalidTargetMessage,"error");
+      window.filmStudioFlushPendingExternalRevision?.();
+      return;
+    }
+    if (!prepared.length) {
+      window.filmStudioFlushPendingExternalRevision?.();
+      return;
+    }
+    try {
+      return Promise.resolve(commit!(prepared)).then(
+        () => undefined,
+        error => {
+          window.filmStudioShowTimelineStatus?.(
+            "保存片段操作失败："+String(error instanceof Error ? error.message : error),"error"
+          );
+          window.filmStudioFlushPendingExternalRevision?.();
+        }
+      );
+    } catch (error) {
+      window.filmStudioShowTimelineStatus?.(
+        "保存片段操作失败："+String(error instanceof Error ? error.message : error),"error"
+      );
+      window.filmStudioFlushPendingExternalRevision?.();
     }
   },
   zoom(direction,anchorClientX) {

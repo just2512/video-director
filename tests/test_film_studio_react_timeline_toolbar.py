@@ -221,7 +221,8 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "timelineBridge.endClipGesture(event.nativeEvent)" in component
     assert "await filmStudioCommitExactRevision(preparedOperations,{requireExactRevision:true});" in studio
     assert "if(Array.isArray(prepared))return finishReactClipGesture(e,prepared);" in studio
-    assert "window.filmStudioFinishReactClipGesture = function(e,operations)" in studio
+    assert "window.filmStudioCommitPreparedClipOperations = function(operations)" in studio
+    assert "return filmStudioCommitExactRevision(operations,{requireExactRevision:true});" in studio
     assert "window.filmStudioCancelReactTimelineGesture = function(e,reason)" in studio
     assert "reactPreparedOperations" not in studio
 
