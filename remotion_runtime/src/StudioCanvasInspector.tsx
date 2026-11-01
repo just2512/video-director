@@ -36,17 +36,47 @@ type FilmStudioGesturePointerInput = Pick<PointerEvent,"pointerId"|"clientX"|"cl
   skipAutoScroll?: boolean;
 };
 
+type FilmStudioGestureCancellationInput = Pick<PointerEvent,"pointerId"> &
+  Partial<Pick<PointerEvent,"preventDefault"|"stopPropagation">>;
+
+const cancelReactClipGesture = (
+  event:FilmStudioGestureCancellationInput,
+  reason?:string,
+):boolean => {
+  const gesture = filmStore.getField("timelineGestureContext");
+  if (!gesture || gesture.pointerId !== event.pointerId) return false;
+  event.preventDefault?.();
+  event.stopPropagation?.();
+  if (reason) window.filmStudioRecordTimelineGestureCancellation?.(event,reason);
+  flushSync(() => {
+    filmStore.setField("timelineGesturePreview",null);
+    filmStore.setField("timelineSnapGuide",null);
+    filmStore.setField("timelineDropTarget",null);
+    filmStore.setField("timelineActiveDragIds",null);
+    filmStore.setField("timelineGestureContext",null);
+  });
+  if (reason) {
+    window.filmStudioShowTimelineStatus?.(
+      "React 时间线手势已取消（"+reason+"）；瞬态预览已清理，未回退到旧版编辑路径。","error"
+    );
+  }
+  window.filmStudioFlushPendingExternalRevision?.();
+  return true;
+};
+
 const dispatchReactClipGesturePreview = (event:FilmStudioGesturePointerInput):void => {
   const bridge = window.filmStudioReactTimeline;
-  if (bridge && typeof bridge.previewClipGesture === "function") {
-    try {
-      bridge.previewClipGesture(event);
-      return;
-    } catch {
-      // The compatibility adapter records the failure and clears the gesture fail-closed.
-    }
+  if (!bridge || typeof bridge.previewClipGesture !== "function") {
+    cancelReactClipGesture(event,"React typed preview bridge unavailable");
+    return;
   }
-  window.filmStudioMoveClipGesture?.(event);
+  try {
+    bridge.previewClipGesture(event);
+  } catch (error) {
+    cancelReactClipGesture(
+      event,"previewClipGesture threw: "+String(error instanceof Error ? error.stack || error.message : error)
+    );
+  }
 };
 
 let reactClipClickSuppressionGeneration = 0;
@@ -734,7 +764,7 @@ declare global {
     filmStudioMoveClipGesture?: (event: FilmStudioGesturePointerInput) => void;
     filmStudioEndClipGesture?: (event: PointerEvent) => Promise<void> | void;
     filmStudioCommitPreparedClipOperations?: (operations:FilmOperation[]) => Promise<boolean>;
-    filmStudioCancelReactTimelineGesture?: (event:PointerEvent,reason:string) => boolean;
+    filmStudioRecordTimelineGestureCancellation?: (event:FilmStudioGestureCancellationInput,reason:string) => void;
     filmStudioCancelClipGesture?: (event: PointerEvent) => void;
     filmStudioOwnsClipGesturePointer?: (pointerId: number) => boolean;
     filmStudioBeginEnvelopeGesture?: (event: PointerEvent, context: {clipId: string; rect: {left: number; top: number; width: number; height: number}}) => boolean;
@@ -2286,13 +2316,10 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                 let pending:Promise<void>|void|boolean;
                 if (timelineBridge && typeof timelineBridge.endClipGesture === "function") {
                   pending = timelineBridge.endClipGesture(event.nativeEvent);
-                } else if (timelineBridge) {
-                  // A mounted React surface must never finish through the legacy editor.
-                  pending = timelineBridge.cancelClipGesture(event.nativeEvent);
                 } else {
-                  // If the typed bridge vanished after pointerdown, cancel the
-                  // FilmStore gesture through the fail-closed diagnostic adapter.
-                  pending = window.filmStudioCancelReactTimelineGesture?.(
+                  // A missing or partial typed bridge cancels the FilmStore gesture;
+                  // it must never route pointerup through the legacy editor.
+                  pending = cancelReactClipGesture(
                     event.nativeEvent,"React pointer-up bridge unavailable"
                   );
                 }
@@ -2304,7 +2331,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                 if(activePointerId.current!==pointerId)return;
                 finishReactDragAutoScroll(pointerId);
                 event.stopPropagation();
-                window.filmStudioReactTimeline?.cancelClipGesture(event.nativeEvent);
+                cancelReactClipGesture(event.nativeEvent);
                 Promise.resolve().then(() => {
                   if(activePointerId.current===pointerId)activePointerId.current=null;
                 });
@@ -2993,15 +3020,7 @@ window.filmStudioReactTimeline = {
       method => typeof controller[method] === "function"
     );
     const cancel = (reason:string):void => {
-      try {
-        if (typeof window.filmStudioCancelReactTimelineGesture === "function") {
-          window.filmStudioCancelReactTimelineGesture(event,reason);
-        } else {
-          bridge?.cancelClipGesture(event);
-        }
-      } catch {
-        bridge?.cancelClipGesture(event);
-      }
+      cancelReactClipGesture(event,reason);
     };
     if (!bridge || typeof bridge.prepareClipGestureCommit !== "function" || !controllerReady) {
       cancel("missing commit runtime bridge/controller contract");
@@ -3248,14 +3267,7 @@ window.filmStudioReactTimeline = {
     window.filmStudioFlushPendingExternalRevision?.();
   },
   cancelClipGesture(event) {
-    const gesture = filmStore.getField("timelineGestureContext");
-    if (gesture && gesture.pointerId !== event.pointerId) return;
-    filmStore.setField("timelineGestureContext",null);
-    filmStore.setField("timelineGesturePreview",null);
-    filmStore.setField("timelineSnapGuide",null);
-    filmStore.setField("timelineDropTarget",null);
-    filmStore.setField("timelineActiveDragIds",null);
-    window.filmStudioFlushPendingExternalRevision?.();
+    cancelReactClipGesture(event);
   },
   clearSurface() {
     // The legacy project-switch path may immediately replace #fs-timeline children

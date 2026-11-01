@@ -2948,6 +2948,12 @@ def test_react_clip_gesture_cancels_if_bridge_contract_disappears_midgesture(
                   window.__reactClipEndCalls = 0;
                   window.__legacyClipEndCalls = 0;
                   window.__typedClipCancelCalls = 0;
+                  window.__legacyClipMoveCalls = 0;
+                  const legacyMove = window.filmStudioMoveClipGesture;
+                  window.filmStudioMoveClipGesture = function(...args) {
+                    window.__legacyClipMoveCalls += 1;
+                    return legacyMove?.apply(this,args);
+                  };
                   const bridge = window.filmStudioReactTimeline;
                   const reactEnd = bridge.endClipGesture;
                   bridge.endClipGesture = function(...args) {
@@ -2959,8 +2965,8 @@ def test_react_clip_gesture_cancels_if_bridge_contract_disappears_midgesture(
                     window.__legacyClipEndCalls += 1;
                     return legacyEnd?.apply(this,args);
                   };
-                  const typedCancel = window.filmStudioCancelReactTimelineGesture;
-                  window.filmStudioCancelReactTimelineGesture = function(...args) {
+                  const typedCancel = window.filmStudioRecordTimelineGestureCancellation;
+                  window.filmStudioRecordTimelineGestureCancellation = function(...args) {
                     window.__typedClipCancelCalls += 1;
                     return typedCancel?.apply(this,args);
                   };
@@ -3051,10 +3057,11 @@ def test_react_clip_gesture_cancels_if_bridge_contract_disappears_midgesture(
                 pointerup_ownership = page.evaluate("""() => ({
                   reactEnd:window.__reactClipEndCalls,
                   legacyEnd:window.__legacyClipEndCalls,
-                  typedCancel:window.__typedClipCancelCalls
+                  typedCancel:window.__typedClipCancelCalls,
+                  legacyMove:window.__legacyClipMoveCalls
                 })""")
                 assert pointerup_ownership == {
-                    "reactEnd": 2, "legacyEnd": 0, "typedCancel": 1
+                    "reactEnd": 2, "legacyEnd": 0, "typedCancel": 1, "legacyMove": 0
                 }, pointerup_ownership
                 assert len(edit_requests) == edits_before, edit_requests
                 assert film_path.read_text(encoding="utf-8") == original_text

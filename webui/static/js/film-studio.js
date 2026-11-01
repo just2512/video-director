@@ -96,10 +96,7 @@
        'resolveSlipGesture','validateMoveTarget','buildMovePreview',
        'buildMoveOperations'].every(function(name){return typeof controller[name]==='function';}));
   }
-  function cancelReactTimelineGestureAfterContractLoss(e,reason){
-    // Preserve a structured diagnostic before clearing shared state; the old
-    // generic warning concealed whether the bridge disappeared, preview threw,
-    // or commit preparation returned an invalid result.
+  function recordReactTimelineGestureCancellation(e,reason){
     try{
       var diagnostic={
         reason:String(reason||'unspecified'),
@@ -111,31 +108,10 @@
       };
       window.__filmStudioTimelineGestureCancellation=diagnostic;
       console.error('REACT_TIMELINE_GESTURE_CANCEL='+JSON.stringify(diagnostic));
-    }catch(_){/* diagnostic output must never prevent gesture cleanup */}
-    var store=window.filmStudioStore;
-    var snapshot=store&&typeof store.getSnapshot==='function'?store.getSnapshot():null;
-    var context=snapshot&&snapshot.timelineGestureContext;
-    if(!context||!e||context.pointerId!==e.pointerId)return false;
-    if(typeof e.preventDefault==='function')e.preventDefault();
-    if(typeof e.stopPropagation==='function')e.stopPropagation();
-    // Never let a stale S.drag fall through to onUp() after the authoritative
-    // React gesture context loses its bridge/controller mid-pointer sequence.
-    S.drag=null;
-    gestureDomRefs=null;
-    envelopeDomCanvas=null;
-    if(store&&typeof store.setField==='function'){
-      [['timelineGesturePreview',null],['timelineSnapGuide',null],
-       ['timelineDropTarget',null],['timelineActiveDragIds',null],
-       ['timelineGestureContext',null]].forEach(function(entry){
-        try{store.setField(entry[0],entry[1]);}catch(_){/* best-effort transient-state cleanup */}
-      });
+      return true;
+    }catch(_){
+      return false;
     }
-    // The snap guide and drop-target classes are React-owned Portal output. The
-    // FilmStore fields above are their source of truth; never remove or mutate
-    // React-owned timeline nodes imperatively during cancellation.
-    showStatus('React 时间线手势已取消（'+String(reason||'类型化控制器或桥接接口失效')+'）；瞬态预览已清理，未回退到旧版编辑路径。','error');
-    flushPendingExternalRevision();
-    return true;
   }
   function updateTimelineGestureContext(patch){
     var current=S.drag;
@@ -3045,8 +3021,8 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     if(!Array.isArray(operations))return Promise.resolve(false);
     return filmStudioCommitExactRevision(operations,{requireExactRevision:true});
   };
-  window.filmStudioCancelReactTimelineGesture = function(e,reason){
-    return cancelReactTimelineGestureAfterContractLoss(e,reason);
+  window.filmStudioRecordTimelineGestureCancellation = function(e,reason){
+    recordReactTimelineGestureCancellation(e,reason);
   };
   window.filmStudioEndClipGesture = function(e){
     if(!e||!window.filmStudioOwnsClipGesturePointer||

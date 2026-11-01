@@ -445,6 +445,11 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     pointer_up_end = component.index("onPointerCancel={event => {", pointer_up_start)
     pointer_up_end = component.index("onPointerCancel={event => {", pointer_up_start)
     pointer_up = component[pointer_up_start:pointer_up_end]
+    dispatch_start = component.index("const dispatchReactClipGesturePreview =")
+    dispatch_end = component.index("let reactClipClickSuppressionGeneration",dispatch_start)
+    dispatch_body = component[dispatch_start:dispatch_end]
+    assert "window.filmStudioMoveClipGesture" not in dispatch_body
+    assert "cancelReactClipGesture(event," in dispatch_body
     assert "timelineBridge.endClipGesture(event.nativeEvent)" in pointer_up
     assert "window.filmStudioEndClipGesture?.(event.nativeEvent)" not in pointer_up
     assert "endClipGesture(event:PointerEvent): Promise<void> | void;" in component
@@ -456,16 +461,14 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     finish_end = legacy.index("async function onUp(e)", finish_start)
     finish_body = legacy[finish_start:finish_end]
     assert "S.drag=null;\n    if(d.active)suppressNextClipClick();" in finish_body
-    cancel_start = legacy.index("function cancelReactTimelineGestureAfterContractLoss(")
+    cancel_start = legacy.index("function recordReactTimelineGestureCancellation(e,reason)")
     cancel_end = legacy.index("function updateTimelineGestureContext", cancel_start)
     cancel_body = legacy[cancel_start:cancel_end]
-    assert "parentNode.removeChild" not in cancel_body
-    assert "querySelectorAll('#fs-timeline .fs-track-drop-target" not in cancel_body
-    assert "function cancelReactTimelineGestureAfterContractLoss(e,reason)" in legacy
-    assert "var context=snapshot&&snapshot.timelineGestureContext;" in legacy
-    assert "if(!context||!e||context.pointerId!==e.pointerId)return false;" in legacy
-    assert "cancelReactTimelineGestureAfterContractLoss(e,'missing runtime bridge/controller contract');" in legacy
-    assert "cancelReactTimelineGestureAfterContractLoss(e,'prepareClipGestureCommit returned '" in legacy
+    assert "window.__filmStudioTimelineGestureCancellation=diagnostic;" in cancel_body
+    assert "REACT_TIMELINE_GESTURE_CANCEL=" in cancel_body
+    assert "store.setField" not in cancel_body
+    assert "flushPendingExternalRevision" not in cancel_body
+    assert "window.filmStudioRecordTimelineGestureCancellation = function(e,reason)" in legacy
 
 
 def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
@@ -499,6 +502,7 @@ def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
     assert "suppressReactClipClick()" in end_body
     assert "return Promise.resolve(commit!(prepared)).then(" in end_body
     assert "cancel(\"missing commit runtime bridge/controller contract\")" in end_body
+    assert "cancelReactClipGesture(event,reason);" in end_body
 
 def test_self_hosted_workflows_share_runner_checkout_concurrency_lock():
     root = Path(__file__).resolve().parents[1]
