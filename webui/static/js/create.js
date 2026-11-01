@@ -1898,6 +1898,12 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     document.body.appendChild(drawer);
     drawer.querySelector('#cf-history-close').addEventListener('click',()=>drawer.remove());
     drawer.querySelector('#cf-history-refresh').addEventListener('click',()=>window.cfHistoryRefresh());
+    // The unsent-draft card is a sibling of the conversation list, so it needs
+    // its own delegated handler rather than relying on the list's click listener.
+    drawer.querySelector('#cf-history-draft').addEventListener('click',event=>{
+      const actionButton=event.target.closest('[data-history-action="resume-draft"]');
+      if(actionButton)window.cfHistoryResumeDraft();
+    });
     drawer.querySelector('#cf-history-list').addEventListener('click',event=>{
       // Detail actions also carry the conversation ID; handle explicit actions first.
       const actionButton=event.target.closest('[data-history-action]');
