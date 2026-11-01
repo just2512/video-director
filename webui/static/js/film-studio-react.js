@@ -25295,16 +25295,43 @@
   var import_react_dom = __toESM(require_react_dom(), 1);
   var import_client = __toESM(require_client(), 1);
   var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+  var cancelReactClipGesture = (event, reason) => {
+    const gesture = filmStore.getField("timelineGestureContext");
+    if (!gesture || gesture.pointerId !== event.pointerId) return false;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+    if (reason) window.filmStudioRecordTimelineGestureCancellation?.(event, reason);
+    (0, import_react_dom.flushSync)(() => {
+      filmStore.setField("timelineGesturePreview", null);
+      filmStore.setField("timelineSnapGuide", null);
+      filmStore.setField("timelineDropTarget", null);
+      filmStore.setField("timelineActiveDragIds", null);
+      filmStore.setField("timelineGestureContext", null);
+    });
+    if (reason) {
+      window.filmStudioShowTimelineStatus?.(
+        "React \u65F6\u95F4\u7EBF\u624B\u52BF\u5DF2\u53D6\u6D88\uFF08" + reason + "\uFF09\uFF1B\u77AC\u6001\u9884\u89C8\u5DF2\u6E05\u7406\uFF0C\u672A\u56DE\u9000\u5230\u65E7\u7248\u7F16\u8F91\u8DEF\u5F84\u3002",
+        "error"
+      );
+    }
+    window.filmStudioFlushPendingExternalRevision?.();
+    return true;
+  };
+  window.filmStudioCancelReactClipGesture = cancelReactClipGesture;
   var dispatchReactClipGesturePreview = (event) => {
     const bridge = window.filmStudioReactTimeline;
-    if (bridge && typeof bridge.previewClipGesture === "function") {
-      try {
-        bridge.previewClipGesture(event);
-        return;
-      } catch {
-      }
+    if (!bridge || typeof bridge.previewClipGesture !== "function") {
+      cancelReactClipGesture(event, "React typed preview bridge unavailable");
+      return;
     }
-    window.filmStudioMoveClipGesture?.(event);
+    try {
+      bridge.previewClipGesture(event);
+    } catch (error) {
+      cancelReactClipGesture(
+        event,
+        "previewClipGesture threw: " + String(error instanceof Error ? error.stack || error.message : error)
+      );
+    }
   };
   var reactClipClickSuppressionGeneration = 0;
   var clearReactClipClickSuppression = () => {
@@ -27652,7 +27679,15 @@
                             targetIsButton: !!elementTarget?.closest("button")
                           };
                           const timelineBridge = window.filmStudioReactTimeline;
-                          const started = timelineBridge && typeof timelineBridge.beginClipGesture === "function" ? timelineBridge.beginClipGesture(event.nativeEvent, gestureContext) : window.filmStudioBeginClipGesture?.(event.nativeEvent, gestureContext);
+                          if (!timelineBridge || typeof timelineBridge.beginClipGesture !== "function") {
+                            event.stopPropagation();
+                            window.filmStudioShowTimelineStatus?.(
+                              "React \u65F6\u95F4\u7EBF\u7247\u6BB5\u8D77\u624B\u63A5\u53E3\u4E0D\u53EF\u7528\uFF1B\u672C\u6B21\u7F16\u8F91\u5DF2\u62D2\u7EDD\uFF0C\u672A\u56DE\u9000\u5230\u65E7\u7248\u7F16\u8F91\u8DEF\u5F84\u3002",
+                              "error"
+                            );
+                            return;
+                          }
+                          const started = timelineBridge.beginClipGesture(event.nativeEvent, gestureContext);
                           if (started) {
                             activePointerId.current = event.nativeEvent.pointerId;
                             try {
@@ -27677,10 +27712,8 @@
                           let pending;
                           if (timelineBridge && typeof timelineBridge.endClipGesture === "function") {
                             pending = timelineBridge.endClipGesture(event.nativeEvent);
-                          } else if (timelineBridge) {
-                            pending = timelineBridge.cancelClipGesture(event.nativeEvent);
                           } else {
-                            pending = window.filmStudioCancelReactTimelineGesture?.(
+                            pending = cancelReactClipGesture(
                               event.nativeEvent,
                               "React pointer-up bridge unavailable"
                             );
@@ -27695,7 +27728,7 @@
                           if (activePointerId.current !== pointerId) return;
                           finishReactDragAutoScroll(pointerId);
                           event.stopPropagation();
-                          window.filmStudioReactTimeline?.cancelClipGesture(event.nativeEvent);
+                          cancelReactClipGesture(event.nativeEvent);
                           Promise.resolve().then(() => {
                             if (activePointerId.current === pointerId) activePointerId.current = null;
                           });
@@ -28471,15 +28504,7 @@
         (method) => typeof controller[method] === "function"
       );
       const cancel = (reason) => {
-        try {
-          if (typeof window.filmStudioCancelReactTimelineGesture === "function") {
-            window.filmStudioCancelReactTimelineGesture(event, reason);
-          } else {
-            bridge?.cancelClipGesture(event);
-          }
-        } catch {
-          bridge?.cancelClipGesture(event);
-        }
+        cancelReactClipGesture(event, reason);
       };
       if (!bridge || typeof bridge.prepareClipGestureCommit !== "function" || !controllerReady) {
         cancel("missing commit runtime bridge/controller contract");
@@ -28737,14 +28762,7 @@
       window.filmStudioFlushPendingExternalRevision?.();
     },
     cancelClipGesture(event) {
-      const gesture = filmStore.getField("timelineGestureContext");
-      if (gesture && gesture.pointerId !== event.pointerId) return;
-      filmStore.setField("timelineGestureContext", null);
-      filmStore.setField("timelineGesturePreview", null);
-      filmStore.setField("timelineSnapGuide", null);
-      filmStore.setField("timelineDropTarget", null);
-      filmStore.setField("timelineActiveDragIds", null);
-      window.filmStudioFlushPendingExternalRevision?.();
+      cancelReactClipGesture(event);
     },
     clearSurface() {
       (0, import_react_dom.flushSync)(() => {
