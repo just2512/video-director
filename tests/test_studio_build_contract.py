@@ -469,6 +469,10 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     assert "store.setField" not in cancel_body
     assert "flushPendingExternalRevision" not in cancel_body
     assert "window.filmStudioRecordTimelineGestureCancellation = function(e,reason)" in legacy
+    assert "function delegateReactTimelineGestureCancellation(e,reason)" in legacy
+    assert "return cancel(e,reason);" in legacy
+    assert "window.filmStudioCancelReactClipGesture = cancelReactClipGesture;" in component
+    assert "cancelReactTimelineGestureAfterContractLoss" not in legacy
 
 
 def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():

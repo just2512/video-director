@@ -64,6 +64,8 @@ const cancelReactClipGesture = (
   return true;
 };
 
+window.filmStudioCancelReactClipGesture = cancelReactClipGesture;
+
 const dispatchReactClipGesturePreview = (event:FilmStudioGesturePointerInput):void => {
   const bridge = window.filmStudioReactTimeline;
   if (!bridge || typeof bridge.previewClipGesture !== "function") {
@@ -765,6 +767,7 @@ declare global {
     filmStudioEndClipGesture?: (event: PointerEvent) => Promise<void> | void;
     filmStudioCommitPreparedClipOperations?: (operations:FilmOperation[]) => Promise<boolean>;
     filmStudioRecordTimelineGestureCancellation?: (event:FilmStudioGestureCancellationInput,reason:string) => void;
+    filmStudioCancelReactClipGesture?: (event:FilmStudioGestureCancellationInput,reason?:string) => boolean;
     filmStudioCancelClipGesture?: (event: PointerEvent) => void;
     filmStudioOwnsClipGesturePointer?: (pointerId: number) => boolean;
     filmStudioBeginEnvelopeGesture?: (event: PointerEvent, context: {clipId: string; rect: {left: number; top: number; width: number; height: number}}) => boolean;

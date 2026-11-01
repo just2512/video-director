@@ -113,6 +113,11 @@
       return false;
     }
   }
+  function delegateReactTimelineGestureCancellation(e,reason){
+    var cancel=window.filmStudioCancelReactClipGesture;
+    if(typeof cancel==='function')return cancel(e,reason);
+    return recordReactTimelineGestureCancellation(e,reason);
+  }
   function updateTimelineGestureContext(patch){
     var current=S.drag;
     if(!current)return null;
@@ -2991,11 +2996,11 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     if(snapshot&&snapshot.timelineGestureContext){
       if(snapshot.timelineGestureContext.pointerId!==e.pointerId)return;
       if(!hasCompleteReactTimelineGestureContract(reactTimeline,window.filmStudioTimelineController)){
-        cancelReactTimelineGestureAfterContractLoss(e,'missing runtime bridge/controller contract');
+        delegateReactTimelineGestureCancellation(e,'missing runtime bridge/controller contract');
         return;
       }
       try{reactTimeline.previewClipGesture(e);}catch(error){
-        cancelReactTimelineGestureAfterContractLoss(e,'previewClipGesture threw: '+String(error&&error.stack||error));
+        delegateReactTimelineGestureCancellation(e,'previewClipGesture threw: '+String(error&&error.stack||error));
       }
       return;
     }
@@ -3033,16 +3038,16 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     if(snapshot&&snapshot.timelineGestureContext){
       if(snapshot.timelineGestureContext.pointerId!==e.pointerId)return;
       if(!hasCompleteReactTimelineGestureContract(timeline,window.filmStudioTimelineController)){
-        cancelReactTimelineGestureAfterContractLoss(e,'missing commit runtime bridge/controller contract');
+        delegateReactTimelineGestureCancellation(e,'missing commit runtime bridge/controller contract');
         return;
       }
       try{
         var prepared=timeline.prepareClipGestureCommit(e);
         if(Array.isArray(prepared))return finishReactClipGesture(e,prepared);
-        cancelReactTimelineGestureAfterContractLoss(e,'prepareClipGestureCommit returned '+(prepared===null?'null':typeof prepared));
+        delegateReactTimelineGestureCancellation(e,'prepareClipGestureCommit returned '+(prepared===null?'null':typeof prepared));
       }catch(error){
         // A failed React commit preparation must never invoke the legacy editor.
-        cancelReactTimelineGestureAfterContractLoss(e,'prepareClipGestureCommit threw: '+String(error&&error.stack||error));
+        delegateReactTimelineGestureCancellation(e,'prepareClipGestureCommit threw: '+String(error&&error.stack||error));
       }
       return;
     }
