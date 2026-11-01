@@ -1514,7 +1514,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
 (function installCreateLifecycle(){
   const baseOpen=window.openCreate, baseClose=window.closeCreate;
   if(typeof baseOpen!=='function'||typeof baseClose!=='function')return;
-  let timer=null, saving=Promise.resolve(), restored=false, restorePromise=null;
+  let timer=null, saving=Promise.resolve(), restored=false, restorePromise=null, restoredDraftAvailable=false;
   const dirtyFields=new Set();
   const LOCAL_DRAFT_KEY='video-director:create-draft:v1';
   function writeLocalDraft(data){
@@ -1634,6 +1634,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         }catch(error){remoteError=error;}
         const useLocal=!!(local&&local.data&&(!remote||Number(local.saved_at||0)>Number(remote.updated_at||0)));
         const data=useLocal?local.data:(remote&&remote.data)||(local&&local.data)||null;
+        restoredDraftAvailable=!!data;
         if(data){
           applySnapshot(data,true);
           const context=data.context||{};
@@ -1837,7 +1838,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       _cfProjectPrefillRequest++;
       return restoreDraft();
     }
-    restored=false;restorePromise=null;dirtyFields.clear();
+    restored=false;restorePromise=null;restoredDraftAvailable=false;dirtyFields.clear();
     baseOpen();
     arrangeForm();
     installHandlers();
@@ -1874,7 +1875,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(timer){clearTimeout(timer);timer=null;}
     try{await saving;}catch(_){}
     const result=await apiPost('/api/director/drafts/active/clear',{});
-    if(result&&result.ok)clearLocalDraft();
+    if(result&&result.ok){clearLocalDraft();restoredDraftAvailable=false;}
     return result;
   }
   window.cfClearSavedDraft=clearSavedDraft;
@@ -1883,7 +1884,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     document.getElementById('cf-mask')?.remove();
     for(const id of ['sg-mask','tg-mask'])document.getElementById(id)?.remove();
     try{await clearSavedDraft();}catch(_){}
-    if(window.CF)window.CF.state='idle';restored=false;restorePromise=null;dirtyFields.clear();
+    if(window.CF)window.CF.state='idle';restored=false;restorePromise=null;restoredDraftAvailable=false;dirtyFields.clear();
   };
   function cfHistoryRenderList(){
     const list=document.getElementById('cf-history-list');if(!list)return;
@@ -2014,7 +2015,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     await restoreDraft();
     const currentSnapshot=snapshot();
     const currentFields=currentSnapshot.fields||{},currentContext=currentSnapshot.context||{};
-    const hasCurrentDraft=!!(
+    const hasSavedContent=!!(
       String(currentFields['cf-director-brief']||'').trim()
       ||String(currentFields['cf-script']||'').trim()
       ||String(currentFields['cf-article-url']||'').trim()
@@ -2024,8 +2025,13 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       ||currentFields['cf-scope']==='series'
       ||(currentContext.asset_refs||[]).length
       ||currentContext.reference||currentContext.article||currentContext.repo
-      ||currentContext.narration_upload||currentContext.project_id
+      ||currentContext.narration_upload
       ||(Array.isArray(currentSnapshot.explicit_fields)&&currentSnapshot.explicit_fields.length)
+    );
+    const hasCurrentDraft=!!(
+      dirtyFields.size>0
+      ||currentContext.project_id
+      ||(restoredDraftAvailable&&hasSavedContent)
     );
     if(hasCurrentDraft&&!window.confirm('当前草稿包含未提交内容。恢复历史对话会替换当前草稿；取消可保留当前内容。确认继续？')){
       const status=document.getElementById('cf-draft-status');

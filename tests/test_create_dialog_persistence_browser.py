@@ -567,6 +567,13 @@ def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp
                 page.wait_for_function("document.getElementById('cf-history-list')?.innerText.includes('独立历史入口验收')")
                 page.locator('#cf-history-list button[data-conversation-id="conv-create-history-browser"]').click()
                 page.wait_for_function("document.getElementById('cf-history-list')?.innerText.includes('历史对话可以独立打开与恢复。')")
+                page.evaluate("""() => {
+                    window.__historyRestoreConfirmMessages = [];
+                    window.confirm = message => {
+                        window.__historyRestoreConfirmMessages.push(String(message));
+                        return true;
+                    };
+                }""")
                 page.locator('#cf-history-list button[data-history-action="restore"]').click()
 
                 page.locator("#cf-form").wait_for(state="visible")
@@ -576,6 +583,7 @@ def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp
                 """, timeout=10000)
                 assert page.locator("#cf-history-drawer").is_visible()
                 assert page.locator("#cf-input-context-details").evaluate("(node) => node.open")
+                assert page.evaluate("window.__historyRestoreConfirmMessages") == []
                 assert not errors
             finally:
                 browser.close()
