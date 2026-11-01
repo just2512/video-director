@@ -3105,6 +3105,37 @@ def test_legacy_composition_save_serializes_with_film_initialization(tmp_path, m
     assert composition_path.read_bytes() == before
 
 
+
+def test_film_initialization_uses_unlocked_version_reader_inside_project_transaction(tmp_path, monkeypatch):
+    from video_director import config, editor
+    from video_director.models import CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "film-init-unlocked-version-read"
+    ir = CompositionIR(
+        project=ProjectSpec(width=160, height=90, fps=30, duration=1.0),
+        scenes=[SceneIR(
+            id="legacy-scene", start=0, duration=1.0, text="before migration",
+            layers=[Layer(type=LayerType.image, duration=1.0)],
+        )],
+    )
+    editor.save_composition(project_id, ir)
+    source_version = editor.composition_version(project_id)
+    document = fd.parse_film(SAMPLE)
+
+    def forbidden_public_version_read(_project_id):
+        raise AssertionError("Film initialization must not re-enter public project_lock")
+
+    monkeypatch.setattr(editor, "composition_version", forbidden_public_version_read)
+    initialized = fd.initialize_project_film(
+        project_id, document, {}, source_version, [], selected_variant_id=None,
+    )
+
+    assert initialized["ok"] is True
+    assert initialized["migration"]["source_composition_version"] == source_version
+    assert fd.read_project_film(project_id)["exists"] is True
+
+
 def test_legacy_composition_read_waits_for_film_initialization(tmp_path, monkeypatch):
     """A legacy reader queued before migration must recheck authority after the lock."""
     from contextlib import contextmanager
