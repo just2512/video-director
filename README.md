@@ -60,6 +60,7 @@ python -m video_director film render --project-id PROJECT_ID --expected-revision
 先从 `film status` 读取最新 revision 与稳定片段/轨道 ID，将该 revision 作为 `--base-revision`。编辑成功后必须再次读取状态：`film look` 应使用新的 `--revision`，`film diff` 使用旧的 `--from-revision` 对比，`film render` 使用新的 `--expected-revision` 固定导出版本。不要把编辑前的 revision 继续用于 look/render。返回值中的 `rendered_revision` 才是成片实际对应的版本。
 
 编程智能体的完整文件协议、`frame(t)` 约定、冲突规则、离线资源边界与验收步骤见 [Film Agent Manual](docs/FILM_AGENT_MANUAL.md)。
+AI 提案单次与并发审批门禁见 [INTEGRATION-GATES](INTEGRATION-GATES.md)。真实 NVIDIA token 流和提案审批的本机验收步骤见 [Live Model Stream Acceptance](docs/live-model-stream-acceptance.md)。
 
 ### Studio UI 构建（维护者）
 

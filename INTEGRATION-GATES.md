@@ -127,17 +127,27 @@ Checks:
 
 命令：`python -m pytest tests/ -q -k generation`
 
-## IG-REVISION Revision / Patch Gate
+## IG-REVISION Revision / Proposal / Patch Gate
 
-**Scope**: EDT-009 / REV-001 / REV-002
+**Scope**: EDT-009 / REV-001 / REV-002；FilmDocument 的 AI 提案审批与 Revision 冲突边界
 
-四条测试：
-1. **Reject**：自然语言 → Proposal → Reject → Composition unchanged + Revision count unchanged + Artifact unchanged
-2. **Apply**：Proposal → Preview → Apply → Revision created + Patch persisted + Affected artifacts updated + Stale artifacts correct
-3. **Locality**：修改 Scene 03 Motion → 只有 Scene 03 render stale，不得整项目 stale
-4. **Ambiguous Target**："把它改一下" → MISSING_TARGET → 不执行
+Required cases:
+1. **Reject**：自然语言 → Proposal → Reject → Composition / FilmDocument unchanged + Revision unchanged + Artifact unchanged
+2. **Preview**：生成 Proposal 只生成候选文档；不得提前写入正式 FilmDocument
+3. **Apply authority**：客户端只提交 `project_id / proposal_id / base_revision`；操作内容必须来自服务端登记的 Proposal Registry。客户端附带的 `ops` 不得覆盖服务端操作
+4. **Exact base**：只允许原始 `base_revision` 精确匹配时应用；revision 已变化必须 CONFLICT，不静默 rebase
+5. **Single-use**：同一 proposal 成功应用后再次提交必须返回 HTTP 409 `PROPOSAL_NOT_FOUND_OR_STALE`；第二次请求不得新增 revision 或改写 `film.html`
+6. **Concurrent apply**：两个 HTTP 请求并发确认同一 proposal，必须恰好一个 HTTP 200、另一个 HTTP 409；最终只产生一组登记操作和一次有效 revision 变更
+7. **Locality**：修改 Scene 03 Motion → 只有 Scene 03 render stale，不得整项目 stale
+8. **Ambiguous Target**："把它改一下" → MISSING_TARGET → 不执行
 
-命令：`python -m pytest tests/ -q -k revision` + `python tools/test_webui_shotcraft.py`（ai_revision 断言组）
+命令：
+- `python -m pytest tests/test_film_document_contract.py -q -k 'proposal or apply_proposal'`
+- `python -m pytest tests/test_film_studio_ai_proposal_browser.py -q`
+- `python -m pytest tests/test_film_studio_generated_asset_adoption_browser.py -q`
+
+UI Gate 仍要求 Playwright DOM 断言；真实模型调用使用单独的 opt-in 验收，不得把 mock SSE 测试认作真实 Provider PASS。具体模型验收要求见 [Live Model Stream Acceptance](docs/live-model-stream-acceptance.md)。
+
 
 ## IG-PREVIEW Preview / Render Consistency Gate
 
