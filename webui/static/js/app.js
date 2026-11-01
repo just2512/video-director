@@ -110,7 +110,10 @@ function captureDrawerToggle(){
   if (d && d.style.display !== 'none') loadInbox();
 }
 
-function esc(s){ return String(s).replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>'); }
+function esc(s){
+  const entities={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+  return String(s).replace(/[&<>"']/g,character=>entities[character]);
+}
 
 // ===========================================================================
 // 设置页（§28）：模型 / 配音来源 / 环境自检 / 开发者模式

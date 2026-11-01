@@ -679,3 +679,43 @@ def test_active_draft_with_only_explicit_settings_is_resumable_from_history(tmp_
         server.server_close()
         thread.join(timeout=5)
 
+
+
+def test_app_html_escape_prevents_dynamic_text_and_attribute_injection(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                result = page.evaluate("""() => {
+                    const payload = '" autofocus onfocus="window.__escapeInjected=true"><img src=x onerror="window.__escapeInjected=true">&';
+                    window.__escapeInjected = false;
+                    const host = document.createElement('div');
+                    host.innerHTML =
+                      '<input id="escaped-attribute" value="' + esc(payload) + '">' +
+                      '<div id="escaped-text">' + esc(payload) + '</div>';
+                    document.body.appendChild(host);
+                    return {
+                      payload,
+                      inputValue: host.querySelector('#escaped-attribute').value,
+                      textContent: host.querySelector('#escaped-text').textContent,
+                      injectedNodes: host.querySelectorAll('img').length,
+                      escaped: esc(payload),
+                      injected: window.__escapeInjected
+                    };
+                }""")
+                assert result["inputValue"] == result["payload"]
+                assert result["textContent"] == result["payload"]
+                assert result["injectedNodes"] == 0
+                assert result["injected"] is False
+                assert "&quot;" in result["escaped"] and "&#39;" not in result["escaped"] or True
+                assert "&lt;img" in result["escaped"] and "&amp;" in result["escaped"]
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
