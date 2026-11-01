@@ -61,12 +61,25 @@ function openCreate(projectId){
   mask.id = 'cf-mask';
   mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:12000;display:flex;align-items:center;justify-content:center;pointer-events:auto';
   mask.setAttribute('aria-hidden','false');
-  mask.addEventListener('click',event=>{
-    if(event.target===mask){event.preventDefault();event.stopPropagation();}
-  });
-  mask.addEventListener('pointerdown',event=>{
-    if(event.target===mask)event.stopPropagation();
-  });
+  // The backdrop is deliberately inert. Only the explicit header action may
+  // dismiss the dialog; pointer sequences outside the panel must never reach
+  // workspace-level handlers or be interpreted as a close request.
+  const blockBackdropDismiss = event => {
+    if(event.target!==mask)return;
+    event.preventDefault();
+    event.stopPropagation();
+    if(typeof event.stopImmediatePropagation==='function')event.stopImmediatePropagation();
+  };
+  for(const type of ['pointerdown','mousedown','mouseup','click','touchstart']){
+    mask.addEventListener(type,blockBackdropDismiss,true);
+  }
+  mask.addEventListener('keydown',event=>{
+    if(event.key!=='Escape')return;
+    event.preventDefault();
+    event.stopPropagation();
+    const status=document.getElementById('cf-status');
+    if(status)status.textContent='创作窗口不会因点击遮罩或按 Escape 关闭；请使用右上角「收起」保存草稿。';
+  },true);
   const panel = document.createElement('div');
   panel.id = 'cf-panel';
   panel.className = 'card';
@@ -342,7 +355,7 @@ function _createPanelHtml(){
     </div>
     <textarea id="cf-director-brief" style="min-height:82px;margin-top:8px"
       placeholder="例如：做一条 45 秒的视频，讲清楚为什么很多人越忙越没钱，口吻克制，画面以真实生活为主，适合抖音。"></textarea>
-    <div class="hint" style="margin-top:8px">可以只写创作要求，也可以同时提供权威文案、素材与参考资料。AI 负责其余导演工作。</div>
+    <div class="hint" style="margin-top:8px">没有现成文案也可以直接开始；需要严格按原文制作时，再到「补充输入」粘贴权威文案。</div>
     <div id="cf-director-plan-preview" class="hint" style="margin-top:8px"></div>
   </div>
   <div class="panel" style="margin-top:10px;padding:12px">
@@ -422,7 +435,7 @@ function _createPanelHtml(){
       <div id="cf-studio-template-list" class="hint" style="margin-top:7px"></div>
     </div>
   <details id="cf-manual-options" style="margin-top:12px">
-    <summary style="cursor:pointer;color:var(--muted);font-size:13px">更多制作参数（AI 自动决策；需要精确控制时再展开）</summary>
+    <summary style="cursor:pointer;color:var(--muted);font-size:13px">高级设置（AI 自动决定默认值；需要精确控制时再展开）</summary>
   <div id="cf-essentials">
     <div class="hint" id="cf-script-gen-status"></div>
     <div class="btn-row" style="align-items:center;flex-wrap:wrap">
@@ -1508,7 +1521,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       repo:c.repo||window._cfRepo||null,
       narration_upload:c.narrationUpload||window._cfNarrationUpload||'',
       project_id:c.projectId||''
-    }};
+    },ui:{disclosures:Object.fromEntries(Array.from(document.querySelectorAll('#cf-form details[id]')).map(node=>[node.id,!!node.open]))}};
   }
   async function saveNow(){
     if(!document.getElementById('cf-form'))return {ok:false,error:'create form is not mounted'};
@@ -1554,6 +1567,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       if(id==='cf-scope'){const radio=document.querySelector('input[name="cf-scope"][value="'+CSS.escape(String(value))+'"]');if(radio)radio.checked=true;continue;}
       const el=document.getElementById(id);if(!el||el.type==='file')continue;
       if(el.type==='checkbox')el.checked=!!value;else el.value=value==null?'':String(value);
+    }
+    for(const [id,isOpen] of Object.entries(data.ui?.disclosures||{})){
+      const disclosure=document.getElementById(id);
+      if(disclosure&&disclosure.tagName==='DETAILS')disclosure.open=!!isOpen;
     }
     const knownExplicit=new Set(Object.values(CF_EXPLICIT_CONTROL_FIELDS));
     const restoredExplicit=Array.isArray(data.explicit_fields)?data.explicit_fields.filter(field=>knownExplicit.has(field)):[];
@@ -1625,10 +1642,12 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       const close=header.querySelector('button[onclick="closeCreate()"]');if(close){close.textContent='收起';close.title='隐藏窗口，保留当前草稿';}
     }
     const brief=document.getElementById('cf-director-brief');
-    if(brief&&!document.getElementById('cf-quick-actions')){
+    const scriptPanel=document.getElementById('cf-script')?.closest('.panel');
+    // 文案工具只放在权威文案区，避免把“创作目标”和“文案编辑”混成同一输入。
+    if(brief&&scriptPanel&&!document.getElementById('cf-quick-actions')){
       const actions=document.createElement('div');actions.id='cf-quick-actions';actions.className='btn-row';actions.style.marginTop='8px';
-      actions.innerHTML='<button type="button" class="btn-secondary btn-sm" onclick="cfGenerateScript()">AI 生成文案</button><button type="button" class="btn-secondary btn-sm" onclick="createEnhance()">AI 润色文案</button><button type="button" class="btn-secondary btn-sm" onclick="cfMakeGraphicPlan()">图形方案预览</button>';
-      brief.parentElement.appendChild(actions);
+      actions.innerHTML='<button type="button" class="btn-secondary btn-sm" onclick="cfGenerateScript()">单独生成文案</button><button type="button" class="btn-secondary btn-sm" onclick="createEnhance()">AI 润色文案</button><button type="button" class="btn-secondary btn-sm" onclick="cfMakeGraphicPlan()">图形方案预览</button>';
+      scriptPanel.appendChild(actions);
     }
     const quickActions=document.getElementById('cf-quick-actions');
     form.querySelectorAll('button[onclick="createEnhance()"],button[onclick="cfMakeGraphicPlan()"]').forEach(button=>{
@@ -1642,7 +1661,6 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       enhanceStatus.style.flexBasis='100%';quickActions.appendChild(enhanceStatus);
       if(enhanceStatusRow&&enhanceStatusRow!==quickActions)enhanceStatusRow.remove();
     }
-    const scriptPanel=document.getElementById('cf-script')?.closest('.panel');
     const enhanceBox=document.getElementById('cf-enhance-box');
     if(scriptPanel&&enhanceBox&&!scriptPanel.contains(enhanceBox))scriptPanel.appendChild(enhanceBox);
     document.getElementById('cf-topic')?.closest('.btn-row')?.remove();
@@ -1656,7 +1674,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       const disclosure=document.createElement('details');disclosure.id='cf-input-context-details';
       const summary=document.createElement('summary');
       summary.style.cssText='cursor:pointer;color:var(--text);font-size:13px;font-weight:600';
-      summary.textContent='补充资料（可选）：权威文案、素材、参考视频、文章、软件项目';
+      summary.textContent='补充输入（选填）：权威文案、图片/视频、参考视频、文章、软件项目';
       const content=document.createElement('div');content.style.marginTop='10px';
       Array.from(contextPanel.children).forEach((child,i)=>{if(i===0)child.remove();else content.appendChild(child);});
       disclosure.append(summary,content);contextPanel.replaceChildren(disclosure);
@@ -1668,7 +1686,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       const visualRow=document.getElementById('cf-visual-source')?.closest('.btn-row');
       const enginePanel=document.getElementById('cf-studio-catalog-status')?.closest('.panel');
       const output=document.createElement('section');output.id='cf-output-requirements';output.className='panel';output.style.marginTop='10px';
-      output.innerHTML='<div class="btn-row" id="cf-output-header" style="align-items:center;flex-wrap:wrap;margin:0"><b>成片要求</b><span class="hint">设置平台、时长、风格和画面来源；其余交给 AI。</span></div>';
+      output.innerHTML='<div class="btn-row" id="cf-output-header" style="align-items:center;flex-wrap:wrap;margin:0"><b>成片要求</b><span class="hint">主要设置平台、时长和风格；其他参数可沿用 AI 默认值。</span></div>';
       const outputHeader=output.firstElementChild;
       manual.parentNode.insertBefore(output,manual);
       if(formatRow)output.appendChild(formatRow);
@@ -1750,6 +1768,9 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       scheduleSave();
     }
     form.addEventListener('input',markDraftDirty,true);
+    form.addEventListener('toggle',event=>{
+      if(event.target?.tagName==='DETAILS')scheduleSave();
+    },true);
     form.addEventListener('change',e=>{
       markDraftDirty(e);
       if(e.target?.id==='cf-assets')window.CF_DRAFT_CONTEXT.assetUploadPromise=uploadAssets(e.target).catch(()=>false);
@@ -1827,13 +1848,43 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       '<div class="proj-row"><span style="flex:1;min-width:0"><b>'+esc(x.title||'未命名对话')+'</b><span class="hint">'+
       esc(x.project_id||'未关联项目')+' · '+new Date((x.updated_at||0)*1000).toLocaleString()+' · '+esc(x.status||'')+
       '</span></span><button class="btn-secondary btn-sm" type="button" data-conversation-id="'+esc(x.conversation_id||'')+'">查看</button></div>'
-    ).join(''):'<div class="hint">暂无历史对话。第一次提交创作后会自动记录。</div>';
+    ).join(''):'<div class="hint">暂无历史对话。成功提交创作后会自动记录；未提交内容请从上方「当前草稿」继续。</div>';
+  }
+  function cfHistoryRenderDraft(draft){
+    const host=document.getElementById('cf-history-draft');if(!host)return;
+    const data=draft?.data||{},fields=data.fields||{},context=data.context||{};
+    const brief=String(fields['cf-director-brief']||'').trim();
+    const script=String(fields['cf-script']||'').trim();
+    const refs=Array.isArray(context.asset_refs)?context.asset_refs:[];
+    const hasContext=!!(refs.length||context.reference||context.article||context.repo||context.narration_upload);
+    if(!draft||(!brief&&!script&&!hasContext)){host.innerHTML='';return;}
+    const preview=(brief||script||(refs.length?'已保存 '+refs.length+' 个素材':'已保存补充资料')).slice(0,160);
+    const updated=Number(draft.updated_at||0);
+    const source=draft.local_only?'本机草稿':'已同步草稿';
+    host.innerHTML='<div class="panel" style="padding:10px;margin:0 0 10px">'+
+      '<div class="btn-row" style="align-items:center;margin:0"><b>当前未提交草稿</b><span class="hint">'+source+
+      (updated?' · '+new Date(updated*1000).toLocaleString():'')+'</span><span class="tb-sep"></span>'+
+      '<button class="btn-sm" type="button" data-history-action="resume-draft">继续编辑</button></div>'+
+      '<div class="hint" style="margin-top:6px">'+esc(preview)+'</div></div>';
   }
   window.cfHistoryRefresh=async function(){
     const list=document.getElementById('cf-history-list');if(list)list.textContent='正在读取历史对话…';
     try{
-      const r=await apiGet('/api/director/conversations?limit=50');
+      const mask=document.getElementById('cf-mask');
+      if(mask&&mask.style.display!=='none'&&document.getElementById('cf-form')){
+        try{await persistImmediately();}catch(_){}
+      }
+      const [r,draftResult]=await Promise.all([
+        apiGet('/api/director/conversations?limit=50'),
+        apiGet('/api/director/drafts/active')
+      ]);
       window._cfHistoryRows=(r&&r.conversations)||[];
+      const remote=draftResult&&draftResult.draft||null;
+      const local=readLocalDraft();
+      const useLocal=!!(local&&local.data&&(!remote||Number(local.saved_at||0)>Number(remote.updated_at||0)*1000));
+      cfHistoryRenderDraft(useLocal
+        ?{data:local.data,updated_at:Number(local.saved_at||0)/1000,local_only:true}
+        :remote);
       cfHistoryRenderList();
     }catch(e){if(list)list.textContent='历史对话读取失败：'+(e.message||e);}
   };
@@ -1843,7 +1894,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const drawer=document.createElement('aside');drawer.id='cf-history-drawer';
     drawer.setAttribute('role','complementary');drawer.setAttribute('aria-label','历史创作对话');
     drawer.style.cssText='position:fixed;top:58px;right:12px;bottom:12px;width:min(520px,calc(100vw - 24px));max-width:calc(100vw - 24px);z-index:13000;display:flex;flex-direction:column;box-sizing:border-box;padding:14px;background:var(--surface-1,#181818);color:var(--text,#eee);border:1px solid var(--border,#444);border-radius:10px;box-shadow:0 14px 44px rgba(0,0,0,.42)';
-    drawer.innerHTML='<div class="btn-row" style="align-items:center;margin:0"><b>历史创作对话</b><span class="tb-sep"></span><button class="btn-secondary btn-sm" type="button" id="cf-history-refresh">刷新</button><button class="btn-secondary btn-sm" type="button" id="cf-history-close">关闭</button></div><div id="cf-history-list" style="flex:1;min-height:0;overflow:auto;margin-top:10px" class="hint">正在读取…</div>';
+    drawer.innerHTML='<div class="btn-row" style="align-items:center;margin:0"><b>草稿与历史对话</b><span class="tb-sep"></span><button class="btn-secondary btn-sm" type="button" id="cf-history-refresh">刷新</button><button class="btn-secondary btn-sm" type="button" id="cf-history-close">关闭</button></div><div id="cf-history-draft" style="margin-top:10px"></div><div id="cf-history-list" style="flex:1;min-height:0;overflow:auto;margin-top:4px" class="hint">正在读取…</div>';
     document.body.appendChild(drawer);
     drawer.querySelector('#cf-history-close').addEventListener('click',()=>drawer.remove());
     drawer.querySelector('#cf-history-refresh').addEventListener('click',()=>window.cfHistoryRefresh());
@@ -1854,12 +1905,18 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         const action=actionButton.dataset.historyAction;
         if(action==='list')cfHistoryRenderList();
         else if(action==='restore')window.cfHistoryRestoreSnapshot(actionButton.dataset.conversationId);
+        else if(action==='resume-draft')window.cfHistoryResumeDraft();
         return;
       }
       const conversationButton=event.target.closest('[data-conversation-id]');
       if(conversationButton)window.cfHistoryOpenConversation(conversationButton.dataset.conversationId);
     });
     await window.cfHistoryRefresh();
+  };
+  window.cfHistoryResumeDraft=async function(){
+    const result=await window.openCreate();
+    document.getElementById('cf-history-drawer')?.remove();
+    return result;
   };
   window.cfHistoryOpenConversation=async function(id){
     const list=document.getElementById('cf-history-list');if(!list)return;

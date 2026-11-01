@@ -65,6 +65,14 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                 }""", timeout=10000)
                 assert page.get_by_text("素材已移到上面的「输入上下文」区。").count() == 0
                 assert page.locator("#cf-enhance-status").text_content().find("权威文案区") >= 0
+                assert page.evaluate("""() => {
+                    const brief=document.getElementById('cf-director-brief');
+                    const script=document.getElementById('cf-script');
+                    const actions=document.getElementById('cf-quick-actions');
+                    return !!brief&&!!script&&!!actions
+                      && script.closest('.panel')?.contains(actions)
+                      && !brief.parentElement?.contains(actions);
+                }""")
                 page.locator("#cf-director-brief").fill("持久化测试：保留我的创作目标")
                 page.locator("#cf-input-context-details summary").click()
                 page.locator("#cf-script").fill("持久化测试：保留我的权威文案")
@@ -81,9 +89,19 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                 }""", timeout=10000)
 
                 assert page.evaluate("document.elementFromPoint(8,8)?.id === 'cf-mask'")
+                page.mouse.move(8, 8)
+                page.mouse.down()
+                page.mouse.up()
                 page.mouse.click(8, 8)
+                page.keyboard.press("Escape")
                 assert page.locator("#cf-mask").evaluate("(el) => el.style.display") == "flex"
                 assert page.locator("#cf-director-brief").input_value() == "持久化测试：保留我的创作目标"
+
+                page.locator("#cf-history-inline-launch").click()
+                page.locator('#cf-history-draft button[data-history-action="resume-draft"]').wait_for()
+                assert "持久化测试：保留我的创作目标" in page.locator("#cf-history-draft").inner_text()
+                page.locator('#cf-history-draft button[data-history-action="resume-draft"]').click()
+                page.wait_for_function("document.getElementById('cf-history-drawer') === null")
 
                 page.locator('#cf-form > div:first-child button[onclick="closeCreate()"]').click()
                 page.wait_for_function("document.getElementById('cf-mask')?.style.display === 'none'")
@@ -102,6 +120,7 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                   document.getElementById('cf-director-brief')?.value === '持久化测试：保留我的创作目标'
                   && document.getElementById('cf-script')?.value === '持久化测试：保留我的权威文案'
                 """, timeout=10000)
+                assert page.locator("#cf-input-context-details").evaluate("(node) => node.open")
                 assert not errors
             finally:
                 browser.close()
