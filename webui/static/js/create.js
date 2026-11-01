@@ -2032,6 +2032,9 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       if(status)status.textContent='已取消历史恢复，当前草稿保持不变。';
       return;
     }
+    // History snapshots can be older/partial. Start from a clean form so
+    // fields absent from that snapshot cannot leak in from the active draft.
+    cfResetProjectPrefillState('');
     const snapshot=c.snapshot||{},formSnapshot=snapshot.form||snapshot;
     if(formSnapshot.fields)applySnapshot(formSnapshot);
     else if(snapshot.director_inputs){

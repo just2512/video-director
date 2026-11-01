@@ -803,6 +803,10 @@ def test_history_restore_confirms_before_replacing_active_draft(tmp_path, monkey
                 page.evaluate("window.cfHistoryRestoreSnapshot('conv-history-restore-protection')")
                 assert page.locator("#cf-director-brief").input_value() == "历史对话中的创作要求"
                 assert page.locator("#cf-script").input_value() == "历史对话中的权威文案"
+                assert page.locator("#cf-article-url").input_value() == ""
+                assert page.locator("#cf-repo-root").input_value() == ""
+                assert page.locator("#cf-article-result").inner_text() == ""
+                assert page.locator("#cf-repo-result").inner_text() == ""
                 assert "原记录不会被覆盖" in (page.locator("#cf-draft-status").text_content() or "")
             finally:
                 browser.close()
