@@ -290,14 +290,17 @@ def _write_undo_state(project_id: str, state: dict) -> None:
 def _undo_redo(
     project_id: str, action: str, current_version: Optional[int] = None
 ) -> CommandResult:
-    """Restore IR snapshots without allowing stale versions or abandoned redo branches."""
+    """Restore IR snapshots; caller must hold project_lock for the whole operation."""
     import copy as _copy
 
     revisions = load_revisions(project_id)
     state = _read_undo_state(project_id, revisions)
     undone_ids = state["undone"]
     abandoned_ids = set(state["abandoned"])
-    version = composition_version(project_id) if current_version is None else current_version
+    version = (
+        _read_legacy_composition_version(project_id, revisions)
+        if current_version is None else current_version
+    )
 
     if action == "undo":
         candidates = [
