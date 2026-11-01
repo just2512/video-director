@@ -140,37 +140,11 @@ jobs:
             exit 0
           fi
 
-          # Shared self-hosted workspaces may have had .git removed by another workflow.
-          # Initialize a local object store before attempting the bounded Git fetch; do not
-          # depend on the archive endpoint's redirect to codeload.github.com.
-          if ! git -C "$workspace" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            git -C "$workspace" init
-          fi
-
-          # First prefer a normal Git object so later local Git operations work.
-          if git -C "$workspace" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            recovered=false
-            for attempt in 1 2 3; do
-              echo "Recovering exact workflow revision with bounded Git fetch (attempt $attempt/3)."
-              if timeout 35s git -C "$workspace" -c http.version=HTTP/1.1 fetch --no-tags --depth=1 \
-                "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$expected"; then
-                # Fetch is the point of no return for old workspace data. Remove stale
-                # files before checkout so untracked files cannot block an exact revision.
-                git -C "$workspace" clean -ffdx
-                git -C "$workspace" checkout --force --detach FETCH_HEAD
-                recovered=true
-                break
-              fi
-              sleep "$((attempt * 2))"
-            done
-            if [ "$recovered" = true ] && [ "$(git rev-parse HEAD)" = "$expected" ]; then
-              git reset --hard "$expected"
-              git clean -ffdx
-              echo "source_mode=git" >> "$GITHUB_OUTPUT"
-              echo "Verified source revision from Git recovery: $expected"
-              exit 0
-            fi
-          fi
+          # The self-hosted runner's Git HTTPS transport can hang despite GNU timeout
+          # when its SOCKS-backed child process is blocked. Avoid initializing an empty
+          # repository and waiting on a fetch that cannot produce a usable checkout.
+          # The authenticated GitHub REST Git Tree/Blob recovery below restores this
+          # immutable SHA and validates the complete tree before replacing workspace files.
 
           # Git/TLS and codeload streams are unreliable on this SOCKS-backed runner.
           # Recover the exact immutable commit through api.github.com Git Tree/Blob
