@@ -2236,9 +2236,11 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                 const elementTarget = target instanceof Element ? target : null;
                 const trim = elementTarget?.closest("[data-trim]");
                 const rawTrimEdge = trim?.getAttribute("data-trim");
+                const trimEdge:"start"|"end"|null = rawTrimEdge === "start" ? "start"
+                  : rawTrimEdge === "end" ? "end" : null;
                 const gestureContext={
                   clipId:clip.id,
-                  trimEdge:rawTrimEdge === "start" || rawTrimEdge === "end" ? rawTrimEdge : null,
+                  trimEdge,
                   targetIsButton:!!elementTarget?.closest("button"),
                 };
                 const timelineBridge=window.filmStudioReactTimeline;

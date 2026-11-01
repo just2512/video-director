@@ -267,7 +267,7 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "timelineBridge.beginClipGesture(event.nativeEvent,gestureContext)" in component
     assert "dispatchReactClipGesturePreview(pointerEvent);" in component
     assert "dispatchReactClipGesturePreview({" in component
-    assert "window.filmStudioPrepareClipGestureStart?" in component
+    assert "filmStudioPrepareClipGestureStart?:" in component
     assert "clipId:clip.id" in component
     assert "targetIsButton:!!elementTarget?.closest(\"button\")" in component
     assert "event.currentTarget.setPointerCapture(event.nativeEvent.pointerId)" in component
