@@ -25306,6 +25306,20 @@
     }
     window.filmStudioMoveClipGesture?.(event);
   };
+  var reactClipClickSuppressionGeneration = 0;
+  var clearReactClipClickSuppression = () => {
+    reactClipClickSuppressionGeneration += 1;
+    filmStore.setField("timelineSkipNextClipClick", false);
+  };
+  var suppressReactClipClick = () => {
+    const generation = ++reactClipClickSuppressionGeneration;
+    filmStore.setField("timelineSkipNextClipClick", true);
+    window.setTimeout(() => {
+      if (generation === reactClipClickSuppressionGeneration) {
+        filmStore.setField("timelineSkipNextClipClick", false);
+      }
+    }, 500);
+  };
   function useFilmStoreField(key) {
     const subscribe = (0, import_react.useCallback)((listener) => filmStore.subscribeField(key, listener), [key]);
     const getSnapshot = (0, import_react.useCallback)(() => filmStore.getField(key), [key]);
@@ -27659,7 +27673,18 @@
                           if (activePointerId.current !== pointerId) return;
                           updateReactGestureTarget(event.nativeEvent);
                           finishReactDragAutoScroll(pointerId);
-                          const pending = window.filmStudioEndClipGesture?.(event.nativeEvent);
+                          const timelineBridge = window.filmStudioReactTimeline;
+                          let pending;
+                          if (timelineBridge && typeof timelineBridge.endClipGesture === "function") {
+                            pending = timelineBridge.endClipGesture(event.nativeEvent);
+                          } else if (timelineBridge) {
+                            pending = timelineBridge.cancelClipGesture(event.nativeEvent);
+                          } else {
+                            pending = window.filmStudioCancelReactTimelineGesture?.(
+                              event.nativeEvent,
+                              "React pointer-up bridge unavailable"
+                            );
+                          }
                           const clear = () => {
                             if (activePointerId.current === pointerId) activePointerId.current = null;
                           };
@@ -28333,6 +28358,7 @@
       const initial = filmStore.getSnapshot();
       const blocked = initial.busy || initial.broken || initial.pendingTransaction !== null || !!initial.pendingExternalRevision || !!initial.timelineGestureContext || !!initial.timelineEnvelopeGesture;
       if (!event || event.button !== 0 || !context?.clipId || context.targetIsButton) return false;
+      clearReactClipClickSuppression();
       if (blocked || !initial.film || timelineRecord(initial.film).exists !== true) {
         event.preventDefault();
         window.filmStudioShowTimelineStatus?.(
@@ -28422,6 +28448,127 @@
       const pointerDelta = event.clientX - gesture.startX;
       if (!gesture.active && Math.hypot(pointerDelta + scrollDelta, event.clientY - gesture.startY) < 5) return [];
       return resolveReactClipGesturePreview(event, true);
+    },
+    endClipGesture(event) {
+      const state = filmStore.getSnapshot();
+      const gesture = state.timelineGestureContext;
+      if (!gesture || gesture.pointerId !== event.pointerId) return;
+      const bridge = window.filmStudioReactTimeline;
+      const controller = window.filmStudioTimelineController;
+      const requiredControllerMethods = [
+        "resolveGestureStartMode",
+        "createGestureStart",
+        "resolveMoveGesture",
+        "resolveTrimGesture",
+        "resolveRollGesture",
+        "resolveSlideGesture",
+        "resolveSlipGesture",
+        "validateMoveTarget",
+        "buildMovePreview",
+        "buildMoveOperations"
+      ];
+      const controllerReady = !!controller && requiredControllerMethods.every(
+        (method) => typeof controller[method] === "function"
+      );
+      const cancel = (reason) => {
+        try {
+          if (typeof window.filmStudioCancelReactTimelineGesture === "function") {
+            window.filmStudioCancelReactTimelineGesture(event, reason);
+          } else {
+            bridge?.cancelClipGesture(event);
+          }
+        } catch {
+          bridge?.cancelClipGesture(event);
+        }
+      };
+      if (!bridge || typeof bridge.prepareClipGestureCommit !== "function" || !controllerReady) {
+        cancel("missing commit runtime bridge/controller contract");
+        return;
+      }
+      let prepared;
+      try {
+        prepared = bridge.prepareClipGestureCommit(event);
+      } catch (error) {
+        cancel("prepareClipGestureCommit threw: " + String(error instanceof Error ? error.stack || error.message : error));
+        return;
+      }
+      if (!Array.isArray(prepared)) {
+        cancel("prepareClipGestureCommit returned " + (prepared === null ? "null" : typeof prepared));
+        return;
+      }
+      const finalState = filmStore.getSnapshot();
+      const finalGesture = finalState.timelineGestureContext;
+      if (!finalGesture || finalGesture.pointerId !== event.pointerId) return;
+      const commit = window.filmStudioCommitPreparedClipOperations;
+      if (prepared.length && typeof commit !== "function") {
+        cancel("missing exact-revision commit adapter");
+        return;
+      }
+      if (finalGesture.active) suppressReactClipClick();
+      (0, import_react_dom.flushSync)(() => {
+        filmStore.setField("timelineGesturePreview", null);
+        filmStore.setField("timelineSnapGuide", null);
+        filmStore.setField("timelineDropTarget", null);
+        filmStore.setField("timelineActiveDragIds", null);
+        filmStore.setField("timelineGestureContext", null);
+      });
+      if (finalState.pendingExternalRevision) {
+        window.filmStudioShowTimelineStatus?.(
+          "\u5F71\u7247 revision \u5728\u62D6\u52A8\u671F\u95F4\u53D8\u5316\uFF1B\u672C\u6B21\u65E7\u753B\u9762\u62D6\u52A8\u672A\u63D0\u4EA4\uFF0C\u5148\u8F7D\u5165\u5916\u90E8\u7248\u672C\u3002",
+          "error"
+        );
+        window.filmStudioFlushPendingExternalRevision?.();
+        return;
+      }
+      if (!finalGesture.active) {
+        if (finalGesture.mode === "slide" || finalGesture.mode === "slip") {
+          const film = timelineRecord(finalState.film);
+          const tracks = Array.isArray(film.tracks) ? film.tracks : [];
+          let clickedAt = null;
+          for (const rawTrack of tracks) {
+            const track = timelineRecord(rawTrack);
+            const clips = Array.isArray(track.clips) ? track.clips : [];
+            for (const rawClip of clips) {
+              const clip = timelineRecord(rawClip);
+              if (String(clip.id || "") !== finalGesture.id) continue;
+              const at = Number(clip.at);
+              if (Number.isFinite(at)) clickedAt = at;
+              break;
+            }
+            if (clickedAt !== null) break;
+          }
+          if (clickedAt !== null) window.filmStudioSeek?.(clickedAt);
+        }
+        window.filmStudioFlushPendingExternalRevision?.();
+        return;
+      }
+      if (finalGesture.invalidTargetMessage) {
+        window.filmStudioShowTimelineStatus?.(finalGesture.invalidTargetMessage, "error");
+        window.filmStudioFlushPendingExternalRevision?.();
+        return;
+      }
+      if (!prepared.length) {
+        window.filmStudioFlushPendingExternalRevision?.();
+        return;
+      }
+      try {
+        return Promise.resolve(commit(prepared)).then(
+          () => void 0,
+          (error) => {
+            window.filmStudioShowTimelineStatus?.(
+              "\u4FDD\u5B58\u7247\u6BB5\u64CD\u4F5C\u5931\u8D25\uFF1A" + String(error instanceof Error ? error.message : error),
+              "error"
+            );
+            window.filmStudioFlushPendingExternalRevision?.();
+          }
+        );
+      } catch (error) {
+        window.filmStudioShowTimelineStatus?.(
+          "\u4FDD\u5B58\u7247\u6BB5\u64CD\u4F5C\u5931\u8D25\uFF1A" + String(error instanceof Error ? error.message : error),
+          "error"
+        );
+        window.filmStudioFlushPendingExternalRevision?.();
+      }
     },
     zoom(direction, anchorClientX) {
       const scroll = document.getElementById("fs-timeline-scroll");
