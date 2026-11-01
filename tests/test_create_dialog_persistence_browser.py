@@ -681,6 +681,74 @@ def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp
 
 
 
+
+
+def test_blank_persisted_draft_with_default_radio_does_not_prompt_on_history_restore(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        conversation = director_history.create_conversation(
+            conversation_id="conv-blank-draft-default-radio",
+            title="空白草稿恢复历史",
+            snapshot={
+                "form": {
+                    "fields": {
+                        "cf-director-brief": "历史记录中的目标",
+                        "cf-script": "历史记录中的文案",
+                    },
+                    "context": {"asset_refs": []},
+                }
+            },
+        )
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                saved = page.evaluate("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {
+                      method: 'POST',
+                      headers: {'Content-Type':'application/json'},
+                      body: JSON.stringify({
+                        data: {
+                          version: 1,
+                          fields: {'cf-scope': 'single'},
+                          explicit_fields: [],
+                          context: {asset_refs: [], reference: null, article: null, repo: null,
+                                    narration_upload: '', project_id: ''}
+                        }
+                      })
+                    });
+                    return await response.json();
+                }""")
+                assert saved["ok"] is True
+
+                page.evaluate("openCreate()")
+                page.locator("#cf-director-brief").wait_for(state="visible")
+                page.locator("#director-history-launch").click()
+                page.locator("#cf-history-list button[data-conversation-id='conv-blank-draft-default-radio']").click()
+                page.wait_for_function(
+                    "document.querySelector('#cf-history-list [data-history-action=\"restore\"]') !== null"
+                )
+                page.evaluate("""() => {
+                    window.__blankDraftConfirmMessages = [];
+                    window.confirm = message => {
+                        window.__blankDraftConfirmMessages.push(String(message));
+                        return true;
+                    };
+                }""")
+                page.locator('#cf-history-list button[data-history-action="restore"]').click()
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-director-brief')?.value === '历史记录中的目标'
+                    && document.getElementById('cf-script')?.value === '历史记录中的文案'
+                """, timeout=10000)
+                assert page.evaluate("window.__blankDraftConfirmMessages") == []
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
 def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:

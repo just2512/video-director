@@ -2013,7 +2013,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const fields=currentSnapshot?.fields||{},context=currentSnapshot?.context||{};
     const defaults={};
     const form=document.getElementById('cf-form');
-    form?.querySelectorAll('input[id],textarea[id],select[id]').forEach(control=>{
+    form?.querySelectorAll('input[id],input[type="radio"][name],textarea[id],select[id]').forEach(control=>{
       if(control.type==='file')return;
       if(control.type==='radio'){
         if(control.defaultChecked)defaults[control.name||control.id]=control.value;
