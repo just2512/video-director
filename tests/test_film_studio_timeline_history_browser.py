@@ -2966,3 +2966,166 @@ def test_react_clip_gesture_cancels_if_bridge_contract_disappears_midgesture(
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_react_volume_envelope_gesture_is_store_owned_and_commits_exactly_once(tmp_path, monkeypatch):
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-react-envelope-gesture-browser"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    source_text = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#182030}</style></head>
+<body>
+<section id="video-main" data-label="主画面">
+  <video id="clip-a" src="../assets/a.mp4#t=0,2" at="0"
+    volume_envelope='[{"t":0,"v":1},{"t":1,"v":0.5},{"t":2,"v":0.25}]'></video>
+</section>
+</body></html>'''
+    film_path.write_text(source_text, encoding="utf-8")
+    original_bytes = film_path.read_bytes()
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"]
+    initial_clip = next(
+        clip for track in initial["doc"]["tracks"] for clip in track["clips"]
+        if clip["id"] == "clip-a"
+    )
+    initial_points = json.loads(initial_clip["attrs"]["volume_envelope"])
+    assert [float(point["t"]) for point in initial_points] == [0.0, 1.0, 2.0]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            page_errors: list[str] = []
+            edit_requests: list[dict] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+
+            def capture_edit(request):
+                if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
+                    try:
+                        edit_requests.append(json.loads(request.post_data or "{}"))
+                    except json.JSONDecodeError:
+                        edit_requests.append({"_invalid_json": True})
+
+            page.on("request", capture_edit)
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="domcontentloaded",
+                )
+                assert response and response.status == 200
+                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                page.locator("#tab-editor").click()
+                page.locator("#pane-editor").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => { const select=document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
+                page.evaluate(
+                    """pid => {
+                      const select=document.querySelector('#editor-project');
+                      let option=[...select.options].find(item=>item.value===pid);
+                      if(!option){option=new Option(pid,pid);select.add(option);}
+                      select.value=pid;
+                    }""",
+                    project_id,
+                )
+                page.evaluate("window.filmStudioToggle()")
+                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                page.wait_for_function(
+                    "() => typeof window.filmStudioReactTimeline?.beginEnvelopeGesture === 'function' "
+                    "&& !!document.querySelector('.fs-react-timeline-surface')",
+                    timeout=10000,
+                )
+                canvas = page.locator('#fs-timeline canvas[data-envelope-clip="clip-a"]')
+                canvas.wait_for(state="visible")
+                page.locator('[data-film-action="envelope-mode"]:visible').click()
+                page.evaluate(
+                    """() => {
+                      window.__legacyEnvelopeGestureCalls=[];
+                      for (const name of [
+                        'filmStudioBeginEnvelopeGesture','filmStudioMoveEnvelopeGesture',
+                        'filmStudioEndEnvelopeGesture','filmStudioCancelEnvelopeGesture'
+                      ]) {
+                        const original=window[name];
+                        window[name]=function(...args) {
+                          window.__legacyEnvelopeGestureCalls.push(name);
+                          return typeof original==='function' ? original.apply(this,args) : undefined;
+                        };
+                      }
+                    }"""
+                )
+                before = fd.read_project_film(project_id)
+                before_revision = before["rev"]
+                bounds = canvas.bounding_box()
+                assert bounds and bounds["width"] > 20 and bounds["height"] > 10
+                start_x = bounds["x"] + bounds["width"] / 2
+                start_y = bounds["y"] + bounds["height"] / 2
+                page.mouse.move(start_x, start_y)
+                page.mouse.down()
+                page.mouse.move(start_x + 6, start_y - 7, steps=5)
+                page.wait_for_function(
+                    """() => {
+                      const s=window.filmStudioStore?.getSnapshot();
+                      const gesture=s?.timelineEnvelopeGesture;
+                      const preview=s?.timelineEnvelopePreview;
+                      return !!gesture?.changed && gesture.clipId==='clip-a' &&
+                        gesture.pointerId >= 0 && !!preview && preview.clipId==='clip-a' &&
+                        preview.points.length===3 && preview.points[1].t>1.02 &&
+                        preview.points[1].v>0.5;
+                    }""",
+                    timeout=5000,
+                )
+                assert edit_requests == []
+                assert film_path.read_bytes() == original_bytes
+                assert fd.read_project_film(project_id)["rev"] == before_revision
+
+                page.mouse.up()
+                page.wait_for_function(
+                    """revision => {
+                      const s=window.filmStudioStore?.getSnapshot();
+                      return !!s && !s.busy && s.pendingTransaction===null &&
+                        s.timelineEnvelopeGesture===null && s.timelineEnvelopePreview===null &&
+                        s.revision!==revision;
+                    }""",
+                    arg=before_revision,
+                    timeout=10000,
+                )
+                assert len(edit_requests) == 1, edit_requests
+                payload = edit_requests[0]
+                assert payload["base"] == before_revision, payload
+                operations = payload["ops"]
+                assert len(operations) == 1, operations
+                operation = operations[0]
+                assert operation["op"] == "set" and operation["clip"] == "clip-a", operation
+                assert operation["field"] == "volume_envelope", operation
+                saved = fd.read_project_film(project_id)
+                saved_clip = next(
+                    clip for track in saved["doc"]["tracks"] for clip in track["clips"]
+                    if clip["id"] == "clip-a"
+                )
+                saved_points = json.loads(saved_clip["attrs"]["volume_envelope"])
+                assert len(saved_points) == 3, saved_points
+                assert float(saved_points[1]["t"]) > 1.02, saved_points
+                assert float(saved_points[1]["v"]) > 0.5, saved_points
+                assert page.evaluate("window.__legacyEnvelopeGestureCalls") == []
+                assert len(edit_requests) == 1
+                assert not page_errors, f"browser JavaScript errors: {page_errors}"
+            finally:
+                page.close()
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

@@ -2494,6 +2494,36 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
   function filmStudioCommitExactRevision(ops, options) {
     return filmStudioCommit(ops,Object.assign({},options||{},{requireExactRevision:true}));
   }
+  window.filmStudioCanBeginEnvelopeGesture=function(){
+    if(S.previewProposalActive){
+      showStatus('AI 候选时间线预览期间，请先应用或拒绝提案，再编辑音量曲线。');
+      return false;
+    }
+    return true;
+  };
+  window.filmStudioCommitEnvelopePoints=async function(clipId,points){
+    if(!S.projectId||!S.data||!S.data.exists)throw new Error('当前没有可编辑的 film.html。');
+    if(S.previewProposalActive)throw new Error('AI 候选时间线预览期间不能提交音量曲线。');
+    if(!Array.isArray(points)||points.length<2||
+       points.some(function(point){return !point||!Number.isFinite(Number(point.t))||
+         !Number.isFinite(Number(point.v))||Number(point.t)<0||Number(point.v)<0||Number(point.v)>1;})){
+      throw new Error('音量曲线关键帧数据无效。');
+    }
+    var operations=[{op:'set',clip:String(clipId),field:'volume_envelope',
+      value:JSON.stringify(points.map(function(point){return {t:Number(point.t),v:Number(point.v)};}))}];
+    var committed=await filmStudioCommitExactRevision(operations,{requireExactRevision:true});
+    if(!committed){
+      var alert=$('film-studio-alert');
+      throw new Error(alert&&alert.textContent||'音量曲线没有保存，请检查影片 revision 后重试。');
+    }
+    return true;
+  };
+  window.filmStudioFlushPendingExternalRevision=function(){
+    return flushPendingExternalRevision();
+  };
+  window.filmStudioShowTimelineStatus=function(message,kind){
+    showStatus(message,kind);
+  };
 
   async function filmStudioHistory(action) {
     if(!S.data||S.busy)return;

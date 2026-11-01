@@ -641,6 +641,13 @@ interface FilmStudioReactTimelineBridge {
   setTrackDropTarget(target: FilmTimelineDropTarget): void;
   setActiveDragIds(ids: FilmTimelineActiveDragIds): void;
   setEnvelopePreview(preview: FilmStudioTimelineEnvelopePreview): void;
+  beginEnvelopeGesture(event: PointerEvent, context: {
+    clipId: string; duration: number; points: FilmStudioTimelineEnvelopePoint[];
+    rect: {left: number; top: number; width: number; height: number};
+  }): boolean;
+  moveEnvelopeGesture(event: PointerEvent, rect: {left: number; top: number; width: number; height: number}): void;
+  endEnvelopeGesture(event: Pick<PointerEvent,"pointerId">): Promise<void>;
+  cancelEnvelopeGesture(event: Pick<PointerEvent,"pointerId">): void;
   clearSurface(): void;
   hasSurface(): boolean;
   openContextMenu(model: FilmTimelineContextMenu): void;
@@ -700,6 +707,10 @@ declare global {
     filmStudioEndEnvelopeGesture?: (event: PointerEvent) => Promise<void> | void;
     filmStudioCancelEnvelopeGesture?: (event: PointerEvent) => void;
     filmStudioOwnsEnvelopeGesturePointer?: (pointerId: number) => boolean;
+    filmStudioCanBeginEnvelopeGesture?: () => boolean;
+    filmStudioCommitEnvelopePoints?: (clipId: string, points: FilmStudioTimelineEnvelopePoint[]) => Promise<boolean>;
+    filmStudioFlushPendingExternalRevision?: () => boolean;
+    filmStudioShowTimelineStatus?: (message: string, kind?: string) => void;
     filmStudioOpenTimelineContextMenu?: (clipId: string, clientX: number, clientY: number) => void;
     filmStudioContextMenuAction?: (action: string, clipId: string, requestedDuration?: string) => void;
     filmStudioToggleTrackLock?: (trackId: string) => Promise<boolean> | void;
@@ -2268,8 +2279,10 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                   event.stopPropagation();
                   const pointerId = event.nativeEvent.pointerId;
                   const bounds = event.currentTarget.getBoundingClientRect();
-                  const started = window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, {
+                  const started = window.filmStudioReactTimeline?.beginEnvelopeGesture(event.nativeEvent, {
                     clipId:clip.id,
+                    duration:clip.duration ?? 0,
+                    points:clip.envelopePoints,
                     rect:{left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height},
                   });
                   if (started) {
@@ -2279,8 +2292,10 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                 }}
                 onPointerMove={event => {
                   if (activeEnvelopePointerId.current === event.nativeEvent.pointerId) {
+                    event.preventDefault();
+                    event.stopPropagation();
                     const bounds = event.currentTarget.getBoundingClientRect();
-                    window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent, {
+                    window.filmStudioReactTimeline?.moveEnvelopeGesture(event.nativeEvent, {
                       left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height,
                     });
                   }
@@ -2288,14 +2303,18 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                 onPointerUp={event => {
                   const pointerId = event.nativeEvent.pointerId;
                   if (activeEnvelopePointerId.current !== pointerId) return;
-                  const pending = window.filmStudioEndEnvelopeGesture?.(event.nativeEvent);
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const pending = window.filmStudioReactTimeline?.endEnvelopeGesture(event.nativeEvent);
                   const clear = () => { if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null; };
                   Promise.resolve(pending).then(clear, clear);
                 }}
                 onPointerCancel={event => {
                   const pointerId = event.nativeEvent.pointerId;
                   if (activeEnvelopePointerId.current !== pointerId) return;
-                  window.filmStudioCancelEnvelopeGesture?.(event.nativeEvent);
+                  event.preventDefault();
+                  event.stopPropagation();
+                  window.filmStudioReactTimeline?.cancelEnvelopeGesture(event.nativeEvent);
                   Promise.resolve().then(() => {
                     if (activeEnvelopePointerId.current === pointerId) activeEnvelopePointerId.current = null;
                   });
@@ -2867,6 +2886,110 @@ window.filmStudioReactTimeline = {
   },
   setEnvelopePreview(preview) {
     filmStore.setField("timelineEnvelopePreview", preview);
+  },
+  beginEnvelopeGesture(event, context) {
+    const state = filmStore.getSnapshot();
+    const rect = context?.rect;
+    const clipId = String(context?.clipId || "");
+    const duration = Number(context?.duration);
+    const points = Array.isArray(context?.points) ? context.points : [];
+    if (!event || !clipId || (event.button !== 0 && event.button !== 2) ||
+        !Number.isFinite(duration) || duration <= 0.02 ||
+        !rect || ![rect.left,rect.top,rect.width,rect.height].every(Number.isFinite) ||
+        rect.width <= 0 || rect.height <= 0 || points.length < 2 ||
+        state.busy || state.broken || state.pendingTransaction !== null ||
+        state.pendingExternalRevision || state.timelineGestureContext ||
+        state.timelineEnvelopeGesture || !state.film || (state.film as Record<string,unknown>).exists !== true) {
+      return false;
+    }
+    if (window.filmStudioCanBeginEnvelopeGesture?.() === false) return false;
+    const resolution = filmTimelineMath.resolveEnvelopePointerDown(
+      points,duration,rect.width,rect.height,
+      event.clientX-rect.left,event.clientY-rect.top,event.button,event.shiftKey,
+    );
+    if (resolution.kind === "none") return false;
+    if (resolution.kind === "minimum-points") {
+      window.filmStudioShowTimelineStatus?.("至少需要两个音量关键帧。","error");
+      return false;
+    }
+    if (resolution.kind === "remove") {
+      const commit = window.filmStudioCommitEnvelopePoints;
+      if (!commit) {
+        window.filmStudioShowTimelineStatus?.("音量曲线提交接口不可用；本次删除未写入。","error");
+        return false;
+      }
+      void commit(clipId,resolution.points).catch(error => {
+        window.filmStudioShowTimelineStatus?.("删除音量关键帧失败："+String(error instanceof Error ? error.message : error),"error");
+      });
+      return false;
+    }
+    const gesture = {
+      clipId,pointerId:event.pointerId,rect:{...rect},
+      points:resolution.points,index:resolution.index,duration,
+      active:resolution.added,changed:resolution.added,
+    };
+    filmStore.setField("timelineEnvelopeGesture",gesture);
+    filmStore.setField("timelineEnvelopePreview",{clipId,points:resolution.points});
+    return true;
+  },
+  moveEnvelopeGesture(event, rect) {
+    const gesture = filmStore.getField("timelineEnvelopeGesture");
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    const state = filmStore.getSnapshot();
+    if (state.pendingExternalRevision || !rect ||
+        ![rect.left,rect.top,rect.width,rect.height].every(Number.isFinite) ||
+        rect.width <= 0 || rect.height <= 0) return;
+    const points = filmTimelineMath.moveEnvelopeKeyframe(
+      gesture.points,gesture.index,gesture.duration,rect.width,rect.height,
+      event.clientX-rect.left,event.clientY-rect.top,
+    );
+    if (!points) return;
+    filmStore.setField("timelineEnvelopeGesture",{
+      ...gesture,rect:{...rect},points,active:true,changed:true,
+    });
+    filmStore.setField("timelineEnvelopePreview",{clipId:gesture.clipId,points});
+  },
+  async endEnvelopeGesture(event) {
+    const gesture = filmStore.getField("timelineEnvelopeGesture");
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    filmStore.setField("timelineEnvelopeGesture",null);
+    filmStore.setField("timelineEnvelopePreview",null);
+    const state = filmStore.getSnapshot();
+    if (state.pendingExternalRevision) {
+      window.filmStudioShowTimelineStatus?.("影片 revision 在音量曲线拖动期间变化；本次拖动未提交，正在载入外部版本。","error");
+      window.filmStudioFlushPendingExternalRevision?.();
+      return;
+    }
+    if (!gesture.changed) {
+      window.filmStudioFlushPendingExternalRevision?.();
+      return;
+    }
+    const points = filmTimelineMath.normalizeEnvelopePoints(gesture.points);
+    if (points.length < 2) {
+      window.filmStudioShowTimelineStatus?.("音量曲线至少需要两个关键帧；本次修改未提交。","error");
+      window.filmStudioFlushPendingExternalRevision?.();
+      return;
+    }
+    const commit = window.filmStudioCommitEnvelopePoints;
+    if (!commit) {
+      window.filmStudioShowTimelineStatus?.("音量曲线提交接口不可用；本次修改未写入。","error");
+      window.filmStudioFlushPendingExternalRevision?.();
+      return;
+    }
+    try {
+      await commit(gesture.clipId,points);
+    } catch (error) {
+      window.filmStudioShowTimelineStatus?.("保存音量曲线失败："+String(error instanceof Error ? error.message : error),"error");
+    } finally {
+      window.filmStudioFlushPendingExternalRevision?.();
+    }
+  },
+  cancelEnvelopeGesture(event) {
+    const gesture = filmStore.getField("timelineEnvelopeGesture");
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    filmStore.setField("timelineEnvelopeGesture",null);
+    filmStore.setField("timelineEnvelopePreview",null);
+    window.filmStudioFlushPendingExternalRevision?.();
   },
   clearSurface() {
     // The legacy project-switch path may immediately replace #fs-timeline children

@@ -342,11 +342,14 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "var nativeEnvelope=target&&target.closest?target.closest('[data-envelope-clip]'):null;" in studio
     assert "if(reactTimeline&&reactClip&&!nativeEnvelope)return;" in studio
     assert "if(window.filmStudioOwnsClipGesturePointer&&window.filmStudioOwnsClipGesturePointer(e.pointerId))return;" in studio
-    assert "window.filmStudioBeginEnvelopeGesture?.(event.nativeEvent, {" in component
+    assert "window.filmStudioReactTimeline?.beginEnvelopeGesture(event.nativeEvent, {" in component
     assert "clipId:clip.id" in component
     assert "rect:{left:bounds.left,top:bounds.top,width:bounds.width,height:bounds.height}" in component
     assert "window.filmStudioOwnsEnvelopeGesturePointer = ownsEnvelopePointer" in component
-    assert "window.filmStudioBeginEnvelopeGesture=function(e,context)" in studio
+    assert "window.filmStudioBeginEnvelopeGesture=function(e,context)" in studio  # non-React compatibility path
+    assert "window.filmStudioCanBeginEnvelopeGesture=function()" in studio
+    assert "window.filmStudioCommitEnvelopePoints=async function(clipId,points)" in studio
+    assert "window.filmStudioFlushPendingExternalRevision=function()" in studio
     assert "S.envelopeDrag={clipId:clip.id,pointerId:e.pointerId,rect:rect,points:points,index:index" in studio
     assert "var ed=S.envelopeDrag;" in studio
     assert "if(!e||e.pointerId!==ed.pointerId)return;" in studio
@@ -354,7 +357,13 @@ def test_react_studio_timeline_toolbar_has_same_authoritative_actions_and_fallba
     assert "if(!setTimelineEnvelopePreview(ed.clipId,points)&&envelopeDomCanvas)drawVolumeEnvelope(envelopeDomCanvas,points);" in studio
     assert "var envelopeDomCanvas = null;" in studio
     assert "canvas:canvas||null" not in studio
-    assert "window.filmStudioMoveEnvelopeGesture?.(event.nativeEvent, {" in component
+    assert "window.filmStudioReactTimeline?.moveEnvelopeGesture(event.nativeEvent, {" in component
+    assert "window.filmStudioReactTimeline?.endEnvelopeGesture(event.nativeEvent)" in component
+    assert "window.filmStudioReactTimeline?.cancelEnvelopeGesture(event.nativeEvent)" in component
+    assert "filmTimelineMath.resolveEnvelopePointerDown(" in component
+    assert "filmTimelineMath.moveEnvelopeKeyframe(" in component
+    assert "filmTimelineMath.normalizeEnvelopePoints(gesture.points)" in component
+    assert 'filmStore.setField("timelineEnvelopeGesture",gesture)' in component
     assert "onClick={event => event.stopPropagation()}" in component
     assert "return beginVolumeEnvelopeGesture(e,context,null);" in studio
     assert "window.filmStudioOwnsEnvelopeGesturePointer(e.pointerId)" in studio
