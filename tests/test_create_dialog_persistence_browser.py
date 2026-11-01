@@ -577,3 +577,60 @@ def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_sfx_duplicate_labels_are_disambiguated_and_select_options_are_safe(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/sfx", lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps([
+                    {"id": "sfx-camera-shutter-001", "label": "相机快门"},
+                    {"id": "sfx-camera-shutter-soft", "label": "相机快门"},
+                    {"id": "sfx-data-tech-001", "label": "数据科技"},
+                ], ensure_ascii=False),
+            ))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("openCreate()")
+                page.wait_for_function("""() =>
+                    [...document.querySelectorAll('#cf-sfx option')]
+                      .filter(option => option.value.startsWith('sfx-')).length === 3
+                """, timeout=10000)
+                options = page.locator("#cf-sfx option").evaluate_all("""nodes =>
+                    nodes.filter(option => option.value.startsWith('sfx-')).map(option => ({
+                        value: option.value, label: option.textContent
+                    }))
+                """)
+                assert {row["value"] for row in options} == {
+                    "sfx-camera-shutter-001",
+                    "sfx-camera-shutter-soft",
+                    "sfx-data-tech-001",
+                }
+                labels = [row["label"] for row in options]
+                assert len(labels) == len(set(labels)), labels
+                assert any(label == "相机快门 · camera shutter 001" for label in labels), labels
+                assert any(label == "相机快门 · camera shutter soft" for label in labels), labels
+
+                unsafe_label = '<img src=x onerror="window.__sfxInjected=true">'
+                page.evaluate("""label => {
+                    window.__sfxInjected = false;
+                    window._rebuildSelect('cf-sfx', [['safe-id', label]]);
+                }""", unsafe_label)
+                assert page.locator("#cf-sfx img").count() == 0
+                assert page.locator("#cf-sfx option").first.text_content() == unsafe_label
+                assert page.evaluate("window.__sfxInjected") is False
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+

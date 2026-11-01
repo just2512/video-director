@@ -5,7 +5,13 @@ function _rebuildSelect(id, opts){
   const sel = document.getElementById(id);
   if (!sel) return;
   const prev = sel.value;
-  sel.innerHTML = opts.map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+  sel.replaceChildren();
+  for (const [value, label] of (Array.isArray(opts) ? opts : [])) {
+    const option = document.createElement('option');
+    option.value = String(value ?? '');
+    option.textContent = String(label ?? '');
+    sel.appendChild(option);
+  }
   if (prev !== undefined && prev !== null) {
     for (let i=0;i<sel.options.length;i++) {
       if (sel.options[i].value === prev) { sel.selectedIndex = i; return; }

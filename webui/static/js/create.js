@@ -460,8 +460,8 @@ function _createPanelHtml(){
         </select></div>
       <div style="flex:1"><label>成片总时长（秒，可选）</label>
         <input type="number" id="cf-duration" placeholder="例：30" min="3" step="1"></div>
-      <div style="flex:1"><label>风格</label>
-        <input type="text" id="cf-style" placeholder="例：纪录片沉稳，或点选可执行风格"></div>
+      <div style="flex:1"><label>风格补充描述（选填）</label>
+        <input type="text" id="cf-style" placeholder="补充画面质感或表达口吻；也可点选下方已核验风格"></div>
     </div>
     <div class="btn-row" style="align-items:center;gap:10px;margin-top:8px">
       <div style="flex:1"><label>画面来源</label>
@@ -603,6 +603,32 @@ function _createPanelHtml(){
  * DOM 查询错位。四张并行输入卡见 _createPanelHtml「输入上下文」区。 */
 
 /** 下拉/风格预设填充（单一数据源：与设置页同 API）。 */
+function cfUniqueAudioSelectOptions(items,prefix){
+  const rows=Array.isArray(items)?items.filter(item=>item&&typeof item==='object'):[];
+  const labelCounts=new Map();
+  rows.forEach(item=>{
+    const label=String(item.label||item.id||'');
+    labelCounts.set(label,(labelCounts.get(label)||0)+1);
+  });
+  const used=new Set();
+  return rows.flatMap((item,index)=>{
+    const id=String(item.id||'').trim();
+    if(!id)return [];
+    const base=String(item.label||id).trim()||id;
+    let label=base;
+    if((labelCounts.get(base)||0)>1){
+      const prefixValue=String(prefix||'').trim();
+      const suffix=(prefixValue&&id.startsWith(prefixValue+'-')?id.slice(prefixValue.length+1):id)
+        .replace(/[-_]+/g,' ').trim();
+      label=base+' · '+(suffix||id);
+    }
+    if(used.has(label))label=base+' · '+id;
+    while(used.has(label))label=label+' '+(index+1);
+    used.add(label);
+    return [[id,label]];
+  });
+}
+
 async function createLoadDefaults(){
   const assetInput = document.getElementById('cf-assets');
   if (assetInput) {
@@ -615,12 +641,12 @@ async function createLoadDefaults(){
     _rebuildSelect('cf-voice', voices.map(v => [v.id, v.label]));
     const bgms = await apiGet('/api/bgm');
     _rebuildSelect('cf-bgm', [['auto', '自动按内容与风格匹配现有音乐'], ['', '（不配乐）'],
-                              ...bgms.map(b => [b.id, b.label])]);
+                              ...cfUniqueAudioSelectOptions(bgms,'bgm')]);
     const sfxs = await apiGet('/api/sfx');
     _rebuildSelect('cf-sfx', [['auto', '自动（本地音效库）'],
                               ['openverse-auto', '自动搜索匹配（Openverse 免Key · freesound · CC0）'],
                               ['', '关闭'],
-                              ...sfxs.map(s => [s.id, s.label])]);
+                              ...cfUniqueAudioSelectOptions(sfxs,'sfx')]);
   } catch (e) { /* 下拉加载失败不阻塞创建 */ }
   // 风格只使用 Studio 能力目录返回的可执行 StyleContract，避免两个来源互相覆盖。
   await cfLoadStudioCatalog();
