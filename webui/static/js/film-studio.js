@@ -2861,7 +2861,14 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       showTimelineSnapGuide(null);clearDragTrackTarget(null);gestureDomRefs=null;
       setTimelineActiveDragIds(null);clearTimelineGesturePreview();
       var pointerTarget=e&&e.target;
-      if(pointerTarget&&typeof pointerTarget.closest==='function'&&
+      var reactOwnsClickTarget=!!(window.filmStudioReactTimeline&&
+        typeof window.filmStudioReactTimeline.renderSurface==='function'&&
+        document.querySelector('.fs-react-timeline-surface')&&
+        pointerTarget&&typeof pointerTarget.closest==='function'&&
+        pointerTarget.closest('[data-react-timeline-clip]'));
+      // An unclaimed React pointerup can still be followed by a valid React click.
+      // Do not let the legacy no-drag fallback consume that click-to-seek event.
+      if(!reactOwnsClickTarget&&pointerTarget&&typeof pointerTarget.closest==='function'&&
          pointerTarget.closest('#fs-timeline .fs-clip[data-clip]'))suppressNextClipClick();
       flushPendingExternalRevision();return;
     }
