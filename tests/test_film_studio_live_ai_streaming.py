@@ -1,4 +1,4 @@
-"""Opt-in end-to-end smoke test for real configured Film AI token streaming.
+"""Opt-in real-model test: stream a proposal, then verify one explicit approval and replay rejection.
 
 Set VD_LLM_LIVE_STREAM_TEST=1 to run this against the OpenAI-compatible endpoint
 configured by VD_LLM_API_KEY, VD_LLM_BASE_URL, and VD_LLM_MODEL. The default CI
@@ -134,65 +134,120 @@ def test_configured_film_ai_stream_delivers_tokens_before_result_without_writing
                 elif line.startswith(b"data:"):
                     data_lines.append(line[len(b"data:"):].decode("utf-8", errors="strict").strip())
             flush_event()
+        errors = [item for item in events if item["event"] == "error"]
+        assert not errors, {
+            "error_code": errors[-1]["data"].get("code") if errors else None,
+            "event_names": [item["event"] for item in events],
+            "elapsed_seconds": round(time.monotonic() - started_at, 3),
+        }
+        result_indexes = [index for index, item in enumerate(events) if item["event"] == "result"]
+        assert result_indexes, {
+            "event_names": [item["event"] for item in events],
+            "elapsed_seconds": round(time.monotonic() - started_at, 3),
+        }
+        result_index = result_indexes[-1]
+        result_event = events[result_index]
+        result = result_event["data"]
+        assert result.get("ok") is True, {
+            "result_keys": sorted(result.keys()),
+            "event_names": [item["event"] for item in events],
+        }
+
+        token_events = [
+            (index, item) for index, item in enumerate(events[:result_index])
+            if item["event"] == "token"
+            and isinstance(item["data"].get("fragment"), str)
+            and item["data"]["fragment"].strip()
+        ]
+        assert len(token_events) >= 2, {
+            "nonempty_token_event_count": len(token_events),
+            "event_names": [item["event"] for item in events],
+            "elapsed_seconds": round(time.monotonic() - started_at, 3),
+            "hint": "If a proposal is returned only at the end, inspect buffering in VD_LLM_BASE_URL's proxy.",
+        }
+        assert token_events[0][0] < result_index and token_events[-1][0] < result_index
+        # A fully buffered response delivers all token fragments back-to-back only after
+        # model completion. Require a visible interval between the first fragment and result.
+        first_to_result_seconds = result_event["received_at"] - token_events[0][1]["received_at"]
+        assert first_to_result_seconds >= 0.1, {
+            "first_token_to_result_seconds": round(first_to_result_seconds, 4),
+            "token_event_count": len(token_events),
+            "hint": "The configured proxy may be buffering the upstream SSE stream.",
+        }
+
+        proposal = result.get("proposal")
+        assert isinstance(proposal, dict), {
+            "result_keys": sorted(result.keys()),
+            "message": result.get("message"),
+            "hint": "The live test expects a validated proposal, not a no-op response.",
+        }
+        assert proposal.get("base_revision") == before["rev"], "proposal must use the exact requested base revision"
+        operations = proposal.get("operations") or []
+        assert len(operations) == 1, operations
+        assert operations[0].get("op") == "move" and operations[0].get("clip") == "clip-b", operations
+        assert abs(float(operations[0].get("at", -1)) - 8.5) < 0.001, operations
+        after = fd.read_project_film(project_id)
+        assert after["rev"] == before["rev"], "AI proposal generation must not mutate FilmDocument revision"
+        assert film_path.read_bytes() == before_bytes, "AI proposal generation must not rewrite film.html"
+
+
+
+
+        # The generated proposal is still read-only until the explicit approval endpoint.
+        approval = {
+            "project_id": project_id,
+            "proposal_id": proposal["id"],
+            "base_revision": before["rev"],
+            # The browser can identify a proposal but cannot replace its registered operations.
+            "ops": [{"op": "remove", "clip": "clip-a"}],
+        }
+        approval_request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/api/editor/film/apply-proposal",
+            data=json.dumps(approval, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        try:
+            approval_response = urllib.request.urlopen(approval_request, timeout=30)
+        except urllib.error.HTTPError as error:
+            detail = error.read(600).decode("utf-8", errors="replace").replace(api_key, "[redacted]")
+            pytest.fail(
+                f"explicit proposal approval returned HTTP {error.code}: {detail}; "
+                "verify the proposal registry and exact base revision"
+            )
+        with approval_response:
+            assert approval_response.status == 200
+            applied_payload = json.loads(approval_response.read().decode("utf-8"))
+        assert applied_payload.get("ok") is True, applied_payload
+        assert applied_payload.get("base") == before["rev"], applied_payload
+        assert applied_payload.get("source") == "ai_proposal", applied_payload
+        assert applied_payload.get("applied_proposal") == proposal["id"], applied_payload
+        assert applied_payload.get("rev") != before["rev"], applied_payload
+
+        applied = fd.read_project_film(project_id)
+        applied_bytes = film_path.read_bytes()
+        assert applied["rev"] == applied_payload["rev"]
+        applied_clips = {
+            clip["id"]: clip
+            for track in applied["doc"]["tracks"]
+            for clip in track["clips"]
+        }
+        assert "clip-a" in applied_clips, "client-supplied ops must not replace the registered proposal"
+        assert abs(float(applied_clips["clip-b"]["attrs"]["at"]) - 8.5) < 0.001
+
+        try:
+            urllib.request.urlopen(approval_request, timeout=30)
+        except urllib.error.HTTPError as error:
+            retry_status = error.code
+            retry_body = json.loads(error.read().decode("utf-8"))
+        else:
+            pytest.fail("the same live-model proposal must be single-use")
+        assert retry_status == 409, retry_body
+        assert retry_body.get("code") == "PROPOSAL_NOT_FOUND_OR_STALE", retry_body
+        after_retry = fd.read_project_film(project_id)
+        assert after_retry["rev"] == applied["rev"]
+        assert film_path.read_bytes() == applied_bytes, "repeated approval must not produce a second write"
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
-
-    errors = [item for item in events if item["event"] == "error"]
-    assert not errors, {
-        "error_code": errors[-1]["data"].get("code") if errors else None,
-        "event_names": [item["event"] for item in events],
-        "elapsed_seconds": round(time.monotonic() - started_at, 3),
-    }
-    result_indexes = [index for index, item in enumerate(events) if item["event"] == "result"]
-    assert result_indexes, {
-        "event_names": [item["event"] for item in events],
-        "elapsed_seconds": round(time.monotonic() - started_at, 3),
-    }
-    result_index = result_indexes[-1]
-    result_event = events[result_index]
-    result = result_event["data"]
-    assert result.get("ok") is True, {
-        "result_keys": sorted(result.keys()),
-        "event_names": [item["event"] for item in events],
-    }
-
-    token_events = [
-        (index, item) for index, item in enumerate(events[:result_index])
-        if item["event"] == "token"
-        and isinstance(item["data"].get("fragment"), str)
-        and item["data"]["fragment"].strip()
-    ]
-    assert len(token_events) >= 2, {
-        "nonempty_token_event_count": len(token_events),
-        "event_names": [item["event"] for item in events],
-        "elapsed_seconds": round(time.monotonic() - started_at, 3),
-        "hint": "If a proposal is returned only at the end, inspect buffering in VD_LLM_BASE_URL's proxy.",
-    }
-    assert token_events[0][0] < result_index and token_events[-1][0] < result_index
-    # A fully buffered response delivers all token fragments back-to-back only after
-    # model completion. Require a visible interval between the first fragment and result.
-    first_to_result_seconds = result_event["received_at"] - token_events[0][1]["received_at"]
-    assert first_to_result_seconds >= 0.1, {
-        "first_token_to_result_seconds": round(first_to_result_seconds, 4),
-        "token_event_count": len(token_events),
-        "hint": "The configured proxy may be buffering the upstream SSE stream.",
-    }
-
-    proposal = result.get("proposal")
-    assert isinstance(proposal, dict), {
-        "result_keys": sorted(result.keys()),
-        "message": result.get("message"),
-        "hint": "The live test expects a validated proposal, not a no-op response.",
-    }
-    assert proposal.get("base_revision") == before["rev"], "proposal must use the exact requested base revision"
-    operations = proposal.get("operations") or []
-    assert len(operations) == 1, operations
-    assert operations[0].get("op") == "move" and operations[0].get("clip") == "clip-b", operations
-    assert abs(float(operations[0].get("at", -1)) - 8.5) < 0.001, operations
-    after = fd.read_project_film(project_id)
-    assert after["rev"] == before["rev"], "AI proposal generation must not mutate FilmDocument revision"
-    assert film_path.read_bytes() == before_bytes, "AI proposal generation must not rewrite film.html"
-
-

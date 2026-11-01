@@ -1,11 +1,15 @@
 """Contracts for the OpenFilm-inspired film document editor."""
 from __future__ import annotations
 
+import importlib
 import json
 import re
+import urllib.error
+import urllib.request
 import subprocess
 import threading
 
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -3208,4 +3212,105 @@ def test_legacy_composition_read_waits_for_film_initialization(tmp_path, monkeyp
     assert isinstance(outcome.get("error"), editor.EditorError)
     assert outcome["error"].code == "FILM_DOCUMENT_AUTHORITATIVE"
     assert "composition" not in outcome
+
+def test_apply_proposal_http_route_is_single_use_and_ignores_client_operations(tmp_path, monkeypatch):
+    """The HTTP approval route writes the registered proposal once and rejects replay."""
+    storage_root = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-proposal-single-use-api"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    before_bytes = film_path.read_bytes()
+    before = fd.read_project_film(project_id)
+    assert before["exists"] and before["rev"]
+
+    class FakeModel:
+        def generate(self, _prompt):
+            return json.dumps({
+                "summary": "将第二个片段移动到 8.5 秒",
+                "operations": [{
+                    "op": "move", "clip": "clip-b",
+                    "track_id": "video-main", "at": 8.5,
+                }],
+            }, ensure_ascii=False)
+
+    monkeypatch.setattr(web_server.vd_llm, "get_llm", lambda: FakeModel())
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    def post_json(route, payload):
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}{route}",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+
+    try:
+        status, generated = post_json("/api/editor/film/command", {
+            "project_id": project_id,
+            "base": before["rev"],
+            "message": "将 clip-b 移动到 8.5 秒",
+        })
+        assert status == 200, generated
+        proposal = generated.get("proposal")
+        assert isinstance(proposal, dict) and proposal.get("id"), generated
+        assert proposal["base_revision"] == before["rev"]
+        assert fd.read_project_film(project_id)["rev"] == before["rev"]
+        assert film_path.read_bytes() == before_bytes, "generation must not write the accepted FilmDocument"
+
+        # Deliberately send forged operation content. The server must consume only
+        # the operation set retained in its proposal registry.
+        approval = {
+            "project_id": project_id,
+            "proposal_id": proposal["id"],
+            "base_revision": before["rev"],
+            "ops": [{"op": "remove", "clip": "clip-a"}],
+        }
+        status, applied_response = post_json("/api/editor/film/apply-proposal", approval)
+        assert status == 200, applied_response
+        assert applied_response.get("ok") is True
+        assert applied_response.get("base") == before["rev"]
+        assert applied_response.get("source") == "ai_proposal"
+        assert applied_response.get("applied_proposal") == proposal["id"]
+        assert applied_response.get("rev") != before["rev"]
+
+        applied = fd.read_project_film(project_id)
+        applied_bytes = film_path.read_bytes()
+        assert applied["rev"] == applied_response["rev"]
+        clips = {
+            clip["id"]: clip
+            for track in applied["doc"]["tracks"]
+            for clip in track["clips"]
+        }
+        assert "clip-a" in clips, "client-supplied ops must not override registered proposal operations"
+        assert abs(float(clips["clip-b"]["attrs"]["at"]) - 8.5) < 0.001
+
+        try:
+            post_json("/api/editor/film/apply-proposal", approval)
+        except urllib.error.HTTPError as error:
+            retry_status = error.code
+            retry_body = json.loads(error.read().decode("utf-8"))
+        else:
+            pytest.fail("a consumed proposal must not be applicable a second time")
+        assert retry_status == 409, retry_body
+        assert retry_body.get("code") == "PROPOSAL_NOT_FOUND_OR_STALE", retry_body
+
+        after_retry = fd.read_project_film(project_id)
+        assert after_retry["rev"] == applied["rev"], "replaying a proposal must not create another revision"
+        assert film_path.read_bytes() == applied_bytes, "replaying a proposal must not rewrite film.html"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
