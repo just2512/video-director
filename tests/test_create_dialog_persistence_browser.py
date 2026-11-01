@@ -690,7 +690,7 @@ def test_app_html_escape_prevents_dynamic_text_and_attribute_injection(tmp_path,
             try:
                 page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
                 result = page.evaluate("""() => {
-                    const payload = '\'" autofocus onfocus="window.__escapeInjected=true"><img src=x onerror="window.__escapeInjected=true">&';
+                    const payload = String.fromCharCode(39) + '" autofocus onfocus="window.__escapeInjected=true"><img src=x onerror="window.__escapeInjected=true">&';
                     window.__escapeInjected = false;
                     const host = document.createElement('div');
                     host.innerHTML =
@@ -721,3 +721,49 @@ def test_app_html_escape_prevents_dynamic_text_and_attribute_injection(tmp_path,
         server.server_close()
         thread.join(timeout=5)
 
+
+
+def test_history_restore_confirms_before_replacing_active_draft(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("openCreate()")
+                page.locator("#cf-director-brief").fill("当前未提交的创作要求")
+                page.locator("#cf-input-context-details summary").click()
+                page.locator("#cf-script").fill("当前未提交的权威文案")
+                page.wait_for_function("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    const data = (await response.json())?.draft?.data?.fields || {};
+                    return data['cf-director-brief'] === '当前未提交的创作要求'
+                      && data['cf-script'] === '当前未提交的权威文案';
+                }""", timeout=10000)
+
+                page.evaluate("""() => {
+                    window._cfHistorySelected = {
+                      conversation_id: 'conv-history-restore-protection',
+                      snapshot: {form: {fields: {
+                        'cf-director-brief': '历史对话中的创作要求',
+                        'cf-script': '历史对话中的权威文案'
+                      }}}
+                    };
+                    window.confirm = () => false;
+                }""")
+                page.evaluate("window.cfHistoryRestoreSnapshot('conv-history-restore-protection')")
+                assert page.locator("#cf-director-brief").input_value() == "当前未提交的创作要求"
+                assert page.locator("#cf-script").input_value() == "当前未提交的权威文案"
+
+                page.evaluate("window.confirm = () => true")
+                page.evaluate("window.cfHistoryRestoreSnapshot('conv-history-restore-protection')")
+                assert page.locator("#cf-director-brief").input_value() == "历史对话中的创作要求"
+                assert page.locator("#cf-script").input_value() == "历史对话中的权威文案"
+                assert "原记录不会被覆盖" in (page.locator("#cf-draft-status").text_content() or "")
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
