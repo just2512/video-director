@@ -25295,6 +25295,17 @@
   var import_react_dom = __toESM(require_react_dom(), 1);
   var import_client = __toESM(require_client(), 1);
   var import_jsx_runtime = __toESM(require_jsx_runtime(), 1);
+  var dispatchReactClipGesturePreview = (event) => {
+    const bridge = window.filmStudioReactTimeline;
+    if (bridge && typeof bridge.previewClipGesture === "function") {
+      try {
+        bridge.previewClipGesture(event);
+        return;
+      } catch {
+      }
+    }
+    window.filmStudioMoveClipGesture?.(event);
+  };
   function useFilmStoreField(key) {
     const subscribe = (0, import_react.useCallback)((listener) => filmStore.subscribeField(key, listener), [key]);
     const getSnapshot = (0, import_react.useCallback)(() => filmStore.getField(key), [key]);
@@ -27379,7 +27390,7 @@
         if (moved) {
           const current = dragPointerSample.current;
           if (current && current.pointerId === sample.pointerId) {
-            window.filmStudioMoveClipGesture?.({
+            dispatchReactClipGesturePreview({
               pointerId: current.pointerId,
               clientX: current.clientX,
               clientY: current.clientY,
@@ -27620,11 +27631,14 @@
                           const elementTarget = target instanceof Element ? target : null;
                           const trim = elementTarget?.closest("[data-trim]");
                           const rawTrimEdge = trim?.getAttribute("data-trim");
-                          const started = window.filmStudioBeginClipGesture?.(event.nativeEvent, {
+                          const trimEdge = rawTrimEdge === "start" ? "start" : rawTrimEdge === "end" ? "end" : null;
+                          const gestureContext = {
                             clipId: clip.id,
-                            trimEdge: rawTrimEdge === "start" || rawTrimEdge === "end" ? rawTrimEdge : null,
+                            trimEdge,
                             targetIsButton: !!elementTarget?.closest("button")
-                          });
+                          };
+                          const timelineBridge = window.filmStudioReactTimeline;
+                          const started = timelineBridge && typeof timelineBridge.beginClipGesture === "function" ? timelineBridge.beginClipGesture(event.nativeEvent, gestureContext) : window.filmStudioBeginClipGesture?.(event.nativeEvent, gestureContext);
                           if (started) {
                             activePointerId.current = event.nativeEvent.pointerId;
                             try {
@@ -27637,7 +27651,7 @@
                           const pointerEvent = event.nativeEvent;
                           if (activePointerId.current !== pointerEvent.pointerId) return;
                           updateReactGestureTarget(pointerEvent);
-                          window.filmStudioMoveClipGesture?.(pointerEvent);
+                          dispatchReactClipGesturePreview(pointerEvent);
                           updateReactDragAutoScroll(pointerEvent);
                         },
                         onPointerUp: (event) => {
@@ -28315,6 +28329,86 @@
     }
   };
   window.filmStudioReactTimeline = {
+    beginClipGesture(event, context) {
+      const initial = filmStore.getSnapshot();
+      const blocked = initial.busy || initial.broken || initial.pendingTransaction !== null || !!initial.pendingExternalRevision || !!initial.timelineGestureContext || !!initial.timelineEnvelopeGesture;
+      if (!event || event.button !== 0 || !context?.clipId || context.targetIsButton) return false;
+      if (blocked || !initial.film || timelineRecord(initial.film).exists !== true) {
+        event.preventDefault();
+        window.filmStudioShowTimelineStatus?.(
+          "\u5F53\u524D\u5F71\u7247\u72B6\u6001\u4E0D\u5141\u8BB8\u5F00\u59CB\u65B0\u7684\u7247\u6BB5\u624B\u52BF\uFF1B\u8BF7\u5148\u5B8C\u6210\u4FDD\u5B58\u6216\u8F7D\u5165\u5916\u90E8 revision\u3002",
+          "error"
+        );
+        return false;
+      }
+      const prepare = window.filmStudioPrepareClipGestureStart;
+      if (typeof prepare !== "function") {
+        event.preventDefault();
+        window.filmStudioShowTimelineStatus?.(
+          "\u7247\u6BB5\u624B\u52BF\u51C6\u5907\u63A5\u53E3\u4E0D\u53EF\u7528\uFF1B\u672C\u6B21\u64CD\u4F5C\u5DF2\u62D2\u7EDD\uFF0C\u6CA1\u6709\u56DE\u9000\u5230\u65E7\u7248 DOM \u624B\u52BF\u3002",
+          "error"
+        );
+        return false;
+      }
+      let prepared;
+      try {
+        prepared = prepare(event, context);
+      } catch (error) {
+        event.preventDefault();
+        window.filmStudioShowTimelineStatus?.(
+          "\u51C6\u5907\u7247\u6BB5\u624B\u52BF\u5931\u8D25\uFF1A" + String(error instanceof Error ? error.message : error),
+          "error"
+        );
+        return false;
+      }
+      const mode = prepared?.mode;
+      if (!mode || mode !== "move" && mode !== "trim-start" && mode !== "trim-end" && mode !== "roll" && mode !== "slide" && mode !== "slip") {
+        event.preventDefault();
+        return false;
+      }
+      const state = filmStore.getSnapshot();
+      const film = timelineRecord(state.film);
+      const scroll = document.getElementById("fs-timeline-scroll");
+      if (state.busy || state.broken || state.pendingTransaction !== null || state.pendingExternalRevision || state.timelineGestureContext || state.timelineEnvelopeGesture || film.exists !== true || !Array.isArray(film.tracks) || !scroll) {
+        event.preventDefault();
+        return false;
+      }
+      const startScrollLeft = Number(scroll.scrollLeft);
+      const result = filmTimelineGestureController.createGestureStart({
+        tracks: film.tracks,
+        clipId: String(context.clipId),
+        mode,
+        trimEdge: context.trimEdge,
+        selectedIds: state.selectedIds,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startScrollLeft
+      });
+      if (!result || result.ok !== true) {
+        const failure = result && result.error;
+        if (failure?.code === "MOVE_MEMBER_BLOCKED") {
+          const blockedLabel = failure.reason === "\u5DF2\u9501\u5B9A" ? "\u9501\u5B9A" : "\u4E0D\u5B58\u5728\u7684";
+          window.filmStudioShowTimelineStatus?.(
+            "\u591A\u9009\u79FB\u52A8\u5305\u542B" + blockedLabel + failure.kind + " " + failure.id + "\uFF0C\u6574\u7EC4\u79FB\u52A8\u5DF2\u53D6\u6D88\u3002",
+            "error"
+          );
+        } else if (failure?.code === "ROLL_CUT_REQUIRED") {
+          window.filmStudioShowTimelineStatus?.("Ctrl \u62D6\u52A8\u5207\u53E3\u53EA\u652F\u6301\u540C\u8F68\u76F8\u90BB\u7247\u6BB5\u5171\u7528\u7684\u5207\u53E3\u3002", "error");
+        } else if (failure?.code === "SLIDE_NEIGHBORS_REQUIRED") {
+          window.filmStudioShowTimelineStatus?.("Alt+Shift \u6ED1\u79FB\u5F0F\u4FEE\u526A\u8981\u6C42\u6240\u9009\u7247\u6BB5\u5DE6\u53F3\u90FD\u6709\u65F6\u95F4\u4E0A\u8FDE\u7EED\u7684\u90BB\u63A5\u7247\u6BB5\u3002", "error");
+        }
+        event.preventDefault();
+        return false;
+      }
+      const gestureContext = result.context;
+      (0, import_react_dom.flushSync)(() => {
+        filmStore.setField("timelineGestureContext", gestureContext);
+        filmStore.setField("timelineActiveDragIds", result.memberIds);
+      });
+      event.preventDefault();
+      return true;
+    },
     previewClipGesture(event) {
       resolveReactClipGesturePreview(event);
     },
