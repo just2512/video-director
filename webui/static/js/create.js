@@ -2012,6 +2012,20 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(!document.getElementById('cf-form')||(mask&&mask.style.display==='none'))await window.openCreate();
     if(window.CF_DEFAULTS_READY) await window.CF_DEFAULTS_READY;
     await restoreDraft();
+    const currentSnapshot=snapshot();
+    const currentFields=currentSnapshot.fields||{},currentContext=currentSnapshot.context||{};
+    const hasCurrentDraft=!!(
+      String(currentFields['cf-director-brief']||'').trim()
+      ||String(currentFields['cf-script']||'').trim()
+      ||(currentContext.asset_refs||[]).length
+      ||currentContext.reference||currentContext.article||currentContext.repo
+      ||(Array.isArray(currentSnapshot.explicit_fields)&&currentSnapshot.explicit_fields.length)
+    );
+    if(hasCurrentDraft&&!window.confirm('当前草稿包含未提交内容。恢复历史对话会替换当前草稿；取消可保留当前内容。确认继续？')){
+      const status=document.getElementById('cf-draft-status');
+      if(status)status.textContent='已取消历史恢复，当前草稿保持不变。';
+      return;
+    }
     const snapshot=c.snapshot||{},formSnapshot=snapshot.form||snapshot;
     if(formSnapshot.fields)applySnapshot(formSnapshot);
     else if(snapshot.director_inputs){
