@@ -43,6 +43,22 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
     web_server = importlib.reload(web_server)
     web_server.COMPOSER_ROOT = storage_root
 
+    # Hold the deterministic provider after the request enters generation. This
+    # creates a real overlap between a pending generation request and a user edit.
+    from video_director import generation as vd_generation
+
+    generation_started = threading.Event()
+    release_generation = threading.Event()
+    original_graphic_generator = vd_generation._generate_graphic
+
+    def delayed_graphic_generator(*args, **kwargs):
+        generation_started.set()
+        if not release_generation.wait(timeout=30):
+            raise RuntimeError("test timed out before releasing the pending graphic generation")
+        return original_graphic_generator(*args, **kwargs)
+
+    monkeypatch.setattr(vd_generation, "_generate_graphic", delayed_graphic_generator)
+
     project_id = "web-film-generated-asset-adoption-e2e"
     project_root = config.project_dir(project_id)
     config.init_project_dirs(project_root)
@@ -89,11 +105,11 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
                     state="visible"
                 )
 
-                # Use the real generation HTTP route with the deterministic Graphics
-                # Runtime provider. This does not configure or call an external model.
-                generated = page.evaluate(
-                    """async (projectId) => {
-                      const response = await fetch('/api/editor/generate', {
+                # Start a real generation HTTP request, but keep its provider phase
+                # pending while a user edits the current FilmDocument revision.
+                page.evaluate(
+                    """projectId => {
+                      window.__generationPromise = fetch('/api/editor/generate', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({
@@ -103,11 +119,49 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
                           width: 160,
                           height: 90
                         })
-                      });
-                      return {httpStatus: response.status, body: await response.json()};
+                      }).then(async response => ({
+                        httpStatus: response.status,
+                        body: await response.json()
+                      }));
                     }""",
                     project_id,
                 )
+                assert generation_started.wait(timeout=15), "generation provider was not reached"
+
+                edit_response = page.evaluate(
+                    """async projectId => {
+                      const currentResponse = await fetch(
+                        '/api/editor/film?project_id=' + encodeURIComponent(projectId),
+                        {cache:'no-store'}
+                      );
+                      if (!currentResponse.ok) {
+                        return {status: currentResponse.status, body: await currentResponse.json()};
+                      }
+                      const current = await currentResponse.json();
+                      const response = await fetch('/api/editor/film/edit', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                          project_id: projectId,
+                          base: current.rev,
+                          ops: [{op:'move', clip:'base-still', at:0.25}]
+                        })
+                      });
+                      return {status: response.status, body: await response.json()};
+                    }""",
+                    project_id,
+                )
+                assert edit_response["status"] == 200, edit_response
+                edited_revision = edit_response["body"]["rev"]
+                assert edited_revision and edited_revision != initial["rev"], edit_response
+                page.wait_for_function(
+                    "revision => window.filmStudioStore?.getSnapshot()?.revision === revision",
+                    arg=edited_revision,
+                    timeout=15000,
+                )
+
+                release_generation.set()
+                generated = page.evaluate("async () => await window.__generationPromise")
                 assert generated["httpStatus"] == 200, generated
                 assert generated["body"].get("ok") is True, generated
                 results = generated["body"].get("results") or []
@@ -123,9 +177,18 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
                 assert generated_file.is_file()
                 assert entry["source"] == "generated"
 
-                # Generation registers an asset; it must not silently edit FilmDocument.
+                # The user's edit remains authoritative after generation completes.
+                # Generation only registers a reusable asset; it cannot overwrite the newer
+                # FilmDocument revision or insert the result without explicit adoption.
                 still_before_adoption = fd.read_project_film(project_id)
-                assert still_before_adoption["rev"] == initial["rev"]
+                assert still_before_adoption["rev"] == edited_revision
+                base_clip = next(
+                    clip
+                    for track in still_before_adoption["doc"]["tracks"]
+                    for clip in track["clips"]
+                    if clip["id"] == "base-still"
+                )
+                assert float(base_clip["attrs"]["at"]) == 0.25
                 assert not any(
                     clip["attrs"].get("data-asset-id") == asset_id
                     for track in still_before_adoption["doc"]["tracks"]
@@ -158,7 +221,7 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
                 )
 
                 adopted = fd.read_project_film(project_id)
-                assert adopted["rev"] != initial["rev"]
+                assert adopted["rev"] != edited_revision
                 adopted_clips = [
                     clip
                     for track in adopted["doc"]["tracks"]
@@ -206,6 +269,8 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
 
             finally:
+                # Always release a blocked provider before stopping the local server.
+                release_generation.set()
                 page.close()
                 browser.close()
     finally:
