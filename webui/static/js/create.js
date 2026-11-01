@@ -2004,7 +2004,13 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         '<div class="btn-row" style="margin-top:10px"><button class="btn-sm" type="button" data-history-action="restore" data-conversation-id="'+esc(id)+'">恢复为新草稿</button>'+
         (c.project_id?'<button class="btn-secondary btn-sm" type="button" data-open-project="'+esc(c.project_id)+'">打开关联项目</button>':'')+'</div>';
       const openProject=list.querySelector('[data-open-project]');
-      if(openProject)openProject.addEventListener('click',()=>window.openCreate(openProject.dataset.openProject));
+      if(openProject)openProject.addEventListener('click',()=>{
+        const projectId=openProject.dataset.openProject;
+        // The history drawer has a higher stacking order than the create mask.
+        // Remove it before opening the associated project so it cannot cover the form.
+        document.getElementById('cf-history-drawer')?.remove();
+        window.openCreate(projectId);
+      });
     }catch(e){list.textContent='对话读取失败：'+(e.message||e);}
   };
   window.cfHistoryRestoreSnapshot=async function(id){

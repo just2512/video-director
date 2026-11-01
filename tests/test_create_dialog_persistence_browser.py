@@ -679,6 +679,127 @@ def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp
         thread.join(timeout=5)
 
 
+
+
+def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        conversation = director_history.create_conversation(
+            conversation_id="conv-legacy-director-inputs",
+            title="旧版快照兼容",
+            snapshot={
+                "director_inputs": {
+                    "brief": "旧版历史恢复的创作目标",
+                    "script": {
+                        "text": "旧版历史恢复的权威文案",
+                        "source": "user",
+                        "authority": "authoritative",
+                        "editable": True,
+                    },
+                    "assets": {
+                        "asset_refs": [
+                            {
+                                "asset_id": "asset-legacy-video",
+                                "type": "video",
+                                "file": "legacy-clip.mp4",
+                            }
+                        ]
+                    },
+                    "references": [
+                        {"url": "https://example.test/legacy-reference", "title": "旧版参考视频"}
+                    ],
+                    "articles": [],
+                    "software_project": {},
+                }
+            },
+        )
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.locator("#director-history-launch").click()
+                page.locator("#cf-history-list button[data-conversation-id='conv-legacy-director-inputs']").click()
+                page.wait_for_function(
+                    "document.querySelector('#cf-history-list [data-history-action=\"restore\"]') !== null"
+                )
+                page.locator('#cf-history-list button[data-history-action="restore"]').click()
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-director-brief')?.value === '旧版历史恢复的创作目标'
+                    && document.getElementById('cf-script')?.value === '旧版历史恢复的权威文案'
+                """, timeout=10000)
+                page.wait_for_function("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    const data = (await response.json())?.draft?.data || {};
+                    return data.context?.asset_refs?.[0]?.asset_id === 'asset-legacy-video'
+                      && data.context?.reference?.url === 'https://example.test/legacy-reference';
+                }""", timeout=10000)
+                assert page.locator("#cf-input-context-details").evaluate("(node) => node.open")
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_open_associated_project_closes_history_drawer_before_create_panel(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.create_conversation(
+            conversation_id="conv-associated-project-navigation",
+            project_id="project-from-history",
+            title="从历史打开项目",
+            initial_message="继续编辑已有项目",
+        )
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                page.route("**/api/director/brief", lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "ok": True,
+                        "brief": "从历史关联项目回填的创作目标",
+                        "bundle": {
+                            "script": {"text": "项目原有权威文案", "source": "user"},
+                            "assets": {"asset_refs": []},
+                            "references": [],
+                            "articles": [],
+                            "software_project": {},
+                        },
+                        "spec_settings": {},
+                    }),
+                ))
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.locator("#director-history-launch").click()
+                page.locator("#cf-history-list button[data-conversation-id='conv-associated-project-navigation']").click()
+                page.wait_for_function(
+                    "document.querySelector('#cf-history-list [data-open-project=\"project-from-history\"]') !== null"
+                )
+                page.locator('#cf-history-list [data-open-project="project-from-history"]').click()
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-history-drawer') === null
+                    && document.getElementById('cf-mask')?.style.display === 'flex'
+                    && document.getElementById('cf-director-brief')?.value === '从历史关联项目回填的创作目标'
+                    && document.getElementById('cf-script')?.value === '项目原有权威文案'
+                """, timeout=10000)
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
 def test_sfx_duplicate_labels_are_disambiguated_and_select_options_are_safe(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:
