@@ -2005,14 +2005,71 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         (c.project_id?'<button class="btn-secondary btn-sm" type="button" data-open-project="'+esc(c.project_id)+'">打开关联项目</button>':'')+'</div>';
       const openProject=list.querySelector('[data-open-project]');
       if(openProject)openProject.addEventListener('click',()=>{
-        const projectId=openProject.dataset.openProject;
-        // The history drawer has a higher stacking order than the create mask.
-        // Remove it before opening the associated project so it cannot cover the form.
-        document.getElementById('cf-history-drawer')?.remove();
-        window.openCreate(projectId);
+        window.cfHistoryOpenAssociatedProject(openProject.dataset.openProject);
       });
     }catch(e){list.textContent='对话读取失败：'+(e.message||e);}
   };
+  function cfHistoryHasCurrentDraft(currentSnapshot){
+    const fields=currentSnapshot?.fields||{},context=currentSnapshot?.context||{};
+    const defaults={};
+    const form=document.getElementById('cf-form');
+    form?.querySelectorAll('input[id],textarea[id],select[id]').forEach(control=>{
+      if(control.type==='file')return;
+      if(control.type==='radio'){
+        if(control.defaultChecked)defaults[control.name||control.id]=control.value;
+        return;
+      }
+      if(control.type==='checkbox'){
+        defaults[control.id]=!!control.defaultChecked;
+        return;
+      }
+      if(control.tagName==='SELECT'){
+        const selected=Array.from(control.options).find(option=>option.defaultSelected)
+          ||control.options[0];
+        defaults[control.id]=selected?selected.value:'';
+        return;
+      }
+      defaults[control.id]=control.defaultValue??'';
+    });
+    const hasNonDefaultField=Object.entries(fields).some(([id,value])=>{
+      if(Object.prototype.hasOwnProperty.call(defaults,id)){
+        const baseline=defaults[id];
+        if(typeof baseline==='boolean')return value!==baseline;
+        return String(value??'')!==String(baseline??'');
+      }
+      if(typeof value==='boolean')return value;
+      if(Array.isArray(value))return value.length>0;
+      return String(value??'').trim()!=='';
+    });
+    const hasContext=!!(
+      (context.asset_refs||[]).length||context.reference||context.article
+      ||context.repo||context.narration_upload
+    );
+    return !!(
+      dirtyFields.size>0
+      ||(Array.isArray(currentSnapshot?.explicit_fields)&&currentSnapshot.explicit_fields.length)
+      ||context.project_id
+      ||(restoredDraftAvailable&&(hasNonDefaultField||hasContext))
+    );
+  }
+
+  window.cfHistoryOpenAssociatedProject=async function(projectId){
+    const form=document.getElementById('cf-form');
+    if(form&&form.style.display==='none'&&document.getElementById('cf-progress')){
+      const status=document.getElementById('cf-status');
+      if(status)status.textContent='当前创作流程仍在运行，不能直接切换到其他项目。请先结束或停止当前流程。';
+      return false;
+    }
+    await window.openCreate();
+    if(window.CF_DEFAULTS_READY)await window.CF_DEFAULTS_READY;
+    await restoreDraft();
+    const hasCurrentDraft=cfHistoryHasCurrentDraft(snapshot());
+    if(hasCurrentDraft&&!window.confirm('打开关联项目会替换当前新建草稿。取消可保留草稿；继续将载入该项目的创作要求。确认继续？'))
+      return false;
+    document.getElementById('cf-history-drawer')?.remove();
+    return window.openCreate(projectId);
+  };
+
   window.cfHistoryRestoreSnapshot=async function(id){
     const c=window._cfHistorySelected;if(!c||c.conversation_id!==id)return;
     const mask=document.getElementById('cf-mask');
@@ -2020,34 +2077,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(window.CF_DEFAULTS_READY) await window.CF_DEFAULTS_READY;
     await restoreDraft();
     const currentSnapshot=snapshot();
-    const currentFields=currentSnapshot.fields||{},currentContext=currentSnapshot.context||{};
-    const hasSavedContent=!!(
-      String(currentFields['cf-director-brief']||'').trim()
-      ||String(currentFields['cf-script']||'').trim()
-      ||String(currentFields['cf-article-url']||'').trim()
-      ||String(currentFields['cf-repo-root']||'').trim()
-      ||String(currentFields['cf-series-name']||'').trim()
-      ||String(currentFields['cf-enhanced']||'').trim()
-      ||currentFields['cf-scope']==='series'
-      ||(currentFields['cf-visual-source']&&currentFields['cf-visual-source']!=='auto')
-      ||(currentFields['cf-stop-at']&&currentFields['cf-stop-at']!=='video')
-      ||(currentFields['cf-fps']&&String(currentFields['cf-fps'])!=='30')
-      ||(currentFields['cf-confirm']&&currentFields['cf-confirm']!=='preview')
-      ||currentFields['cf-match-materials']===false
-      ||(currentFields['gfx-duration']&&String(currentFields['gfx-duration'])!=='30')
-      ||(currentFields['gfx-style']&&currentFields['gfx-style']!=='editorial')
-      ||(currentFields['gfx-aspect']&&currentFields['gfx-aspect']!=='1080x1920')
-      ||(currentContext.asset_refs||[]).length
-      ||currentContext.reference||currentContext.article||currentContext.repo
-      ||currentContext.narration_upload
-      ||(Array.isArray(currentSnapshot.explicit_fields)&&currentSnapshot.explicit_fields.length)
-    );
-    const hasCurrentDraft=!!(
-      dirtyFields.size>0
-      ||currentSnapshot.explicit_fields?.length>0
-      ||currentContext.project_id
-      ||(restoredDraftAvailable&&hasSavedContent)
-    );
+    const hasCurrentDraft=cfHistoryHasCurrentDraft(currentSnapshot);
     if(hasCurrentDraft&&!window.confirm('当前草稿包含未提交内容。恢复历史对话会替换当前草稿；取消可保留当前内容。确认继续？')){
       const status=document.getElementById('cf-draft-status');
       if(status)status.textContent='已取消历史恢复，当前草稿保持不变。';
@@ -2059,7 +2089,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const historySnapshot=c.snapshot||{},historyFormSnapshot=historySnapshot.form||historySnapshot;
     if(historyFormSnapshot.fields)applySnapshot(historyFormSnapshot);
     else if(historySnapshot.director_inputs){
-      const d=historySnapshot.director_inputs;
+      const d=historySnapshot.director_inputs,legacyOptions=historySnapshot.request_options||{};
       const brief=document.getElementById('cf-director-brief'),script=document.getElementById('cf-script');
       if(brief)brief.value=d.brief||'';
       if(script)script.value=(d.script&&d.script.text)||'';
@@ -2070,6 +2100,62 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       window.CF_DRAFT_CONTEXT.reference=window._cfReference;
       window.CF_DRAFT_CONTEXT.article=window._cfArticle;
       window.CF_DRAFT_CONTEXT.repo=window._cfRepo;
+      const legacyFields={
+        'cf-platform':d.platform,
+        'cf-duration':d.duration,
+        'cf-style':d.style,
+        'cf-visual-source':d.constraints?.visual_source||(d.assets?.policy==='user_only'?'local':undefined),
+        'cf-resolution':legacyOptions.resolution||(legacyOptions.width&&legacyOptions.height?(legacyOptions.width+'x'+legacyOptions.height):undefined),
+        'cf-voice-mode':legacyOptions.voice_mode,
+        'cf-voice':legacyOptions.voice,
+        'cf-voice-rate':legacyOptions.voice_rate,
+        'cf-voice-volume':legacyOptions.narration_volume,
+        'cf-bgm':legacyOptions.bgm,
+        'cf-bgm-volume':legacyOptions.bgm_volume,
+        'cf-sfx':legacyOptions.sfx,
+        'cf-subtitle':legacyOptions.subtitle_mode,
+        'cf-fit-mode':legacyOptions.fit_mode,
+        'cf-clip-duration':legacyOptions.clip_duration,
+        'cf-clip-speed':legacyOptions.clip_speed,
+        'cf-concat-mode':legacyOptions.concat_mode,
+        'cf-transition-mode':legacyOptions.transition_mode,
+        'cf-stop-at':legacyOptions.stop_at,
+        'cf-fps':legacyOptions.fps,
+        'cf-confirm':legacyOptions.confirm_mode,
+        'cf-watermark':legacyOptions.watermark,
+        'cf-lower-name':legacyOptions.lower_third_name,
+        'cf-lower-role':legacyOptions.lower_third_role
+      };
+      const legacyExplicit=new Set();
+      const explicitById={...CF_EXPLICIT_CONTROL_FIELDS};
+      for(const [id,value] of Object.entries(legacyFields)){
+        if(value===undefined||value===null||value==='')continue;
+        const control=document.getElementById(id);
+        if(control){
+          if(control.type==='checkbox')control.checked=!!value;
+          else control.value=String(value);
+        }
+        if(explicitById[id])legacyExplicit.add(explicitById[id]);
+      }
+      if(window.CF)window.CF.explicitFields=legacyExplicit;
+      if(legacyOptions.match_materials_to_script!==undefined){
+        const match=document.getElementById('cf-match-materials');
+        if(match)match.checked=!!legacyOptions.match_materials_to_script;
+      }
+      const summary=document.getElementById('cf-assets-summary');
+      if(summary)summary.textContent=window.CF_DRAFT_CONTEXT.assetRefs.length
+        ?'已暂存 '+window.CF_DRAFT_CONTEXT.assetRefs.length+' 个素材，可直接用于创作':'未添加本地素材';
+      if(window._cfArticle&&typeof cfRenderArticleSource==='function')
+        cfRenderArticleSource(window._cfArticle,'已恢复上一轮导入的文章来源。请核对后再创作。');
+      if(window._cfReference){
+        const node=document.getElementById('cf-reference-result');
+        if(node)node.innerHTML='<div class="ok-box">已恢复参考视频分析，可直接用于创作。</div>';
+      }
+      if(window._cfRepo){
+        const node=document.getElementById('cf-repo-result');
+        if(node)node.innerHTML='<div class="ok-box">已恢复软件项目证据与已验证卖点。</div>';
+      }
+      if(!legacyOptions.resolution&&d.platform&&typeof createPlatformSync==='function')createPlatformSync();
     }
     const restoredContext=window.CF_DRAFT_CONTEXT||{};
     const restoredScript=(document.getElementById('cf-script')||{}).value||'';

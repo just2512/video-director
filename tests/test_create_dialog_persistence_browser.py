@@ -690,6 +690,10 @@ def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monk
             snapshot={
                 "director_inputs": {
                     "brief": "旧版历史恢复的创作目标",
+                    "platform": "xhs",
+                    "duration": "45",
+                    "style": "旧版纪录片风格",
+                    "constraints": {"visual_source": "local"},
                     "script": {
                         "text": "旧版历史恢复的权威文案",
                         "source": "user",
@@ -738,6 +742,10 @@ def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monk
                       && data.context?.reference?.url === 'https://example.test/legacy-reference';
                 }""", timeout=10000)
                 assert page.locator("#cf-input-context-details").evaluate("(node) => node.open")
+                assert page.locator("#cf-platform").input_value() == "xhs"
+                assert page.locator("#cf-duration").input_value() == "45"
+                assert page.locator("#cf-style").input_value() == "旧版纪录片风格"
+                assert page.locator("#cf-visual-source").input_value() == "local"
                 assert not errors
             finally:
                 browser.close()
@@ -792,6 +800,62 @@ def test_open_associated_project_closes_history_drawer_before_create_panel(tmp_p
                     && document.getElementById('cf-director-brief')?.value === '从历史关联项目回填的创作目标'
                     && document.getElementById('cf-script')?.value === '项目原有权威文案'
                 """, timeout=10000)
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+
+def test_open_associated_project_preserves_active_draft_when_switch_is_cancelled(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.create_conversation(
+            conversation_id="conv-project-switch-preserve-draft",
+            project_id="project-must-not-open",
+            title="打开项目时保护当前草稿",
+        )
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            brief_requests: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/director/brief", lambda route: (
+                brief_requests.append(route.request.url) or route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({"ok": True, "brief": "错误地覆盖了当前草稿", "bundle": {}}),
+                )
+            ))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("openCreate()")
+                page.locator("#cf-director-brief").fill("必须保留的当前创作目标")
+                page.locator("#cf-input-context-details summary").click()
+                page.locator("#cf-script").fill("必须保留的当前权威文案")
+                page.locator("#cf-history-inline-launch").click()
+                page.locator("#cf-history-list button[data-conversation-id='conv-project-switch-preserve-draft']").click()
+                page.wait_for_function(
+                    "document.querySelector('#cf-history-list [data-open-project=\"project-must-not-open\"]') !== null"
+                )
+                page.evaluate("""() => {
+                    window.__projectSwitchConfirmMessages = [];
+                    window.confirm = message => {
+                        window.__projectSwitchConfirmMessages.push(String(message));
+                        return false;
+                    };
+                }""")
+                page.locator('#cf-history-list [data-open-project="project-must-not-open"]').click()
+                page.wait_for_function("window.__projectSwitchConfirmMessages.length === 1")
+                assert page.locator("#cf-history-drawer").is_visible()
+                assert page.locator("#cf-director-brief").input_value() == "必须保留的当前创作目标"
+                assert page.locator("#cf-script").input_value() == "必须保留的当前权威文案"
+                assert brief_requests == []
+                assert "打开关联项目" in page.evaluate("window.__projectSwitchConfirmMessages[0]")
                 assert not errors
             finally:
                 browser.close()
