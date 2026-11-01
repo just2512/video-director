@@ -85,6 +85,7 @@
       typeof bridge.beginClipGesture==='function'&&
       typeof bridge.previewClipGesture==='function'&&
       typeof bridge.prepareClipGestureCommit==='function'&&
+      typeof bridge.endClipGesture==='function'&&
       typeof bridge.setGesturePreview==='function'&&
       typeof bridge.setActiveDragIds==='function'&&
       typeof bridge.setSnapGuide==='function'&&
@@ -3039,6 +3040,12 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       return;
     }
     onMove(e);
+  };
+  window.filmStudioFinishReactClipGesture = function(e,operations){
+    return finishReactClipGesture(e,operations);
+  };
+  window.filmStudioCancelReactTimelineGesture = function(e,reason){
+    return cancelReactTimelineGestureAfterContractLoss(e,reason);
   };
   window.filmStudioEndClipGesture = function(e){
     if(!e||!window.filmStudioOwnsClipGesturePointer||

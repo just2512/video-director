@@ -440,6 +440,15 @@ def test_react_timeline_owns_clip_gesture_previews_and_legacy_dispatch_delegates
     assert "selectClipWithModifiers(id,e)" not in click_route
     assert "S.playhead=pointerClickedClip.at;" in click_route
     assert "setPlayheadVisual();previewCurrent();" in click_route
+    pointer_up_start = component.index("onPointerUp={event => {\\n                const pointerId=event.nativeEvent.pointerId;")
+    pointer_up_end = component.index("onPointerCancel={event => {", pointer_up_start)
+    pointer_up = component[pointer_up_start:pointer_up_end]
+    assert "timelineBridge.endClipGesture(event.nativeEvent)" in pointer_up
+    assert "window.filmStudioEndClipGesture?.(event.nativeEvent)" not in pointer_up
+    assert "endClipGesture(event:PointerEvent): Promise<void> | void;" in component
+    assert "typeof bridge.endClipGesture==='function'&&" in legacy
+    assert "window.filmStudioFinishReactClipGesture = function(e,operations)" in legacy
+
     finish_start = legacy.index("async function finishReactClipGesture(e, preparedOperations)")
     finish_end = legacy.index("async function onUp(e)", finish_start)
     finish_body = legacy[finish_start:finish_end]
@@ -476,6 +485,13 @@ def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
     assert "await filmStudioCommitExactRevision(preparedOperations,{requireExactRevision:true});" in legacy
     assert "if(!Array.isArray(preparedOperations))return onUp(e);" in legacy
     assert "async function onUp(e)" in legacy
+    assert "endClipGesture(event) {" in component
+    end_start = component.index("endClipGesture(event) {")
+    end_end = component.index("zoom(direction,anchorClientX)", end_start)
+    end_body = component[end_start:end_end]
+    assert "bridge.prepareClipGestureCommit(event)" in end_body
+    assert "return finish(event,prepared);" in end_body
+    assert "cancel(\"missing commit runtime bridge/controller contract\")" in end_body
 
 def test_self_hosted_workflows_share_runner_checkout_concurrency_lock():
     root = Path(__file__).resolve().parents[1]

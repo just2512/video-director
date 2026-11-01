@@ -769,6 +769,21 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 target_x = start_x + pixels_per_second
                 target_y = target_box["y"] + target_box["height"] / 2
                 before_revision = original["rev"]
+                page.evaluate("""() => {
+                  window.__reactClipEndCalls = 0;
+                  window.__legacyClipEndCalls = 0;
+                  const bridge = window.filmStudioReactTimeline;
+                  const reactEnd = bridge.endClipGesture;
+                  bridge.endClipGesture = function(...args) {
+                    window.__reactClipEndCalls += 1;
+                    return reactEnd.apply(this,args);
+                  };
+                  const legacyEnd = window.filmStudioEndClipGesture;
+                  window.filmStudioEndClipGesture = function(...args) {
+                    window.__legacyClipEndCalls += 1;
+                    return legacyEnd?.apply(this,args);
+                  };
+                }""")
 
                 # The shared controller must reject the same unsafe move even when
                 # called without the UI's pointer-target guard.
@@ -1021,6 +1036,11 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 }
                 assert page.evaluate("window.filmStudioStore.getSnapshot().revision") == fd.read_project_film(project_id)["rev"]
                 assert len(edit_requests) == 1, edit_requests
+                pointerup_ownership = page.evaluate("""() => ({
+                  reactEnd:window.__reactClipEndCalls,
+                  legacyEnd:window.__legacyClipEndCalls
+                })""")
+                assert pointerup_ownership == {"reactEnd": 2, "legacyEnd": 0}, pointerup_ownership
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 page.close()
@@ -2914,6 +2934,29 @@ def test_react_clip_gesture_cancels_if_bridge_contract_disappears_midgesture(
                 assert fd.read_project_film(project_id)["rev"] == original["rev"]
                 assert len(edit_requests) == edits_before, edit_requests
 
+                # Measure only the two active-gesture pointerups below.
+                page.evaluate("""() => {
+                  window.__reactClipEndCalls = 0;
+                  window.__legacyClipEndCalls = 0;
+                  window.__typedClipCancelCalls = 0;
+                  const bridge = window.filmStudioReactTimeline;
+                  const reactEnd = bridge.endClipGesture;
+                  bridge.endClipGesture = function(...args) {
+                    window.__reactClipEndCalls += 1;
+                    return reactEnd.apply(this,args);
+                  };
+                  const legacyEnd = window.filmStudioEndClipGesture;
+                  window.filmStudioEndClipGesture = function(...args) {
+                    window.__legacyClipEndCalls += 1;
+                    return legacyEnd?.apply(this,args);
+                  };
+                  const typedCancel = window.filmStudioCancelReactTimelineGesture;
+                  window.filmStudioCancelReactTimelineGesture = function(...args) {
+                    window.__typedClipCancelCalls += 1;
+                    return typedCancel?.apply(this,args);
+                  };
+                }""")
+
                 # Case 1: controller disappears during pointermove. Reject and clear
                 # the active FilmStore context instead of calling legacy onMove().
                 clip = page.locator(clip_selector)
@@ -2996,6 +3039,14 @@ def test_react_clip_gesture_cancels_if_bridge_contract_disappears_midgesture(
                     }"""
                 )
 
+                pointerup_ownership = page.evaluate("""() => ({
+                  reactEnd:window.__reactClipEndCalls,
+                  legacyEnd:window.__legacyClipEndCalls,
+                  typedCancel:window.__typedClipCancelCalls
+                })""")
+                assert pointerup_ownership == {
+                    "reactEnd": 2, "legacyEnd": 0, "typedCancel": 1
+                }, pointerup_ownership
                 assert len(edit_requests) == edits_before, edit_requests
                 assert film_path.read_text(encoding="utf-8") == original_text
                 assert fd.read_project_film(project_id)["rev"] == original["rev"]

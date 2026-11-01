@@ -651,6 +651,7 @@ interface FilmStudioReactTimelineBridge {
   beginClipGesture(event:PointerEvent, context:{clipId:string;trimEdge:"start"|"end"|null;targetIsButton:boolean}):boolean;
   previewClipGesture(event:FilmStudioGesturePointerInput): void;
   prepareClipGestureCommit(event:FilmStudioGesturePointerInput): FilmOperation[] | undefined;
+  endClipGesture(event:PointerEvent): Promise<void> | void;
   setGesturePreview(preview: FilmTimelineGesturePreview): void;
   setSnapGuide(guide: FilmTimelineSnapGuide): void;
   setTrackDropTarget(target: FilmTimelineDropTarget): void;
@@ -717,6 +718,8 @@ declare global {
     }) => boolean | void;
     filmStudioMoveClipGesture?: (event: FilmStudioGesturePointerInput) => void;
     filmStudioEndClipGesture?: (event: PointerEvent) => Promise<void> | void;
+    filmStudioFinishReactClipGesture?: (event:PointerEvent,operations:FilmOperation[]) => Promise<void>;
+    filmStudioCancelReactTimelineGesture?: (event:PointerEvent,reason:string) => boolean;
     filmStudioCancelClipGesture?: (event: PointerEvent) => void;
     filmStudioOwnsClipGesturePointer?: (pointerId: number) => boolean;
     filmStudioBeginEnvelopeGesture?: (event: PointerEvent, context: {clipId: string; rect: {left: number; top: number; width: number; height: number}}) => boolean;
@@ -2264,7 +2267,10 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                 if(activePointerId.current!==pointerId)return;
                 updateReactGestureTarget(event.nativeEvent);
                 finishReactDragAutoScroll(pointerId);
-                const pending=window.filmStudioEndClipGesture?.(event.nativeEvent);
+                const timelineBridge=window.filmStudioReactTimeline;
+                const pending=timelineBridge && typeof timelineBridge.endClipGesture === "function"
+                  ? timelineBridge.endClipGesture(event.nativeEvent)
+                  : window.filmStudioEndClipGesture?.(event.nativeEvent);
                 const clear=()=>{if(activePointerId.current===pointerId)activePointerId.current=null;};
                 Promise.resolve(pending).then(clear,clear);
               }}
@@ -2943,6 +2949,53 @@ window.filmStudioReactTimeline = {
     if (!gesture.active &&
         Math.hypot(pointerDelta+scrollDelta,event.clientY-gesture.startY) < 5) return [];
     return resolveReactClipGesturePreview(event,true);
+  },
+  endClipGesture(event) {
+    const state = filmStore.getSnapshot();
+    const gesture = state.timelineGestureContext;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+
+    const bridge = window.filmStudioReactTimeline;
+    const controller = window.filmStudioTimelineController;
+    const requiredControllerMethods = [
+      "resolveGestureStartMode","createGestureStart","resolveMoveGesture",
+      "resolveTrimGesture","resolveRollGesture","resolveSlideGesture",
+      "resolveSlipGesture","validateMoveTarget","buildMovePreview",
+      "buildMoveOperations",
+    ] as const;
+    const controllerReady = !!controller && requiredControllerMethods.every(
+      method => typeof controller[method] === "function"
+    );
+    const cancel = (reason:string):void => {
+      try {
+        if (typeof window.filmStudioCancelReactTimelineGesture === "function") {
+          window.filmStudioCancelReactTimelineGesture(event,reason);
+        } else {
+          bridge?.cancelClipGesture(event);
+        }
+      } catch {
+        bridge?.cancelClipGesture(event);
+      }
+    };
+    if (!bridge || typeof bridge.prepareClipGestureCommit !== "function" || !controllerReady) {
+      cancel("missing commit runtime bridge/controller contract");
+      return;
+    }
+    try {
+      const prepared = bridge.prepareClipGestureCommit(event);
+      if (!Array.isArray(prepared)) {
+        cancel("prepareClipGestureCommit returned "+(prepared === null ? "null" : typeof prepared));
+        return;
+      }
+      const finish = window.filmStudioFinishReactClipGesture;
+      if (typeof finish !== "function") {
+        cancel("missing exact-revision finalizer adapter");
+        return;
+      }
+      return finish(event,prepared);
+    } catch (error) {
+      cancel("prepareClipGestureCommit threw: "+String(error instanceof Error ? error.stack || error.message : error));
+    }
   },
   zoom(direction,anchorClientX) {
     const scroll = document.getElementById("fs-timeline-scroll");
