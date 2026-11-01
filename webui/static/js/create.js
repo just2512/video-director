@@ -2023,6 +2023,14 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       ||String(currentFields['cf-series-name']||'').trim()
       ||String(currentFields['cf-enhanced']||'').trim()
       ||currentFields['cf-scope']==='series'
+      ||(currentFields['cf-visual-source']&&currentFields['cf-visual-source']!=='auto')
+      ||(currentFields['cf-stop-at']&&currentFields['cf-stop-at']!=='video')
+      ||(currentFields['cf-fps']&&String(currentFields['cf-fps'])!=='30')
+      ||(currentFields['cf-confirm']&&currentFields['cf-confirm']!=='preview')
+      ||currentFields['cf-match-materials']===false
+      ||(currentFields['gfx-duration']&&String(currentFields['gfx-duration'])!=='30')
+      ||(currentFields['gfx-style']&&currentFields['gfx-style']!=='editorial')
+      ||(currentFields['gfx-aspect']&&currentFields['gfx-aspect']!=='1080x1920')
       ||(currentContext.asset_refs||[]).length
       ||currentContext.reference||currentContext.article||currentContext.repo
       ||currentContext.narration_upload
@@ -2030,6 +2038,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     );
     const hasCurrentDraft=!!(
       dirtyFields.size>0
+      ||currentSnapshot.explicit_fields?.length>0
       ||currentContext.project_id
       ||(restoredDraftAvailable&&hasSavedContent)
     );

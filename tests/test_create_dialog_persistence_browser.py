@@ -822,3 +822,71 @@ def test_history_restore_confirms_before_replacing_active_draft(tmp_path, monkey
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_restored_settings_only_draft_prompts_before_history_overwrite(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                saved = page.evaluate("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {
+                      method: 'POST',
+                      headers: {'Content-Type':'application/json'},
+                      body: JSON.stringify({data: {
+                        version: 1,
+                        fields: {
+                          'cf-visual-source': 'local',
+                          'cf-stop-at': 'audio',
+                          'cf-fps': '60',
+                          'cf-confirm': 'direct',
+                          'cf-match-materials': false
+                        },
+                        explicit_fields: [],
+                        context: {asset_refs: [], reference: null, article: null, repo: null,
+                                  narration_upload: '', project_id: ''}
+                      }})
+                    });
+                    return await response.json();
+                }""")
+                assert saved["ok"] is True
+
+                page.evaluate("openCreate()")
+                page.wait_for_function("""() => {
+                    return document.getElementById('cf-visual-source')?.value === 'local'
+                      && document.getElementById('cf-stop-at')?.value === 'audio'
+                      && document.getElementById('cf-fps')?.value === '60'
+                      && document.getElementById('cf-confirm')?.value === 'direct'
+                      && document.getElementById('cf-match-materials')?.checked === false;
+                }""", timeout=10000)
+
+                page.evaluate("""() => {
+                    window._cfHistorySelected = {
+                      conversation_id: 'conv-history-settings-only',
+                      snapshot: {form: {fields: {
+                        'cf-director-brief': '历史记录的创作目标'
+                      }}}
+                    };
+                    window.__historyRestoreConfirmMessages = [];
+                    window.confirm = message => {
+                        window.__historyRestoreConfirmMessages.push(String(message));
+                        return false;
+                    };
+                }""")
+                page.evaluate("window.cfHistoryRestoreSnapshot('conv-history-settings-only')")
+                assert page.evaluate("window.__historyRestoreConfirmMessages.length") == 1
+                assert page.locator("#cf-visual-source").input_value() == "local"
+                assert page.locator("#cf-stop-at").input_value() == "audio"
+                assert page.locator("#cf-fps").input_value() == "60"
+                assert page.locator("#cf-confirm").input_value() == "direct"
+                assert page.locator("#cf-match-materials").is_checked() is False
+                assert "当前草稿保持不变" in (page.locator("#cf-draft-status").text_content() or "")
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
