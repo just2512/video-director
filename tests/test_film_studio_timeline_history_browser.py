@@ -3085,8 +3085,11 @@ def test_react_clip_gesture_cancels_if_bridge_contract_disappears_midgesture(
                   typedCancel:window.__typedClipCancelCalls,
                   legacyMove:window.__legacyClipMoveCalls
                 })""")
+                # One React diagnostic is recorded for each injected failure:
+                # preview controller disappears mid-drag, then commit preparation
+                # disappears on the second pointerup. Neither path calls legacy move/end.
                 assert pointerup_ownership == {
-                    "reactEnd": 2, "legacyEnd": 0, "typedCancel": 1, "legacyMove": 0
+                    "reactEnd": 2, "legacyEnd": 0, "typedCancel": 2, "legacyMove": 0
                 }, pointerup_ownership
                 assert len(edit_requests) == edits_before, edit_requests
                 assert film_path.read_text(encoding="utf-8") == original_text

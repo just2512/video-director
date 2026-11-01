@@ -532,6 +532,11 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 assert abs(float(frame_clip_after["attrs"]["at"]) - frame_preview_data["guide"]["at"]) < 0.001, frame_clip_after
                 assert abs(frame_preview_data["guide"]["at"] * frame_preview_data["fps"] - round(frame_preview_data["guide"]["at"] * frame_preview_data["fps"])) < 0.00001
                 assert float(frame_clip_after["attrs"]["at"]) > float(frame_clip_before["attrs"]["at"]), frame_clip_after
+                # React clears pointer-owned FilmStore state before the revisioned commit finishes.
+                # History actions reject while the transaction is busy, so wait for the commit boundary.
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getSnapshot()?.busy === false", timeout=10000
+                )
                 page.evaluate("window.filmStudioUndo()")
                 page.wait_for_function("""oldLeft => {
                   const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-right"]');
@@ -603,6 +608,11 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 assert len(trim_requests[0].get("ops") or []) == 1, trim_requests
                 assert trim_requests[0]["ops"][0].get("op") == "trim", trim_requests
                 assert trim_requests[0]["ops"][0].get("edge") == "end", trim_requests
+                # React clears pointer-owned FilmStore state before the revisioned commit finishes.
+                # History actions reject while the transaction is busy, so wait for the commit boundary.
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getSnapshot()?.busy === false", timeout=10000
+                )
                 page.evaluate("window.filmStudioUndo()")
                 page.wait_for_function("""expectedEnd => {
                   const state = window.filmStudioStore?.getSnapshot();
@@ -687,6 +697,11 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 assert len(slide_requests) == 1, slide_requests
                 assert len(slide_requests[0].get("ops") or []) == 1, slide_requests
                 assert slide_requests[0]["ops"][0].get("op") == "slide", slide_requests
+                # React clears pointer-owned FilmStore state before the revisioned commit finishes.
+                # History actions reject while the transaction is busy, so wait for the commit boundary.
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getSnapshot()?.busy === false", timeout=10000
+                )
                 page.evaluate("window.filmStudioUndo()")
                 page.wait_for_function("""expected => {
                   const state = window.filmStudioStore?.getSnapshot();
@@ -742,6 +757,11 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                 roll_ops = roll_requests[0].get("ops") or []
                 assert len(roll_ops) == 1 and roll_ops[0].get("op") == "roll", roll_ops
                 assert abs(float(roll_ops[0].get("delta")) - 1.0) < 0.05, roll_ops
+                # React clears pointer-owned FilmStore state before the revisioned commit finishes.
+                # History actions reject while the transaction is busy, so wait for the commit boundary.
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getSnapshot()?.busy === false", timeout=10000
+                )
                 page.evaluate("window.filmStudioUndo()")
                 page.wait_for_function("""() => {
                   const state=window.filmStudioStore?.getSnapshot();
