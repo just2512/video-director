@@ -5886,8 +5886,11 @@ def initialize_project_film(project_id: str, document: dict, pages: dict[str, st
         path = _film_path(pid)
         if path.exists():
             raise FilmError("FILM_ALREADY_INITIALIZED", "film.html 已存在，不会覆盖已有影片文档", 409)
-        from video_director.editor import composition_version
-        if composition_version(pid) != int(source_version):
+        # This initialization transaction already owns project_lock. Calling
+        # the public composition_version() would re-enter the non-reentrant lock;
+        # read the version through the lock-aware internal helper instead.
+        from video_director.editor import _read_legacy_composition_version
+        if _read_legacy_composition_version(pid) != int(source_version):
             raise FilmError("COMPOSITION_CHANGED", "初始化期间旧 Composition 已变化，请重新载入迁移预览", 409)
         root = _project_root(pid)
         for relative, page in pages.items():
