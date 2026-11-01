@@ -504,10 +504,35 @@ def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_p
                 target_track.wait_for(state="visible")
                 page.evaluate("""() => {
                   window.__legacyClipCancelCalls = 0;
-                  const previous = window.filmStudioCancelClipGesture;
+                  window.__legacyClipBeginCalls = 0;
+                  window.__legacyClipMoveCalls = 0;
+                  window.__reactClipBeginCalls = 0;
+                  window.__reactClipPreviewCalls = 0;
+                  const previousCancel = window.filmStudioCancelClipGesture;
                   window.filmStudioCancelClipGesture = function(...args) {
                     window.__legacyClipCancelCalls += 1;
-                    return previous?.apply(this,args);
+                    return previousCancel?.apply(this,args);
+                  };
+                  const previousBegin = window.filmStudioBeginClipGesture;
+                  window.filmStudioBeginClipGesture = function(...args) {
+                    window.__legacyClipBeginCalls += 1;
+                    return previousBegin?.apply(this,args);
+                  };
+                  const previousMove = window.filmStudioMoveClipGesture;
+                  window.filmStudioMoveClipGesture = function(...args) {
+                    window.__legacyClipMoveCalls += 1;
+                    return previousMove?.apply(this,args);
+                  };
+                  const timeline = window.filmStudioReactTimeline;
+                  const reactBegin = timeline.beginClipGesture;
+                  timeline.beginClipGesture = function(...args) {
+                    window.__reactClipBeginCalls += 1;
+                    return reactBegin.apply(this,args);
+                  };
+                  const reactPreview = timeline.previewClipGesture;
+                  timeline.previewClipGesture = function(...args) {
+                    window.__reactClipPreviewCalls += 1;
+                    return reactPreview.apply(this,args);
                   };
                 }""")
 
@@ -534,6 +559,16 @@ def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_p
                     }""",
                     timeout=5000,
                 )
+                ownership = page.evaluate("""() => ({
+                  reactBegin:window.__reactClipBeginCalls,
+                  reactPreview:window.__reactClipPreviewCalls,
+                  legacyBegin:window.__legacyClipBeginCalls,
+                  legacyMove:window.__legacyClipMoveCalls
+                })""")
+                assert ownership["reactBegin"] == 1, ownership
+                assert ownership["reactPreview"] > 0, ownership
+                assert ownership["legacyBegin"] == 0, ownership
+                assert ownership["legacyMove"] == 0, ownership
                 assert edit_requests == []
                 assert film_path.read_bytes() == original_bytes
                 assert fd.read_project_film(project_id)["rev"] == original["rev"]

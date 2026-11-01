@@ -82,6 +82,7 @@
   }
   function hasCompleteReactTimelineGestureContract(bridge,controller){
     return !!(bridge&&
+      typeof bridge.beginClipGesture==='function'&&
       typeof bridge.previewClipGesture==='function'&&
       typeof bridge.prepareClipGestureCommit==='function'&&
       typeof bridge.setGesturePreview==='function'&&
@@ -1313,7 +1314,7 @@
       if(selected){S.playhead=selected.at;setPlayheadVisual();previewCurrent();}
     }
   };
-  function beginClipGesture(e,context,el){
+  function beginClipGesture(e,context,el,prepareOnly){
         // A clip or envelope edit is one pointer-owned transaction. Do not let a
         // second pointer replace the active gesture or alter selection underneath it.
         if(S.drag||S.envelopeDrag){
@@ -1378,6 +1379,11 @@
           if(reactMode!=='move'&&clip.duration==null){e.preventDefault();return false;}
           var reactScroll=$('fs-timeline-scroll');
           if(!reactScroll){e.preventDefault();return false;}
+          if(prepareOnly===true){
+            gestureDomRefs=null;
+            e.preventDefault();
+            return {mode:reactMode};
+          }
           var reactGestureResult=reactGestureController.createGestureStart({
             tracks:S.data&&S.data.tracks||[],clipId:clip.id,mode:reactMode,
             trimEdge:context.trimEdge==='start'||context.trimEdge==='end'?context.trimEdge:null,
@@ -1524,6 +1530,10 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
         e.preventDefault();
     return Boolean(S.drag&&S.drag.id===clip.id&&S.drag.pointerId===e.pointerId&&Number.isInteger(e.pointerId));
   }
+  window.filmStudioPrepareClipGestureStart=function(e,context){
+    var prepared=beginClipGesture(e,context,null,true);
+    return prepared&&typeof prepared==='object'&&typeof prepared.mode==='string'?prepared:null;
+  };
   window.filmStudioBeginClipGesture=function(e,context){
     return beginClipGesture(e,context,null);
   };

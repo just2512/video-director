@@ -6,6 +6,7 @@ import {
   type FilmTimelineMoveControllerInput,
   type FilmTimelineMoveGestureSnapshot,
   type FilmTimelineMoveTrackSnapshot,
+  type FilmTimelineGestureStartMode,
 } from "./film-timeline-gesture-controller";
 import {
   filmStore,
@@ -33,6 +34,19 @@ import {createRoot, type Root} from "react-dom/client";
 type Rect = {x?: number; y?: number; width?: number; height?: number};
 type FilmStudioGesturePointerInput = Pick<PointerEvent,"pointerId"|"clientX"|"clientY"|"preventDefault"> & {
   skipAutoScroll?: boolean;
+};
+
+const dispatchReactClipGesturePreview = (event:FilmStudioGesturePointerInput):void => {
+  const bridge = window.filmStudioReactTimeline;
+  if (bridge && typeof bridge.previewClipGesture === "function") {
+    try {
+      bridge.previewClipGesture(event);
+      return;
+    } catch {
+      // The compatibility adapter records the failure and clears the gesture fail-closed.
+    }
+  }
+  window.filmStudioMoveClipGesture?.(event);
 };
 
 function useFilmStoreField<K extends keyof FilmStudioStoreSnapshot>(key: K): FilmStudioStoreSnapshot[K] {
@@ -634,6 +648,7 @@ type FilmTimelineActiveDragIds = FilmStudioTimelineActiveDragIds;
 
 interface FilmStudioReactTimelineBridge {
   renderSurface(): void;
+  beginClipGesture(event:PointerEvent, context:{clipId:string;trimEdge:"start"|"end"|null;targetIsButton:boolean}):boolean;
   previewClipGesture(event:FilmStudioGesturePointerInput): void;
   prepareClipGestureCommit(event:FilmStudioGesturePointerInput): FilmOperation[] | undefined;
   setGesturePreview(preview: FilmTimelineGesturePreview): void;
@@ -695,6 +710,7 @@ declare global {
     filmStudioAsk?: () => Promise<void> | void;
     filmStudioSelectClip?: (clipId: string) => void;
     filmStudioClickClip?: (clipId: string, event: MouseEvent) => void;
+    filmStudioPrepareClipGestureStart?: (event:PointerEvent, context:{clipId:string;trimEdge:"start"|"end"|null;targetIsButton:boolean}) => {mode:FilmTimelineGestureStartMode}|null;
     filmStudioBeginClipDrag?: (event: PointerEvent, element: HTMLElement) => boolean | void;
     filmStudioBeginClipGesture?: (event: PointerEvent, context: {
       clipId: string; trimEdge: "start" | "end" | null; targetIsButton: boolean;
@@ -1968,7 +1984,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
       if (moved) {
         const current = dragPointerSample.current;
         if (current && current.pointerId === sample.pointerId) {
-          window.filmStudioMoveClipGesture?.({
+          dispatchReactClipGesturePreview({
             pointerId:current.pointerId,
             clientX:current.clientX,
             clientY:current.clientY,
@@ -2220,11 +2236,15 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                 const elementTarget = target instanceof Element ? target : null;
                 const trim = elementTarget?.closest("[data-trim]");
                 const rawTrimEdge = trim?.getAttribute("data-trim");
-                const started=window.filmStudioBeginClipGesture?.(event.nativeEvent,{
+                const gestureContext={
                   clipId:clip.id,
                   trimEdge:rawTrimEdge === "start" || rawTrimEdge === "end" ? rawTrimEdge : null,
                   targetIsButton:!!elementTarget?.closest("button"),
-                });
+                };
+                const timelineBridge=window.filmStudioReactTimeline;
+                const started=timelineBridge && typeof timelineBridge.beginClipGesture === "function"
+                  ? timelineBridge.beginClipGesture(event.nativeEvent,gestureContext)
+                  : window.filmStudioBeginClipGesture?.(event.nativeEvent,gestureContext);
                 if(started){
                   activePointerId.current=event.nativeEvent.pointerId;
                   try { event.currentTarget.setPointerCapture(event.nativeEvent.pointerId); } catch { /* synthetic events have no active pointer to capture */ }
@@ -2234,7 +2254,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
                 const pointerEvent=event.nativeEvent;
                 if(activePointerId.current!==pointerEvent.pointerId)return;
                 updateReactGestureTarget(pointerEvent);
-                window.filmStudioMoveClipGesture?.(pointerEvent);
+                dispatchReactClipGesturePreview(pointerEvent);
                 updateReactDragAutoScroll(pointerEvent);
               }}
               onPointerUp={event => {
@@ -2824,6 +2844,87 @@ window.filmStudioReactAssets = {
 };
 
 window.filmStudioReactTimeline = {
+  beginClipGesture(event, context) {
+    const initial = filmStore.getSnapshot();
+    const blocked = initial.busy || initial.broken || initial.pendingTransaction !== null ||
+      !!initial.pendingExternalRevision || !!initial.timelineGestureContext ||
+      !!initial.timelineEnvelopeGesture;
+    if (!event || event.button !== 0 || !context?.clipId || context.targetIsButton) return false;
+    if (blocked || !initial.film || timelineRecord(initial.film).exists !== true) {
+      event.preventDefault();
+      window.filmStudioShowTimelineStatus?.(
+        "当前影片状态不允许开始新的片段手势；请先完成保存或载入外部 revision。","error"
+      );
+      return false;
+    }
+    const prepare = window.filmStudioPrepareClipGestureStart;
+    if (typeof prepare !== "function") {
+      event.preventDefault();
+      window.filmStudioShowTimelineStatus?.(
+        "片段手势准备接口不可用；本次操作已拒绝，没有回退到旧版 DOM 手势。","error"
+      );
+      return false;
+    }
+    let prepared:{mode:FilmTimelineGestureStartMode}|null;
+    try {
+      prepared = prepare(event,context);
+    } catch (error) {
+      event.preventDefault();
+      window.filmStudioShowTimelineStatus?.(
+        "准备片段手势失败："+String(error instanceof Error ? error.message : error),"error"
+      );
+      return false;
+    }
+    const mode = prepared?.mode;
+    if (!mode || (mode !== "move" && mode !== "trim-start" && mode !== "trim-end" &&
+        mode !== "roll" && mode !== "slide" && mode !== "slip")) {
+      event.preventDefault();
+      return false;
+    }
+    const state = filmStore.getSnapshot();
+    const film = timelineRecord(state.film);
+    const scroll = document.getElementById("fs-timeline-scroll");
+    if (state.busy || state.broken || state.pendingTransaction !== null ||
+        state.pendingExternalRevision || state.timelineGestureContext || state.timelineEnvelopeGesture ||
+        film.exists !== true || !Array.isArray(film.tracks) || !scroll) {
+      event.preventDefault();
+      return false;
+    }
+    const startScrollLeft = Number(scroll.scrollLeft);
+    const result = filmTimelineGestureController.createGestureStart({
+      tracks:film.tracks,
+      clipId:String(context.clipId),
+      mode,
+      trimEdge:context.trimEdge,
+      selectedIds:state.selectedIds,
+      pointerId:event.pointerId,
+      startX:event.clientX,
+      startY:event.clientY,
+      startScrollLeft,
+    });
+    if (!result || result.ok !== true) {
+      const failure = result && result.error;
+      if (failure?.code === "MOVE_MEMBER_BLOCKED") {
+        const blockedLabel = failure.reason === "已锁定" ? "锁定" : "不存在的";
+        window.filmStudioShowTimelineStatus?.(
+          "多选移动包含"+blockedLabel+failure.kind+" "+failure.id+"，整组移动已取消。","error"
+        );
+      } else if (failure?.code === "ROLL_CUT_REQUIRED") {
+        window.filmStudioShowTimelineStatus?.("Ctrl 拖动切口只支持同轨相邻片段共用的切口。","error");
+      } else if (failure?.code === "SLIDE_NEIGHBORS_REQUIRED") {
+        window.filmStudioShowTimelineStatus?.("Alt+Shift 滑移式修剪要求所选片段左右都有时间上连续的邻接片段。","error");
+      }
+      event.preventDefault();
+      return false;
+    }
+    const gestureContext = result.context as unknown as NonNullable<FilmStudioStoreSnapshot["timelineGestureContext"]>;
+    flushSync(() => {
+      filmStore.setField("timelineGestureContext",gestureContext);
+      filmStore.setField("timelineActiveDragIds",result.memberIds);
+    });
+    event.preventDefault();
+    return true;
+  },
   previewClipGesture(event) {
     resolveReactClipGesturePreview(event);
   },
