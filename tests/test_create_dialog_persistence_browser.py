@@ -724,7 +724,7 @@ def test_blank_persisted_draft_with_default_radio_does_not_prompt_on_history_res
 
                 page.evaluate("openCreate()")
                 page.locator("#cf-director-brief").wait_for(state="visible")
-                page.locator("#director-history-launch").click()
+                page.locator("#cf-history-inline-launch").click()
                 page.locator("#cf-history-list button[data-conversation-id='conv-blank-draft-default-radio']").click()
                 page.wait_for_function(
                     "document.querySelector('#cf-history-list [data-history-action=\"restore\"]') !== null"
