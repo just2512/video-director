@@ -642,10 +642,31 @@ def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp
                 assert trace["id"] == "conv-create-history-browser", trace
                 assert trace["selectedId"] == trace["id"], trace
                 assert "error" not in trace, trace
-                page.wait_for_function("""() =>
-                  document.getElementById('cf-director-brief')?.value === '从历史恢复的创作目标'
-                  && document.getElementById('cf-script')?.value === '从历史恢复的权威文案'
-                """, timeout=10000)
+                try:
+                    page.wait_for_function("""() =>
+                      document.getElementById('cf-director-brief')?.value === '从历史恢复的创作目标'
+                      && document.getElementById('cf-script')?.value === '从历史恢复的权威文案'
+                    """, timeout=10000)
+                except Exception as error:
+                    diagnostic = page.evaluate("""() => ({
+                        trace: window.__historyRestoreTrace,
+                        selected: window._cfHistorySelected || null,
+                        buttonId: window.__historyRestoreButtonId || '',
+                        confirms: window.__historyRestoreConfirmMessages || [],
+                        fields: {
+                            brief: document.getElementById('cf-director-brief')?.value ?? null,
+                            script: document.getElementById('cf-script')?.value ?? null,
+                            article: document.getElementById('cf-article-url')?.value ?? null,
+                            repo: document.getElementById('cf-repo-root')?.value ?? null
+                        },
+                        context: window.CF_DRAFT_CONTEXT || null,
+                        explicitFields: Array.from(window.CF?.explicitFields || []),
+                        maskDisplay: document.getElementById('cf-mask')?.style.display || 'missing',
+                        status: document.getElementById('cf-draft-status')?.textContent || ''
+                    })""")
+                    raise AssertionError(
+                        f"History snapshot was not applied to the form: {diagnostic}; pageerrors={errors}"
+                    ) from error
                 assert page.locator("#cf-history-drawer").is_visible()
                 assert page.locator("#cf-input-context-details").evaluate("(node) => node.open")
                 assert page.evaluate("window.__historyRestoreConfirmMessages") == []
