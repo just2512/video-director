@@ -238,7 +238,8 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 page.locator("#cf-mask").click(position={"x": 8, "y": 8})
                 assert page.locator("#cf-mask").is_visible()
                 assert page.locator("#cf-article-url").input_value() == "https://news.example/article"
-                assert page.locator('#cf-quick-actions button[onclick="createEnhance()"]').count() == 1
+                assert page.locator('#cf-quick-actions button[onclick="createEnhance()"]').count() == 0
+                assert page.locator('#cf-script-actions button[onclick="createEnhance()"]').count() == 1
                 assert page.locator('#cf-quick-actions button[onclick="cfMakeGraphicPlan()"]').count() == 1
                 assert page.locator("#cf-render-engine-status").is_visible()
 
@@ -264,6 +265,7 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
                 page.locator("#cf-history-list").get_by_text("Browser history fixture").wait_for(timeout=10000)
                 page.locator('#cf-history-list button[data-conversation-id="conv-browser-smoke"]').click()
                 page.get_by_text("历史对话原始要求").wait_for(timeout=10000)
+                page.once("dialog", lambda dialog: dialog.accept())
                 page.get_by_role("button", name="恢复为新草稿").click()
                 assert page.locator("#cf-director-brief").input_value() == "从历史恢复的创作要求"
                 assert page.locator("#cf-script").input_value() == "从历史恢复的权威文案"
