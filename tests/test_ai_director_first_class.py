@@ -284,6 +284,6 @@ def test_generated_visual_adoption_rejects_stale_composition_revision(monkeypatc
     assert result["ok"] is False
     assert result["status"] == "REJECTED"
     assert result["result"]["results"][0]["asset_id"] == "generated-stale-1"
-    assert "CONFLICT" in result["error"]
+    assert "生成期间项目时间线已变化" in result["error"]
 
 
