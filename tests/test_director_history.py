@@ -151,6 +151,7 @@ def test_create_dialog_lifecycle_and_single_style_catalog():
     assert "if (window.CF_DEFAULTS_READY) await window.CF_DEFAULTS_READY;" in source
     assert "cfClearSavedDraft" in source
     assert "window.CF_DRAFT_CONTEXT.assetRefs = refs" in source
-    assert 'if(!quickActions || !quickActions.contains(button)) button.remove();' in source
+    assert 'if(!scriptActions?.contains(button))button.remove();' in source
+    assert 'if(!quickActions?.contains(button))button.remove();' in source
     assert "actions.innerHTML='<button type=" in source
     assert '#cf-quick-actions button[onclick="cfGenerateScript()"]' in source
