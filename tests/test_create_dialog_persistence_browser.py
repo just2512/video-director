@@ -756,6 +756,27 @@ def test_history_restore_confirms_before_replacing_active_draft(tmp_path, monkey
                 assert page.locator("#cf-director-brief").input_value() == "当前未提交的创作要求"
                 assert page.locator("#cf-script").input_value() == "当前未提交的权威文案"
 
+                # A recording/project-only draft must be protected too, even with blank text.
+                page.locator("#cf-director-brief").fill("")
+                page.locator("#cf-script").fill("")
+                page.evaluate("""() => {
+                    window.CF_DRAFT_CONTEXT.narrationUpload = "voice-upload.wav";
+                    window.CF_DRAFT_CONTEXT.projectId = "current-project";
+                    window.CF.explicitFields.clear();
+                }""")
+                page.evaluate("window.cfPersistCreateDraftNow()")
+                page.wait_for_function("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    const context = (await response.json())?.draft?.data?.context || {};
+                    return context.narration_upload === "voice-upload.wav"
+                      && context.project_id === "current-project";
+                }""", timeout=10000)
+                page.evaluate("window.confirm = () => false")
+                page.evaluate("window.cfHistoryRestoreSnapshot('conv-history-restore-protection')")
+                assert page.locator("#cf-director-brief").input_value() == ""
+                assert page.locator("#cf-script").input_value() == ""
+                assert "当前草稿保持不变" in (page.locator("#cf-draft-status").text_content() or "")
+
                 page.evaluate("window.confirm = () => true")
                 page.evaluate("window.cfHistoryRestoreSnapshot('conv-history-restore-protection')")
                 assert page.locator("#cf-director-brief").input_value() == "历史对话中的创作要求"

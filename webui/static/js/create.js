@@ -2019,6 +2019,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       ||String(currentFields['cf-script']||'').trim()
       ||(currentContext.asset_refs||[]).length
       ||currentContext.reference||currentContext.article||currentContext.repo
+      ||currentContext.narration_upload||currentContext.project_id
       ||(Array.isArray(currentSnapshot.explicit_fields)&&currentSnapshot.explicit_fields.length)
     );
     if(hasCurrentDraft&&!window.confirm('当前草稿包含未提交内容。恢复历史对话会替换当前草稿；取消可保留当前内容。确认继续？')){
