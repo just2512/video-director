@@ -228,7 +228,8 @@ def test_director_context_refresh_clears_selection_cache_when_nothing_is_selecte
     assert "await apiPost('/api/director/context', {project_id: ED.pid, selection: ctx});" in function_body
     assert "if (ctx.type !== 'none')" not in function_body
 
-def test_generated_visual_adoption_rejects_stale_composition_revision(monkeypatch, pid):
+
+def test_generated_visual_adoption_rejects_concurrent_edit_during_generation(monkeypatch, pid):
     class G:
         asset_id = "generated-stale-1"
         variant = "A"
@@ -250,40 +251,42 @@ def test_generated_visual_adoption_rejects_stale_composition_revision(monkeypatc
             }
 
     import video_director.generation as gen
-    from video_director.editor import CommandResult
 
-    monkeypatch.setattr(gen, "generate", lambda *args, **kwargs: [G()])
     original_is_file = Path.is_file
     monkeypatch.setattr(
         Path, "is_file",
         lambda path: True if path == Path(G.file) else original_is_file(path),
     )
-    source_version = editor.load_composition_snapshot(pid)[1]
-    captured = {}
+    versions = {}
 
-    def reject_stale_adoption(project_id, command):
-        captured.update(command)
-        return CommandResult(
-            status="REJECTED",
-            composition_version=source_version + 1,
-            errors=[{
-                "code": "CONFLICT",
-                "message": "生成期间项目时间线已变化，请重新生成或手动采用素材",
-                "recoverable": True,
-            }],
-        )
+    def generate_after_manual_edit(*args, **kwargs):
+        # The user changes the same destination after the pre-generation
+        # snapshot was captured but before the provider returns its asset.
+        current = editor.composition_version(pid)
+        versions["manual_base"] = current
+        edit = editor.execute_command(pid, {
+            "command": "replace_source",
+            "targetId": "scene-1#0",
+            "payload": {"assetId": "user-selected-during-generation"},
+            "expectedVersion": current,
+            "author": "user",
+        })
+        assert edit.status == "APPLIED", edit.errors
+        versions["manual_revision"] = editor.composition_version(pid)
+        return [G()]
 
-    monkeypatch.setattr(editor, "execute_command", reject_stale_adoption)
+    monkeypatch.setattr(gen, "generate", generate_after_manual_edit)
     result = tool_executor.execute_tool(pid, {
         "tool": "generation.image",
         "targetId": "scene-1",
         "payload": {"prompt": "并发修改后不得覆盖用户选择"},
     })
 
-    assert captured["expectedVersion"] == source_version
+    current_ir, current_version, _revisions = editor.load_composition_snapshot(pid)
+    assert versions["manual_revision"] > versions["manual_base"]
+    assert current_ir.scenes[0].layers[0].asset_id == "user-selected-during-generation"
+    assert current_version == versions["manual_revision"]
     assert result["ok"] is False
     assert result["status"] == "REJECTED"
     assert result["result"]["results"][0]["asset_id"] == "generated-stale-1"
-    assert "生成期间项目时间线已变化" in result["error"]
-
-
+    assert "版本冲突" in result["error"]

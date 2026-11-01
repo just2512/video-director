@@ -631,6 +631,17 @@ def _execute_generation(project_id: str, tool: str, payload: dict, target_id) ->
     # payload 未带 confirmed=True 时拒绝调用，前端须先获用户「本镜头需付费
     # 视频生成」确认。未配置 provider 时由下方 gen.generate 诚实报错，
     # 这里只拦「已配置但未确认」的付费调用。
+    # Pin the destination before a potentially long provider call. If a
+    # user edits the timeline while generation is running, a late AI result
+    # must not overwrite that newer selection.
+    adoption_snapshot = None
+    adoption_snapshot_error = None
+    if gen_type in ("image", "video") and target_id:
+        try:
+            adoption_snapshot = editor.load_composition_snapshot(project_id)
+        except Exception as exc:
+            adoption_snapshot_error = exc
+
     if gen_type in ("image", "video"):
         try:
             from video_director import provider_matrix
@@ -659,11 +670,14 @@ def _execute_generation(project_id: str, tool: str, payload: dict, target_id) ->
     if gen_type in ("image", "video") and results and target_id:
         first = results[0]
         try:
-            # Generation can take a long time. Pin adoption to the exact
-            # Composition revision used to resolve the target layer so a
-            # concurrent manual edit cannot redirect the generated asset onto
-            # a different layer or overwrite a newer user choice.
-            ir, source_version, _revisions = editor.load_composition_snapshot(project_id)
+            # Use the pre-generation snapshot, not a fresh post-generation
+            # read; otherwise edits made while the provider runs could be overwritten.
+            if adoption_snapshot is None:
+                raise RuntimeError(
+                    "生成前无法读取可采用的时间线快照："
+                    + str(adoption_snapshot_error or "项目时间线快照缺失")
+                )
+            ir, source_version, _revisions = adoption_snapshot
             target_layer = target_id
             if "#" not in str(target_id):
                 scene = next((s for s in ir.scenes if s.id == target_id), None)
