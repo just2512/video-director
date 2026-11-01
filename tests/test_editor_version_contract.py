@@ -43,12 +43,15 @@ def _apply(pid: str, command: str, target: str, payload: dict, version: int):
 
 
 def test_composition_api_version_is_authoritative(tmp_path, monkeypatch):
-    """源码契约：composition 端点必须回传 composition_version()，不得自算。"""
+    """源码契约：IR 与冲突版本必须从同一项目锁定快照取得。"""
     src = (ROOT / "webui" / "server.py").read_text(encoding="utf-8")
     idx = src.index('route == "/api/editor/composition"')
     branch = src[idx:idx + 6000]
-    assert "composition_version(pid)" in branch, (
-        "composition 端点未回传权威版本——前端会拿旧版本号发命令触发 CONFLICT"
+    assert "load_composition_snapshot(pid)" in branch, (
+        "composition 端点必须从同一锁定快照读取 IR、revision 和版本"
+    )
+    assert '"version": composition_version' in branch, (
+        "composition 端点必须回传该快照的权威版本——不能重新读取或自算"
     )
     assert '"version": len(revs) + 1' not in branch, (
         "composition 端点仍自算版本号，会与冲突检查脱节"

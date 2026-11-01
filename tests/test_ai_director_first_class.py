@@ -110,7 +110,16 @@ def test_generated_visual_is_adopted(monkeypatch, pid):
 
     import video_director.generation as gen
     monkeypatch.setattr(gen, "generate", lambda *args, **kwargs: [G()])
-    monkeypatch.setattr(Path, "is_file", lambda self: True)
+    original_is_file = Path.is_file
+
+    def generated_asset_exists(path):
+        # Only the mocked provider output exists; keep project authority probes
+        # real so a missing film.html is not mistaken for an active Film project.
+        if path == Path(G.file):
+            return True
+        return original_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", generated_asset_exists)
 
     original = editor.execute_command
     def fake_execute(project_id, command):
@@ -130,7 +139,7 @@ def test_generated_visual_is_adopted(monkeypatch, pid):
         "targetId": "scene-1",
         "payload": {"prompt": "真实生活场景"},
     })
-    assert r["ok"] is True
+    assert r["ok"] is True, r
     assert r["result"]["adopted"][0]["asset_id"] == "generated-1"
 
 
