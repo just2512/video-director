@@ -9,6 +9,8 @@ from pathlib import Path
 import threading
 from urllib.parse import quote as quote_for_test
 
+import pytest
+
 from playwright.sync_api import sync_playwright
 
 from video_director import film_document as fd
@@ -864,8 +866,14 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
         thread.join(timeout=5)
 
 
-def test_studio_export_result_exposes_pinned_revision_mp4_and_qc_links(tmp_path, monkeypatch):
-    """A stale but completed export stays accessible and is not mislabeled as current."""
+@pytest.mark.parametrize(
+    ("is_current", "qc_status", "audio_signal_status"),
+    [(False, "PASS", "AUDIBLE"), (True, "WARNING", "SILENT")],
+)
+def test_studio_export_result_exposes_pinned_revision_mp4_and_qc_links(
+    tmp_path, monkeypatch, is_current, qc_status, audio_signal_status
+):
+    """A stale PASS and a current QC warning remain clearly distinct in Studio."""
     storage_root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
     import webui.server as web_server
@@ -920,17 +928,21 @@ def test_studio_export_result_exposes_pinned_revision_mp4_and_qc_links(tmp_path,
                     "mp4_path": mp4_path,
                     "qc_report_path": qc_path,
                     "rendered_revision": before["rev"],
-                    "current_revision": "external-revision-after-render",
-                    "current": False,
-                    "revision_status": "STALE",
+                    "current_revision": before["rev"] if is_current else "external-revision-after-render",
+                    "current": is_current,
+                    "revision_status": "CURRENT" if is_current else "STALE",
                     "width": 1920,
                     "height": 1080,
                     "duration": 5.0,
                     "frame_count": 150,
-                    "qc_status": "PASS",
+                    "qc_status": qc_status,
                     "determinism_status": "PASS",
-                    "audio_signal_status": "AUDIBLE",
-                    "warnings": ["导出期间影片文档已变化"],
+                    "audio_signal_status": audio_signal_status,
+                    "warnings": (
+                        ["时间线包含音频，但音频信号检测为 SILENT；请人工试听并检查增益。"]
+                        if qc_status == "WARNING"
+                        else ["导出期间影片文档已变化"]
+                    ),
                 },
             }
         route.fulfill(
@@ -1004,23 +1016,34 @@ def test_studio_export_result_exposes_pinned_revision_mp4_and_qc_links(tmp_path,
                 assert "1920×1080" in result_text, result_text
                 assert "5.00 秒" in result_text, result_text
                 assert before["rev"] in result_text, result_text
-                assert "QC PASS" in result_text
-                assert "版本状态 STALE" in result_text, result_text
+                assert f"QC {qc_status}" in result_text
+                assert ("版本状态 CURRENT" if is_current else "版本状态 STALE") in result_text, result_text
 
                 mp4_link = page.locator("#fs-render-download")
                 assert mp4_link.is_visible()
-                assert mp4_link.inner_text() == "打开该版本 MP4（文档已更新）"
+                assert mp4_link.inner_text() == (
+                    "打开 MP4" if is_current else "打开该版本 MP4（文档已更新）"
+                )
                 assert mp4_link.get_attribute("href") == "/file?path=" + quote_for_test(mp4_path, safe="")
 
                 qc_link = page.locator("#fs-qc-download")
                 assert qc_link.is_visible()
-                assert qc_link.inner_text() == "打开 QC 记录（PASS）"
+                assert qc_link.inner_text() == (
+                    "打开 QC 记录（有警告）" if qc_status == "WARNING" else "打开 QC 记录（PASS）"
+                )
                 assert qc_link.get_attribute("href") == "/file?path=" + quote_for_test(qc_path, safe="")
 
-                alert = page.locator("#film-studio-alert").inner_text()
-                assert "导出期间影片文档发生变化" in alert, alert
-                assert before["rev"] in alert, alert
-                assert "不是当前 revision" in alert, alert
+                alert_box = page.locator("#film-studio-alert")
+                alert = alert_box.inner_text()
+                alert_class = alert_box.get_attribute("class") or ""
+                if is_current and qc_status == "WARNING":
+                    assert "QC 有警告" in alert, alert
+                    assert "人工试听" in alert, alert
+                    assert "success" not in alert_class, alert_class
+                else:
+                    assert "导出期间影片文档发生变化" in alert, alert
+                    assert before["rev"] in alert, alert
+                    assert "不是当前 revision" in alert, alert
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 context.close()
