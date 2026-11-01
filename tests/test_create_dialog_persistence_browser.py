@@ -574,9 +574,74 @@ def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp
                         return true;
                     };
                 }""")
+                page.evaluate("""() => {
+                    window.__historyRestoreTrace = {invoked: false};
+                    window.addEventListener('unhandledrejection', event => {
+                        window.__historyRestoreUnhandledRejection = String(
+                            event.reason?.stack || event.reason || 'unknown rejection'
+                        );
+                    });
+                    const list = document.getElementById('cf-history-list');
+                    list.addEventListener('click', event => {
+                        const button = event.target.closest('[data-history-action="restore"]');
+                        if (button) window.__historyRestoreButtonId = button.dataset.conversationId || '';
+                    }, true);
+                    const original = window.cfHistoryRestoreSnapshot;
+                    window.cfHistoryRestoreSnapshot = function(id) {
+                        const trace = window.__historyRestoreTrace;
+                        Object.assign(trace, {
+                            invoked: true,
+                            id: String(id || ''),
+                            selectedId: String(window._cfHistorySelected?.conversation_id || '')
+                        });
+                        let pending;
+                        try {
+                            pending = original(id);
+                        } catch (error) {
+                            trace.settled = true;
+                            trace.error = String(error?.stack || error);
+                            return Promise.resolve(false);
+                        }
+                        trace.returnedPromise = !!(pending && typeof pending.then === 'function');
+                        return Promise.resolve(pending).then(result => {
+                            trace.settled = true;
+                            trace.result = result === undefined ? 'undefined' : result;
+                            return result;
+                        }, error => {
+                            trace.settled = true;
+                            trace.error = String(error?.stack || error);
+                            return false;
+                        });
+                    };
+                }""")
                 page.locator('#cf-history-list button[data-history-action="restore"]').click()
 
                 page.locator("#cf-form").wait_for(state="visible")
+                try:
+                    page.wait_for_function(
+                        "window.__historyRestoreTrace?.settled === true",
+                        timeout=7000,
+                    )
+                except Exception as error:
+                    diagnostic = page.evaluate("""() => ({
+                        trace: window.__historyRestoreTrace,
+                        buttonId: window.__historyRestoreButtonId || '',
+                        selectedId: window._cfHistorySelected?.conversation_id || '',
+                        confirms: window.__historyRestoreConfirmMessages || [],
+                        rejection: window.__historyRestoreUnhandledRejection || '',
+                        maskDisplay: document.getElementById('cf-mask')?.style.display || 'missing',
+                        brief: document.getElementById('cf-director-brief')?.value || '',
+                        script: document.getElementById('cf-script')?.value || '',
+                        status: document.getElementById('cf-draft-status')?.textContent || ''
+                    })""")
+                    raise AssertionError(
+                        f"History restore did not settle: {diagnostic}"
+                    ) from error
+                trace = page.evaluate("window.__historyRestoreTrace")
+                assert trace["invoked"] is True, trace
+                assert trace["id"] == "conv-create-history-browser", trace
+                assert trace["selectedId"] == trace["id"], trace
+                assert "error" not in trace, trace
                 page.wait_for_function("""() =>
                   document.getElementById('cf-director-brief')?.value === '从历史恢复的创作目标'
                   && document.getElementById('cf-script')?.value === '从历史恢复的权威文案'
