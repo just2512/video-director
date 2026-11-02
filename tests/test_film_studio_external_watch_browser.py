@@ -598,6 +598,10 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     state?.timelineGesturePreview === null &&
                     state?.timelineSnapGuide === null;
                 }""", timeout=10000)
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getSnapshot()?.busy === false",
+                    timeout=10000,
+                )
                 trim_after = fd.read_project_film(project_id)
                 trim_after_clip = next(
                     item for track in trim_after["doc"]["tracks"]
@@ -758,6 +762,10 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     state?.timelineGesturePreview === null &&
                     state?.timelineSnapGuide === null;
                 }""", timeout=10000)
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getSnapshot()?.busy === false",
+                    timeout=10000,
+                )
                 after_roll = fd.read_project_film(project_id)
                 roll_requests = film_edit_requests[roll_request_count:]
                 assert after_roll["rev"] != before_roll["rev"]
@@ -828,6 +836,10 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     state?.timelineGesturePreview === null &&
                     state?.timelineSnapGuide === null;
                 }""", timeout=10000)
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getSnapshot()?.busy === false",
+                    timeout=10000,
+                )
                 after_slide = fd.read_project_film(project_id)
                 slide_requests = film_edit_requests[slide_request_count:]
                 assert after_slide["rev"] != before_slide["rev"]
