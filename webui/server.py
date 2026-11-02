@@ -2622,6 +2622,10 @@ class Handler(BaseHTTPRequestHandler):
                     "has_more":has_more,
                     "next_cursor":next_cursor,
                 })
+            except (TypeError,ValueError) as exc:
+                # Invalid client-supplied pagination parameters are request errors,
+                # not server faults. Keep unexpected storage/runtime failures at 500.
+                self._send_json({"ok":False,"error":str(exc)[:240]},400)
             except Exception as exc:
                 self._send_json({"ok":False,"error":str(exc)[:240]},500)
         elif route.startswith("/api/director/conversations/"):
