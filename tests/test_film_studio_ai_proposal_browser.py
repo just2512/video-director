@@ -334,6 +334,23 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 assert json.loads(clips["audio-1"]["attrs"]["volume_envelope"])==[{"t":0.0,"v":1.0},{"t":20.0,"v":0.0}]
                 assert not errors,errors
 
+                # The same confirmation payload must be single-use. A repeated
+                # POST after the first successful apply is rejected without a
+                # second revision, write, or duplicate transaction.
+                duplicate_confirmation = page.evaluate("""async payload => {
+                  const response = await fetch('/api/editor/film/apply-proposal', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload),
+                  });
+                  return {status: response.status, body: await response.json()};
+                }""", applies[0])
+                assert duplicate_confirmation["status"] == 409, duplicate_confirmation
+                assert duplicate_confirmation["body"]["code"] == "PROPOSAL_NOT_FOUND_OR_STALE", duplicate_confirmation
+                assert fd.read_project_film(project_id)["rev"] == after["rev"]
+                assert film_path.read_bytes() == after_bytes
+                assert len(applies) == 1, applies
+
                 page.evaluate("window.filmStudioUndo()")
                 page.wait_for_function("r=>{const s=window.filmStudioStore?.getSnapshot();return !!s&&!s.busy&&s.pendingTransaction===null&&s.revision===r;}",arg=before["rev"],timeout=10000)
                 assert film_path.read_bytes()==original
