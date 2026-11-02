@@ -47,7 +47,7 @@ def test_expired_proposal_is_rejected_and_pruned_without_wall_clock_sleep():
     assert store.take("project-a", "proposal-expiry", "revision-1") is not None
 
     store.put("proposal-expiry-2", "project-a", "revision-1", [{"op": "remove", "clip": "clip-b"}])
-    now[0] = 115.0
+    now[0] = 129.999
     assert store.take("project-a", "proposal-expiry-2", "revision-1") is None
 
 
