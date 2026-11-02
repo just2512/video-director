@@ -2074,12 +2074,15 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     return window.openCreate();
   };
   window.cfHistoryOpenConversation=async function(id){
-    historyRequestVersion++;
+    const requestVersion=++historyRequestVersion;
     historyLoadingMore=false;
     const list=document.getElementById('cf-history-list');if(!list)return;
     list.textContent='读取对话…';
     try{
       const r=await apiGet('/api/director/conversations/'+encodeURIComponent(id));
+      // A later selection or refresh owns the drawer now. Never let an older
+      // slow response replace the conversation currently being inspected.
+      if(requestVersion!==historyRequestVersion)return false;
       if(!r||!r.ok||!r.conversation)throw new Error(r?.error||'对话不存在');
       const c=r.conversation;window._cfHistorySelected=c;
       const messages=(c.messages||[]).map(m=>
@@ -2097,7 +2100,11 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       if(openProject)openProject.addEventListener('click',()=>{
         window.cfHistoryOpenAssociatedProject(openProject.dataset.openProject);
       });
-    }catch(e){list.textContent='对话读取失败：'+(e.message||e);}
+    }catch(e){
+      if(requestVersion!==historyRequestVersion)return false;
+      list.textContent='对话读取失败：'+(e.message||e);
+      return false;
+    }
   };
   function cfHistoryHasCurrentDraft(currentSnapshot){
     const fields=currentSnapshot?.fields||{},context=currentSnapshot?.context||{};

@@ -838,6 +838,64 @@ def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monk
 
 
 
+
+
+def test_history_detail_ignores_late_response_from_previous_selection(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.create_conversation(
+            conversation_id="conv-history-slow",
+            title="较慢返回的旧对话",
+            initial_message="旧选择",
+        )
+        director_history.create_conversation(
+            conversation_id="conv-history-fast",
+            title="较快返回的新对话",
+            initial_message="新选择",
+        )
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            deferred: dict[str, object] = {}
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route(
+                "**/api/director/conversations/conv-history-slow",
+                lambda route: deferred.__setitem__("slow", route),
+            )
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.locator("#director-history-launch").click()
+                page.locator("#cf-history-list button[data-conversation-id='conv-history-slow']").wait_for(
+                    state="visible"
+                )
+                page.locator("#cf-history-list button[data-conversation-id='conv-history-fast']").click()
+                slow_route = _wait_for_deferred_route(page, deferred, "slow")
+                page.locator("#cf-history-list button[data-history-action='list']").wait_for(
+                    state="visible"
+                )
+                # Select the second conversation while the first response is still blocked.
+                page.locator("#cf-history-list button[data-history-action='list']").click()
+                page.locator("#cf-history-list button[data-conversation-id='conv-history-fast']").click()
+                page.wait_for_function("""() =>
+                    document.querySelector('#cf-history-list')?.textContent.includes('较快返回的新对话')
+                    && window._cfHistorySelected?.conversation_id === 'conv-history-fast'
+                """, timeout=10000)
+
+                slow_route.continue_()
+                page.wait_for_timeout(150)
+                assert page.locator("#cf-history-list").inner_text().find("较快返回的新对话") >= 0
+                assert page.locator("#cf-history-list").inner_text().find("较慢返回的旧对话") < 0
+                assert page.evaluate("window._cfHistorySelected?.conversation_id") == "conv-history-fast"
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_history_drawer_loads_all_pages_without_repeating_conversations(tmp_path, monkeypatch):
     monkeypatch.setattr(director_history.time, "time", lambda: 1700000000.0)
     server, thread = _start_server(tmp_path, monkeypatch)
