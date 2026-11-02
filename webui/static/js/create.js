@@ -1516,6 +1516,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   if(typeof baseOpen!=='function'||typeof baseClose!=='function')return;
   let timer=null, saving=Promise.resolve(), restored=false, restorePromise=null, restoredDraftAvailable=false;
   let draftClearPending=false;
+  let historyCursor=null, historyHasMore=false, historyLoadingMore=false, historyRequestVersion=0;
   // Capture the live defaults only after asynchronous catalog/default hydration.
   // Comparing against raw HTML defaultSelected misses dynamically populated selects.
   let defaultFieldsSnapshot=null;
@@ -1912,11 +1913,16 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   function cfHistoryRenderList(){
     const list=document.getElementById('cf-history-list');if(!list)return;
     const rows=Array.isArray(window._cfHistoryRows)?window._cfHistoryRows:[];
-    list.innerHTML=rows.length?rows.map(x=>
+    const content=rows.length?rows.map(x=>
       '<div class="proj-row"><span style="flex:1;min-width:0"><b>'+esc(x.title||'未命名对话')+'</b><span class="hint">'+
       esc(x.project_id||'未关联项目')+' · '+new Date((x.updated_at||0)*1000).toLocaleString()+' · '+esc(x.status||'')+
       '</span></span><button class="btn-secondary btn-sm" type="button" data-conversation-id="'+esc(x.conversation_id||'')+'">查看</button></div>'
     ).join(''):'<div class="hint">暂无历史对话。成功提交创作后会自动记录；未提交内容请从上方「当前草稿」继续。</div>';
+    const more=historyHasMore
+      ?'<div style="display:flex;justify-content:center;padding:10px 0"><button class="btn-secondary btn-sm" type="button" data-history-action="load-more"'+
+        (historyLoadingMore?' disabled':'')+'>'+(historyLoadingMore?'正在加载…':'加载更多历史')+'</button></div>'
+      :'';
+    list.innerHTML=content+more;
   }
   function cfHistoryRenderDraft(draft){
     const host=document.getElementById('cf-history-draft');if(!host)return;
@@ -1958,6 +1964,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(notice)notice.textContent=message||'';
   }
   window.cfHistoryRefresh=async function(){
+    const requestVersion=++historyRequestVersion;
+    historyLoadingMore=false;
+    historyCursor=null;
+    historyHasMore=false;
     const list=document.getElementById('cf-history-list');if(list)list.textContent='正在读取历史对话…';
     const progressMode=cfHistoryInProgressMode();
     cfHistorySetNotice(progressMode
@@ -1973,7 +1983,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         apiGet('/api/director/conversations?limit=50'),
         apiGet('/api/director/drafts/active')
       ]);
+      if(requestVersion!==historyRequestVersion)return;
       window._cfHistoryRows=(r&&r.conversations)||[];
+      historyHasMore=!!(r&&r.has_more);
+      historyCursor=r&&r.next_cursor||null;
       const remote=draftResult&&draftResult.draft||null;
       const local=readLocalDraft();
       const useLocal=!!(local&&local.data&&(!remote||Number(local.saved_at||0)>Number(remote.updated_at||0)*1000));
@@ -1983,6 +1996,40 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       cfHistoryRenderList();
     }catch(e){if(list)list.textContent='历史对话读取失败：'+(e.message||e);}
   };
+  window.cfHistoryLoadMore=async function(){
+    if(historyLoadingMore||!historyHasMore||!historyCursor)return false;
+    const requestVersion=historyRequestVersion,cursor=historyCursor;
+    historyLoadingMore=true;
+    cfHistoryRenderList();
+    const url='/api/director/conversations?limit=50'
+      +'&before_updated_at='+encodeURIComponent(String(cursor.updated_at))
+      +'&before_conversation_id='+encodeURIComponent(cursor.conversation_id);
+    try{
+      const response=await apiGet(url);
+      if(requestVersion!==historyRequestVersion)return false;
+      if(!response||!response.ok)throw new Error(response?.error||'历史分页请求失败');
+      const existing=new Set((window._cfHistoryRows||[]).map(row=>row.conversation_id));
+      for(const row of (response.conversations||[])){
+        if(!existing.has(row.conversation_id)){
+          window._cfHistoryRows.push(row);
+          existing.add(row.conversation_id);
+        }
+      }
+      historyHasMore=!!response.has_more;
+      historyCursor=response.next_cursor||null;
+      return true;
+    }catch(error){
+      if(requestVersion===historyRequestVersion)
+        cfHistorySetNotice('加载更多历史失败：'+(error.message||error));
+      return false;
+    }finally{
+      if(requestVersion===historyRequestVersion){
+        historyLoadingMore=false;
+        cfHistoryRenderList();
+      }
+    }
+  };
+
   window.cfHistoryToggle=async function(){
     const existing=document.getElementById('cf-history-drawer');
     if(existing){existing.remove();return;}
@@ -2007,6 +2054,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         if(action==='list')cfHistoryRenderList();
         else if(action==='restore')window.cfHistoryRestoreSnapshot(actionButton.dataset.conversationId);
         else if(action==='resume-draft')window.cfHistoryResumeDraft();
+        else if(action==='load-more')window.cfHistoryLoadMore();
         return;
       }
       const conversationButton=event.target.closest('[data-conversation-id]');
@@ -2026,6 +2074,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     return window.openCreate();
   };
   window.cfHistoryOpenConversation=async function(id){
+    historyRequestVersion++;
+    historyLoadingMore=false;
     const list=document.getElementById('cf-history-list');if(!list)return;
     list.textContent='读取对话…';
     try{

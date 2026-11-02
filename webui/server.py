@@ -2596,9 +2596,32 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 from video_director import director_history as history
                 qs=parse_qs(parsed.query)
-                self._send_json({"ok":True,"conversations":history.list_conversations(
+                limit_=max(1,min(int(qs.get("limit",["50"])[0] or 50),100))
+                before_values=qs.get("before_updated_at",[])
+                before_ids=qs.get("before_conversation_id",[])
+                if bool(before_values)!=bool(before_ids):
+                    raise ValueError("历史分页游标必须同时包含更新时间和对话 ID")
+                before_updated_at=float(before_values[0]) if before_values else None
+                before_conversation_id=str(before_ids[0] or "") if before_ids else ""
+                rows=history.list_conversations(
                     project_id=str(qs.get("project_id",[""])[0] or ""),
-                    limit=int(qs.get("limit",["50"])[0] or 50))})
+                    limit=limit_+1,
+                    before_updated_at=before_updated_at,
+                    before_conversation_id=before_conversation_id,
+                )
+                has_more=len(rows)>limit_
+                conversations=rows[:limit_]
+                last=conversations[-1] if conversations else None
+                next_cursor=({
+                    "updated_at":last["updated_at"],
+                    "conversation_id":last["conversation_id"],
+                } if has_more and last else None)
+                self._send_json({
+                    "ok":True,
+                    "conversations":conversations,
+                    "has_more":has_more,
+                    "next_cursor":next_cursor,
+                })
             except Exception as exc:
                 self._send_json({"ok":False,"error":str(exc)[:240]},500)
         elif route.startswith("/api/director/conversations/"):

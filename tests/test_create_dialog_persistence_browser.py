@@ -836,6 +836,46 @@ def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monk
 
 
 
+
+
+def test_history_drawer_loads_all_pages_without_repeating_conversations(tmp_path, monkeypatch):
+    monkeypatch.setattr(director_history.time, "time", lambda: 1700000000.0)
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        for index in range(53):
+            director_history.create_conversation(
+                conversation_id=f"conv-pagination-{index:03d}",
+                title=f"历史分页 {index:03d}",
+            )
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.locator("#director-history-launch").click()
+                page.wait_for_function(
+                    "document.querySelectorAll('#cf-history-list [data-conversation-id]').length === 50"
+                )
+                assert page.locator("#cf-history-list [data-conversation-id='conv-pagination-000']").count() == 0
+                assert page.locator('#cf-history-list [data-history-action="load-more"]').is_visible()
+
+                page.locator('#cf-history-list [data-history-action="load-more"]').click()
+                page.wait_for_function(
+                    "document.querySelectorAll('#cf-history-list [data-conversation-id]').length === 53"
+                )
+                assert page.locator("#cf-history-list [data-conversation-id='conv-pagination-000']").is_visible()
+                assert page.locator("#cf-history-list [data-conversation-id='conv-pagination-052']").is_visible()
+                assert page.locator('#cf-history-list [data-history-action="load-more"]').count() == 0
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
 def test_history_drawer_does_not_resave_or_replace_active_progress_form(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:

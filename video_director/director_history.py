@@ -1,6 +1,6 @@
 """Durable creation drafts and user-visible Director conversations."""
 from __future__ import annotations
-import json, sqlite3, threading, time, uuid
+import json, math, sqlite3, threading, time, uuid
 from pathlib import Path
 from typing import Any
 from video_director import config
@@ -38,6 +38,10 @@ def _ensure(conn: sqlite3.Connection) -> None:
     );
     CREATE INDEX IF NOT EXISTS idx_director_conversations_project
       ON director_conversations(project_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_director_conversations_history
+      ON director_conversations(updated_at DESC, conversation_id DESC);
+    CREATE INDEX IF NOT EXISTS idx_director_conversations_project_history
+      ON director_conversations(project_id, updated_at DESC, conversation_id DESC);
     CREATE TABLE IF NOT EXISTS director_messages (
       message_id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, role TEXT NOT NULL,
       content TEXT NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}', created_at REAL NOT NULL,
@@ -129,14 +133,44 @@ def append_message(conversation_id: str, role: str, content: str, metadata: dict
         conn.execute("UPDATE director_conversations SET updated_at=? WHERE conversation_id=?",(now,conversation_id))
     return True
 
-def list_conversations(*, project_id: str = "", limit: int = 50) -> list[dict]:
-    limit=max(1,min(int(limit or 50),100))
+def list_conversations(
+    *,
+    project_id: str = "",
+    limit: int = 50,
+    before_updated_at: float | None = None,
+    before_conversation_id: str = "",
+) -> list[dict]:
+    limit=max(1,min(int(limit or 50),101))
+    cursor_id=str(before_conversation_id or "").strip()
+    if (before_updated_at is None) != (not cursor_id):
+        raise ValueError("历史分页游标必须同时包含更新时间和对话 ID")
+    before=None
+    if before_updated_at is not None:
+        try:
+            before=float(before_updated_at)
+        except (TypeError,ValueError):
+            raise ValueError("历史分页更新时间无效") from None
+        if not math.isfinite(before) or len(cursor_id)>128:
+            raise ValueError("历史分页游标无效")
+
+    clauses=[]
+    params=[]
+    if project_id:
+        clauses.append("project_id=?")
+        params.append(str(project_id)[:128])
+    if before is not None:
+        clauses.append("(updated_at < ? OR (updated_at = ? AND conversation_id < ?))")
+        params.extend([before,before,cursor_id])
+    where=(" WHERE "+" AND ".join(clauses)) if clauses else ""
+    params.append(limit)
     with _LOCK, _connect() as conn:
         _ensure(conn)
-        sql="""SELECT conversation_id,project_id,workflow_run_id,title,status,created_at,updated_at
-          FROM director_conversations"""
-        rows=conn.execute(sql + (" WHERE project_id=? ORDER BY updated_at DESC LIMIT ?" if project_id else
-          " ORDER BY updated_at DESC LIMIT ?"), (project_id,limit) if project_id else (limit,)).fetchall()
+        rows=conn.execute(
+            """SELECT conversation_id,project_id,workflow_run_id,title,status,created_at,updated_at
+              FROM director_conversations"""+where+
+            " ORDER BY updated_at DESC, conversation_id DESC LIMIT ?",
+            tuple(params),
+        ).fetchall()
     return [dict(row) for row in rows]
 
 def get_conversation(conversation_id: str) -> dict | None:

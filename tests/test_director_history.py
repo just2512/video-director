@@ -114,6 +114,43 @@ def test_conversation_messages_keep_insert_order_when_timestamps_collide(tmp_pat
     ]
 
 
+
+
+def test_conversation_list_cursor_pages_are_stable_when_timestamps_collide(tmp_path, monkeypatch):
+    root=tmp_path/"composer";root.mkdir()
+    monkeypatch.setattr(config,"composer_storage_root",lambda:root)
+    monkeypatch.setattr(director_history.time,"time",lambda:1700000000.0)
+    for index in range(7):
+        director_history.create_conversation(
+            conversation_id=f"conv-page-{index:02d}",
+            project_id="page-project" if index<5 else "other-project",
+            title=f"分页记录 {index}",
+        )
+
+    first=director_history.list_conversations(project_id="page-project",limit=2)
+    second=director_history.list_conversations(
+        project_id="page-project",limit=2,
+        before_updated_at=first[-1]["updated_at"],
+        before_conversation_id=first[-1]["conversation_id"],
+    )
+    third=director_history.list_conversations(
+        project_id="page-project",limit=2,
+        before_updated_at=second[-1]["updated_at"],
+        before_conversation_id=second[-1]["conversation_id"],
+    )
+    ids=[row["conversation_id"] for row in first+second+third]
+    assert ids==["conv-page-04","conv-page-03","conv-page-02","conv-page-01","conv-page-00"]
+    assert len(ids)==len(set(ids))
+
+    try:
+        director_history.list_conversations(
+            project_id="page-project",limit=2,before_updated_at=1700000000.0
+        )
+    except ValueError as error:
+        assert "同时包含" in str(error)
+    else:
+        raise AssertionError("partial history cursor must be rejected")
+
 def test_conversation_list_can_filter_project(tmp_path, monkeypatch):
     root=tmp_path/"composer";root.mkdir()
     monkeypatch.setattr(config,"composer_storage_root",lambda:root)
