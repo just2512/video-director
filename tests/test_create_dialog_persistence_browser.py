@@ -1020,6 +1020,7 @@ def test_cancel_and_edit_saves_draft_after_server_confirms_stop(tmp_path, monkey
                 page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
                 page.evaluate("openCreate()")
                 page.locator("#cf-director-brief").fill("停止后必须重新保存的创作目标")
+                page.locator("#cf-input-context-details summary").click()
                 page.locator("#cf-script").fill("停止后必须重新保存的权威文案")
                 cleared = page.evaluate("window.cfClearSavedDraft()")
                 assert cleared["ok"] is True
