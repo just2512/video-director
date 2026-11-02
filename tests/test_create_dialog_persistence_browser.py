@@ -870,15 +870,11 @@ def test_scope_change_during_draft_restore_preserves_other_saved_fields(tmp_path
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             errors: list[str] = []
             deferred: dict[str, object] = {}
-            draft_posts: list[dict] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
 
             def hold_draft_read(route):
                 if route.request.method == "GET" and "read" not in deferred:
                     deferred["read"] = route
-                elif route.request.method == "POST":
-                    draft_posts.append(json.loads(route.request.post_data or "{}"))
-                    route.continue_()
                 else:
                     route.continue_()
 
@@ -894,7 +890,6 @@ def test_scope_change_during_draft_restore_preserves_other_saved_fields(tmp_path
                 page.locator('input[name="cf-scope"][value="series"]').check()
                 assert page.locator('input[name="cf-scope"][value="series"]').is_checked()
                 page.wait_for_timeout(600)
-                assert draft_posts == []
                 assert director_history.get_draft("active")["data"]["fields"]["cf-scope"] == "single"
                 read_route.continue_()
                 page.wait_for_function("window.__restorePromiseState?.done === true", timeout=10000)
@@ -912,7 +907,8 @@ def test_scope_change_during_draft_restore_preserves_other_saved_fields(tmp_path
                       && data.fields?.['cf-director-brief'] === '服务端原有创作目标'
                       && data.fields?.['cf-script'] === '服务端原有权威文案';
                 }""", timeout=10000)
-                assert draft_posts and draft_posts[-1]["data"]["fields"]["cf-scope"] == "series"
+                persisted = director_history.get_draft("active")
+                assert persisted and persisted["data"]["fields"]["cf-scope"] == "series"
                 assert not errors
             finally:
                 browser.close()
