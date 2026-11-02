@@ -1227,7 +1227,7 @@ def test_direct_project_entry_confirms_before_replacing_saved_draft(tmp_path, mo
                     "cf-script": "必须保留的草稿文案",
                 },
                 "explicit_fields": [],
-                "context": {"asset_refs": []},
+                "context": {"asset_refs": [], "project_id": "project-from-project-menu"},
             },
         )
         with sync_playwright() as playwright:
@@ -1260,6 +1260,76 @@ def test_direct_project_entry_confirms_before_replacing_saved_draft(tmp_path, mo
                 assert brief_requests == []
                 assert page.evaluate("window.__projectEntryConfirmMessages.length") == 1
                 assert "替换当前未提交草稿" in page.evaluate("window.__projectEntryConfirmMessages[0]")
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+
+
+def test_cleared_submitted_draft_does_not_prompt_from_stale_project_context(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            confirm_messages: list[str] = []
+            brief_requests: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/director/brief", lambda route: (
+                brief_requests.append(route.request.url) or route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "ok": True,
+                        "brief": "已打开目标项目",
+                        "bundle": {
+                            "script": {"text": "目标项目的权威文案", "source": "user"},
+                            "assets": {"asset_refs": []},
+                            "references": [],
+                            "articles": [],
+                            "software_project": {},
+                        },
+                        "spec_settings": {},
+                    }),
+                )
+            ))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("openCreate()")
+                page.locator("#cf-director-brief").fill("提交后已清理的旧草稿")
+                page.evaluate("""() => {
+                    window.CF_DRAFT_CONTEXT.projectId = 'completed-project';
+                    window.CF.explicitFields = new Set(['voice_mode']);
+                }""")
+                cleared = page.evaluate("window.cfClearSavedDraft()")
+                assert cleared["ok"] is True
+                page.evaluate("""() => {
+                    window.confirm = message => {
+                      window.__staleContextConfirmMessages = (window.__staleContextConfirmMessages || []);
+                      window.__staleContextConfirmMessages.push(String(message));
+                      return true;
+                    };
+                }""")
+
+                page.evaluate("() => window.openCreate('next-project-after-completion')")
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-director-brief')?.value === '已打开目标项目'
+                    && document.getElementById('cf-script')?.value === '目标项目的权威文案'
+                """, timeout=10000)
+                assert page.evaluate("window.__staleContextConfirmMessages || []") == []
+                assert len(brief_requests) == 1
+                active_draft = page.evaluate("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    return (await response.json())?.draft || null;
+                }""")
+                assert active_draft is not None
+                assert active_draft["data"]["context"]["project_id"] == "next-project-after-completion"
                 assert not errors
             finally:
                 browser.close()

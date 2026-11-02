@@ -1564,6 +1564,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(!document.getElementById('cf-form'))return {ok:false,error:'create form is not mounted'};
     const data=snapshot();
     const localSaved=writeLocalDraft(data);
+    if(localSaved)restoredDraftAvailable=true;
     saving=saving.catch(()=>{}).then(()=>apiPost('/api/director/drafts/active',{data}));
     try{
       const r=await saving,st=document.getElementById('cf-draft-status');
@@ -1870,11 +1871,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(window.CF_DEFAULTS_READY)await window.CF_DEFAULTS_READY;
     await restoreDraft();
     const current=snapshot();
-    const currentProjectId=String(current.context?.project_id||'');
-    const sameProject=!!currentProjectId&&currentProjectId===target;
     const hasCurrentDraft=cfHistoryHasCurrentDraft(current);
-    const hasReplacingDraft=hasCurrentDraft&&(!sameProject||dirtyFields.size>0);
-    if(hasReplacingDraft&&!window.confirm('打开关联项目会替换当前未提交草稿。取消可保留当前内容；继续将载入目标项目的创作要求。确认继续？'))
+    if(hasCurrentDraft&&!window.confirm('打开关联项目会替换当前未提交草稿。取消可保留当前内容；继续将载入目标项目的创作要求。确认继续？'))
       return false;
     document.getElementById('cf-history-drawer')?.remove();
     return cfPrefillFromProject(target);
@@ -1928,7 +1926,11 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     try{
       try{await saving;}catch(_){}
       const result=await apiPost('/api/director/drafts/active/clear',{});
-      if(result&&result.ok){clearLocalDraft();restoredDraftAvailable=false;}
+      if(result&&result.ok){
+        clearLocalDraft();
+        restoredDraftAvailable=false;
+        dirtyFields.clear();
+      }
       return result;
     }finally{
       draftClearPending=false;
@@ -2157,9 +2159,12 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     );
     return !!(
       dirtyFields.size>0
-      ||(Array.isArray(currentSnapshot?.explicit_fields)&&currentSnapshot.explicit_fields.length)
-      ||context.project_id
-      ||(restoredDraftAvailable&&(hasNonDefaultField||hasContext))
+      ||(restoredDraftAvailable&&(
+        (Array.isArray(currentSnapshot?.explicit_fields)&&currentSnapshot.explicit_fields.length)
+        ||context.project_id
+        ||hasNonDefaultField
+        ||hasContext
+      ))
     );
   }
 
