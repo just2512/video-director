@@ -891,6 +891,10 @@ def test_history_drawer_does_not_resave_or_replace_active_progress_form(tmp_path
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             errors: list[str] = []
             brief_requests: list[str] = []
+            deferred_clear: dict[str, object] = {}
+            def hold_draft_clear(route):
+                deferred_clear["route"] = route
+            page.route("**/api/director/drafts/active/clear", hold_draft_clear)
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.route("**/api/workflows/run-history-guard", lambda route: route.fulfill(
                 status=200,
@@ -914,12 +918,17 @@ def test_history_drawer_does_not_resave_or_replace_active_progress_form(tmp_path
                     "document.querySelector('#cf-history-list [data-history-action=\"restore\"]') !== null"
                 )
 
-                page.evaluate("cfEnterProgressMode('run-history-guard')")
-                page.evaluate("window.__clearDraftPromise = window.cfClearSavedDraft()")
+                # Clear the active draft before entering progress mode, matching
+                # production ordering. Hold the HTTP clear request so the pending
+                # window is deterministic and can be tested independently.
+                page.evaluate("() => { window.__clearDraftPromise = window.cfClearSavedDraft(); return true; }")
+                clear_route = _wait_for_deferred_route(page, deferred_clear, "route")
                 during_clear = page.evaluate("window.cfPersistCreateDraftNow()")
                 assert during_clear["skipped"] is True
-                cleared = page.evaluate("window.__clearDraftPromise")
+                clear_route.continue_()
+                cleared = page.evaluate("() => window.__clearDraftPromise")
                 assert cleared["ok"] is True
+                page.evaluate("cfEnterProgressMode('run-history-guard')")
                 page.locator("#cf-history-refresh").click()
                 page.wait_for_function(
                     "document.querySelector('#cf-history-list button[data-conversation-id=\"conv-during-active-progress\"]') !== null"
