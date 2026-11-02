@@ -716,8 +716,10 @@ jobs:
           "$PY311_BIN/python3.11" - <<'PY'
           import base64
           import hashlib
+          import http.client
           import json
           import os
+          import socket
           import sys
           import urllib.error
           import urllib.request
@@ -744,7 +746,9 @@ jobs:
               url = route if route.startswith("https://") else api + route
               data = None if payload is None else json.dumps(payload).encode("utf-8")
               retryable_statuses = {408, 425, 429, 500, 502, 503, 504}
-              max_attempts = 4
+              # Git Database POSTs are content-addressed; replaying identical payloads is safe.
+              # RemoteDisconnected is an http.client.HTTPException, not URLError/OSError.
+              max_attempts = 7
               for attempt in range(1, max_attempts + 1):
                   req = urllib.request.Request(url, data=data, headers=headers, method=method)
                   try:
@@ -764,11 +768,11 @@ jobs:
                           time.sleep(delay)
                           continue
                       raise RuntimeError(f"GitHub API {method} {route}: HTTP {exc.code}: {details}") from exc
-                  except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+                  except (urllib.error.URLError, http.client.HTTPException, socket.timeout, TimeoutError, ConnectionError, OSError) as exc:
                       if attempt >= max_attempts:
-                          raise RuntimeError(f"GitHub API {method} {route} failed after {max_attempts} attempts: {exc}") from exc
-                      delay = min(8, 2 ** (attempt - 1))
-                      print(f"::warning::Transient GitHub API transport error for {method} {route}: {exc}; retry {attempt + 1}/{max_attempts} in {delay}s.")
+                          raise RuntimeError(f"GitHub API {method} {route} failed after {max_attempts} attempts: {type(exc).__name__}") from exc
+                      delay = min(20, 2 ** (attempt - 1))
+                      print(f"::warning::Transient GitHub API transport error for {method} {route}: {type(exc).__name__}; retry {attempt + 1}/{max_attempts} in {delay}s.")
                       time.sleep(delay)
               raise RuntimeError(f"GitHub API {method} {route} exhausted retries.")
 
