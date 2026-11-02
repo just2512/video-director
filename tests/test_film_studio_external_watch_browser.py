@@ -684,6 +684,12 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
                     state?.timelineGesturePreview === null &&
                     state?.timelineSnapGuide === null;
                 }""", timeout=10000)
+                # Pointer-owned gesture state is cleared before the revisioned edit
+                # finishes. Do not read the file until the commit boundary is idle.
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getSnapshot()?.busy === false",
+                    timeout=10000,
+                )
                 slide_after = fd.read_project_film(project_id)
                 slide_clips_after = {
                     item["id"]: item
