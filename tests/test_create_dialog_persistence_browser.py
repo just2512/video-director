@@ -1172,10 +1172,10 @@ def test_pending_history_restore_is_cancelled_when_user_selects_another_conversa
             initial_message="保留当前查看",
             snapshot={"form": {"fields": {"cf-director-brief": "新历史目标", "cf-script": "新历史文案"}}},
         )
-        deferred: dict[str, object] = {}
+        deferred: dict[str, object] = {"armed":False}
 
         def hold_first_active_draft_read(route):
-            if route.request.method == "GET" and "read" not in deferred:
+            if route.request.method == "GET" and deferred["armed"] and "read" not in deferred:
                 deferred["read"] = route
             else:
                 route.continue_()
@@ -1200,6 +1200,7 @@ def test_pending_history_restore_is_cancelled_when_user_selects_another_conversa
                       return true;
                     };
                 }""")
+                deferred["armed"] = True
                 page.locator('#cf-history-list button[data-history-action="restore"]').click()
                 read_route = _wait_for_deferred_route(page, deferred, "read")
                 page.locator('#cf-history-list button[data-history-action="list"]').click()

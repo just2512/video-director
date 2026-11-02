@@ -1520,7 +1520,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   const baseOpen=window.openCreate, baseClose=window.closeCreate;
   if(typeof baseOpen!=='function'||typeof baseClose!=='function')return;
   let timer=null, saving=Promise.resolve(), restored=false, restorePromise=null, restoredDraftAvailable=false;
-  let draftClearPending=false,draftRestorePending=false;
+  let draftClearPending=false,draftRestorePending=false,draftRestoreNeedsSync=false;
   let historyCursor=null, historyHasMore=false, historyLoadingMore=false, historyRequestVersion=0;
   // Capture the live defaults only after asynchronous catalog/default hydration.
   // Comparing against raw HTML defaultSelected misses dynamically populated selects.
@@ -1750,7 +1750,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
           writeLocalDraft(snapshot());
           const st=document.getElementById('cf-draft-status');
           if(st)st.textContent=useLocal?'已恢复本机草稿，正在同步到项目服务':'已恢复上次保存的创作草稿';
-          if(useLocal)scheduleSave();
+          if(useLocal)draftRestoreNeedsSync=true;
         }else if(remoteError){
           const st=document.getElementById('cf-draft-status');
           if(st)st.textContent='服务端读取失败；没有可恢复的本机草稿：'+(remoteError.message||remoteError);
@@ -1760,7 +1760,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         if(st)st.textContent='草稿读取失败：'+(e.message||e);
       }finally{
         draftRestorePending=false;
-        if(dirtyFields.size)scheduleSave();
+        if(dirtyFields.size||draftRestoreNeedsSync){
+          draftRestoreNeedsSync=false;
+          scheduleSave();
+        }
       }
     })();
     return restorePromise;
