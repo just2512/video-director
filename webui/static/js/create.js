@@ -1604,7 +1604,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   function applySnapshot(data,preserveDirty=false){
     if(!data||typeof data!=='object')return;
     for(const [id,value] of Object.entries(data.fields||{})){
-      if(preserveDirty&&(dirtyFields.has(id)||dirtyFields.has('cf-scope')))continue;
+      if(preserveDirty&&dirtyFields.has(id))continue;
       if(id==='cf-scope'){const radio=document.querySelector('input[name="cf-scope"][value="'+CSS.escape(String(value))+'"]');if(radio)radio.checked=true;continue;}
       const el=document.getElementById(id);if(!el||el.type==='file')continue;
       if(el.type==='checkbox')el.checked=!!value;else el.value=value==null?'':String(value);

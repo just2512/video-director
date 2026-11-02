@@ -840,6 +840,62 @@ def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monk
 
 
 
+
+
+def test_scope_change_during_draft_restore_preserves_other_saved_fields(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.save_draft(
+            "active",
+            {
+                "version": 1,
+                "fields": {
+                    "cf-director-brief": "服务端原有创作目标",
+                    "cf-script": "服务端原有权威文案",
+                    "cf-platform": "xhs",
+                    "cf-scope": "single",
+                },
+                "explicit_fields": [],
+                "context": {"asset_refs": []},
+            },
+        )
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            deferred: dict[str, object] = {}
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def hold_draft_read(route):
+                if route.request.method == "GET":
+                    deferred["read"] = route
+                else:
+                    route.continue_()
+
+            page.route("**/api/director/drafts/active", hold_draft_read)
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("() => { window.__restorePromise = openCreate(); return true; }")
+                read_route = _wait_for_deferred_route(page, deferred, "read")
+                page.locator('input[name="cf-scope"][value="series"]').check()
+                assert page.locator('input[name="cf-scope"][value="series"]').is_checked()
+                read_route.continue_()
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-director-brief')?.value === '服务端原有创作目标'
+                    && document.getElementById('cf-script')?.value === '服务端原有权威文案'
+                    && document.getElementById('cf-platform')?.value === 'xhs'
+                    && document.querySelector('input[name="cf-scope"]:checked')?.value === 'series'
+                    && document.getElementById('cf-series-options')?.style.display !== 'none'
+                """, timeout=10000)
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_history_detail_ignores_late_response_from_previous_selection(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:
