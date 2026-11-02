@@ -1515,6 +1515,9 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   const baseOpen=window.openCreate, baseClose=window.closeCreate;
   if(typeof baseOpen!=='function'||typeof baseClose!=='function')return;
   let timer=null, saving=Promise.resolve(), restored=false, restorePromise=null, restoredDraftAvailable=false;
+  // Capture the live defaults only after asynchronous catalog/default hydration.
+  // Comparing against raw HTML defaultSelected misses dynamically populated selects.
+  let defaultFieldsSnapshot=null;
   const dirtyFields=new Set();
   const LOCAL_DRAFT_KEY='video-director:create-draft:v1';
   function writeLocalDraft(data){
@@ -1626,6 +1629,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     restorePromise=(async()=>{
       try{
         if(window.CF_DEFAULTS_READY)await window.CF_DEFAULTS_READY;
+        // This is the clean baseline for the current form generation. Capture it
+        // before applying a persisted draft, so dynamic audio/voice options and
+        // the default radio group are compared against their actual hydrated values.
+        if(!defaultFieldsSnapshot)defaultFieldsSnapshot=collectFields();
         const local=readLocalDraft();
         let remote=null,remoteError=null;
         try{
@@ -1838,7 +1845,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       _cfProjectPrefillRequest++;
       return restoreDraft();
     }
-    restored=false;restorePromise=null;restoredDraftAvailable=false;dirtyFields.clear();
+    restored=false;restorePromise=null;restoredDraftAvailable=false;defaultFieldsSnapshot=null;dirtyFields.clear();
     baseOpen();
     arrangeForm();
     installHandlers();
@@ -1884,7 +1891,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     document.getElementById('cf-mask')?.remove();
     for(const id of ['sg-mask','tg-mask'])document.getElementById(id)?.remove();
     try{await clearSavedDraft();}catch(_){}
-    if(window.CF)window.CF.state='idle';restored=false;restorePromise=null;restoredDraftAvailable=false;dirtyFields.clear();
+    if(window.CF)window.CF.state='idle';restored=false;restorePromise=null;restoredDraftAvailable=false;defaultFieldsSnapshot=null;dirtyFields.clear();
   };
   function cfHistoryRenderList(){
     const list=document.getElementById('cf-history-list');if(!list)return;
@@ -2011,26 +2018,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   };
   function cfHistoryHasCurrentDraft(currentSnapshot){
     const fields=currentSnapshot?.fields||{},context=currentSnapshot?.context||{};
-    const defaults={};
-    const form=document.getElementById('cf-form');
-    form?.querySelectorAll('input[id],input[type="radio"][name],textarea[id],select[id]').forEach(control=>{
-      if(control.type==='file')return;
-      if(control.type==='radio'){
-        if(control.defaultChecked)defaults[control.name||control.id]=control.value;
-        return;
-      }
-      if(control.type==='checkbox'){
-        defaults[control.id]=!!control.defaultChecked;
-        return;
-      }
-      if(control.tagName==='SELECT'){
-        const selected=Array.from(control.options).find(option=>option.defaultSelected)
-          ||control.options[0];
-        defaults[control.id]=selected?selected.value:'';
-        return;
-      }
-      defaults[control.id]=control.defaultValue??'';
-    });
+    const defaults=defaultFieldsSnapshot||{};
     const hasNonDefaultField=Object.entries(fields).some(([id,value])=>{
       if(Object.prototype.hasOwnProperty.call(defaults,id)){
         const baseline=defaults[id];
