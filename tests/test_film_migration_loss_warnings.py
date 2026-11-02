@@ -135,6 +135,46 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
         persisted_snapshot.encode("utf-8")
     ).hexdigest()
 
+    # Exercise the first authoritative lifecycle transition: the migrated
+    # FilmDocument becomes the project context, accepts a revision-pinned edit,
+    # and remains authoritative when reopened. The source archive is immutable.
+    from video_director.project_context import inspect_project_context
+
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"] is True
+    assert initial["rev"] == initialized["rev"]
+    context = inspect_project_context(project_id, {"type": "clip", "id": "main-scene-opening-1"})
+    assert context["authority"] == "film.html"
+    assert context["revision"] == initial["rev"]
+    assert context["selection"]["ids"] == ["main-scene-opening-1"]
+
+    edited = fd.edit_project_film(project_id, initial["rev"], [{
+        "op": "set", "clip": "main-scene-opening-1", "field": "at", "value": 0.25,
+    }], require_base=True, source="migration-lifecycle-test")
+    assert edited["base"] == initial["rev"]
+    assert edited["rev"] != initial["rev"]
+    reopened = fd.read_project_film(project_id)
+    assert reopened["rev"] == edited["rev"]
+    assert reopened["doc"]["tracks"][0]["clips"][0]["attrs"]["at"] == "0.25"
+    reopened_context = inspect_project_context(
+        project_id, {"type": "clip", "id": "main-scene-opening-1"}
+    )
+    assert reopened_context["authority"] == "film.html"
+    assert reopened_context["revision"] == edited["rev"]
+    assert reopened_context["selection"]["ids"] == ["main-scene-opening-1"]
+
+    # A migrated project must not let the legacy CompositionIR writer mutate
+    # the stale pre-migration document after FilmDocument takes authority.
+    with __import__("pytest").raises(fd.FilmError) as legacy_write:
+        fd.assert_legacy_composition_access(project_id, "迁移后旧 CompositionIR 写入")
+    assert legacy_write.value.code == "FILM_AUTHORITY_ACTIVE"
+
+    # User edits do not rewrite or invalidate the immutable source snapshot.
+    assert archive_file.read_text(encoding="utf-8") == persisted_snapshot
+    assert persisted_manifest["source_snapshot_sha256"] == __import__("hashlib").sha256(
+        archive_file.read_bytes()
+    ).hexdigest()
+
 def test_unknown_nested_composition_fields_are_archived_but_never_rehydrated(tmp_path, monkeypatch):
     storage = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
