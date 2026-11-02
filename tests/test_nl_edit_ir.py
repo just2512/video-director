@@ -110,6 +110,7 @@ def test_llm_parser_keeps_numeric_and_text_edits_in_the_same_scene():
     )
     assert len(prompts) == 1
     assert '"scale"' in prompts[0] and '"duration_delta"' in prompts[0]
+    assert '{"remove"' in prompts[0] and '{{' not in prompts[0], prompts[0]
     assert edits == {
         "S02": {
             "text": "产品近景",
