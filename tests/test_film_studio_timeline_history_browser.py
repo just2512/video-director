@@ -1585,6 +1585,31 @@ def test_react_zoom_stays_anchored_and_drag_autoscroll_keeps_preview_synced(
                     "before": before_zoom, "after": after_zoom
                 }
 
+                # A non-discrete vertical wheel delta represents trackpad pan in
+                # the FilmDocument timeline; it scrolls horizontally without
+                # changing zoom, revision, or issuing a FilmOperation.
+                before_trackpad = page.evaluate("""() => ({
+                  scrollLeft:document.getElementById('fs-timeline-scroll').scrollLeft,
+                  pps:window.filmStudioStore.getSnapshot().pixelsPerSecond,
+                  revision:window.filmStudioStore.getSnapshot().revision
+                })""")
+                page.mouse.move(before_zoom["anchorX"], before_zoom["anchorY"])
+                page.mouse.wheel(0, 40)
+                page.wait_for_function(
+                    "before => document.getElementById('fs-timeline-scroll').scrollLeft > before.scrollLeft",
+                    arg=before_trackpad,
+                    timeout=5000,
+                )
+                after_trackpad = page.evaluate("""() => ({
+                  scrollLeft:document.getElementById('fs-timeline-scroll').scrollLeft,
+                  pps:window.filmStudioStore.getSnapshot().pixelsPerSecond,
+                  revision:window.filmStudioStore.getSnapshot().revision
+                })""")
+                assert after_trackpad["scrollLeft"] > before_trackpad["scrollLeft"], after_trackpad
+                assert after_trackpad["pps"] == before_trackpad["pps"], after_trackpad
+                assert after_trackpad["revision"] == before_trackpad["revision"], after_trackpad
+                assert edit_requests == [], edit_requests
+
                 # Start a real React clip drag and hold the pointer against the
                 # right edge. The scroll timer must replay the gesture using the
                 # owning pointer ID; otherwise onMove rejects it and the preview

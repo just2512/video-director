@@ -2183,14 +2183,26 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
     const scroll = document.getElementById("fs-timeline-scroll");
     if (!scroll) return;
     const onWheel = (event: WheelEvent) => {
-      if (!(event.ctrlKey || event.metaKey)) return;
-      event.preventDefault();
-      const direction = event.deltaY < 0 ? 1 : -1;
-      const timeline = window.filmStudioReactTimeline;
-      if (timeline && typeof timeline.zoom === "function") {
-        timeline.zoom(direction,event.clientX);
-      } else {
-        window.filmStudioZoom?.(direction,event.clientX);
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        const direction = event.deltaY < 0 ? 1 : -1;
+        const timeline = window.filmStudioReactTimeline;
+        if (timeline && typeof timeline.zoom === "function") {
+          timeline.zoom(direction,event.clientX);
+        } else {
+          window.filmStudioZoom?.(direction,event.clientX);
+        }
+        return;
+      }
+      // Match the documented trackpad convention: non-100px vertical deltas
+      // without modifiers represent two-finger pan, not a discrete mouse wheel.
+      // Native horizontal deltaX remains untouched for horizontal trackpad swipes.
+      const deltaX = Math.abs(event.deltaX || 0);
+      const deltaY = Number(event.deltaY || 0);
+      const trackpadPan = deltaX === 0 && deltaY !== 0 && deltaY % 100 !== 0;
+      if (trackpadPan) {
+        event.preventDefault();
+        scroll.scrollLeft += deltaY;
       }
     };
     scroll.addEventListener("wheel", onWheel, {passive:false});
