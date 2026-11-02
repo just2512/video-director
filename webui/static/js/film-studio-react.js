@@ -27562,14 +27562,23 @@
       const scroll = document.getElementById("fs-timeline-scroll");
       if (!scroll) return;
       const onWheel = (event) => {
-        if (!(event.ctrlKey || event.metaKey)) return;
-        event.preventDefault();
-        const direction = event.deltaY < 0 ? 1 : -1;
-        const timeline = window.filmStudioReactTimeline;
-        if (timeline && typeof timeline.zoom === "function") {
-          timeline.zoom(direction, event.clientX);
-        } else {
-          window.filmStudioZoom?.(direction, event.clientX);
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+          const direction = event.deltaY < 0 ? 1 : -1;
+          const timeline = window.filmStudioReactTimeline;
+          if (timeline && typeof timeline.zoom === "function") {
+            timeline.zoom(direction, event.clientX);
+          } else {
+            window.filmStudioZoom?.(direction, event.clientX);
+          }
+          return;
+        }
+        const deltaX = Math.abs(event.deltaX || 0);
+        const deltaY = Number(event.deltaY || 0);
+        const trackpadPan = deltaX === 0 && deltaY !== 0 && deltaY % 100 !== 0;
+        if (trackpadPan) {
+          event.preventDefault();
+          scroll.scrollLeft += deltaY;
         }
       };
       scroll.addEventListener("wheel", onWheel, { passive: false });
