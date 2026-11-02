@@ -205,7 +205,9 @@ async function cfPrefillFromProject(pid){
     cfResetProjectPrefillState(pid);
     const brief = await apiPost('/api/director/brief', {project_id: pid});
     if(requestId!==_cfProjectPrefillRequest)return {ok:false,stale:true};
-    const bundle = (brief && brief.ok && brief.bundle) || {};
+    if(!brief||brief.ok!==true)
+      throw new Error((brief&&brief.error)||'项目创作要求读取失败');
+    const bundle = brief.bundle || {};
     {
       const el=document.getElementById('cf-director-brief');
       if(el)el.value=(brief&&brief.ok&&brief.brief)||'';
@@ -1895,11 +1897,34 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const hasCurrentDraft=cfHistoryHasCurrentDraft(current);
     if(hasCurrentDraft&&!window.confirm('打开关联项目会替换当前未提交草稿。取消可保留当前内容；继续将载入目标项目的创作要求。确认继续？'))
       return false;
+
+    // Stop a pending debounce and let any already-issued save finish before the
+    // target project starts writing. Otherwise an old snapshot could land late.
+    if(timer){clearTimeout(timer);timer=null;}
+    try{await saving;}catch(_){}
     document.getElementById('cf-history-drawer')?.remove();
-    // The user has explicitly approved replacing the previous draft. Its dirty
-    // markers must not leak into the next project after a successful prefill.
+    // The user explicitly approved replacing the previous draft. Its dirty
+    // markers must not leak into the target project's clean baseline.
     dirtyFields.clear();
-    return cfPrefillFromProject(target);
+    const result=await cfPrefillFromProject(target);
+    if(result?.stale)return result;
+    if(!result||result.ok!==true){
+      // Project loading is transactional from the user's perspective: restore
+      // the previously visible/saved draft if the target cannot be opened.
+      cfResetProjectPrefillState(current.context?.project_id||'');
+      applySnapshot(current);
+      if(hasCurrentDraft||restoredDraftAvailable){
+        const restored=await saveNow();
+        if(!restored?.ok){
+          const status=document.getElementById('cf-status');
+          if(status)status.textContent='目标项目载入失败，原草稿已恢复到界面，但持久化同步未完成。'+(result?.error?' '+result.error:'');
+          return result;
+        }
+      }
+      const status=document.getElementById('cf-status');
+      if(status)status.textContent='目标项目载入失败，已恢复切换前的草稿。'+(result?.error?' '+result.error:'');
+    }
+    return result;
   }
   window.openCreate=function(projectId){
     if(projectId)return openProjectWithDraftGuard(projectId);

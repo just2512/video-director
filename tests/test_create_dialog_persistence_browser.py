@@ -1352,6 +1352,87 @@ def test_project_draft_with_changes_from_prefill_baseline_prompts_after_reload(t
 
 
 
+
+
+def test_failed_project_prefill_restores_the_previous_draft_and_persists_it(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.save_draft(
+            "active",
+            {
+                "version": 1,
+                "fields": {
+                    "cf-director-brief": "切换失败后必须恢复的旧目标",
+                    "cf-script": "切换失败后必须恢复的旧文案",
+                    "cf-platform": "xhs",
+                },
+                "explicit_fields": [],
+                "context": {
+                    "asset_refs": [{"asset_id": "old-asset", "type": "video", "file": "old.mp4"}],
+                    "project_id": "previous-project",
+                    "project_prefill_baseline": {
+                        "fields": {
+                            "cf-director-brief": "原项目目标",
+                            "cf-script": "原项目文案",
+                            "cf-platform": "xhs",
+                        },
+                        "asset_refs": [],
+                        "reference": None,
+                        "article": None,
+                        "repo": None,
+                        "narration_upload": "",
+                    },
+                },
+            },
+        )
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            brief_requests: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/director/brief", lambda route: (
+                brief_requests.append(route.request.url) or route.fulfill(
+                    status=503,
+                    content_type="application/json",
+                    body=json.dumps({"ok": False, "error": "项目服务暂时不可用"}),
+                )
+            ))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("""() => {
+                    window.__failedProjectConfirmMessages = [];
+                    window.confirm = message => {
+                      window.__failedProjectConfirmMessages.push(String(message));
+                      return true;
+                    };
+                }""")
+                result = page.evaluate("() => window.openCreate('unavailable-project')")
+                assert result["ok"] is False
+                assert "暂时不可用" in result["error"]
+                assert page.locator("#cf-director-brief").input_value() == "切换失败后必须恢复的旧目标"
+                assert page.locator("#cf-script").input_value() == "切换失败后必须恢复的旧文案"
+                assert page.locator("#cf-platform").input_value() == "xhs"
+                assert page.evaluate("window.CF_DRAFT_CONTEXT.projectId") == "previous-project"
+                active = page.evaluate("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    return (await response.json())?.draft?.data || {};
+                }""")
+                assert active["fields"]["cf-director-brief"] == "切换失败后必须恢复的旧目标"
+                assert active["fields"]["cf-script"] == "切换失败后必须恢复的旧文案"
+                assert active["context"]["project_id"] == "previous-project"
+                assert active["context"]["asset_refs"][0]["asset_id"] == "old-asset"
+                assert len(brief_requests) == 1
+                assert page.locator("#cf-status").inner_text().find("已恢复切换前的草稿") >= 0
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_confirmed_project_switch_clears_old_dirty_markers_before_next_project(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:
