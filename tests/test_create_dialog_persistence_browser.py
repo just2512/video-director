@@ -875,7 +875,10 @@ def test_history_drawer_does_not_resave_or_replace_active_progress_form(tmp_path
                 )
 
                 page.evaluate("cfEnterProgressMode('run-history-guard')")
-                cleared = page.evaluate("window.cfClearSavedDraft()")
+                page.evaluate("window.__clearDraftPromise = window.cfClearSavedDraft()")
+                during_clear = page.evaluate("window.cfPersistCreateDraftNow()")
+                assert during_clear["skipped"] is True
+                cleared = page.evaluate("window.__clearDraftPromise")
                 assert cleared["ok"] is True
                 page.locator("#cf-history-refresh").click()
                 page.wait_for_function(
@@ -912,6 +915,25 @@ def test_history_drawer_does_not_resave_or_replace_active_progress_form(tmp_path
                     return (await response.json())?.draft || null;
                 }""")
                 assert active_draft_after is None
+
+                resume_result = page.evaluate("window.cfHistoryResumeDraft()")
+                assert resume_result is False
+                assert page.locator("#cf-history-drawer").is_visible()
+                assert page.locator("#cf-history-notice").inner_text().find("暂时不能继续编辑") >= 0
+
+                direct_save = page.evaluate("window.cfPersistCreateDraftNow()")
+                assert direct_save["skipped"] is True
+                page.locator("#cf-director-brief").evaluate("""node => {
+                    node.value = '进度模式不得重新写入的内容';
+                    node.dispatchEvent(new Event('input', {bubbles:true}));
+                }""")
+                page.wait_for_timeout(650)
+                assert page.evaluate("localStorage.getItem('video-director:create-draft:v1')") is None
+                active_draft_final = page.evaluate("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    return (await response.json())?.draft || null;
+                }""")
+                assert active_draft_final is None
                 assert not errors
             finally:
                 browser.close()

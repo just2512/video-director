@@ -1515,6 +1515,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   const baseOpen=window.openCreate, baseClose=window.closeCreate;
   if(typeof baseOpen!=='function'||typeof baseClose!=='function')return;
   let timer=null, saving=Promise.resolve(), restored=false, restorePromise=null, restoredDraftAvailable=false;
+  let draftClearPending=false;
   // Capture the live defaults only after asynchronous catalog/default hydration.
   // Comparing against raw HTML defaultSelected misses dynamically populated selects.
   let defaultFieldsSnapshot=null;
@@ -1552,7 +1553,13 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       project_id:c.projectId||''
     },ui:{disclosures:Object.fromEntries(Array.from(document.querySelectorAll('#cf-form details[id]')).map(node=>[node.id,!!node.open]))}};
   }
+  function draftPersistenceBlocked(){
+    if(draftClearPending)return true;
+    const form=document.getElementById('cf-form');
+    return !!(form&&form.style.display==='none'&&document.getElementById('cf-progress'));
+  }
   async function saveNow(){
+    if(draftPersistenceBlocked())return {ok:false,skipped:true,error:'draft persistence is suspended while a creation run is active'};
     if(!document.getElementById('cf-form'))return {ok:false,error:'create form is not mounted'};
     const data=snapshot();
     const localSaved=writeLocalDraft(data);
@@ -1573,6 +1580,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   }
   window.cfPersistCreateDraftNow=saveNow;
   function scheduleSave(){
+    if(draftPersistenceBlocked()){
+      if(timer){clearTimeout(timer);timer=null;}
+      return false;
+    }
     const localSaved=writeLocalDraft(snapshot());
     if(timer)clearTimeout(timer);
     const st=document.getElementById('cf-draft-status');
@@ -1879,11 +1890,16 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     return true;
   };
   async function clearSavedDraft(){
+    draftClearPending=true;
     if(timer){clearTimeout(timer);timer=null;}
-    try{await saving;}catch(_){}
-    const result=await apiPost('/api/director/drafts/active/clear',{});
-    if(result&&result.ok){clearLocalDraft();restoredDraftAvailable=false;}
-    return result;
+    try{
+      try{await saving;}catch(_){}
+      const result=await apiPost('/api/director/drafts/active/clear',{});
+      if(result&&result.ok){clearLocalDraft();restoredDraftAvailable=false;}
+      return result;
+    }finally{
+      draftClearPending=false;
+    }
   }
   window.cfClearSavedDraft=clearSavedDraft;
   window.cfFinalizeCreateDialog=async function(){
@@ -1999,6 +2015,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     await window.cfHistoryRefresh();
   };
   window.cfHistoryResumeDraft=function(){
+    if(cfHistoryInProgressMode()){
+      cfHistorySetNotice('当前创作任务仍在执行，暂时不能继续编辑隐藏的草稿。请等待任务结束，或先停止并返回修改。');
+      return false;
+    }
     const drawer=document.getElementById('cf-history-drawer');
     const mask=document.getElementById('cf-mask');
     drawer?.remove();
