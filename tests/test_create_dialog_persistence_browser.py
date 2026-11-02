@@ -1213,6 +1213,62 @@ def test_history_restore_preserves_explicitly_collapsed_advanced_settings(tmp_pa
         server.server_close()
         thread.join(timeout=5)
 
+
+
+def test_direct_project_entry_confirms_before_replacing_saved_draft(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.save_draft(
+            "active",
+            {
+                "version": 1,
+                "fields": {
+                    "cf-director-brief": "必须保留的草稿目标",
+                    "cf-script": "必须保留的草稿文案",
+                },
+                "explicit_fields": [],
+                "context": {"asset_refs": []},
+            },
+        )
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            brief_requests: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/director/brief", lambda route: (
+                brief_requests.append(route.request.url) or route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({"ok": True, "brief": "错误覆盖内容", "bundle": {}}),
+                )
+            ))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("""() => {
+                    window.__projectEntryConfirmMessages = [];
+                    window.confirm = message => {
+                      window.__projectEntryConfirmMessages.push(String(message));
+                      return false;
+                    };
+                }""")
+                result = page.evaluate("() => window.openCreate('project-from-project-menu')")
+                assert result is False
+                assert page.locator("#cf-mask").is_visible()
+                assert page.locator("#cf-director-brief").input_value() == "必须保留的草稿目标"
+                assert page.locator("#cf-script").input_value() == "必须保留的草稿文案"
+                assert brief_requests == []
+                assert page.evaluate("window.__projectEntryConfirmMessages.length") == 1
+                assert "替换当前未提交草稿" in page.evaluate("window.__projectEntryConfirmMessages[0]")
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_open_associated_project_closes_history_drawer_before_create_panel(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:

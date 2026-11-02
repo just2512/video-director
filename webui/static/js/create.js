@@ -1846,14 +1846,47 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         window.CF_DRAFT_CONTEXT.narrationPromise=uploadNarration(e.target.files[0]).catch(error=>{const st=document.getElementById('cf-status');if(st)st.textContent='配音暂存失败：'+(error.message||error);return '';});
     },true);
   }
-  window.openCreate=function(projectId){
+  async function openProjectWithDraftGuard(projectId){
+    const target=String(projectId||'').trim();
+    if(!target)return false;
+    if(cfHistoryInProgressMode()){
+      const message='当前创作任务仍在执行，不能直接切换项目。请等待任务结束，或先停止并返回编辑。';
+      cfHistorySetNotice(message);
+      const status=document.getElementById('cf-status');
+      if(status)status.textContent=message;
+      return false;
+    }
     const existing=document.getElementById('cf-mask');
     if(existing){
       existing.style.display='flex';existing.setAttribute('aria-hidden','false');
       if(window.CF&&document.getElementById('cf-form')?.style.display!=='none')window.CF.state='editing';
-      if(!projectId&&window._cfArticle&&typeof cfRestoreArticleSourceUI==='function')cfRestoreArticleSourceUI();
       installHandlers();
-      if(projectId)return cfPrefillFromProject(projectId);
+    }else{
+      restored=false;restorePromise=null;restoredDraftAvailable=false;defaultFieldsSnapshot=null;dirtyFields.clear();
+      baseOpen();
+      arrangeForm();
+      installHandlers();
+    }
+    if(window.CF_DEFAULTS_READY)await window.CF_DEFAULTS_READY;
+    await restoreDraft();
+    const current=snapshot();
+    const currentProjectId=String(current.context?.project_id||'');
+    const sameProject=!!currentProjectId&&currentProjectId===target;
+    const hasCurrentDraft=cfHistoryHasCurrentDraft(current);
+    const hasReplacingDraft=hasCurrentDraft&&(!sameProject||dirtyFields.size>0);
+    if(hasReplacingDraft&&!window.confirm('打开关联项目会替换当前未提交草稿。取消可保留当前内容；继续将载入目标项目的创作要求。确认继续？'))
+      return false;
+    document.getElementById('cf-history-drawer')?.remove();
+    return cfPrefillFromProject(target);
+  }
+  window.openCreate=function(projectId){
+    if(projectId)return openProjectWithDraftGuard(projectId);
+    const existing=document.getElementById('cf-mask');
+    if(existing){
+      existing.style.display='flex';existing.setAttribute('aria-hidden','false');
+      if(window.CF&&document.getElementById('cf-form')?.style.display!=='none')window.CF.state='editing';
+      if(window._cfArticle&&typeof cfRestoreArticleSourceUI==='function')cfRestoreArticleSourceUI();
+      installHandlers();
       _cfProjectPrefillRequest++;
       return restoreDraft();
     }
@@ -1861,7 +1894,6 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     baseOpen();
     arrangeForm();
     installHandlers();
-    if(projectId)return cfPrefillFromProject(projectId);
     _cfProjectPrefillRequest++;
     return restoreDraft();
   };
@@ -2131,18 +2163,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     );
   }
 
-  window.cfHistoryOpenAssociatedProject=async function(projectId){
-    if(cfHistoryInProgressMode()){
-      cfHistorySetNotice('当前创作任务仍在执行，不能从历史记录切换项目。请等待任务结束，或先停止并返回编辑。');
-      return false;
-    }
-    await window.openCreate();
-    if(window.CF_DEFAULTS_READY)await window.CF_DEFAULTS_READY;
-    await restoreDraft();
-    const hasCurrentDraft=cfHistoryHasCurrentDraft(snapshot());
-    if(hasCurrentDraft&&!window.confirm('打开关联项目会替换当前新建草稿。取消可保留草稿；继续将载入该项目的创作要求。确认继续？'))
-      return false;
-    document.getElementById('cf-history-drawer')?.remove();
+  window.cfHistoryOpenAssociatedProject=function(projectId){
+    // All project-entry surfaces share the same active-draft replacement guard.
     return window.openCreate(projectId);
   };
 
