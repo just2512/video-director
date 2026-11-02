@@ -2139,7 +2139,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const brief=String(fields['cf-director-brief']||'').trim();
     const script=String(fields['cf-script']||'').trim();
     const refs=Array.isArray(context.asset_refs)?context.asset_refs:[];
-    const hasContext=!!(refs.length||context.reference||context.article||context.repo||context.narration_upload);
+    const projectId=String(context.project_id||'').trim();
+    const hasContext=!!(refs.length||context.reference||context.article||context.repo||context.narration_upload||projectId);
     const explicitFields=Array.isArray(data.explicit_fields)?data.explicit_fields:[];
     const settingLabels={
       platform:'平台',duration:'时长',style:'风格',resolution:'分辨率',voice:'音色',
@@ -2153,6 +2154,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const hasSettings=changedSettings.length>0;
     if(!draft||(!brief&&!script&&!hasContext&&!hasSettings)){host.innerHTML='';return;}
     const detail=refs.length?'已保存 '+refs.length+' 个素材'
+      :projectId?'关联项目：'+projectId
       :hasContext?'已保存补充资料'
       :hasSettings?'已调整：'+changedSettings.join('、'):'已保存补充资料';
     const preview=(brief||script||detail).slice(0,160);

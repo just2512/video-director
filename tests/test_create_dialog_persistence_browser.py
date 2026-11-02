@@ -2201,6 +2201,47 @@ def test_sfx_duplicate_labels_are_disambiguated_and_select_options_are_safe(tmp_
 
 
 
+
+
+def test_project_only_active_draft_is_visible_and_resumable_from_history(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.save_draft("active", {
+            "version": 1,
+            "fields": {},
+            "explicit_fields": [],
+            "context": {
+                "asset_refs": [], "reference": None, "article": None, "repo": None,
+                "narration_upload": "", "project_id": "project-with-no-brief",
+                "project_prefill_baseline": {"fields": {}, "asset_refs": []},
+            },
+        })
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.locator("#director-history-launch").click()
+                card = page.locator("#cf-history-draft .panel")
+                card.wait_for(state="visible")
+                assert "当前未提交草稿" in card.inner_text()
+                assert "关联项目：project-with-no-brief" in card.inner_text()
+                page.locator('#cf-history-draft [data-history-action="resume-draft"]').click()
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-mask')?.style.display === 'flex'
+                    && document.getElementById('cf-director-brief') !== null
+                """, timeout=10000)
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_active_draft_with_only_explicit_settings_is_resumable_from_history(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:
