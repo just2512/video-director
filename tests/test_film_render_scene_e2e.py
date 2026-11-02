@@ -926,7 +926,7 @@ def test_migrated_project_external_revision_reopen_look_and_mp4_qc_share_one_rev
     external_edit = fd.edit_project_film(
         project_id,
         initial["rev"],
-        [{"op": "set", "clip": clip_id, "field": "at", "value": "0.05"}],
+        [{"op": "set", "clip": clip_id, "field": "title", "value": "外部 Agent 已修改"}],
         require_base=True,
         source="external-agent-revision-e2e",
     )
