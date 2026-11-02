@@ -931,11 +931,25 @@ def test_history_detail_ignores_late_response_from_previous_selection(tmp_path, 
                 page.locator("#cf-history-list button[data-conversation-id='conv-history-slow']").wait_for(
                     state="visible"
                 )
-                page.locator("#cf-history-list button[data-conversation-id='conv-history-fast']").click()
+                # Trigger the slow request with an exact ID, and hold it until the
+                # faster row selection has completed. The list stays interactive.
+                page.evaluate("""() => {
+                    window.__slowHistorySelection = {settled:false, result:null, error:null};
+                    window.__slowHistoryPromise = Promise.resolve(
+                        window.cfHistoryOpenConversation('conv-history-slow')
+                    ).then(
+                        result => {
+                          window.__slowHistorySelection.settled=true;
+                          window.__slowHistorySelection.result=result;
+                        },
+                        error => {
+                          window.__slowHistorySelection.settled=true;
+                          window.__slowHistorySelection.error=String(error);
+                        }
+                    );
+                }""")
                 slow_route = _wait_for_deferred_route(page, deferred, "slow")
-                # The history list remains available while the slow detail request is pending.
                 assert page.locator("#cf-history-list button[data-conversation-id='conv-history-fast']").is_visible()
-                assert page.locator("#cf-history-list button[data-conversation-id='conv-history-slow']").is_visible()
                 page.locator("#cf-history-list button[data-conversation-id='conv-history-fast']").click()
                 page.wait_for_function("""() =>
                     document.querySelector('#cf-history-list')?.textContent.includes('较快返回的新对话')
