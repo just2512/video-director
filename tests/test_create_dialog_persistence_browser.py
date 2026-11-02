@@ -1350,6 +1350,81 @@ def test_project_draft_with_changes_from_prefill_baseline_prompts_after_reload(t
         thread.join(timeout=5)
 
 
+
+
+def test_confirmed_project_switch_clears_old_dirty_markers_before_next_project(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            requests: list[str] = []
+            confirms: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+
+            def project_brief(route):
+                project_id = json.loads(route.request.post_data or "{}").get("project_id")
+                requests.append(project_id)
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "ok": True,
+                        "brief": f"{project_id} 的目标",
+                        "bundle": {
+                            "script": {"text": f"{project_id} 的权威文案", "source": "user"},
+                            "assets": {"asset_refs": []},
+                            "references": [],
+                            "articles": [],
+                            "software_project": None,
+                        },
+                        "spec_settings": {},
+                    }),
+                )
+
+            page.route("**/api/director/brief", project_brief)
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("openCreate()")
+                page.locator("#cf-director-brief").fill("需要由项目 A 替换的旧草稿")
+                page.evaluate("""() => {
+                    window.confirm = message => {
+                      window.__projectSwitchConfirms = (window.__projectSwitchConfirms || []);
+                      window.__projectSwitchConfirms.push(String(message));
+                      return true;
+                    };
+                }""")
+                page.evaluate("() => window.openCreate('project-A')")
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-director-brief')?.value === 'project-A 的目标'
+                    && window.CF_DRAFT_CONTEXT?.projectId === 'project-A'
+                    && window.CF_DRAFT_CONTEXT?.projectPrefillBaseline?.fields?.['cf-director-brief'] === 'project-A 的目标'
+                """, timeout=10000)
+                assert page.evaluate("window.__projectSwitchConfirms.length") == 1
+
+                page.evaluate("""() => {
+                    window.confirm = message => {
+                      window.__projectSwitchConfirms.push(String(message));
+                      return false;
+                    };
+                }""")
+                page.evaluate("() => window.openCreate('project-B')")
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-director-brief')?.value === 'project-B 的目标'
+                    && window.CF_DRAFT_CONTEXT?.projectId === 'project-B'
+                """, timeout=10000)
+                assert page.evaluate("window.__projectSwitchConfirms.length") == 1
+                assert requests == ["project-A", "project-B"]
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_cleared_submitted_draft_does_not_prompt_from_stale_project_context(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:

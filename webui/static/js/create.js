@@ -1896,6 +1896,9 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(hasCurrentDraft&&!window.confirm('打开关联项目会替换当前未提交草稿。取消可保留当前内容；继续将载入目标项目的创作要求。确认继续？'))
       return false;
     document.getElementById('cf-history-drawer')?.remove();
+    // The user has explicitly approved replacing the previous draft. Its dirty
+    // markers must not leak into the next project after a successful prefill.
+    dirtyFields.clear();
     return cfPrefillFromProject(target);
   }
   window.openCreate=function(projectId){
