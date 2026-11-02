@@ -375,6 +375,13 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 saved_revision = fd.read_project_film(project_id)["rev"]
 
                 undo_selector = '#fs-react-toolbar [data-film-action="undo"]' if has_react_toolbar else '#fs-static-toolbar [data-film-action="undo"]'
+                // The success alert is emitted inside the transaction submitter,
+                // just before FilmStore clears its busy flag. Wait for the transaction
+                // boundary before issuing the next history command.
+                page.wait_for_function(
+                    "() => window.filmStudioStore?.getSnapshot?.().busy === false",
+                    timeout=10000,
+                )
                 page.locator(undo_selector).click()
                 page.wait_for_function(
                     "() => document.querySelector('#film-studio-alert')?.textContent.includes('已撤销')",
