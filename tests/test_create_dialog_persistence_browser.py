@@ -870,22 +870,34 @@ def test_scope_change_during_draft_restore_preserves_other_saved_fields(tmp_path
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             errors: list[str] = []
             deferred: dict[str, object] = {}
+            draft_posts: list[dict] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
 
             def hold_draft_read(route):
-                if route.request.method == "GET":
+                if route.request.method == "GET" and "read" not in deferred:
                     deferred["read"] = route
+                elif route.request.method == "POST":
+                    draft_posts.append(json.loads(route.request.post_data or "{}"))
+                    route.continue_()
                 else:
                     route.continue_()
 
             page.route("**/api/director/drafts/active", hold_draft_read)
             try:
                 page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
-                page.evaluate("() => { window.__restorePromise = openCreate(); return true; }")
+                page.evaluate("""() => {
+                    window.__restorePromiseState = {done:false};
+                    window.__restorePromise = openCreate().finally(() => { window.__restorePromiseState.done = true; });
+                    return true;
+                }""")
                 read_route = _wait_for_deferred_route(page, deferred, "read")
                 page.locator('input[name="cf-scope"][value="series"]').check()
                 assert page.locator('input[name="cf-scope"][value="series"]').is_checked()
+                page.wait_for_timeout(600)
+                assert draft_posts == []
+                assert director_history.get_draft("active")["data"]["fields"]["cf-scope"] == "single"
                 read_route.continue_()
+                page.wait_for_function("window.__restorePromiseState?.done === true", timeout=10000)
                 page.wait_for_function("""() =>
                     document.getElementById('cf-director-brief')?.value === '服务端原有创作目标'
                     && document.getElementById('cf-script')?.value === '服务端原有权威文案'
@@ -893,6 +905,14 @@ def test_scope_change_during_draft_restore_preserves_other_saved_fields(tmp_path
                     && document.querySelector('input[name="cf-scope"]:checked')?.value === 'series'
                     && document.getElementById('cf-series-options')?.style.display !== 'none'
                 """, timeout=10000)
+                page.wait_for_function("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    const data = (await response.json())?.draft?.data || {};
+                    return data.fields?.['cf-scope'] === 'series'
+                      && data.fields?.['cf-director-brief'] === '服务端原有创作目标'
+                      && data.fields?.['cf-script'] === '服务端原有权威文案';
+                }""", timeout=10000)
+                assert draft_posts and draft_posts[-1]["data"]["fields"]["cf-scope"] == "series"
                 assert not errors
             finally:
                 browser.close()
@@ -1002,6 +1022,208 @@ def test_history_drawer_loads_all_pages_without_repeating_conversations(tmp_path
                 assert page.locator('#cf-history-list [data-history-action="load-more"]').count() == 0
                 assert not errors
             finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+
+def test_draft_restore_merges_context_sources_independently_during_asset_upload(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.save_draft("active", {
+            "version": 1,
+            "fields": {
+                "cf-director-brief": "已保存目标",
+                "cf-script": "已保存权威文案",
+                "cf-article-url": "https://example.test/saved-article",
+                "cf-repo-root": "D:/saved-repo",
+            },
+            "explicit_fields": [],
+            "context": {
+                "asset_refs": [{"asset_id": "asset-saved", "type": "image", "file": "saved.png"}],
+                "reference": {"url": "https://example.test/saved-video", "title": "已保存参考"},
+                "article": {"source_url": "https://example.test/saved-article", "title": "已保存文章"},
+                "repo": {"root": "D:/saved-repo", "name": "已保存仓库"},
+                "narration_upload": "staged/saved-narration.wav",
+            },
+        })
+        image = tmp_path / "new-upload.png"
+        image.write_bytes(b"new-upload-fixture")
+        deferred: dict[str, object] = {}
+        upload_requests: list[dict] = []
+
+        def draft_route(route):
+            if route.request.method == "GET" and "read" not in deferred:
+                deferred["read"] = route
+            else:
+                route.continue_()
+
+        def hold_upload(route):
+            deferred["upload"] = route
+            upload_requests.append({"url": route.request.url, "body": route.request.post_data or ""})
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/director/drafts/active", draft_route)
+            page.route("**/api/assets/upload", hold_upload)
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("""() => {
+                    const state = {done:false};
+                    window.__draftRestoreState = state;
+                    window.__restorePromise = openCreate().finally(() => { state.done = true; });
+                    window.__originalDraftContext = window.CF_DRAFT_CONTEXT;
+                    return true;
+                }""")
+                read_route = _wait_for_deferred_route(page, deferred, "read")
+                page.locator("#cf-input-context-details").evaluate("(node) => { node.open = true; }")
+                page.locator("#cf-assets").set_input_files(str(image))
+                page.wait_for_function(
+                    "typeof window.CF_DRAFT_CONTEXT.assetUploadPromise?.then === 'function'",
+                    timeout=10000,
+                )
+                upload_route = _wait_for_deferred_route(page, deferred, "upload")
+                read_route.continue_()
+                page.wait_for_function("window.__draftRestoreState?.done === true", timeout=10000)
+                page.wait_for_function("""() => {
+                    const context = window.CF_DRAFT_CONTEXT;
+                    return context?.assetRefs?.some(item => item.asset_id === 'asset-saved')
+                      && context?.reference?.url === 'https://example.test/saved-video'
+                      && context?.article?.source_url === 'https://example.test/saved-article'
+                      && context?.repo?.root === 'D:/saved-repo'
+                      && context?.narrationUpload === 'staged/saved-narration.wav';
+                }""", timeout=10000)
+                assert page.evaluate("window.CF_DRAFT_CONTEXT === window.__originalDraftContext")
+                assert page.locator("#cf-director-brief").input_value() == "已保存目标"
+                assert page.locator("#cf-script").input_value() == "已保存权威文案"
+                upload_route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "ok": True,
+                        "imported": [{
+                            "asset_id": "asset-new-upload",
+                            "type": "image",
+                            "file": "new-upload.png",
+                            "width": 640,
+                            "height": 480,
+                            "duration": None,
+                            "commercial_status": "UNKNOWN",
+                        }],
+                    }),
+                )
+                page.wait_for_function("""() => {
+                    const ids = (window.CF_DRAFT_CONTEXT?.assetRefs || []).map(item => item.asset_id);
+                    return ids.includes('asset-saved') && ids.includes('asset-new-upload');
+                }""", timeout=10000)
+                page.wait_for_function("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    const data = (await response.json())?.draft?.data || {};
+                    return data.context?.asset_refs?.some(item => item.asset_id === 'asset-saved')
+                      && data.context?.asset_refs?.some(item => item.asset_id === 'asset-new-upload')
+                      && data.context?.reference?.url === 'https://example.test/saved-video'
+                      && data.context?.article?.source_url === 'https://example.test/saved-article'
+                      && data.context?.repo?.root === 'D:/saved-repo'
+                      && data.context?.narration_upload === 'staged/saved-narration.wav';
+                }""", timeout=10000)
+                assert not errors
+            finally:
+                for key in ("read", "upload"):
+                    pending = deferred.pop(key, None)
+                    if pending is not None:
+                        try:
+                            pending.abort()
+                        except Exception:
+                            pass
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_pending_history_restore_is_cancelled_when_user_selects_another_conversation(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.save_draft("active", {
+            "version": 1,
+            "fields": {
+                "cf-director-brief": "必须保留的当前草稿",
+                "cf-script": "当前权威文案",
+            },
+            "explicit_fields": [],
+            "context": {"asset_refs": []},
+        })
+        director_history.create_conversation(
+            conversation_id="conv-restore-stale",
+            title="慢速待恢复历史",
+            initial_message="不得覆盖新选择",
+            snapshot={"form": {"fields": {"cf-director-brief": "旧历史目标", "cf-script": "旧历史文案"}}},
+        )
+        director_history.create_conversation(
+            conversation_id="conv-restore-newer",
+            title="新选择历史",
+            initial_message="保留当前查看",
+            snapshot={"form": {"fields": {"cf-director-brief": "新历史目标", "cf-script": "新历史文案"}}},
+        )
+        deferred: dict[str, object] = {}
+
+        def hold_first_active_draft_read(route):
+            if route.request.method == "GET" and "read" not in deferred:
+                deferred["read"] = route
+            else:
+                route.continue_()
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/director/drafts/active", hold_first_active_draft_read)
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.locator("#director-history-launch").click()
+                page.locator("#cf-history-list button[data-conversation-id='conv-restore-stale']").click()
+                page.wait_for_function(
+                    "document.querySelector('#cf-history-list [data-history-action=\"restore\"]') !== null"
+                )
+                page.evaluate("""() => {
+                    window.__historyRestoreConfirmMessages = [];
+                    window.confirm = message => {
+                      window.__historyRestoreConfirmMessages.push(String(message));
+                      return true;
+                    };
+                }""")
+                page.locator('#cf-history-list button[data-history-action="restore"]').click()
+                read_route = _wait_for_deferred_route(page, deferred, "read")
+                page.locator('#cf-history-list button[data-history-action="list"]').click()
+                page.locator("#cf-history-list button[data-conversation-id='conv-restore-newer']").click()
+                page.wait_for_function("""() =>
+                    window._cfHistorySelected?.conversation_id === 'conv-restore-newer'
+                    && document.querySelector('#cf-history-list')?.textContent.includes('新选择历史')
+                """, timeout=10000)
+                read_route.continue_()
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-director-brief')?.value === '必须保留的当前草稿'
+                    && document.getElementById('cf-script')?.value === '当前权威文案'
+                """, timeout=10000)
+                assert page.evaluate("window._cfHistorySelected?.conversation_id") == "conv-restore-newer"
+                assert page.locator("#cf-history-list").inner_text().find("新选择历史") >= 0
+                assert page.evaluate("window.__historyRestoreConfirmMessages") == []
+                assert not errors
+            finally:
+                pending = deferred.pop("read", None)
+                if pending is not None:
+                    try:
+                        pending.abort()
+                    except Exception:
+                        pass
                 browser.close()
     finally:
         server.shutdown()

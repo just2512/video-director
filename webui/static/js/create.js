@@ -1520,7 +1520,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   const baseOpen=window.openCreate, baseClose=window.closeCreate;
   if(typeof baseOpen!=='function'||typeof baseClose!=='function')return;
   let timer=null, saving=Promise.resolve(), restored=false, restorePromise=null, restoredDraftAvailable=false;
-  let draftClearPending=false;
+  let draftClearPending=false,draftRestorePending=false;
   let historyCursor=null, historyHasMore=false, historyLoadingMore=false, historyRequestVersion=0;
   // Capture the live defaults only after asynchronous catalog/default hydration.
   // Comparing against raw HTML defaultSelected misses dynamically populated selects.
@@ -1561,7 +1561,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     },ui:{disclosures:Object.fromEntries(Array.from(document.querySelectorAll('#cf-form details[id]')).map(node=>[node.id,!!node.open]))}};
   }
   function draftPersistenceBlocked(){
-    if(draftClearPending)return true;
+    if(draftClearPending||draftRestorePending)return true;
     const form=document.getElementById('cf-form');
     return !!(form&&form.style.display==='none'&&document.getElementById('cf-progress'));
   }
@@ -1604,15 +1604,22 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   };
   window.cfPersistCreateDraftNow=saveNow;
   function scheduleSave(){
-    if(draftPersistenceBlocked()){
+    if(draftClearPending||cfHistoryInProgressMode()){
       if(timer){clearTimeout(timer);timer=null;}
       return false;
     }
+    // Keep user input locally while the initial server draft is being read,
+    // but do not POST a partial form over the server snapshot being restored.
     const localSaved=writeLocalDraft(snapshot());
-    if(timer)clearTimeout(timer);
+    if(timer){clearTimeout(timer);timer=null;}
     const st=document.getElementById('cf-draft-status');
+    if(draftRestorePending){
+      if(st)st.textContent=localSaved?'本机草稿已暂存，正在合并已保存内容…':'正在合并已保存草稿…';
+      return false;
+    }
     if(st)st.textContent=localSaved?'本机已保存，正在同步…':'正在保存…';
     timer=setTimeout(()=>{timer=null;saveNow();},450);
+    return true;
   }
   function persistImmediately(){
     if(timer){clearTimeout(timer);timer=null;}
@@ -1640,21 +1647,68 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const restoredExplicit=Array.isArray(data.explicit_fields)?data.explicit_fields.filter(field=>knownExplicit.has(field)):[];
     const currentExplicit=preserveDirty?Array.from(window.CF?.explicitFields||[]):[];
     if(window.CF)window.CF.explicitFields=new Set([...restoredExplicit,...currentExplicit]);
-    const contextDirty=preserveDirty&&['cf-assets','cf-reference','cf-article-url','cf-repo-root','cf-voice-file'].some(id=>dirtyFields.has(id));
-    if(!contextDirty){
-      const c=data.context||{};
-      window.CF_DRAFT_CONTEXT={assetRefs:Array.isArray(c.asset_refs)?c.asset_refs:[],reference:c.reference||null,
-        article:c.article||null,repo:c.repo||null,narrationUpload:c.narration_upload||'',projectId:c.project_id||'',
-        projectPrefillBaseline:c.project_prefill_baseline||null};
-      window._cfReference=c.reference||null;window._cfReferenceFileObject=null;
-      window._cfArticle=c.article||null;window._cfRepo=c.repo||null;window._cfNarrationUpload=c.narration_upload||'';
-      const summary=document.getElementById('cf-assets-summary');
-      if(summary)summary.textContent=window.CF_DRAFT_CONTEXT.assetRefs.length?
-        '已暂存 '+window.CF_DRAFT_CONTEXT.assetRefs.length+' 个素材，可直接用于创作':'未添加本地素材';
-      if(window._cfArticle&&typeof cfRenderArticleSource==='function')cfRenderArticleSource(window._cfArticle,'已恢复上一轮导入的文章来源。请核对后再创作。');
-      if(window._cfReference){const el=document.getElementById('cf-reference-result');if(el)el.innerHTML='<div class="ok-box">已恢复参考视频分析，可直接用于创作。</div>';}
-      if(window._cfRepo){const el=document.getElementById('cf-repo-result');if(el)el.innerHTML='<div class="ok-box">已恢复软件项目证据与已验证卖点。</div>';}
+    const c=data.context||{};
+    // Do not replace this object: in-flight asset/article/reference/narration uploads
+    // capture it and discard their response if the active draft context changes.
+    const liveContext=window.CF_DRAFT_CONTEXT||(window.CF_DRAFT_CONTEXT={
+      assetRefs:[],reference:null,article:null,repo:null,narrationUpload:'',projectId:''
+    });
+    const contextIsDirty=id=>preserveDirty&&dirtyFields.has(id);
+    const assetKey=item=>String(item?.asset_id||item?.file||JSON.stringify(item));
+    if(contextIsDirty('cf-assets')){
+      const merged=new Map();
+      for(const item of [...(Array.isArray(c.asset_refs)?c.asset_refs:[]),...(Array.isArray(liveContext.assetRefs)?liveContext.assetRefs:[])]){
+        if(!item)continue;
+        merged.set(assetKey(item),item);
+      }
+      liveContext.assetRefs=Array.from(merged.values());
+    }else{
+      liveContext.assetRefs=Array.isArray(c.asset_refs)?c.asset_refs:[];
     }
+    if(!contextIsDirty('cf-reference')){
+      liveContext.reference=c.reference||null;
+      window._cfReference=liveContext.reference;
+      window._cfReferenceFileObject=null;
+      if(window._cfReference){
+        const node=document.getElementById('cf-reference-result');
+        if(node)node.innerHTML='<div class="ok-box">已恢复参考视频分析，可直接用于创作。</div>';
+      }
+    }else{
+      liveContext.reference=liveContext.reference||window._cfReference||null;
+      window._cfReference=liveContext.reference;
+    }
+    if(!contextIsDirty('cf-article-url')){
+      liveContext.article=c.article||null;
+      window._cfArticle=liveContext.article;
+      if(window._cfArticle&&typeof cfRenderArticleSource==='function')
+        cfRenderArticleSource(window._cfArticle,'已恢复上一轮导入的文章来源。请核对后再创作。');
+    }else{
+      liveContext.article=liveContext.article||window._cfArticle||null;
+      window._cfArticle=liveContext.article;
+    }
+    if(!contextIsDirty('cf-repo-root')){
+      liveContext.repo=c.repo||null;
+      window._cfRepo=liveContext.repo;
+      if(window._cfRepo){
+        const node=document.getElementById('cf-repo-result');
+        if(node)node.innerHTML='<div class="ok-box">已恢复软件项目证据与已验证卖点。</div>';
+      }
+    }else{
+      liveContext.repo=liveContext.repo||window._cfRepo||null;
+      window._cfRepo=liveContext.repo;
+    }
+    if(!contextIsDirty('cf-voice-file')){
+      liveContext.narrationUpload=c.narration_upload||'';
+      window._cfNarrationUpload=liveContext.narrationUpload;
+    }else{
+      liveContext.narrationUpload=liveContext.narrationUpload||window._cfNarrationUpload||'';
+      window._cfNarrationUpload=liveContext.narrationUpload;
+    }
+    liveContext.projectId=c.project_id||liveContext.projectId||'';
+    liveContext.projectPrefillBaseline=c.project_prefill_baseline||liveContext.projectPrefillBaseline||null;
+    const summary=document.getElementById('cf-assets-summary');
+    if(summary)summary.textContent=liveContext.assetRefs.length?
+      '已暂存 '+liveContext.assetRefs.length+' 个素材，可直接用于创作':'未添加本地素材';
     if(typeof cfVoiceModeSync==='function')cfVoiceModeSync();
     if(typeof cfVisualSourceSync==='function')cfVisualSourceSync();
     if(typeof cfSeriesSync==='function')cfSeriesSync();
@@ -1662,6 +1716,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   async function restoreDraft(){
     if(restored)return restorePromise||Promise.resolve();
     restored=true;
+    draftRestorePending=true;
     restorePromise=(async()=>{
       try{
         if(window.CF_DEFAULTS_READY)await window.CF_DEFAULTS_READY;
@@ -1703,6 +1758,9 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       }catch(e){
         const st=document.getElementById('cf-draft-status');
         if(st)st.textContent='草稿读取失败：'+(e.message||e);
+      }finally{
+        draftRestorePending=false;
+        if(dirtyFields.size)scheduleSave();
       }
     })();
     return restorePromise;
@@ -1874,7 +1932,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const target=String(projectId||'').trim();
     if(!target)return false;
     if(cfHistoryInProgressMode()){
-      const message='当前创作任务仍在执行，不能直接切换项目。请等待任务结束，或先停止并返回编辑。';
+      const message='当前创作任务仍在执行，不能从历史记录切换项目。请等待任务结束，或先停止并返回编辑。';
       cfHistorySetNotice(message);
       const status=document.getElementById('cf-status');
       if(status)status.textContent=message;
@@ -1954,6 +2012,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const form=document.getElementById('cf-form');
     const isProgress=!!document.getElementById('cf-progress')&&form&&form.style.display==='none';
     if(!isProgress){
+      if(draftRestorePending&&restorePromise)await restorePromise;
       const ctx=window.CF_DRAFT_CONTEXT||{};
       if(timer){clearTimeout(timer);timer=null;}
       const pending=[ctx.assetUploadPromise,ctx.narrationPromise].filter(Boolean);
@@ -2115,13 +2174,13 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
 
   window.cfHistoryToggle=async function(){
     const existing=document.getElementById('cf-history-drawer');
-    if(existing){existing.remove();return;}
+    if(existing){historyRequestVersion++;existing.remove();return;}
     const drawer=document.createElement('aside');drawer.id='cf-history-drawer';
     drawer.setAttribute('role','complementary');drawer.setAttribute('aria-label','历史创作对话');
     drawer.style.cssText='position:fixed;top:58px;right:12px;bottom:12px;width:min(520px,calc(100vw - 24px));max-width:calc(100vw - 24px);z-index:13000;display:flex;flex-direction:column;box-sizing:border-box;padding:14px;background:var(--surface-1,#181818);color:var(--text,#eee);border:1px solid var(--border,#444);border-radius:10px;box-shadow:0 14px 44px rgba(0,0,0,.42)';
     drawer.innerHTML='<div class="btn-row" style="align-items:center;margin:0"><b>草稿与历史对话</b><span class="tb-sep"></span><button class="btn-secondary btn-sm" type="button" id="cf-history-refresh">刷新</button><button class="btn-secondary btn-sm" type="button" id="cf-history-close">关闭</button></div><div id="cf-history-draft" style="margin-top:10px"></div><div id="cf-history-notice" class="hint" role="status" aria-live="polite" style="margin-top:4px"></div><div id="cf-history-list" style="flex:1;min-height:0;overflow:auto;margin-top:4px" class="hint">正在读取…</div>';
     document.body.appendChild(drawer);
-    drawer.querySelector('#cf-history-close').addEventListener('click',()=>drawer.remove());
+    drawer.querySelector('#cf-history-close').addEventListener('click',()=>{historyRequestVersion++;drawer.remove();});
     drawer.querySelector('#cf-history-refresh').addEventListener('click',()=>window.cfHistoryRefresh());
     // The unsent-draft card is a sibling of the conversation list, so it needs
     // its own delegated handler rather than relying on the list's click listener.
@@ -2134,7 +2193,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       const actionButton=event.target.closest('[data-history-action]');
       if(actionButton){
         const action=actionButton.dataset.historyAction;
-        if(action==='list')cfHistoryRenderList();
+        if(action==='list'){historyRequestVersion++;cfHistoryRenderList();}
         else if(action==='restore')window.cfHistoryRestoreSnapshot(actionButton.dataset.conversationId);
         else if(action==='resume-draft')window.cfHistoryResumeDraft();
         else if(action==='load-more')window.cfHistoryLoadMore();
@@ -2146,6 +2205,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     await window.cfHistoryRefresh();
   };
   window.cfHistoryResumeDraft=function(){
+    historyRequestVersion++;
     if(cfHistoryInProgressMode()){
       cfHistorySetNotice('当前创作任务仍在执行，暂时不能继续编辑隐藏的草稿。请等待任务结束，或先停止并返回修改。');
       return false;
@@ -2239,7 +2299,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   }
 
   window.cfHistoryOpenAssociatedProject=function(projectId){
-    // All project-entry surfaces share the same active-draft replacement guard.
+    // A project switch supersedes any pending historical restore operation.
+    historyRequestVersion++;
     return window.openCreate(projectId);
   };
 
@@ -2248,11 +2309,23 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       cfHistorySetNotice('当前创作任务仍在执行，不能把历史对话恢复到隐藏的创作表单。请等待任务结束，或先停止并返回编辑。');
       return false;
     }
-    const c=window._cfHistorySelected;if(!c||c.conversation_id!==id)return;
+    const c=window._cfHistorySelected;if(!c||c.conversation_id!==id)return false;
+    const requestVersion=++historyRequestVersion;
+    const drawer=document.getElementById('cf-history-drawer');
+    const restoreStillCurrent=()=>requestVersion===historyRequestVersion
+      &&(!drawer||document.getElementById('cf-history-drawer')===drawer)
+      &&window._cfHistorySelected?.conversation_id===id;
     const mask=document.getElementById('cf-mask');
-    if(!document.getElementById('cf-form')||(mask&&mask.style.display==='none'))await window.openCreate();
-    if(window.CF_DEFAULTS_READY) await window.CF_DEFAULTS_READY;
+    if(!document.getElementById('cf-form')||(mask&&mask.style.display==='none')){
+      await window.openCreate();
+      if(!restoreStillCurrent())return false;
+    }
+    if(window.CF_DEFAULTS_READY){
+      await window.CF_DEFAULTS_READY;
+      if(!restoreStillCurrent())return false;
+    }
     await restoreDraft();
+    if(!restoreStillCurrent())return false;
     const currentSnapshot=snapshot();
     const hasCurrentDraft=cfHistoryHasCurrentDraft(currentSnapshot);
     if(hasCurrentDraft&&!window.confirm('当前草稿包含未提交内容。恢复历史对话会替换当前草稿；取消可保留当前内容。确认继续？')){
@@ -2260,6 +2333,9 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       if(status)status.textContent='已取消历史恢复，当前草稿保持不变。';
       return;
     }
+    // The historical snapshot replaces the active form only after confirmation.
+    // Old dirty markers describe the discarded draft and must not leak forward.
+    dirtyFields.clear();
     // History snapshots can be older/partial. Start from a clean form so
     // fields absent from that snapshot cannot leak in from the active draft.
     cfResetProjectPrefillState('');
@@ -2360,6 +2436,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(advanced&&!hasSavedAdvancedState&&(hasLegacyAdvancedSettings||hasExplicitAdvancedSettings))
       advanced.open=true;
     await saveNow();
+    if(!restoreStillCurrent())return false;
     const status=document.getElementById('cf-draft-status');if(status)status.textContent='已恢复历史对话为新草稿；原记录不会被覆盖。';
     const list=document.getElementById('cf-history-list');if(list)list.innerHTML='<div class="ok-box">已恢复为新草稿，原历史对话不会被覆盖。</div>';
   };
