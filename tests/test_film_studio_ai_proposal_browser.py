@@ -349,7 +349,7 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
                 assert duplicate_confirmation["body"]["code"] == "PROPOSAL_NOT_FOUND_OR_STALE", duplicate_confirmation
                 assert fd.read_project_film(project_id)["rev"] == after["rev"]
                 assert film_path.read_bytes() == after_bytes
-                assert len(applies) == 1, applies
+                assert len(applies) == 2 and applies[1] == applies[0], applies
 
                 page.evaluate("window.filmStudioUndo()")
                 page.wait_for_function("r=>{const s=window.filmStudioStore?.getSnapshot();return !!s&&!s.busy&&s.pendingTransaction===null&&s.revision===r;}",arg=before["rev"],timeout=10000)
