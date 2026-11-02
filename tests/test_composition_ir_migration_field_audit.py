@@ -33,3 +33,26 @@ def test_migration_audit_uses_only_explicit_disposition_categories():
         columns = [column.strip() for column in row.strip("|").split("|")]
         assert columns[1] in {"MAPPED", "ARCHIVED_ONLY", "REJECTED", "UNKNOWN"}, row
         assert columns[2], row
+
+
+
+def test_nested_migration_audit_covers_runtime_boundary_models():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    # These models are direct CompositionIR children or the high-impact nested
+    # structures whose semantics are easy to lose while serializing to film.html.
+    required_models = {
+        "SceneIR", "Layer", "Selection", "TransitionOut", "AudioTrack",
+        "AudioLane", "Beat", "SemanticAnchor", "SubtitleTrack", "SubtitleCue",
+        "SubtitleStyle", "VisualTrack", "VisualOverlayClip", "WatermarkLayer",
+        "AssetRef", "Variant", "ProjectSpec", "ReferenceGraph",
+    }
+    missing = sorted(name for name in required_models if f"`{name}`" not in audit)
+    assert not missing, f"nested migration audit missing model boundaries: {missing}"
+
+
+def test_top_level_audit_distinguishes_schema_version_from_runtime_behavior():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    version_row = next(line for line in audit.splitlines() if line.startswith("| `version` |"))
+    assert "| ARCHIVED_ONLY |" in version_row
+    audio_row = next(line for line in audit.splitlines() if line.startswith("| `audio_tracks` |"))
+    assert "locked" in audio_row and "muted" in audio_row and "hidden" in audio_row
