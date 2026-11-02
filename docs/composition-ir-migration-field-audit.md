@@ -52,6 +52,8 @@
 - `VisualOverlayClip`：支持的视频/图片 overlay 的素材、时间、位置尺寸、opacity、z-index、fit_mode、presentation_mode 和受支持 transform 进入独立轨道；source_audio_enabled 与 linked original audio 有互斥/匹配校验；其他字段需以专门迁移测试和 warning 为准。
 - `WatermarkLayer` / `SubtitleStyle`：支持的文本/图片水印及字幕样式子集进入渲染属性；不能把所有 kind、字体资源、动画或样式字段视为无损。
 
+嵌套模型库存（用于防止遗漏）：`SceneIR`、`Layer`、`Selection`、`TransitionOut`、`AudioTrack`、`AudioLane`、`Beat`、`SemanticAnchor`、`SubtitleTrack`、`SubtitleCue`、`SubtitleStyle`、`VisualTrack`、`VisualOverlayClip`、`WatermarkLayer`、`AssetRef`、`Variant`、`ProjectSpec`、`ReferenceGraph`。这份名单只声明审计对象，不代表这些模型的所有字段都已映射；未在上文逐项说明的字段继续按 UNKNOWN 处理。
+
 ## 审计范围限制
 
 这是**顶层字段库存与处置审计 + 关键嵌套语义边界说明**，不是所有嵌套 Pydantic 字段、所有 LayerType、所有渲染参数的穷尽式逐字段审计。`AssetRef` 元数据、`Selection`、`TransitionOut`、`SemanticAnchor`、`ReferenceGraph`、CameraTrack/Transform/KeyframeTrack/Mask/ContinuityLink 的每个子字段仍需逐项登记和测试。任一未列明的嵌套字段仍是 UNKNOWN；不得据此宣称“CompositionIR 全量无损迁移”。
