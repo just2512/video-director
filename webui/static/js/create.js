@@ -2160,13 +2160,16 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const requestVersion=++historyRequestVersion;
     historyLoadingMore=false;
     const list=document.getElementById('cf-history-list');if(!list)return;
-    list.textContent='读取对话…';
+    // Keep the list interactive while detail is loading. Users can select a
+    // different conversation; requestVersion below makes the latest choice win.
+    cfHistorySetNotice('正在读取对话详情…');
     try{
       const r=await apiGet('/api/director/conversations/'+encodeURIComponent(id));
       // A later selection or refresh owns the drawer now. Never let an older
       // slow response replace the conversation currently being inspected.
       if(requestVersion!==historyRequestVersion)return false;
       if(!r||!r.ok||!r.conversation)throw new Error(r?.error||'对话不存在');
+      cfHistorySetNotice('');
       const c=r.conversation;window._cfHistorySelected=c;
       const messages=(c.messages||[]).map(m=>
         '<div class="panel" style="padding:8px;margin-top:6px"><b>'+
@@ -2185,7 +2188,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       });
     }catch(e){
       if(requestVersion!==historyRequestVersion)return false;
-      list.textContent='对话读取失败：'+(e.message||e);
+      cfHistorySetNotice('对话读取失败：'+(e.message||e));
       return false;
     }
   };

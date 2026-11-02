@@ -933,11 +933,9 @@ def test_history_detail_ignores_late_response_from_previous_selection(tmp_path, 
                 )
                 page.locator("#cf-history-list button[data-conversation-id='conv-history-fast']").click()
                 slow_route = _wait_for_deferred_route(page, deferred, "slow")
-                page.locator("#cf-history-list button[data-history-action='list']").wait_for(
-                    state="visible"
-                )
-                # Select the second conversation while the first response is still blocked.
-                page.locator("#cf-history-list button[data-history-action='list']").click()
+                # The history list remains available while the slow detail request is pending.
+                assert page.locator("#cf-history-list button[data-conversation-id='conv-history-fast']").is_visible()
+                assert page.locator("#cf-history-list button[data-conversation-id='conv-history-slow']").is_visible()
                 page.locator("#cf-history-list button[data-conversation-id='conv-history-fast']").click()
                 page.wait_for_function("""() =>
                     document.querySelector('#cf-history-list')?.textContent.includes('较快返回的新对话')
