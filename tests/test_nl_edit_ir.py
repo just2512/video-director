@@ -148,3 +148,85 @@ def test_llm_parser_rejects_non_finite_or_out_of_contract_numeric_edits():
         }, ensure_ascii=False),
     )
     assert edits == {"S02": {"text": "保留有效文案"}}, edits
+
+
+
+def test_revision_http_endpoint_returns_mixed_natural_language_edits_without_writing_storyboard(
+    tmp_path, monkeypatch
+):
+    """The public revision route must preserve the complete LLM edit and remain preview-only."""
+    import importlib
+    import json
+    import threading
+    from http.server import ThreadingHTTPServer
+    from urllib.request import Request, urlopen
+
+    from video_director import config
+
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "nl-edit-revision-endpoint"
+    project_root = config.project_dir(project_id)
+    plans = project_root / "plans"
+    plans.mkdir(parents=True)
+    storyboard_path = plans / "storyboard.json"
+    original_storyboard = _sb()
+    original_storyboard["project_id"] = project_id
+    original_bytes = json.dumps(
+        original_storyboard, ensure_ascii=False, indent=2
+    ).encode("utf-8")
+    storyboard_path.write_bytes(original_bytes)
+
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage
+
+    class FakeLLM:
+        def generate(self, _prompt):
+            return json.dumps({
+                "S02": {
+                    "text": "产品近景",
+                    "scale": 1.6,
+                    "duration_delta": 2.0,
+                }
+            }, ensure_ascii=False)
+
+    monkeypatch.setattr(web_server.vd_llm, "get_llm", lambda: FakeLLM())
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        payload = json.dumps({
+            "project_id": project_id,
+            "instruction": "第二段产品放大，并把旁白改为产品近景，同时延长两秒",
+        }, ensure_ascii=False).encode("utf-8")
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}/api/revision",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=10) as response:
+            result = json.loads(response.read().decode("utf-8"))
+            assert response.status == 200
+        assert result["ok"] is True, result
+        assert result["edits"]["S02"] == {
+            "text": "产品近景",
+            "scale": 1.6,
+            "duration_delta": 2.0,
+        }, result
+        scene = next(
+            item for item in result["storyboard"]["scenes"]
+            if item["scene_id"] == "S02"
+        )
+        assert scene["text"] == "产品近景"
+        assert scene["scale_hint"] == 1.6
+        assert scene["duration"] == 6.0
+        assert result["storyboard"]["total_duration"] == 14.0
+        assert storyboard_path.read_bytes() == original_bytes, (
+            "revision preview must not persist storyboard changes"
+        )
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
