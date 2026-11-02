@@ -1521,6 +1521,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   if(typeof baseOpen!=='function'||typeof baseClose!=='function')return;
   let timer=null, saving=Promise.resolve(), restored=false, restorePromise=null, restoredDraftAvailable=false;
   let draftClearPending=false,draftRestorePending=false,draftRestoreNeedsSync=false;
+  let activeProjectPrefill=null;
   let historyCursor=null, historyHasMore=false, historyLoadingMore=false, historyRequestVersion=0;
   // Capture the live defaults only after asynchronous catalog/default hydration.
   // Comparing against raw HTML defaultSelected misses dynamically populated selects.
@@ -1942,9 +1943,40 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         window.CF_DRAFT_CONTEXT.narrationPromise=uploadNarration(e.target.files[0]).catch(error=>{const st=document.getElementById('cf-status');if(st)st.textContent='配音暂存失败：'+(error.message||error);return '';});
     },true);
   }
+  async function cancelProjectPrefillAndRestore(){
+    const transaction=activeProjectPrefill;
+    if(!transaction)return {ok:true,cancelled:false};
+    if(transaction.cancelPromise)return transaction.cancelPromise;
+    transaction.cancelled=true;
+    // cfPrefillFromProject checks this generation after every awaited request.
+    _cfProjectPrefillRequest++;
+    transaction.cancelPromise=(async()=>{
+      try{if(transaction.promise)await transaction.promise;}catch(_){}
+      if(activeProjectPrefill!==transaction)return {ok:true,cancelled:true,stale:true};
+      cfResetProjectPrefillState(transaction.previousProjectId);
+      applySnapshot(transaction.snapshot);
+      dirtyFields.clear();
+      for(const id of transaction.dirtyFields)dirtyFields.add(id);
+      restoredDraftAvailable=transaction.hadDraft;
+      activeProjectPrefill=null;
+      const saved=transaction.hadDraft?await saveNow():await clearSavedDraft();
+      if(!saved||saved.ok!==true){
+        return {ok:false,error:saved?.error||'无法恢复切换前的草稿'};
+      }
+      const status=document.getElementById('cf-status');
+      if(status)status.textContent='项目载入已取消，已恢复切换前的草稿。';
+      return {ok:true,cancelled:true};
+    })();
+    return transaction.cancelPromise;
+  }
+
   async function openProjectWithDraftGuard(projectId){
     const target=String(projectId||'').trim();
     if(!target)return false;
+    if(activeProjectPrefill){
+      const cancelled=await cancelProjectPrefillAndRestore();
+      if(!cancelled?.ok)return cancelled;
+    }
     if(cfHistoryInProgressMode()){
       const message='当前创作任务仍在执行，不能从历史记录切换项目。请等待任务结束，或先停止并返回编辑。';
       cfHistorySetNotice(message);
@@ -1977,8 +2009,21 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     document.getElementById('cf-history-drawer')?.remove();
     // The user explicitly approved replacing the previous draft. Its dirty
     // markers must not leak into the target project's clean baseline.
+    const transaction={
+      snapshot:current,
+      previousProjectId:String(current.context?.project_id||''),
+      dirtyFields:Array.from(dirtyFields),
+      hadDraft:!!(hasCurrentDraft||restoredDraftAvailable),
+      promise:null,
+      cancelled:false,
+      cancelPromise:null
+    };
     dirtyFields.clear();
-    const result=await cfPrefillFromProject(target);
+    activeProjectPrefill=transaction;
+    transaction.promise=cfPrefillFromProject(target);
+    const result=await transaction.promise;
+    if(transaction.cancelled)return {ok:false,stale:true,cancelled:true};
+    if(activeProjectPrefill===transaction)activeProjectPrefill=null;
     if(result?.stale)return result;
     if(!result||result.ok!==true){
       // Project loading is transactional from the user's perspective: restore
@@ -2026,6 +2071,12 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const form=document.getElementById('cf-form');
     const isProgress=!!document.getElementById('cf-progress')&&form&&form.style.display==='none';
     if(!isProgress){
+      const cancelled=await cancelProjectPrefillAndRestore();
+      if(!cancelled?.ok){
+        const status=document.getElementById('cf-status');
+        if(status)status.textContent='尚未收起窗口：切换前草稿恢复失败。'+(cancelled?.error||'');
+        return false;
+      }
       if(draftRestorePending&&restorePromise)await restorePromise;
       const ctx=window.CF_DRAFT_CONTEXT||{};
       if(timer){clearTimeout(timer);timer=null;}
@@ -2329,6 +2380,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const restoreStillCurrent=()=>requestVersion===historyRequestVersion
       &&(!drawer||document.getElementById('cf-history-drawer')===drawer)
       &&window._cfHistorySelected?.conversation_id===id;
+    if(activeProjectPrefill){
+      const cancelled=await cancelProjectPrefillAndRestore();
+      if(!cancelled?.ok||!restoreStillCurrent())return false;
+    }
     const mask=document.getElementById('cf-mask');
     if(!document.getElementById('cf-form')||(mask&&mask.style.display==='none')){
       await window.openCreate();

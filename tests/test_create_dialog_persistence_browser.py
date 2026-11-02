@@ -394,6 +394,98 @@ def test_late_project_prefill_response_cannot_overwrite_newer_project(tmp_path, 
 
 
 
+
+
+def test_close_create_cancels_inflight_project_prefill_and_restores_previous_draft(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.save_draft("active", {
+            "version": 1,
+            "fields": {
+                "cf-director-brief": "收起前必须保留的创作目标",
+                "cf-script": "收起前必须保留的权威文案",
+            },
+            "explicit_fields": [],
+            "context": {
+                "asset_refs": [], "reference": None, "article": None, "repo": None,
+                "narration_upload": "", "project_id": "",
+            },
+            "ui": {"disclosures": {"cf-input-context-details": True}},
+        })
+        deferred: dict[str, object] = {}
+
+        def hold_project_brief(route):
+            payload = json.loads(route.request.post_data or "{}")
+            if payload.get("project_id") == "project-slow-close":
+                deferred["route"] = route
+                return
+            return route.fulfill(
+                status=400, content_type="application/json",
+                body=json.dumps({"ok": False, "error": "unexpected project id"}),
+            )
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/director/brief", hold_project_brief)
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("openCreate()")
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-director-brief')?.value === '收起前必须保留的创作目标'
+                    && document.getElementById('cf-script')?.value === '收起前必须保留的权威文案'
+                """, timeout=10000)
+                page.evaluate("window.confirm = () => true")
+                page.evaluate("() => { window.__slowCloseProjectPromise = openCreate('project-slow-close'); }")
+                held_route = _wait_for_deferred_route(page, deferred, "route")
+
+                # Close remains available while the project request is pending.
+                page.evaluate("() => { void closeCreate(); }")
+                held_route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "ok": True,
+                        "brief": "不能覆盖旧草稿的目标项目",
+                        "bundle": {
+                            "script": {"text": "不应写入的项目文案"},
+                            "assets": {"asset_refs": []},
+                            "references": [], "articles": [], "software_project": None,
+                        },
+                        "spec_settings": {},
+                    }),
+                )
+                deferred.pop("route", None)
+                page.evaluate("async () => await window.__slowCloseProjectPromise")
+                page.wait_for_function("""async () => {
+                    const mask=document.getElementById('cf-mask');
+                    const response=await fetch('/api/director/drafts/active',{cache:'no-store'});
+                    const result=await response.json();
+                    const data=result?.draft?.data||{};
+                    return mask?.style.display === 'none'
+                      && document.getElementById('cf-director-brief')?.value === '收起前必须保留的创作目标'
+                      && document.getElementById('cf-script')?.value === '收起前必须保留的权威文案'
+                      && data.fields?.['cf-director-brief'] === '收起前必须保留的创作目标'
+                      && data.fields?.['cf-script'] === '收起前必须保留的权威文案'
+                      && !data.context?.project_id;
+                }""", timeout=10000)
+                assert not errors
+            finally:
+                pending = deferred.pop("route", None)
+                if pending is not None:
+                    try:
+                        pending.abort()
+                    except Exception:
+                        pass
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
 def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:
