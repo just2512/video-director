@@ -831,3 +831,32 @@ def test_export_aborts_before_publishing_when_film_changes_during_render(tmp_pat
     assert not output.exists(), "an obsolete revision must not be published as the current export"
     qc_dir = project / "qc"
     assert not qc_dir.exists() or not list(qc_dir.glob(f"film-final-{original_revision}.json"))
+
+def test_film_render_reports_clip_id_for_authored_scene_frame_failure(tmp_path, monkeypatch):
+    """A scene frame(t) exception is reported against its stable timeline clip ID."""
+    pytest.importorskip("playwright.sync_api")
+    from video_director import config, film_render
+
+    project_id, revision = _write_html_film_project(tmp_path, monkeypatch)
+    scene_path = config.project_dir(project_id) / "scenes" / "opening.html"
+    scene_path.write_text(
+        """<!doctype html>
+<html><head><meta charset="utf-8"></head><body>
+<script>
+window.film = {
+  duration: 1,
+  ready: Promise.resolve(),
+  frame: function () { throw new Error("intentional scene frame failure"); }
+};
+</script></body></html>""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(film_render.FilmRenderError) as raised:
+        film_render.look_project_film(
+            project_id, expected_revision=revision, times=[0.25]
+        )
+
+    assert raised.value.code == "FRAME_RENDER_FAILED"
+    assert "scene-opening" in str(raised.value)
+    assert "intentional scene frame failure" in str(raised.value)

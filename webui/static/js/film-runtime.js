@@ -941,7 +941,21 @@
     renderTime(state.time,true);
     try{
       var jobs=[];
-      state.tracks.forEach(function(track){track.clips.forEach(function(entry){jobs.push(prepareFrameEntry(entry,state.time,message.frame));});});
+      state.tracks.forEach(function(track){
+        track.clips.forEach(function(entry){
+          // Keep the stable FilmDocument identity attached to asynchronous media/scene
+          // failures. Promise.all otherwise exposes only an opaque iframe stack and
+          // leaves users guessing which timeline clip blocked the export.
+          var clip=entry&&entry.clip?entry.clip:{};
+          var clipId=String(clip.id||'(unknown)');
+          var clipTag=String(clip.tag||'unknown');
+          jobs.push(prepareFrameEntry(entry,state.time,message.frame).catch(function(error){
+            var detail=String(error&&error.message||error||'未知渲染错误').slice(0,1800);
+            if(detail.indexOf(clipId)>=0)return Promise.reject(new Error(detail));
+            return Promise.reject(new Error('片段 '+clipId+' ('+clipTag+') 渲染失败：'+detail));
+          }));
+        });
+      });
       await Promise.all(jobs);
       await nextFrame();await nextFrame();
       post({type:'film-runtime:frame-ready',frame:message.frame,time:state.time,rev:state.rev});
