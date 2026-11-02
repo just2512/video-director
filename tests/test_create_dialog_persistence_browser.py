@@ -977,12 +977,66 @@ def test_history_drawer_does_not_resave_or_replace_active_progress_form(tmp_path
                     node.dispatchEvent(new Event('input', {bubbles:true}));
                 }""")
                 page.wait_for_timeout(650)
+                beacon_calls = page.evaluate("""() => {
+                    window.__beforeUnloadBeacons = [];
+                    navigator.sendBeacon = (url, body) => {
+                      window.__beforeUnloadBeacons.push({url:String(url), body:String(body)});
+                      return true;
+                    };
+                    window.dispatchEvent(new Event('beforeunload'));
+                    return window.__beforeUnloadBeacons;
+                }""")
+                assert beacon_calls == []
                 assert page.evaluate("localStorage.getItem('video-director:create-draft:v1')") is None
                 active_draft_final = page.evaluate("""async () => {
                     const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
                     return (await response.json())?.draft || null;
                 }""")
                 assert active_draft_final is None
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+
+def test_cancel_and_edit_saves_draft_after_server_confirms_stop(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/workflows/cancel", lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"ok": True, "status": "CANCELLED"}),
+            ))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("openCreate()")
+                page.locator("#cf-director-brief").fill("停止后必须重新保存的创作目标")
+                page.locator("#cf-script").fill("停止后必须重新保存的权威文案")
+                cleared = page.evaluate("window.cfClearSavedDraft()")
+                assert cleared["ok"] is True
+
+                page.evaluate("cfEnterProgressMode('run-cancel-save')")
+                assert page.locator("#cf-form").evaluate("(node) => node.style.display") == "none"
+                page.locator('#cf-progress button[onclick="cfCancelAndEdit()"]').click()
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-form')?.style.display !== 'none'
+                    && document.getElementById('cf-progress') === null
+                """, timeout=10000)
+                page.wait_for_function("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    const draft = (await response.json())?.draft?.data || {};
+                    return draft.fields?.['cf-director-brief'] === '停止后必须重新保存的创作目标'
+                      && draft.fields?.['cf-script'] === '停止后必须重新保存的权威文案';
+                }""", timeout=10000)
                 assert not errors
             finally:
                 browser.close()

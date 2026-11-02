@@ -2261,17 +2261,23 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   };
   window.addEventListener('beforeunload',()=>{
     const mask=document.getElementById('cf-mask');
-    // Dialog 真正销毁/从未打开时不能重建已清除的 draft。
-    if(mask && mask.style.display!=='none'){
+    // A hidden progress form or an in-flight draft clear must never recreate
+    // the active draft through this direct localStorage/sendBeacon path.
+    if(mask && mask.style.display!=='none'&&!draftPersistenceBlocked()){
       const data=snapshot();writeLocalDraft(data);
       try{navigator.sendBeacon('/api/director/drafts/active',new Blob([JSON.stringify({data})],{type:'application/json'}));}catch(_){}
     }
   });
   const originalCancelAndEdit=window.cfCancelAndEdit;
-  window.cfCancelAndEdit=function(){
-    originalCancelAndEdit();
-    // create 成功后 active draft 已清除；用户停止任务并返回编辑时重新建立草稿。
-    saveNow();
+  window.cfCancelAndEdit=async function(){
+    const result=await originalCancelAndEdit();
+    // The original async stop flow restores the form only after the server
+    // confirms a terminal state (or exposes the editable stop-pending form).
+    // Save after that transition, not while the progress form is still hidden.
+    const form=document.getElementById('cf-form');
+    if(form&&form.style.display!=='none'&&!draftPersistenceBlocked())
+      await saveNow();
+    return result;
   };
   const originalGenerate=window.cfGenerateScript;
   window.cfGenerateScript=async function(){
