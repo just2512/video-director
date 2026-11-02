@@ -2153,8 +2153,23 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(typeof cfSeriesSync==='function')cfSeriesSync();
     const restoredContext=window.CF_DRAFT_CONTEXT||{};
     const restoredScript=(document.getElementById('cf-script')||{}).value||'';
+    const savedDisclosures=historyFormSnapshot.ui?.disclosures||{};
+    const hasSavedSupplementState=Object.prototype.hasOwnProperty.call(savedDisclosures,'cf-input-context-details');
     const supplement=document.getElementById('cf-input-context-details');
-    if(supplement&&(restoredScript.trim()||restoredContext.assetRefs?.length||restoredContext.reference||restoredContext.article||restoredContext.repo))supplement.open=true;
+    if(supplement&&!hasSavedSupplementState&&(restoredScript.trim()||restoredContext.assetRefs?.length||restoredContext.reference||restoredContext.article||restoredContext.repo))
+      supplement.open=true;
+
+    // Historical records predating disclosure persistence should reveal restored
+    // advanced settings. A modern snapshot's explicit collapsed state is authoritative.
+    const hasSavedAdvancedState=Object.prototype.hasOwnProperty.call(savedDisclosures,'cf-manual-options');
+    const legacyOptions=historySnapshot.request_options||{};
+    const hasLegacyAdvancedSettings=Object.values(legacyOptions).some(value=>
+      value!==undefined&&value!==null&&value!==''
+    );
+    const hasExplicitAdvancedSettings=(window.CF?.explicitFields?.size||0)>0;
+    const advanced=document.getElementById('cf-manual-options');
+    if(advanced&&!hasSavedAdvancedState&&(hasLegacyAdvancedSettings||hasExplicitAdvancedSettings))
+      advanced.open=true;
     await saveNow();
     const status=document.getElementById('cf-draft-status');if(status)status.textContent='已恢复历史对话为新草稿；原记录不会被覆盖。';
     const list=document.getElementById('cf-history-list');if(list)list.innerHTML='<div class="ok-box">已恢复为新草稿，原历史对话不会被覆盖。</div>';

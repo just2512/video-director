@@ -819,6 +819,7 @@ def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monk
                 assert page.locator("#cf-style").input_value() == "旧版纪录片风格"
                 assert page.locator("#cf-visual-source").input_value() == "local"
                 assert page.locator("#cf-voice-mode").input_value() == "upload"
+                assert page.locator("#cf-manual-options").evaluate("(node) => node.open")
                 assert page.locator("#cf-voice-upload-wrap").is_visible()
                 assert page.evaluate("window.CF_DRAFT_CONTEXT.narrationUpload") == "staged-audio/legacy-narration.wav"
                 assert page.evaluate("window._cfNarrationUpload") == "staged-audio/legacy-narration.wav"
@@ -830,6 +831,61 @@ def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monk
         server.server_close()
         thread.join(timeout=5)
 
+
+
+
+def test_history_restore_preserves_explicitly_collapsed_advanced_settings(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.create_conversation(
+            conversation_id="conv-modern-collapsed-advanced",
+            title="保留历史设置的折叠状态",
+            snapshot={
+                "form": {
+                    "fields": {
+                        "cf-director-brief": "历史文案目标",
+                        "cf-script": "历史权威文案",
+                        "cf-voice-mode": "upload",
+                    },
+                    "explicit_fields": ["voice_mode"],
+                    "context": {"asset_refs": [], "narration_upload": "audio/voice.wav"},
+                    "ui": {
+                        "disclosures": {
+                            "cf-input-context-details": False,
+                            "cf-manual-options": False,
+                        }
+                    },
+                }
+            },
+        )
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.locator("#director-history-launch").click()
+                page.locator("#cf-history-list button[data-conversation-id='conv-modern-collapsed-advanced']").click()
+                page.wait_for_function(
+                    "document.querySelector('#cf-history-list [data-history-action=\"restore\"]') !== null"
+                )
+                page.locator('#cf-history-list button[data-history-action="restore"]').click()
+                page.wait_for_function("""() =>
+                    document.getElementById('cf-script')?.value === '历史权威文案'
+                    && document.getElementById('cf-voice-mode')?.value === 'upload'
+                """, timeout=10000)
+                assert not page.locator("#cf-input-context-details").evaluate("(node) => node.open")
+                assert not page.locator("#cf-manual-options").evaluate("(node) => node.open")
+                assert not page.locator("#cf-voice-upload-wrap").is_visible()
+                assert page.evaluate("window._cfNarrationUpload") == "audio/voice.wav"
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 def test_open_associated_project_closes_history_drawer_before_create_panel(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
