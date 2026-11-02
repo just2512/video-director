@@ -136,7 +136,8 @@ function cfResetProjectPrefillState(projectId){
   }
 
   window.CF_DRAFT_CONTEXT={
-    assetRefs:[],reference:null,article:null,repo:null,narrationUpload:'',projectId:String(projectId||'')
+    assetRefs:[],reference:null,article:null,repo:null,narrationUpload:'',
+    projectId:String(projectId||''),projectPrefillBaseline:null
   };
   window._cfReference=null;
   window._cfReferenceFileObject=null;
@@ -314,6 +315,8 @@ async function cfPrefillFromProject(pid){
     const restoredScript=(document.getElementById('cf-script')||{}).value||'';
     if(supplement&&(restoredScript.trim()||refs.length||window._cfReference||window._cfArticle||window._cfRepo))supplement.open=true;
     if(requestId!==_cfProjectPrefillRequest)return {ok:false,stale:true};
+    if(typeof window.cfCaptureProjectPrefillBaseline==='function')
+      window.cfCaptureProjectPrefillBaseline();
     if(typeof window.cfPersistCreateDraftNow==='function'){
       const saved=await window.cfPersistCreateDraftNow();
       if(!saved||!saved.ok)throw new Error(saved?.error||'项目草稿保存失败');
@@ -1510,7 +1513,7 @@ Object.assign(window, {
 
 
 /* Durable Create lifecycle: never destroy a draft on backdrop clicks or temporary dismissal. */
-window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:null,article:null,repo:null,narrationUpload:''};
+window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:null,article:null,repo:null,narrationUpload:'',projectPrefillBaseline:null};
 (function installCreateLifecycle(){
   const baseOpen=window.openCreate, baseClose=window.closeCreate;
   if(typeof baseOpen!=='function'||typeof baseClose!=='function')return;
@@ -1551,7 +1554,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       article:c.article||window._cfArticle||null,
       repo:c.repo||window._cfRepo||null,
       narration_upload:c.narrationUpload||window._cfNarrationUpload||'',
-      project_id:c.projectId||''
+      project_id:c.projectId||'',
+      project_prefill_baseline:c.projectPrefillBaseline||null
     },ui:{disclosures:Object.fromEntries(Array.from(document.querySelectorAll('#cf-form details[id]')).map(node=>[node.id,!!node.open]))}};
   }
   function draftPersistenceBlocked(){
@@ -1580,6 +1584,22 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       return {ok:localSaved,localOnly:localSaved,error:String(e)};
     }
   }
+  window.cfCaptureProjectPrefillBaseline=function(){
+    const data=snapshot(),context=window.CF_DRAFT_CONTEXT||{};
+    const clone=value=>{
+      if(value===undefined||value===null)return null;
+      try{return JSON.parse(JSON.stringify(value));}catch(_){return null;}
+    };
+    context.projectPrefillBaseline={
+      fields:{...(data.fields||{})},
+      asset_refs:clone(context.assetRefs||[]),
+      reference:clone(context.reference||window._cfReference||null),
+      article:clone(context.article||window._cfArticle||null),
+      repo:clone(context.repo||window._cfRepo||null),
+      narration_upload:context.narrationUpload||window._cfNarrationUpload||''
+    };
+    return context.projectPrefillBaseline;
+  };
   window.cfPersistCreateDraftNow=saveNow;
   function scheduleSave(){
     if(draftPersistenceBlocked()){
@@ -1622,7 +1642,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(!contextDirty){
       const c=data.context||{};
       window.CF_DRAFT_CONTEXT={assetRefs:Array.isArray(c.asset_refs)?c.asset_refs:[],reference:c.reference||null,
-        article:c.article||null,repo:c.repo||null,narrationUpload:c.narration_upload||'',projectId:c.project_id||''};
+        article:c.article||null,repo:c.repo||null,narrationUpload:c.narration_upload||'',projectId:c.project_id||'',
+        projectPrefillBaseline:c.project_prefill_baseline||null};
       window._cfReference=c.reference||null;window._cfReferenceFileObject=null;
       window._cfArticle=c.article||null;window._cfRepo=c.repo||null;window._cfNarrationUpload=c.narration_upload||'';
       const summary=document.getElementById('cf-assets-summary');
@@ -2157,14 +2178,32 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       (context.asset_refs||[]).length||context.reference||context.article
       ||context.repo||context.narration_upload
     );
+    const baseline=context.project_prefill_baseline;
+    const sameJson=(left,right)=>JSON.stringify(left??null)===JSON.stringify(right??null);
+    let hasProjectChanges=false;
+    if(context.project_id){
+      if(!baseline||!baseline.fields){
+        // Legacy project drafts have no clean baseline; preserve them conservatively.
+        hasProjectChanges=true;
+      }else{
+        const baselineFields=baseline.fields||{};
+        const fieldIds=new Set([...Object.keys(fields),...Object.keys(baselineFields)]);
+        hasProjectChanges=[...fieldIds].some(id=>!sameJson(fields[id],baselineFields[id]));
+        hasProjectChanges=hasProjectChanges
+          ||!sameJson(context.asset_refs||[],baseline.asset_refs||[])
+          ||!sameJson(context.reference||null,baseline.reference||null)
+          ||!sameJson(context.article||null,baseline.article||null)
+          ||!sameJson(context.repo||null,baseline.repo||null)
+          ||!sameJson(context.narration_upload||'',baseline.narration_upload||'');
+      }
+    }
+    const hasNonProjectDraft=!!(
+      (Array.isArray(currentSnapshot?.explicit_fields)&&currentSnapshot.explicit_fields.length)
+      ||hasNonDefaultField||hasContext
+    );
     return !!(
       dirtyFields.size>0
-      ||(restoredDraftAvailable&&(
-        (Array.isArray(currentSnapshot?.explicit_fields)&&currentSnapshot.explicit_fields.length)
-        ||context.project_id
-        ||hasNonDefaultField
-        ||hasContext
-      ))
+      ||(restoredDraftAvailable&&(context.project_id?hasProjectChanges:hasNonProjectDraft))
     );
   }
 

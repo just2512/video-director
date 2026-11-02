@@ -448,7 +448,18 @@ def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, 
                 }""")
 
                 page.evaluate("""() => {
+                    window.__assetProjectSwitchConfirmMessages = [];
+                    window.confirm = message => {
+                      window.__assetProjectSwitchConfirmMessages.push(String(message));
+                      return true;
+                    };
                     const state = {settled: false, result: null, error: null};
+                    }""")
+                    .then(
+                        result => { state.settled = true; state.result = result; },
+                        error => { state.settled = true; state.error = String(error); }
+                    );
+                }""")
                     window.__projectAfterUploadState = state;
                     // Do not make Playwright's evaluate call wait on the async UI workflow.
                     // Its API requests and routed upload must continue to be dispatched by
@@ -516,6 +527,7 @@ def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, 
                 )
                 switch_state = page.evaluate("window.__projectAfterUploadState")
                 assert switch_state["error"] is None, switch_state["error"]
+                assert page.evaluate("window.__assetProjectSwitchConfirmMessages.length") == 1
                 assert switch_state["result"] == {"ok": True, "project_id": "project-after-upload"}
 
                 assert page.locator("#cf-assets-summary").text_content() == "未添加本地素材"
@@ -1269,6 +1281,79 @@ def test_direct_project_entry_confirms_before_replacing_saved_draft(tmp_path, mo
         thread.join(timeout=5)
 
 
+
+
+
+
+def test_project_draft_with_changes_from_prefill_baseline_prompts_after_reload(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.save_draft(
+            "active",
+            {
+                "version": 1,
+                "fields": {
+                    "cf-director-brief": "用户修改后的项目目标",
+                    "cf-script": "用户修改后的权威文案",
+                    "cf-platform": "xhs",
+                    "cf-scope": "single",
+                },
+                "explicit_fields": [],
+                "context": {
+                    "asset_refs": [],
+                    "project_id": "project-with-unsaved-draft",
+                    "project_prefill_baseline": {
+                        "fields": {
+                            "cf-director-brief": "原项目目标",
+                            "cf-script": "原项目文案",
+                            "cf-platform": "xhs",
+                            "cf-scope": "single",
+                        },
+                        "asset_refs": [],
+                        "reference": None,
+                        "article": None,
+                        "repo": None,
+                        "narration_upload": "",
+                    },
+                },
+            },
+        )
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            brief_requests: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/director/brief", lambda route: (
+                brief_requests.append(route.request.url) or route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({"ok": True, "brief": "新项目目标", "bundle": {}}),
+                )
+            ))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("""() => {
+                    window.__baselineConfirmMessages = [];
+                    window.confirm = message => {
+                      window.__baselineConfirmMessages.push(String(message));
+                      return false;
+                    };
+                }""")
+                result = page.evaluate("() => window.openCreate('different-project')")
+                assert result is False
+                assert page.locator("#cf-director-brief").input_value() == "用户修改后的项目目标"
+                assert page.locator("#cf-script").input_value() == "用户修改后的权威文案"
+                assert brief_requests == []
+                assert page.evaluate("window.__baselineConfirmMessages.length") == 1
+                assert "替换当前未提交草稿" in page.evaluate("window.__baselineConfirmMessages[0]")
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def test_cleared_submitted_draft_does_not_prompt_from_stale_project_context(tmp_path, monkeypatch):
