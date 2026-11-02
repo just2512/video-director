@@ -401,7 +401,7 @@ def parse_edit_instruction_llm(instruction: str, storyboard: dict, llm_call) -> 
         "text 改文案；scale 是画面缩放倍率，必须是 0.2 到 3.0 的数字；"
         "duration_delta 是场景时长变化秒数，可正可负，绝对值不得超过 60 秒。"
         "同一场景允许同时修改多个字段。用户没要求的字段不要输出。"
-        "无法表达或目标不明确时输出空对象 {{}}。"
+        "无法表达或目标不明确时输出空对象 {}。"
     )
     try:
         raw = llm_call(prompt)
@@ -436,26 +436,27 @@ def parse_edit_instruction_llm(instruction: str, storyboard: dict, llm_call) -> 
                 edits["reorder"] = ids
         elif k in valid_ids and isinstance(v, dict):
             sub = {}
-            if v.get("asset"):
-                sub["asset"] = str(v["asset"])
+            asset_id = v.get("asset")
+            if isinstance(asset_id, str) and asset_id.strip() in asset_pool:
+                sub["asset"] = asset_id.strip()
             if isinstance(v.get("text"), str) and v["text"].strip():
                 sub["text"] = v["text"].strip()
-            scale = v.get("scale")
-            if (
-                isinstance(scale, (int, float))
-                and not isinstance(scale, bool)
-                and math.isfinite(float(scale))
-                and 0.2 <= float(scale) <= 3.0
-            ):
-                sub["scale"] = round(float(scale), 3)
-            duration_delta = v.get("duration_delta")
-            if (
-                isinstance(duration_delta, (int, float))
-                and not isinstance(duration_delta, bool)
-                and math.isfinite(float(duration_delta))
-                and abs(float(duration_delta)) <= 60.0
-            ):
-                sub["duration_delta"] = round(float(duration_delta), 3)
+
+            def finite_number(value):
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    return None
+                try:
+                    number = float(value)
+                except (OverflowError, ValueError):
+                    return None
+                return number if math.isfinite(number) else None
+
+            scale = finite_number(v.get("scale"))
+            if scale is not None and 0.2 <= scale <= 3.0:
+                sub["scale"] = round(scale, 3)
+            duration_delta = finite_number(v.get("duration_delta"))
+            if duration_delta is not None and abs(duration_delta) <= 60.0:
+                sub["duration_delta"] = round(duration_delta, 3)
             if sub:
                 edits[k] = sub
     return edits

@@ -111,6 +111,7 @@ def test_llm_parser_keeps_numeric_and_text_edits_in_the_same_scene():
     assert len(prompts) == 1
     assert '"scale"' in prompts[0] and '"duration_delta"' in prompts[0]
     assert '{"remove"' in prompts[0] and '{{' not in prompts[0], prompts[0]
+    assert '空对象 {}' in prompts[0]
     assert edits == {
         "S02": {
             "text": "产品近景",
@@ -139,7 +140,8 @@ def test_llm_parser_rejects_non_finite_or_out_of_contract_numeric_edits():
         lambda _prompt: json.dumps({
             "S02": {
                 "text": "保留有效文案",
-                "scale": 99,
+                "asset": "invented-asset-id",
+                "scale": 10 ** 1000,
                 "duration_delta": float("nan"),
             },
             "S99": {"scale": 1.5, "duration_delta": 1.0},
