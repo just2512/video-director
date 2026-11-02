@@ -134,3 +134,46 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
     assert persisted_manifest["source_snapshot_sha256"] == __import__("hashlib").sha256(
         persisted_snapshot.encode("utf-8")
     ).hexdigest()
+
+def test_unknown_nested_composition_fields_are_archived_but_never_rehydrated(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "migration-unknown-field-archive"
+    root = config.project_dir(project_id)
+    plans = root / "plans"
+    plans.mkdir(parents=True, exist_ok=True)
+
+    raw = {
+        "project": {"width": 320, "height": 180, "fps": 24, "duration": 1},
+        "scenes": [{
+            "id": "scene-unknown-field", "start": 0, "duration": 1, "text": "archive only",
+            "layers": [{
+                "id": "layer-unknown-field", "type": "image", "start": 0, "duration": 1,
+                "future_blend_mode": {"mode": "spectral", "strength": 0.75},
+            }],
+        }],
+        "future_project_contract": {
+            "schema": "composition-next",
+            "must_not_execute": ["blend", "camera"],
+        },
+    }
+    ir = CompositionIR.model_validate(raw)
+    # Simulate a persisted document written by a newer/foreign producer. The
+    # current Pydantic model intentionally ignores these unknown extension keys.
+    (plans / "composition.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+
+    result = fd.build_film_from_composition(project_id, ir)
+    archived = json.loads(result["pages"]["migration/source-composition.json"])
+    assert archived["future_project_contract"] == raw["future_project_contract"]
+    assert archived["scenes"][0]["layers"][0]["future_blend_mode"] == {
+        "mode": "spectral", "strength": 0.75,
+    }
+    warning_text = "\\n".join(result["warnings"])
+    assert "CompositionIR.future_project_contract" in warning_text
+    assert "CompositionIR.scenes[0].layers[0].future_blend_mode" in warning_text
+    assert "完整原始值已归档" in warning_text
+
+    film_html = fd.serialize_film(result["document"])
+    assert "future_project_contract" not in film_html
+    assert "future_blend_mode" not in film_html
+    assert "spectral" not in film_html
