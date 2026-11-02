@@ -1704,8 +1704,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       liveContext.narrationUpload=liveContext.narrationUpload||window._cfNarrationUpload||'';
       window._cfNarrationUpload=liveContext.narrationUpload;
     }
-    liveContext.projectId=c.project_id||liveContext.projectId||'';
-    liveContext.projectPrefillBaseline=c.project_prefill_baseline||liveContext.projectPrefillBaseline||null;
+    liveContext.projectId=c.project_id||'';
+    liveContext.projectPrefillBaseline=c.project_prefill_baseline||null;
     const summary=document.getElementById('cf-assets-summary');
     if(summary)summary.textContent=liveContext.assetRefs.length?
       '已暂存 '+liveContext.assetRefs.length+' 个素材，可直接用于创作':'未添加本地素材';
@@ -1751,6 +1751,12 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
           const st=document.getElementById('cf-draft-status');
           if(st)st.textContent=useLocal?'已恢复本机草稿，正在同步到项目服务':'已恢复上次保存的创作草稿';
           if(useLocal)draftRestoreNeedsSync=true;
+        }else if(!remoteError&&!dirtyFields.size){
+          // A finalized/submitted conversation may leave its last context object in memory.
+          // When neither server nor local draft exists, a new create session starts clean.
+          cfResetProjectPrefillState('');
+          const st=document.getElementById('cf-draft-status');
+          if(st)st.textContent='暂无已保存的创作草稿，可直接开始新创作。';
         }else if(remoteError){
           const st=document.getElementById('cf-draft-status');
           if(st)st.textContent='服务端读取失败；没有可恢复的本机草稿：'+(remoteError.message||remoteError);

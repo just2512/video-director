@@ -1144,6 +1144,127 @@ def test_draft_restore_merges_context_sources_independently_during_asset_upload(
         thread.join(timeout=5)
 
 
+
+
+def test_local_only_draft_is_synced_to_server_after_restore_finishes(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("""() => {
+                    const data = {
+                      version:1,
+                      fields:{
+                        'cf-director-brief':'仅本机保存的创作目标',
+                        'cf-script':'仅本机保存的权威文案',
+                        'cf-platform':'xhs'
+                      },
+                      explicit_fields:[],
+                      context:{
+                        asset_refs:[],reference:null,article:null,repo:null,
+                        narration_upload:'',project_id:'',project_prefill_baseline:null
+                      },
+                      ui:{disclosures:{'cf-input-context-details':false}}
+                    };
+                    localStorage.setItem('video-director:create-draft:v1', JSON.stringify({
+                      version:1,saved_at:Date.now()+60000,data
+                    }));
+                    window.__localRestoreState={done:false};
+                    window.__localRestorePromise=openCreate().finally(()=>{
+                      window.__localRestoreState.done=true;
+                    });
+                    return true;
+                }""")
+                page.wait_for_function("window.__localRestoreState?.done === true", timeout=10000)
+                page.wait_for_function("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    const data = (await response.json())?.draft?.data || {};
+                    return data.fields?.['cf-director-brief'] === '仅本机保存的创作目标'
+                      && data.fields?.['cf-script'] === '仅本机保存的权威文案'
+                      && data.fields?.['cf-platform'] === 'xhs';
+                }""", timeout=10000)
+                persisted=director_history.get_draft("active")
+                assert persisted and persisted["data"]["fields"]["cf-platform"] == "xhs"
+                assert page.locator("#cf-director-brief").input_value() == "仅本机保存的创作目标"
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_new_create_after_finalizing_old_project_clears_in_memory_project_context(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        brief_requests: list[str] = []
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/director/brief", lambda route: (
+                brief_requests.append(route.request.url) or route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({
+                        "ok":True,
+                        "brief":"旧项目的创作目标",
+                        "bundle":{
+                            "script":{"text":"旧项目权威文案","source":"user"},
+                            "assets":{"asset_refs":[{"asset_id":"asset-old-project","type":"image","file":"old.png"}]},
+                            "references":[{"url":"https://example.test/old-reference","title":"旧参考"}],
+                            "articles":[{"source_url":"https://example.test/old-article","title":"旧文章"}],
+                            "software_project":{"root":"D:/old-project","name":"旧仓库"},
+                        },
+                        "spec_settings":{},
+                    }),
+                )
+            ))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("openCreate('old-project')")
+                page.wait_for_function("""() =>
+                    window.CF_DRAFT_CONTEXT?.projectId === 'old-project'
+                    && window.CF_DRAFT_CONTEXT?.assetRefs?.length === 1
+                    && window.CF_DRAFT_CONTEXT?.reference?.url === 'https://example.test/old-reference'
+                """, timeout=10000)
+                page.evaluate("window.cfFinalizeCreateDialog()")
+                page.evaluate("""() => {
+                    window.__newCreateRestore={done:false};
+                    window.__newCreatePromise=openCreate().finally(()=>{
+                      window.__newCreateRestore.done=true;
+                    });
+                }""")
+                page.wait_for_function("window.__newCreateRestore?.done === true", timeout=10000)
+                page.wait_for_function("""() => {
+                    const context=window.CF_DRAFT_CONTEXT;
+                    return context?.projectId === ''
+                      && context?.projectPrefillBaseline === null
+                      && context?.assetRefs?.length === 0
+                      && context?.reference === null
+                      && context?.article === null
+                      && context?.repo === null
+                      && context?.narrationUpload === '';
+                }""", timeout=10000)
+                assert page.locator("#cf-director-brief").input_value() == ""
+                assert page.locator("#cf-script").input_value() == ""
+                assert director_history.get_draft("active") is None
+                assert len(brief_requests) == 1
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
 def test_pending_history_restore_is_cancelled_when_user_selects_another_conversation(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:
