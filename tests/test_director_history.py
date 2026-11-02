@@ -1,3 +1,5 @@
+import re
+
 from video_director import config, director_history, workflow_run
 
 
@@ -184,8 +186,8 @@ def test_create_dialog_lifecycle_and_single_style_catalog():
     assert "const isProgress=!!document.getElementById('cf-progress')" in source
     assert "await saving;" in source
     assert "window.CF_DEFAULTS_READY = createLoadDefaults();" in source
-    assert "if(window.CF_DEFAULTS_READY) await window.CF_DEFAULTS_READY;" in source
-    assert "if (window.CF_DEFAULTS_READY) await window.CF_DEFAULTS_READY;" in source
+    assert re.search(r"if\s*\(\s*window\.CF_DEFAULTS_READY\s*\)\s*await\s+window\.CF_DEFAULTS_READY\s*;", source)
+
     assert "cfClearSavedDraft" in source
     assert "window.CF_DRAFT_CONTEXT.assetRefs = refs" in source
     assert 'if(!scriptActions?.contains(button))button.remove();' in source
