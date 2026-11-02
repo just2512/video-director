@@ -441,8 +441,21 @@ def test_close_create_cancels_inflight_project_prefill_and_restores_previous_dra
                 page.evaluate("() => { window.__slowCloseProjectPromise = openCreate('project-slow-close'); }")
                 held_route = _wait_for_deferred_route(page, deferred, "route")
 
-                # Close remains available while the project request is pending.
-                page.evaluate("() => { void closeCreate(); }")
+                # Closing must finish without waiting for the delayed project request.
+                page.evaluate("closeCreate()")
+                assert deferred.get("route") is held_route
+                page.wait_for_function("""async () => {
+                    const mask=document.getElementById('cf-mask');
+                    const response=await fetch('/api/director/drafts/active',{cache:'no-store'});
+                    const result=await response.json();
+                    const data=result?.draft?.data||{};
+                    return mask?.style.display === 'none'
+                      && document.getElementById('cf-director-brief')?.value === '收起前必须保留的创作目标'
+                      && document.getElementById('cf-script')?.value === '收起前必须保留的权威文案'
+                      && data.fields?.['cf-director-brief'] === '收起前必须保留的创作目标'
+                      && data.fields?.['cf-script'] === '收起前必须保留的权威文案'
+                      && !data.context?.project_id;
+                }""", timeout=10000)
                 held_route.fulfill(
                     status=200,
                     content_type="application/json",
@@ -460,11 +473,10 @@ def test_close_create_cancels_inflight_project_prefill_and_restores_previous_dra
                 deferred.pop("route", None)
                 page.evaluate("async () => await window.__slowCloseProjectPromise")
                 page.wait_for_function("""async () => {
-                    const mask=document.getElementById('cf-mask');
                     const response=await fetch('/api/director/drafts/active',{cache:'no-store'});
                     const result=await response.json();
                     const data=result?.draft?.data||{};
-                    return mask?.style.display === 'none'
+                    return document.getElementById('cf-mask')?.style.display === 'none'
                       && document.getElementById('cf-director-brief')?.value === '收起前必须保留的创作目标'
                       && document.getElementById('cf-script')?.value === '收起前必须保留的权威文案'
                       && data.fields?.['cf-director-brief'] === '收起前必须保留的创作目标'

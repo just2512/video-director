@@ -1951,7 +1951,9 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     // cfPrefillFromProject checks this generation after every awaited request.
     _cfProjectPrefillRequest++;
     transaction.cancelPromise=(async()=>{
-      try{if(transaction.promise)await transaction.promise;}catch(_){}
+      // Do not wait for the project brief request: its generation checks make
+      // any later response inert. If its final draft POST was already queued,
+      // saveNow() appends the rollback after it on the serialized save chain.
       if(activeProjectPrefill!==transaction)return {ok:true,cancelled:true,stale:true};
       cfResetProjectPrefillState(transaction.previousProjectId);
       applySnapshot(transaction.snapshot);
