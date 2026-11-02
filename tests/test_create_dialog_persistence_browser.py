@@ -454,12 +454,6 @@ def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, 
                       return true;
                     };
                     const state = {settled: false, result: null, error: null};
-                    }""")
-                    .then(
-                        result => { state.settled = true; state.result = result; },
-                        error => { state.settled = true; state.error = String(error); }
-                    );
-                }""")
                     window.__projectAfterUploadState = state;
                     // Do not make Playwright's evaluate call wait on the async UI workflow.
                     // Its API requests and routed upload must continue to be dispatched by
