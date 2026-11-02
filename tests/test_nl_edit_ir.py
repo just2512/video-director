@@ -83,3 +83,65 @@ def test_scale_hint_lands_in_ir_layers():
     assert ir.scenes[1].layers[0].transform.x == 0.5
     # 无 hint 的场景不动
     assert ir.scenes[0].layers[0].transform is None
+
+
+def test_llm_parser_keeps_numeric_and_text_edits_in_the_same_scene():
+    """LLM parsing must not drop scale/duration when it also returns text edits."""
+    import json
+
+    from video_director.confirm import parse_edit_instruction_llm, apply_storyboard_edits
+
+    prompts = []
+
+    def llm_call(prompt):
+        prompts.append(prompt)
+        return json.dumps({
+            "S02": {
+                "text": "产品近景",
+                "scale": 1.6,
+                "duration_delta": 2.0,
+            }
+        }, ensure_ascii=False)
+
+    edits = parse_edit_instruction_llm(
+        "第二段产品放大，并把旁白改为产品近景，同时延长两秒",
+        _sb(),
+        llm_call,
+    )
+    assert len(prompts) == 1
+    assert '"scale"' in prompts[0] and '"duration_delta"' in prompts[0]
+    assert edits == {
+        "S02": {
+            "text": "产品近景",
+            "scale": 1.6,
+            "duration_delta": 2.0,
+        }
+    }, edits
+
+    preview = apply_storyboard_edits(_sb(), edits)
+    scene = next(item for item in preview["scenes"] if item["scene_id"] == "S02")
+    assert scene["text"] == "产品近景"
+    assert scene["scale_hint"] == 1.6
+    assert scene["duration"] == 6.0
+    assert preview["total_duration"] == 14.0
+
+
+def test_llm_parser_rejects_non_finite_or_out_of_contract_numeric_edits():
+    """Model output is untrusted: invalid numeric values are ignored, valid text remains."""
+    import json
+
+    from video_director.confirm import parse_edit_instruction_llm
+
+    edits = parse_edit_instruction_llm(
+        "第二段修改",
+        _sb(),
+        lambda _prompt: json.dumps({
+            "S02": {
+                "text": "保留有效文案",
+                "scale": 99,
+                "duration_delta": float("nan"),
+            },
+            "S99": {"scale": 1.5, "duration_delta": 1.0},
+        }, ensure_ascii=False),
+    )
+    assert edits == {"S02": {"text": "保留有效文案"}}, edits

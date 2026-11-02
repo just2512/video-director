@@ -53,7 +53,7 @@ AI Video Director / Personal Video Production System。输入：内容 + 素材�
 - [x] E2 Gate B 动态草稿（render_draft 半分辨率 + WebUI 内嵌 `<video>` 播放）
 - [x] E3 确认渲染（resume_after_confirm / finalize_after_review）
 - [x] E4 AI 编辑与人工编辑同一份 Composition IR
-- [ ] E5 自然语言修改→Composition（"把产品放大一点"→scale↑），当前只有结构化 edits，待接 LLM 自然语言解析
+- [x] E5 自然语言修改→Composition：`/api/revision` 已接入 `parse_edit_instruction_llm`，规则解析兜底；支持素材/文案/删场景/重排及 scale/duration_delta 数值修改。LLM 同场景多字段解析与数值边界由 `tests/test_nl_edit_ir.py` 覆盖。
 
 ### F. 镜头语言与注册表（v1.2 §36）
 - [x] F1 Shot Recipe 卡带完整字段（用途/适合内容/输入/motion/transition/audio/限制）
