@@ -870,11 +870,15 @@ def test_scope_change_during_draft_restore_preserves_other_saved_fields(tmp_path
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             errors: list[str] = []
             deferred: dict[str, object] = {}
+            draft_posts: list[dict] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
 
             def hold_draft_read(route):
                 if route.request.method == "GET" and "read" not in deferred:
                     deferred["read"] = route
+                elif route.request.method == "POST":
+                    draft_posts.append(json.loads(route.request.post_data or "{}"))
+                    route.continue_()
                 else:
                     route.continue_()
 
@@ -900,15 +904,16 @@ def test_scope_change_during_draft_restore_preserves_other_saved_fields(tmp_path
                     && document.querySelector('input[name="cf-scope"]:checked')?.value === 'series'
                     && document.getElementById('cf-series-options')?.style.display !== 'none'
                 """, timeout=10000)
-                page.wait_for_function("""async () => {
-                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
-                    const data = (await response.json())?.draft?.data || {};
-                    return data.fields?.['cf-scope'] === 'series'
-                      && data.fields?.['cf-director-brief'] === '服务端原有创作目标'
-                      && data.fields?.['cf-script'] === '服务端原有权威文案';
-                }""", timeout=10000)
+                # The restore promise includes the merged server write. It must not
+                # resolve while that write is still waiting behind the debounce timer.
+                assert draft_posts, "restore completed without posting the merged draft"
+                assert draft_posts[-1]["data"]["fields"]["cf-scope"] == "series"
+                assert draft_posts[-1]["data"]["fields"]["cf-director-brief"] == "服务端原有创作目标"
+                assert draft_posts[-1]["data"]["fields"]["cf-script"] == "服务端原有权威文案"
                 persisted = director_history.get_draft("active")
                 assert persisted and persisted["data"]["fields"]["cf-scope"] == "series"
+                assert persisted["data"]["fields"]["cf-director-brief"] == "服务端原有创作目标"
+                assert persisted["data"]["fields"]["cf-script"] == "服务端原有权威文案"
                 assert not errors
             finally:
                 browser.close()

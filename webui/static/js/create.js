@@ -1768,7 +1768,12 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         draftRestorePending=false;
         if(dirtyFields.size||draftRestoreNeedsSync){
           draftRestoreNeedsSync=false;
-          scheduleSave();
+          if(timer){clearTimeout(timer);timer=null;}
+          const saved=await saveNow();
+          if(!saved?.ok){
+            const st=document.getElementById('cf-draft-status');
+            if(st)st.textContent='草稿已恢复到界面，但服务端同步未完成；本机副本仍保留。';
+          }
         }
       }
     })();
