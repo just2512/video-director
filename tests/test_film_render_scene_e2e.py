@@ -860,3 +860,116 @@ window.film = {
     assert raised.value.code == "FRAME_RENDER_FAILED"
     assert "scene-opening" in str(raised.value)
     assert "intentional scene frame failure" in str(raised.value)
+
+def test_migrated_project_external_revision_reopen_look_and_mp4_qc_share_one_revision(
+    tmp_path, monkeypatch,
+):
+    """A migrated project must render/QC the exact externally edited revision after reopen."""
+    pytest.importorskip("playwright.sync_api")
+    from video_director import config, film_document as fd, film_render, prober, renderer
+    from video_director.project_context import inspect_project_context
+
+    try:
+        renderer._ffmpeg()
+    except Exception as exc:  # pragma: no cover - environment-dependent binary
+        pytest.skip(f"FFmpeg is unavailable in this environment: {exc}")
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    project_id = "migrated-external-revision-render"
+    project_root = config.project_dir(project_id)
+    assets = project_root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (160, 90), (32, 80, 144)).save(assets / "migration-still.png")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "migration-still", "file": "assets/migration-still.png", "type": "image"},
+    ]), encoding="utf-8")
+
+    from video_director import editor
+    from video_director.models import CompositionIR
+
+    ir = CompositionIR.model_validate({
+        "project": {"width": 160, "height": 90, "fps": 2, "duration": 1.0},
+        "scenes": [{
+            "id": "scene-migrated-render", "start": 0, "duration": 1.0,
+            "text": "迁移后导出", "layers": [{
+                "id": "layer-migrated-render", "type": "image",
+                "asset_id": "migration-still", "start": 0, "duration": 1.0,
+            }],
+        }],
+    })
+    migration = fd.build_film_from_composition(project_id, ir)
+    monkeypatch.setattr(editor, "composition_version", lambda _pid: 1)
+    initialized = fd.initialize_project_film(
+        project_id, migration["document"], migration["pages"], 1, migration["warnings"]
+    )
+    assert initialized["ok"] is True
+
+    archive = project_root / "migration" / "source-composition.json"
+    archive_bytes = archive.read_bytes()
+    archive_digest = __import__("hashlib").sha256(archive_bytes).hexdigest()
+    manifest = json.loads((project_root / fd.MIGRATION_NAME).read_text(encoding="utf-8"))
+    assert manifest["source_snapshot_sha256"] == archive_digest
+
+    initial = fd.read_project_film(project_id)
+    assert initial["rev"] == initialized["rev"]
+    clip_ids = [
+        clip["id"] for track in initial["doc"]["tracks"] for clip in track["clips"]
+    ]
+    assert len(clip_ids) == 1
+    clip_id = clip_ids[0]
+    before_context = inspect_project_context(project_id, {"type": "clip", "id": clip_id})
+    assert before_context["authority"] == "film.html"
+    assert before_context["revision"] == initial["rev"]
+    assert before_context["selection"]["ids"] == [clip_id]
+
+    # Simulate an external agent revision, then discard the in-memory state and reopen.
+    external_edit = fd.edit_project_film(
+        project_id,
+        initial["rev"],
+        [{"op": "set", "clip": clip_id, "field": "at", "value": "0.05"}],
+        require_base=True,
+        source="external-agent-revision-e2e",
+    )
+    assert external_edit["ok"] is True
+    assert external_edit["rev"] != initial["rev"]
+
+    reopened = fd.read_project_film(project_id)
+    assert reopened["rev"] == external_edit["rev"]
+    reopened_context = inspect_project_context(
+        project_id, {"type": "clip", "id": clip_id}
+    )
+    assert reopened_context["authority"] == "film.html"
+    assert reopened_context["revision"] == external_edit["rev"]
+    assert reopened_context["selection"]["ids"] == [clip_id]
+
+    look = film_render.look_project_film(
+        project_id, expected_revision=external_edit["rev"], times=[0.25, 0.75]
+    )
+    assert look["ok"] is True
+    assert look["revision"] == external_edit["rev"]
+    assert look["determinism_status"] == "PASS"
+    assert Path(look["image_path"]).is_file()
+
+    rendered = film_render.render_project_film(
+        project_id, expected_revision=external_edit["rev"], fps=2
+    )
+    mp4 = Path(rendered["mp4_path"])
+    qc_path = Path(rendered["qc_report_path"])
+    assert rendered["ok"] is True
+    assert rendered["rendered_revision"] == external_edit["rev"]
+    assert rendered["current_revision"] == external_edit["rev"]
+    assert rendered["current"] is True
+    assert rendered["determinism_status"] == "PASS"
+    assert mp4.is_file() and mp4.stat().st_size > 0
+    assert qc_path.is_file()
+    media = prober.probe_media(str(mp4))
+    assert media.has_video_stream is True
+    assert media.duration is not None and abs(float(media.duration) - 1.0) <= 0.2
+    qc = json.loads(qc_path.read_text(encoding="utf-8"))
+    assert qc["source_revision"] == external_edit["rev"]
+    assert qc["status"] == rendered["qc_status"]
+
+    # Render and QC must not rewrite the immutable source snapshot.
+    assert archive.read_bytes() == archive_bytes
+    assert __import__("hashlib").sha256(archive.read_bytes()).hexdigest() == archive_digest
+
