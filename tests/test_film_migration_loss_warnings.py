@@ -254,7 +254,7 @@ def test_migrated_film_document_lifecycle_preserves_authority_and_source_archive
     # the stale pre-migration document after FilmDocument takes authority.
     with __import__("pytest").raises(fd.FilmError) as legacy_write:
         fd.assert_legacy_composition_access(project_id, "迁移后旧 CompositionIR 写入")
-    assert legacy_write.value.code == "FILM_AUTHORITY_ACTIVE"
+    assert legacy_write.value.code == "FILM_DOCUMENT_AUTHORITATIVE"
 
     # User edits do not rewrite or invalidate the immutable source snapshot.
     assert archive_file.read_text(encoding="utf-8") == persisted_snapshot
