@@ -1933,11 +1933,24 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       '<button class="btn-sm" type="button" data-history-action="resume-draft">继续编辑</button></div>'+
       '<div class="hint" style="margin-top:6px">'+esc(preview)+'</div></div>';
   }
+  function cfHistoryInProgressMode(){
+    const form=document.getElementById('cf-form');
+    return !!(form&&form.style.display==='none'&&document.getElementById('cf-progress'));
+  }
+  function cfHistorySetNotice(message){
+    const notice=document.getElementById('cf-history-notice');
+    if(notice)notice.textContent=message||'';
+  }
   window.cfHistoryRefresh=async function(){
     const list=document.getElementById('cf-history-list');if(list)list.textContent='正在读取历史对话…';
+    const progressMode=cfHistoryInProgressMode();
+    cfHistorySetNotice(progressMode
+      ?'创作任务仍在执行。刷新历史不会保存或修改进度窗口中的隐藏表单。'
+      :'');
     try{
       const mask=document.getElementById('cf-mask');
-      if(mask&&mask.style.display!=='none'&&document.getElementById('cf-form')){
+      const form=document.getElementById('cf-form');
+      if(mask&&mask.style.display!=='none'&&form&&!progressMode){
         try{await persistImmediately();}catch(_){}
       }
       const [r,draftResult]=await Promise.all([
@@ -1960,7 +1973,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const drawer=document.createElement('aside');drawer.id='cf-history-drawer';
     drawer.setAttribute('role','complementary');drawer.setAttribute('aria-label','历史创作对话');
     drawer.style.cssText='position:fixed;top:58px;right:12px;bottom:12px;width:min(520px,calc(100vw - 24px));max-width:calc(100vw - 24px);z-index:13000;display:flex;flex-direction:column;box-sizing:border-box;padding:14px;background:var(--surface-1,#181818);color:var(--text,#eee);border:1px solid var(--border,#444);border-radius:10px;box-shadow:0 14px 44px rgba(0,0,0,.42)';
-    drawer.innerHTML='<div class="btn-row" style="align-items:center;margin:0"><b>草稿与历史对话</b><span class="tb-sep"></span><button class="btn-secondary btn-sm" type="button" id="cf-history-refresh">刷新</button><button class="btn-secondary btn-sm" type="button" id="cf-history-close">关闭</button></div><div id="cf-history-draft" style="margin-top:10px"></div><div id="cf-history-list" style="flex:1;min-height:0;overflow:auto;margin-top:4px" class="hint">正在读取…</div>';
+    drawer.innerHTML='<div class="btn-row" style="align-items:center;margin:0"><b>草稿与历史对话</b><span class="tb-sep"></span><button class="btn-secondary btn-sm" type="button" id="cf-history-refresh">刷新</button><button class="btn-secondary btn-sm" type="button" id="cf-history-close">关闭</button></div><div id="cf-history-draft" style="margin-top:10px"></div><div id="cf-history-notice" class="hint" role="status" aria-live="polite" style="margin-top:4px"></div><div id="cf-history-list" style="flex:1;min-height:0;overflow:auto;margin-top:4px" class="hint">正在读取…</div>';
     document.body.appendChild(drawer);
     drawer.querySelector('#cf-history-close').addEventListener('click',()=>drawer.remove());
     drawer.querySelector('#cf-history-refresh').addEventListener('click',()=>window.cfHistoryRefresh());
@@ -2042,10 +2055,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   }
 
   window.cfHistoryOpenAssociatedProject=async function(projectId){
-    const form=document.getElementById('cf-form');
-    if(form&&form.style.display==='none'&&document.getElementById('cf-progress')){
-      const status=document.getElementById('cf-status');
-      if(status)status.textContent='当前创作流程仍在运行，不能直接切换到其他项目。请先结束或停止当前流程。';
+    if(cfHistoryInProgressMode()){
+      cfHistorySetNotice('当前创作任务仍在执行，不能从历史记录切换项目。请等待任务结束，或先停止并返回编辑。');
       return false;
     }
     await window.openCreate();
@@ -2059,6 +2070,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
   };
 
   window.cfHistoryRestoreSnapshot=async function(id){
+    if(cfHistoryInProgressMode()){
+      cfHistorySetNotice('当前创作任务仍在执行，不能把历史对话恢复到隐藏的创作表单。请等待任务结束，或先停止并返回编辑。');
+      return false;
+    }
     const c=window._cfHistorySelected;if(!c||c.conversation_id!==id)return;
     const mask=document.getElementById('cf-mask');
     if(!document.getElementById('cf-form')||(mask&&mask.style.display==='none'))await window.openCreate();

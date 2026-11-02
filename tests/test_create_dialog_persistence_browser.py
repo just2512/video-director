@@ -834,6 +834,92 @@ def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monk
 
 
 
+
+
+def test_history_drawer_does_not_resave_or_replace_active_progress_form(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        director_history.create_conversation(
+            conversation_id="conv-during-active-progress",
+            project_id="project-must-not-prefill",
+            title="运行中不能替换",
+            initial_message="保留正在执行的任务",
+            snapshot={"form": {"fields": {"cf-director-brief": "历史目标"}}},
+        )
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            brief_requests: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            page.route("**/api/workflows/run-history-guard", lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"ok": True, "status": "RUNNING", "steps": []}),
+            ))
+            page.route("**/api/director/brief", lambda route: (
+                brief_requests.append(route.request.url) or route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({"ok": True, "brief": "错误的项目回填", "bundle": {}}),
+                )
+            ))
+            try:
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.evaluate("openCreate()")
+                page.locator("#cf-director-brief").fill("正在执行的任务输入")
+                page.locator("#cf-history-inline-launch").click()
+                page.locator("#cf-history-list button[data-conversation-id='conv-during-active-progress']").click()
+                page.wait_for_function(
+                    "document.querySelector('#cf-history-list [data-history-action=\"restore\"]') !== null"
+                )
+
+                page.evaluate("cfEnterProgressMode('run-history-guard')")
+                cleared = page.evaluate("window.cfClearSavedDraft()")
+                assert cleared["ok"] is True
+                page.locator("#cf-history-refresh").click()
+                page.wait_for_function(
+                    "document.querySelector('#cf-history-list button[data-conversation-id=\"conv-during-active-progress\"]') !== null"
+                )
+
+                active_draft = page.evaluate("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    return (await response.json())?.draft || null;
+                }""")
+                assert active_draft is None
+
+                page.locator("#cf-history-list button[data-conversation-id='conv-during-active-progress']").click()
+                page.wait_for_function(
+                    "document.querySelector('#cf-history-list [data-open-project=\"project-must-not-prefill\"]') !== null"
+                )
+                page.locator('#cf-history-list button[data-history-action="restore"]').click()
+                page.wait_for_function(
+                    "document.querySelector('#cf-history-notice')?.textContent.includes('仍在执行') === true"
+                )
+                assert page.locator("#cf-form").evaluate("(node) => node.style.display") == "none"
+                assert page.locator("#cf-progress").is_visible()
+                assert page.locator("#cf-director-brief").input_value() == "正在执行的任务输入"
+
+                page.locator('#cf-history-list [data-open-project="project-must-not-prefill"]').click()
+                page.wait_for_function(
+                    "document.querySelector('#cf-history-notice')?.textContent.includes('不能从历史记录切换项目') === true"
+                )
+                assert brief_requests == []
+                assert page.locator("#cf-form").evaluate("(node) => node.style.display") == "none"
+                assert page.locator("#cf-director-brief").input_value() == "正在执行的任务输入"
+                active_draft_after = page.evaluate("""async () => {
+                    const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
+                    return (await response.json())?.draft || null;
+                }""")
+                assert active_draft_after is None
+                assert not errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
 def test_history_restore_preserves_explicitly_collapsed_advanced_settings(tmp_path, monkeypatch):
     server, thread = _start_server(tmp_path, monkeypatch)
     try:
