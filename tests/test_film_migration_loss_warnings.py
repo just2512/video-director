@@ -142,13 +142,20 @@ def test_unknown_nested_composition_fields_are_archived_but_never_rehydrated(tmp
     root = config.project_dir(project_id)
     plans = root / "plans"
     plans.mkdir(parents=True, exist_ok=True)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "unknown-field-still", "file": "assets/still.png", "type": "image"},
+    ]), encoding="utf-8")
 
     raw = {
         "project": {"width": 320, "height": 180, "fps": 24, "duration": 1},
         "scenes": [{
             "id": "scene-unknown-field", "start": 0, "duration": 1, "text": "archive only",
             "layers": [{
-                "id": "layer-unknown-field", "type": "image", "start": 0, "duration": 1,
+                "id": "layer-unknown-field", "type": "image", "asset_id": "unknown-field-still",
+                "start": 0, "duration": 1,
                 "future_blend_mode": {"mode": "spectral", "strength": 0.75},
             }],
         }],
