@@ -200,7 +200,7 @@ def test_migrated_film_document_lifecycle_preserves_authority_and_source_archive
     ir = CompositionIR.model_validate({
         "project": {"width": 320, "height": 180, "fps": 24, "duration": 1},
         "scenes": [{
-            "id": "scene-lifecycle", "start": 0, "duration": 1, "text": "生命周期",
+            "id": "scene-opening", "start": 0, "duration": 1, "text": "生命周期",
             "layers": [{
                 "id": "lifecycle-layer", "type": "image", "asset_id": "lifecycle-image",
                 "start": 0, "duration": 1,
