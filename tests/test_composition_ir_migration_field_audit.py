@@ -10,9 +10,13 @@ AUDIT_PATH = Path(__file__).resolve().parents[1] / "docs" / "composition-ir-migr
 
 def test_every_composition_ir_top_level_field_has_an_explicit_audit_classification():
     audit = AUDIT_PATH.read_text(encoding="utf-8")
+    # Only inspect the top-level table. The recursive nested inventory below
+    # intentionally contains qualified paths such as `SceneIR.id`, which must
+    # not be mistaken for CompositionIR field names.
+    top_level_section = audit.split("## 嵌套字段逐字段库存（运行时模型递归）", 1)[0]
     rows = {
         line.split("|")[1].strip().strip("`")
-        for line in audit.splitlines()
+        for line in top_level_section.splitlines()
         if line.startswith("| `") and line.count("|") >= 3
     }
     model_fields = set(CompositionIR.model_fields)
