@@ -53,8 +53,13 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert "resolve_live_provider_override" in live_config_step
     assert "resolve_live_model_override" in live_config_step
     assert "id: live_stream_smoke" in ai_workflow
-    assert "if: ${{ false }}" in ai_workflow
-    assert "run the documented opt-in test locally" in ai_workflow
+    live_smoke = ai_workflow.split(
+        "      - name: Run isolated real-model token-stream acceptance test", 1
+    )[1].split("      - name: Install Remotion rendering runtime dependencies", 1)[0]
+    assert "steps.live_stream_config.outcome == 'success'" in live_smoke
+    assert "steps.live_provider_probe.outcome == 'success'" in live_smoke
+    assert "VD_LLM_LIVE_STREAM_TEST" in live_smoke
+    assert "run the documented opt-in test locally" not in live_smoke
     assert "steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped'" in ai_workflow
     assert "live-stream-junit.xml" in ai_workflow
     assert "env -u VD_LLM_API_KEY" in ai_workflow
@@ -149,7 +154,7 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
         "      - name: Probe NVIDIA streaming endpoint with a minimal prompt", 1
     )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
     assert 'timeout --signal=TERM --kill-after=5s 75s' in provider_probe
-    assert 'max_tokens=8' in provider_probe
+    assert 'max_tokens=512' in provider_probe
     assert 'endpoint_host == "integrate.api.nvidia.com" and config["model"].strip().lower() == "z-ai/glm-5.3-flash"' in provider_probe
     assert '"reasoning_effort": effort' in provider_probe
     assert '"chat_template_kwargs": {"clear_thinking": True}' in provider_probe
@@ -162,14 +167,12 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     live_smoke_step = ai_workflow.split(
         "      - name: Run isolated real-model token-stream acceptance test", 1
     )[1].split("      - name: Install Remotion rendering runtime dependencies", 1)[0]
-    # Real-provider acceptance is deliberately run locally by the developer.
-    # Normal CI skips the paid model request but must still run the browser,
-    # export, CLI/MCP, watcher and full-regression gates before publishing.
-    assert "if: ${{ false }}" in live_smoke_step
-    assert "documented opt-in test locally" in live_smoke_step
-    assert "VD_LLM_LIVE_STREAM_TEST" not in live_smoke_step
-    assert "steps.live_stream_config.outcome == 'success'" not in live_smoke_step
-    assert "steps.live_provider_probe.outcome == 'success'" not in live_smoke_step
+    # Explicitly opted-in real-provider acceptance runs only after config and
+    # upstream visible-token probe pass; ordinary CI remains uncharged.
+    assert "steps.live_stream_config.outcome == 'success'" in live_smoke_step
+    assert "steps.live_provider_probe.outcome == 'success'" in live_smoke_step
+    assert "VD_LLM_LIVE_STREAM_TEST" in live_smoke_step
+    assert "live-stream-junit.xml" in live_smoke_step
     assert "id: live_stream_smoke" in ai_workflow
     assert "steps.live_stream_config.outcome" in ai_workflow
     assert "steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped'" in ai_workflow
@@ -282,7 +285,7 @@ def test_studio_components_share_one_react_root_and_keep_portal_slots():
     ):
         assert f'"{surface}"' in component
 
-def test_live_model_stream_smoke_is_local_opt_in_and_default_ci_reports_missing():
+def test_live_model_stream_smoke_is_explicit_ci_opt_in_and_default_ci_reports_missing():
     """The live provider request is intentionally local; default CI must not fake a PASS."""
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
@@ -304,9 +307,10 @@ def test_live_model_stream_smoke_is_local_opt_in_and_default_ci_reports_missing(
     assert "VD_LLM_MODEL_CONFIG" in config_step
     assert "Opt-in live-model smoke is missing a complete key/base URL/model configuration." in config_step
     assert "raise SystemExit(1)" in config_step
-    assert "if: ${{ false }}" in live_step
-    assert "documented opt-in test locally" in live_step
-    assert "VD_LLM_LIVE_STREAM_TEST" not in live_step
+    assert "steps.live_stream_config.outcome == 'success'" in live_step
+    assert "steps.live_provider_probe.outcome == 'success'" in live_step
+    assert "VD_LLM_LIVE_STREAM_TEST" in live_step
+    assert "live-stream-junit.xml" in live_step
     assert "LIVE_STREAM_CONFIG_OUTCOME" in report_step
     assert "LIVE_STREAM_TEST_OUTCOME" in report_step
     assert "steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped'" in workflow
