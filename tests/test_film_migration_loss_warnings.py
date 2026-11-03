@@ -196,14 +196,19 @@ def test_unknown_fields_are_detected_through_nested_model_lists_and_transform_ob
     assets = root / "assets"
     assets.mkdir(parents=True, exist_ok=True)
     (assets / "still.png").write_bytes(b"not-decoded-by-migration")
-    (assets / "manifest.json").write_text(json.dumps([
-        {"id": "nested-asset", "file": "assets/still.png", "type": "image"},
-    ]), encoding="utf-8")
+    # The manifest deliberately omits this asset: AssetRef.id/file must be
+    # sufficient for the migration resolver to locate the referenced file.
+    (assets / "manifest.json").write_text("[]", encoding="utf-8")
 
     raw = {
         "project": {"width": 320, "height": 180, "fps": 24, "duration": 1},
         "assets": [{
             "id": "nested-asset", "type": "image", "file": "assets/still.png",
+            "duration": 3.5, "width": 640, "height": 360, "fps": 30,
+            "prompt": "a quiet studio", "description": "source still",
+            "keywords": ["studio", "product"], "source": "generated",
+            "license_note": "internal license", "provenance": {"provider": "test-provider"},
+            "rights_status": "CLEAR",
             "future_rights_contract": {"status": "review", "evidence": ["provider-note"]},
         }],
         "scenes": [{
@@ -254,6 +259,17 @@ def test_unknown_fields_are_detected_through_nested_model_lists_and_transform_ob
     for path in expected:
         assert path in warning_text, path
     assert archived["assets"][0]["future_rights_contract"] == raw["assets"][0]["future_rights_contract"]
+    main_track = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
+    image_clip = next(clip for clip in main_track["clips"] if clip["attrs"].get("data-asset-id") == "nested-asset")
+    assert image_clip["attrs"]["src"].startswith("assets/still.png#t=")
+    source_asset_metadata = json.loads(image_clip["attrs"]["data-source-asset-metadata"])
+    assert source_asset_metadata == {
+        "type": "image", "duration": 3.5, "width": 640, "height": 360, "fps": 30,
+        "prompt": "a quiet studio", "description": "source still",
+        "keywords": ["studio", "product"], "source": "generated",
+        "license_note": "internal license", "provenance": {"provider": "test-provider"},
+        "rights_status": "CLEAR",
+    }
     assert archived["scenes"][0]["layers"][0]["transform"]["future_curve"] == raw["scenes"][0]["layers"][0]["transform"]["future_curve"]
     assert archived["audio"][0]["future_audio_layout"] == raw["audio"][0]["future_audio_layout"]
     assert archived["camera_tracks"][0]["keyframes"][0]["future_easing_curve"] == raw["camera_tracks"][0]["keyframes"][0]["future_easing_curve"]
