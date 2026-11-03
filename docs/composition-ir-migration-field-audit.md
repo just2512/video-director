@@ -290,11 +290,11 @@
 | `VisualOverlayClip.x` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `VisualOverlayClip.y` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `VisualOverlayClip.z_index` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualTrack.hidden` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualTrack.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualTrack.locked` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualTrack.name` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualTrack.order` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `VisualTrack.hidden` | ARCHIVED_ONLY | 源轨 hidden 表示时间线折叠，不隐藏画面；写入 `data-source-track-hidden` 并产生 warning。`tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved` 验证。 |
+| `VisualTrack.id` | MAPPED | 通过 `VisualOverlayClip.track_id` 关联来源视觉轨道，写入 `data-source-track-id`；缺省/未知轨道走默认轨道回退。视觉轨道迁移测试验证。 |
+| `VisualTrack.locked` | MAPPED | 写入生成的 Film overlay 轨道 `attrs.locked`，运行时阻止该轨道编辑；`test_visual_source_track_order_identity_and_lock_are_preserved` 验证。 |
+| `VisualTrack.name` | MAPPED | 写入 Film overlay 轨道 `attrs.data-label`；视觉轨道迁移测试验证自定义名称。 |
+| `VisualTrack.order` | MAPPED | 决定 overlay 轨道生成顺序，并写入来源顺序 provenance；视觉轨道迁移测试验证顺序与 `data-source-track-order`。 |
 | `WatermarkLayer.anchor` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `WatermarkLayer.asset_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `WatermarkLayer.duration` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
