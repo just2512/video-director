@@ -76,4 +76,12 @@ if ($LASTEXITCODE -ne 0) {
 
 ## 当前 CI 策略
 
-`.github/workflows/ai-director.yml` 的真实模型请求是 opt-in，真实模型 smoke step 当前保持关闭；普通 push 只运行离线回归和 mock 协议验证，不自动消耗 NVIDIA 配额。用户本机执行本文件命令才是真实 Provider 验收证据。
+普通 push 不调用真实模型，不自动消耗 NVIDIA 配额。需要在已配置 NVIDIA 凭据的自托管 Runner 上执行真实验收时，使用一次性提交标记触发：
+
+```text
+[live-stream-smoke] [live-provider=nvidia] [live-model=z-ai/glm-5.3-flash]
+```
+
+该标记只影响本次 workflow：从 Runner 已保存的 `model_config.json` 读取 key（不打印、不写回），将 Provider 固定到 NVIDIA 官方 endpoint、模型固定到 `z-ai/glm-5.3-flash`，先执行最小 token 探测，再执行上面的完整真实模型 pytest。完整测试只在探测通过后启动；Provider 探测或真实测试失败时 CI 不得报告 PASS。密钥只传给隔离子进程，真实模型 JUnit 只保留脱敏后的测试结果。
+
+workflow 的真实模型验收入口仍然是 opt-in；未带标记的普通 push 应报告 MISSING，而不是把 mock 测试当作真实模型通过。
