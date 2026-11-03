@@ -85,3 +85,5 @@ if ($LASTEXITCODE -ne 0) {
 该标记只影响本次 workflow：从 Runner 已保存的 `model_config.json` 读取 key（不打印、不写回），将 Provider 固定到 NVIDIA 官方 endpoint、模型固定到 `z-ai/glm-5.3-flash`，先执行最小 token 探测，再执行上面的完整真实模型 pytest。完整测试只在探测通过后启动；Provider 探测或真实测试失败时 CI 不得报告 PASS。密钥只传给隔离子进程，真实模型 JUnit 只保留脱敏后的测试结果。
 
 workflow 的真实模型验收入口仍然是 opt-in；未带标记的普通 push 应报告 MISSING，而不是把 mock 测试当作真实模型通过。
+
+本次执行固定使用 `[live-stream-smoke] [live-provider=nvidia] [live-model=z-ai/glm-5.3-flash]` 触发一次真实验收；该标记不会改变持久化 Provider 配置。
