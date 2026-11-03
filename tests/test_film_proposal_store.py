@@ -46,8 +46,11 @@ def test_expired_proposal_is_rejected_and_pruned_without_wall_clock_sleep():
     now[0] = 114.999
     assert store.take("project-a", "proposal-expiry", "revision-1") is not None
 
+    # Use exactly representable integer timestamps for the TTL boundary; the
+    # decimal pair 114.999/129.999 can subtract to slightly less than 15.0.
+    now[0] = 115.0
     store.put("proposal-expiry-2", "project-a", "revision-1", [{"op": "remove", "clip": "clip-b"}])
-    now[0] = 129.999
+    now[0] = 130.0
     assert store.take("project-a", "proposal-expiry-2", "revision-1") is None
 
 
