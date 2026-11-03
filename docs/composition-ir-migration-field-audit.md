@@ -108,19 +108,19 @@
 | `Beat.layers` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Beat.role` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Beat.semantic_anchors` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CameraConstraint.kind` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CameraConstraint.target` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CameraKeyframe.at` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CameraKeyframe.easing` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CameraKeyframe.position` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CameraKeyframe.target` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `CameraConstraint.kind` | ARCHIVED_ONLY | 当前 2D FilmRuntime 不执行摄影机约束；CameraTrack 含 constraints 时整条摄影机轨不映射并产生 warning，原字段保留在 source-composition 快照。 |
+| `CameraConstraint.target` | ARCHIVED_ONLY | 当前 2D FilmRuntime 不解析约束目标；constraints 非空即阻断该摄影机轨映射，目标值只随来源快照保留。 |
+| `CameraKeyframe.at` | MAPPED | 线性正交俯视摄影机关键帧时间转换为每个 Film clip 的局部关键帧时间；`test_orthographic_camera_pan_maps_to_deterministic_film_keyframes` 验证。 |
+| `CameraKeyframe.easing` | MAPPED | 仅 `linear` 被接受并写入 Film `camera_x/camera_y` 关键帧；非线性缓动整条 camera 迁移拒绝并 warning，不做曲线近似。 |
+| `CameraKeyframe.position` | ARCHIVED_ONLY | 用于验证三维坐标、归一 x/y 和固定俯视方向；不直接写入 Film camera channel，z/方向语义留在来源快照。 |
+| `CameraKeyframe.target` | MAPPED | 仅 target.x/target.y 映射为 Film `camera_x/camera_y` 线性关键帧；target.z 不映射。测试验证两轴数值与时间。 |
 | `CameraState.position` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `CameraState.target` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CameraTrack.constraints` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CameraTrack.follow_target` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CameraTrack.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CameraTrack.keyframes` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CameraTrack.projection` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `CameraTrack.constraints` | ARCHIVED_ONLY | 非空 constraints 会阻断整条 CameraTrack 的 2D 迁移并产生 warning；FilmRuntime 不执行约束，原值只在来源快照。 |
+| `CameraTrack.follow_target` | ARCHIVED_ONLY | 非空 follow_target 会阻断整条 CameraTrack 的独立 2D 迁移并产生 warning；不伪造目标跟随行为。 |
+| `CameraTrack.id` | ARCHIVED_ONLY | 用于迁移诊断/warning 标识，不作为 Film track 或 clip identity；来源快照保留原 ID。 |
+| `CameraTrack.keyframes` | MAPPED | 单条、正交、固定俯视方向、线性缓动的关键帧轨映射为 Film `camera_x/camera_y` channels；多轨或不支持条件整轨 warning。 |
+| `CameraTrack.projection` | ARCHIVED_ONLY | 仅作为迁移能力门槛：orthographic 才继续处理，perspective 产生明确 warning；投影模型本身未进入 2D FilmRuntime。 |
 | `CompositionIR.active_variant_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `CompositionIR.assets` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `CompositionIR.audio` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
