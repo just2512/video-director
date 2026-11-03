@@ -104,7 +104,7 @@ def test_audio_lane_order_controls_film_track_order_not_clip_start(tmp_path, mon
 
     ir = CompositionIR.model_validate({
         "project": {"width": 320, "height": 180, "fps": 24, "duration": 2},
-        "scenes": [{"id": "scene", "start": 0, "duration": 2, "text": "lane order"}],
+        "scenes": [{"id": "scene", "start": 0, "duration": 2, "text": "lane order", "layers": []}],
         "audio_tracks": [
             {"id": "lane-later", "name": "后置轨", "order": 9},
             {"id": "lane-first", "name": "前置轨", "order": 1},
