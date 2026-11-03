@@ -98,13 +98,20 @@ def test_audio_lane_order_controls_film_track_order_not_clip_start(tmp_path, mon
     assets = root / "assets"
     assets.mkdir(parents=True, exist_ok=True)
     (assets / "tone.wav").write_bytes(b"not-decoded-by-migration")
+    (assets / "base.png").write_bytes(b"not-decoded-by-migration")
     (assets / "manifest.json").write_text(json.dumps([
         {"id": "tone", "file": "assets/tone.wav", "type": "audio"},
+        {"id": "base", "file": "assets/base.png", "type": "image"},
     ]), encoding="utf-8")
 
     ir = CompositionIR.model_validate({
         "project": {"width": 320, "height": 180, "fps": 24, "duration": 2},
-        "scenes": [{"id": "scene", "start": 0, "duration": 2, "text": "lane order", "layers": []}],
+        "scenes": [{
+            "id": "scene", "start": 0, "duration": 2, "text": "lane order",
+            "layers": [{
+                "type": "image", "asset_id": "base", "start": 0, "duration": 2,
+            }],
+        }],
         "audio_tracks": [
             {"id": "lane-later", "name": "后置轨", "order": 9},
             {"id": "lane-first", "name": "前置轨", "order": 1},
