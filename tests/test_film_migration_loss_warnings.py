@@ -185,6 +185,87 @@ def test_unknown_nested_composition_fields_are_archived_but_never_rehydrated(tmp
     assert "future_blend_mode" not in film_html
     assert "spectral" not in film_html
 
+
+def test_unknown_fields_are_detected_through_nested_model_lists_and_transform_objects(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "migration-deep-unknown-fields"
+    root = config.project_dir(project_id)
+    plans = root / "plans"
+    plans.mkdir(parents=True, exist_ok=True)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "nested-asset", "file": "assets/still.png", "type": "image"},
+    ]), encoding="utf-8")
+
+    raw = {
+        "project": {"width": 320, "height": 180, "fps": 24, "duration": 1},
+        "assets": [{
+            "id": "nested-asset", "type": "image", "file": "assets/still.png",
+            "future_rights_contract": {"status": "review", "evidence": ["provider-note"]},
+        }],
+        "scenes": [{
+            "id": "scene-deep-unknown", "start": 0, "duration": 1, "text": "nested archive",
+            "layers": [{
+                "id": "layer-deep-unknown", "type": "image", "asset_id": "nested-asset",
+                "start": 0, "duration": 1,
+                "transform": {
+                    "x": 0.5, "y": 0.5,
+                    "future_curve": {"kind": "bezier", "control_points": [[0.1, 0.2], [0.8, 0.9]]},
+                },
+            }],
+        }],
+        "audio": [{
+            "type": "bgm", "duration": 1,
+            "future_audio_layout": {"mode": "immersive", "channels": 8},
+        }],
+        "camera_tracks": [{
+            "id": "camera-deep-unknown",
+            "keyframes": [{
+                "at": 0, "position": [0, 0, 0], "target": [0, 0, 0],
+                "future_easing_curve": {"kind": "spring", "damping": 0.4},
+            }],
+        }],
+        "variants": [{
+            "id": "variant-deep-unknown",
+            "future_variant_contract": {"layout": "multi-canvas", "revision": 3},
+        }],
+        "watermarks": [{
+            "id": "watermark-deep-unknown", "kind": "text", "text": "safe watermark",
+            "future_logo_effect": {"shader": "must-not-execute"},
+        }],
+    }
+    ir = CompositionIR.model_validate(raw)
+    (plans / "composition.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+
+    result = fd.build_film_from_composition(project_id, ir)
+    archived = json.loads(result["pages"]["migration/source-composition.json"])
+    expected = {
+        "CompositionIR.assets[0].future_rights_contract",
+        "CompositionIR.scenes[0].layers[0].transform.future_curve",
+        "CompositionIR.audio[0].future_audio_layout",
+        "CompositionIR.camera_tracks[0].keyframes[0].future_easing_curve",
+        "CompositionIR.variants[0].future_variant_contract",
+        "CompositionIR.watermarks[0].future_logo_effect",
+    }
+    warning_text = "\\n".join(result["warnings"])
+    for path in expected:
+        assert path in warning_text, path
+    assert archived["assets"][0]["future_rights_contract"] == raw["assets"][0]["future_rights_contract"]
+    assert archived["scenes"][0]["layers"][0]["transform"]["future_curve"] == raw["scenes"][0]["layers"][0]["transform"]["future_curve"]
+    assert archived["audio"][0]["future_audio_layout"] == raw["audio"][0]["future_audio_layout"]
+    assert archived["camera_tracks"][0]["keyframes"][0]["future_easing_curve"] == raw["camera_tracks"][0]["keyframes"][0]["future_easing_curve"]
+    assert archived["variants"][0]["future_variant_contract"] == raw["variants"][0]["future_variant_contract"]
+    assert archived["watermarks"][0]["future_logo_effect"] == raw["watermarks"][0]["future_logo_effect"]
+
+    film_html = fd.serialize_film(result["document"])
+    for marker in ("future_rights_contract", "future_curve", "future_audio_layout",
+                   "future_easing_curve", "future_variant_contract", "future_logo_effect",
+                   "must-not-execute", "multi-canvas", "immersive"):
+        assert marker not in film_html
+
 def test_migrated_film_document_lifecycle_preserves_authority_and_source_archive(tmp_path, monkeypatch):
     storage = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
