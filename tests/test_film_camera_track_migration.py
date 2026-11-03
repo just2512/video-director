@@ -101,3 +101,38 @@ def test_perspective_camera_is_not_falsely_reported_as_migrated(tmp_path, monkey
     track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
     channels = json.loads(track["clips"][0]["attrs"].get("data-film-keyframes", "[]"))
     assert not any(item["property"] in {"camera_x", "camera_y"} for item in channels)
+
+def test_unsupported_camera_follow_constraints_and_easing_are_not_approximated(tmp_path, monkeypatch):
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+
+    cases = [
+        (
+            "camera-follow-blocked",
+            {"follow_target": "camera-layer"},
+            "含 follow_target/constraints",
+        ),
+        (
+            "camera-constraints-blocked",
+            {"constraints": [{"kind": "follow", "target": "camera-layer"}]},
+            "含 follow_target/constraints",
+        ),
+        (
+            "camera-easing-blocked",
+            {"keyframes": [
+                {"at": 0, "position": [0.5, 0.5, 1], "target": [0.5, 0.5, 0], "easing": "ease_in"},
+                {"at": 1, "position": [0.75, 0.6, 1], "target": [0.75, 0.6, 0], "easing": "linear"},
+            ]},
+            "使用 ease_in 缓动",
+        ),
+    ]
+    for project_id, override, expected_warning in cases:
+        ir = _camera_project(project_id).model_dump(mode="json")
+        ir["camera_tracks"][0].update(override)
+        ir = CompositionIR.model_validate(ir)
+        result = fd.build_film_from_composition(project_id, ir)
+        warnings = "\\n".join(result["warnings"])
+        assert expected_warning in warnings
+        track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
+        channels = json.loads(track["clips"][0]["attrs"].get("data-film-keyframes", "[]"))
+        assert not any(item["property"] in {"camera_x", "camera_y"} for item in channels)
