@@ -151,11 +151,11 @@
 | `ContinuityLink.target_layer_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `ContinuityLink.to_scene_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `ContinuityLink.type` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Keyframe.at` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Keyframe.easing` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Keyframe.value` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `KeyframeTrack.keyframes` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `KeyframeTrack.property` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `Keyframe.at` | MAPPED | 转换为 Film clip 局部时间，超出片段时长的点产生 warning 并跳过；重复时间按运行时语义保留最后一个。变换/关键帧迁移测试验证。 |
+| `Keyframe.easing` | MAPPED | 线性、ease_in、ease_out、ease_in_out 进入 Film keyframe channel；FilmRuntime 按时间采样执行。复杂/非法缓动仅在原始输入路径上按显式 warning 处理，不宣称无损。 |
+| `Keyframe.value` | MAPPED | 通过属性白名单与数值/范围校验后写入 Film channel；volume、mask_path 走专用音量包络/蒙版通道，不混入普通视觉通道。 |
+| `KeyframeTrack.keyframes` | MAPPED | 普通视觉属性转为 `data-film-keyframes`；volume 与 mask_path 分流至专用迁移路径。测试覆盖变换关键帧、蒙版关键帧和音量包络。 |
+| `KeyframeTrack.property` | MAPPED | 通过属性白名单决定 Film 目标通道；x/y/scale/scale_x/scale_y/rotation/opacity/blur/camera_x/camera_y/camera_scale/offset_x/offset_y 为普通通道，volume/mask_path 专用分流。 |
 | `Layer.animation` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Layer.asset_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Layer.clip_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
@@ -256,14 +256,14 @@
 | `SubtitleTrack.mode` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `SubtitleTrack.source` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `SubtitleTrack.style_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Transform.anchor` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Transform.opacity` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Transform.rotation` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Transform.scale` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Transform.scale_x` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Transform.scale_y` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Transform.x` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Transform.y` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `Transform.anchor` | MAPPED | 通过 `_FILM_ANCHORS` 白名单并写入 `data-film-transform.anchor`，供 FilmRuntime 计算变换原点；变换迁移测试验证 center。 |
+| `Transform.opacity` | MAPPED | 写入 `data-film-transform.opacity` 并作为可执行变换属性；变换迁移测试验证 0.8。 |
+| `Transform.rotation` | MAPPED | 写入 `data-film-transform.rotation`，由 FilmRuntime 执行旋转；变换迁移测试验证 12 度。 |
+| `Transform.scale` | MAPPED | 写入 `data-film-transform.scale` 并参与实际 clip 尺寸计算；变换迁移测试验证 1.25。 |
+| `Transform.scale_x` | MAPPED | 写入 `data-film-transform.scale_x` 并执行非等比水平缩放；迁移测试验证 1.5，浏览器蒙版/变换测试验证运行时尺寸变化。 |
+| `Transform.scale_y` | MAPPED | 写入 `data-film-transform.scale_y` 并执行非等比垂直缩放；迁移测试验证 0.75，浏览器蒙版/变换测试验证运行时尺寸变化。 |
+| `Transform.x` | MAPPED | 写入归一化 `data-film-transform.x` 并由 FilmRuntime 映射到画布位置；变换迁移及浏览器运行时测试覆盖。 |
+| `Transform.y` | MAPPED | 写入归一化 `data-film-transform.y` 并由 FilmRuntime 映射到画布位置；变换迁移及浏览器运行时测试覆盖。 |
 | `TransitionOut.duration` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `TransitionOut.type` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Variant.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
