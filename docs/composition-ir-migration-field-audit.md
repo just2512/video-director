@@ -66,20 +66,20 @@
 
 | 嵌套模型字段 | 处置 | 核验要求 |
 |---|---|---|
-| `AssetRef.description` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.duration` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.file` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.fps` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.height` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.keywords` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.license_note` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.prompt` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.provenance` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.rights_status` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.source` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.type` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AssetRef.width` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `AssetRef.description` | ARCHIVED_ONLY | 被引用素材写入 `data-source-asset-metadata`，仅作来源描述，不参与渲染；由资产元数据迁移测试验证。 |
+| `AssetRef.duration` | ARCHIVED_ONLY | 被引用素材写入 `data-source-asset-metadata`，不覆盖 Layer/AudioTrack 的时间线时长。 |
+| `AssetRef.file` | MAPPED | 当项目 manifest 未提供该 ID 的 file 时作为回退路径解析为 clip src；测试验证来源 AssetRef 可独立解析。 |
+| `AssetRef.fps` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`；不改变项目 FilmDocument fps 或播放速率。 |
+| `AssetRef.height` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`，不直接决定 clip 几何尺寸。 |
+| `AssetRef.id` | MAPPED | 用于资产 ID 查找、clip `data-asset-id` 关联及 file 回退解析；有引用素材迁移测试。 |
+| `AssetRef.keywords` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`，不作为画面内容或检索行为执行。 |
+| `AssetRef.license_note` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata` 供版权追溯，不代表已执行授权校验。 |
+| `AssetRef.prompt` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata` 供生成来源追溯，不会触发再次生成。 |
+| `AssetRef.provenance` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`；仅保留来源结构，不作为运行时行为。 |
+| `AssetRef.rights_status` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`；状态仅作追溯，迁移不会据此替代版权审核。 |
+| `AssetRef.source` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`，不改变素材 URI 的信任边界或来源类型。 |
+| `AssetRef.type` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`；可执行 clip 类型由 Layer/AudioTrack 决定。 |
+| `AssetRef.width` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`，不直接决定 clip 宽度或 transform。 |
 | `AudioLane.hidden` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `AudioLane.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `AudioLane.locked` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
