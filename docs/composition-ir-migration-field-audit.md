@@ -80,29 +80,29 @@
 | `AssetRef.source` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`，不改变素材 URI 的信任边界或来源类型。 |
 | `AssetRef.type` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`；可执行 clip 类型由 Layer/AudioTrack 决定。 |
 | `AssetRef.width` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`，不直接决定 clip 宽度或 transform。 |
-| `AudioLane.hidden` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioLane.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioLane.locked` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioLane.muted` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioLane.name` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioLane.order` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.asset_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.ducking` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.duration` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.fadeIn` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.fadeOut` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.follows_scene_video` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.keyframes` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.linked_visual_overlay_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.muted` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.source_in` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.source_out` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.speed` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.start` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.track_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.type` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `AudioTrack.volume` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `AudioLane.hidden` | ARCHIVED_ONLY | hidden 仅写入 `data-source-track-hidden`，代表来源时间线折叠状态，不隐藏画面/静音；现有迁移测试验证。 |
+| `AudioLane.id` | MAPPED | 用于 `AudioTrack.track_id` 关联并写入 clip `data-source-track-id`；无匹配 lane 时走默认标签/默认顺序。 |
+| `AudioLane.locked` | MAPPED | 写入 Film 轨道 `attrs.locked`；现有迁移测试验证锁定属性。 |
+| `AudioLane.muted` | MAPPED | 与片段 muted 合并为 Film clip `muted`；现有迁移测试验证轨级静音生效。 |
+| `AudioLane.name` | MAPPED | 用作 Film 轨道 `data-label`；现有迁移测试验证自定义 lane 名称。 |
+| `AudioLane.order` | MAPPED | 决定音频片段构建顺序；新增测试验证不同 lane 的 order 先于片段 start。 |
+| `AudioTrack.asset_id` | MAPPED | 通过 manifest/AssetRef 解析 `src`，写入 `data-asset-id`；资源解析失败按迁移校验处理。 |
+| `AudioTrack.ducking` | ARCHIVED_ONLY | 当前迁移明确发出 ducking 未迁移 warning；完整原值留在 source-composition 快照，不执行自动压低。 |
+| `AudioTrack.duration` | MAPPED | 写入时间线 clip duration 与 source_out 默认计算；模型要求时长为正值。 |
+| `AudioTrack.fadeIn` | MAPPED | 与 fadeOut 合并写入 Film clip `fade`；两者之和超时长时 warning 且不应用。 |
+| `AudioTrack.fadeOut` | MAPPED | 与 fadeIn 合并写入 Film clip `fade`；两者之和超时长时 warning 且不应用。 |
+| `AudioTrack.follows_scene_video` | ARCHIVED_ONLY | 当前迁移对 false 明确 warning，未将结构编辑跟随关系写入 Film Runtime；原始值由 source snapshot 保留。 |
+| `AudioTrack.id` | MAPPED | 生成稳定 Film clip ID，并写入 `data-source-id`；无 ID 时使用确定性序号回退。 |
+| `AudioTrack.keyframes` | MAPPED | 支持的音量关键帧转换为 `volume_envelope`；不支持/非法关键帧产生 warning，不承诺完整曲线语义。 |
+| `AudioTrack.linked_visual_overlay_id` | ARCHIVED_ONLY | 当前迁移明确 warning，未建立 Film 音视频联动约束；原始关联值留在 source snapshot。 |
+| `AudioTrack.muted` | MAPPED | 写入 Film clip `muted`；轨级 muted 同样可触发静音。 |
+| `AudioTrack.source_in` | MAPPED | 写入媒体 `src#t` 源区间起点。 |
+| `AudioTrack.source_out` | MAPPED | 写入媒体 `src#t` 源区间终点；缺省时按 source_in + duration × speed 计算。 |
+| `AudioTrack.speed` | MAPPED | 仅 original 类型允许非 1 倍速并写入 Film clip `speed`；其他类型由模型校验拒绝。 |
+| `AudioTrack.start` | MAPPED | 写入 Film clip `at` 时间线起点。 |
+| `AudioTrack.track_id` | MAPPED | 关联 AudioLane，决定 label/order/locked/muted/hidden provenance；写入 `data-source-track-id`。 |
+| `AudioTrack.type` | MAPPED | 写入 `data-role`，保留 narration/dialogue/original/bgm/sfx/ambience 混音语义。 |
+| `AudioTrack.volume` | MAPPED | 写入 Film clip `volume`；BGM 默认音量仅在未显式指定 volume 时可被注册 style 覆盖。 |
 | `Beat.audio` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Beat.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Beat.layers` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
