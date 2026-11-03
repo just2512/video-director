@@ -461,15 +461,39 @@ jobs:
               raise SystemExit(1)
           PY
 
-      - name: Run isolated real-model token-stream acceptance test (local opt-in)
+      - name: Run isolated real-model token-stream acceptance test
         id: live_stream_smoke
-        # The developer explicitly runs this against their local NVIDIA credentials.
-        # CI validates the harness and mocked protocol only; never make normal CI
-        # depend on live-provider latency, billing, network availability or model retirement.
-        if: ${{ false }}
+        # Only an explicitly opted-in run with a successful real NVIDIA endpoint
+        # probe reaches this test. The fixture is isolated under pytest tmp_path;
+        # credentials are passed only to the child process and never printed.
+        if: steps.live_stream_config.outcome == 'success' && steps.live_provider_probe.outcome == 'success'
         shell: bash
         run: |
-          echo "LIVE_STREAM_ACCEPTANCE=MISSING (run the documented opt-in test locally)"
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=10s 300s "$PY311_BIN/python3.11" - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          config_path = Path(os.environ["VD_LLM_LIVE_CONFIG_FILE"])
+          config = json.loads(config_path.read_text(encoding="utf-8"))
+          child_env = os.environ.copy()
+          child_env.update({
+              "VD_LLM_LIVE_STREAM_TEST": "1",
+              "VD_LLM_API_KEY": config["api_key"],
+              "VD_LLM_BASE_URL": config["base_url"],
+              "VD_LLM_MODEL": config["model"],
+          })
+          command = [
+              sys.executable, "-m", "pytest",
+              "tests/test_film_studio_live_ai_streaming.py::test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film",
+              "-q", "--junitxml=live-stream-junit.xml",
+          ]
+          result = subprocess.run(command, env=child_env, check=False)
+          raise SystemExit(result.returncode)
+          PY
 
       - name: Install Remotion rendering runtime dependencies
         if: always() && steps.ensure_checkout.outcome == 'success'
