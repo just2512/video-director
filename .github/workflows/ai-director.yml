@@ -434,7 +434,9 @@ jobs:
                   model=config["model"],
                   messages=[{"role":"user","content":"Reply with exactly OK."}],
                   stream=True,
-                  max_tokens=8,
+                  # GLM-5.3-Flash reasoning tokens consume the same output
+                  # budget; eight tokens can exhaust the probe before visible text.
+                  max_tokens=512,
                   **request_options,
               )
               first = None
