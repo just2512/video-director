@@ -45,7 +45,7 @@
 
 - `SceneIR`：`id/start/duration/layers/selections` 进入场景与时间线构建；`semantic_role/intent/visual_intent/selected_candidate_id/origin_recipe_id/origin_recipe_version` 以 `data-source-*` lineage 保存，不作为画面行为；`entrance_state/exit_state/continuity_in/continuity_out` 以来源元数据保存，状态比较与 carry/morph 未编译；`camera` 进入摄影机关键帧转换路径；`text`、`transition_out`、`human_locked`、`beats` 的语义不能整体视为 Film Runtime 已执行，其中 beats 的 layers/audio 有专门转换路径，其他 beat 语义仅保留 lineage。
 - `Layer`：支持的 video/image 层进入 Film clip；`id/clip_id/track_id` 用于身份与轨道来源；`speed/source_in/source_out/fit_mode/transform/keyframes/mask` 仅在对应类型、通道和校验白名单内执行；`motion_recipe_id/motion_version/motion_instance` 保留动效 lineage；`animation` 明确告警且不执行；`text`、不支持的 LayerType 及其字段不得被推断为可渲染。
-- `AudioTrack`：支持的类型、asset、时间、speed（仅 original）、volume、muted、fadeIn/fadeOut、ducking 和 keyframes 进入音频片段/混音路径；`follows_scene_video`、`linked_visual_overlay_id` 仅在对应结构编辑/关联约束中有意义，不能泛化为所有音频的跟随行为。
+- `AudioTrack`：支持的类型、asset、时间、speed（仅 original）、volume、muted、fadeIn/fadeOut 和受支持的 keyframes 进入音频片段/混音路径；`ducking` 当前仅产生未迁移 warning，不能宣称自动压低已执行。`follows_scene_video`、`linked_visual_overlay_id` 当前未建立 Film Runtime 联动约束，迁移时告警并保留在源快照。
 - `AudioLane` / `VisualTrack`：ID/name/order 用于物理轨道与排序；locked 执行轨道锁定；audio muted 执行静音；hidden 仅保留折叠 provenance，不等于隐藏画面或静音。
 - `Beat`：layers/audio 进入专门迁移逻辑，并将 beat IDs/roles/semantic anchors 作为 clip provenance；Beat 的 role/anchors 本身不生成独立的播放行为。
 - `SubtitleTrack`：cue 的 start/end/text 进入字幕轨道；`mode/source/style_id` 不完整执行，非默认来源/模式及 style_id 会产生 warning。
