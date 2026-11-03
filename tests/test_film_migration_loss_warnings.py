@@ -198,6 +198,7 @@ def test_unknown_fields_are_detected_through_nested_model_lists_and_transform_ob
     (assets / "still.png").write_bytes(b"not-decoded-by-migration")
     # The manifest deliberately omits this asset: AssetRef.id/file must be
     # sufficient for the migration resolver to locate the referenced file.
+    (assets / "audio.wav").write_bytes(b"not-decoded-by-migration")
     (assets / "manifest.json").write_text("[]", encoding="utf-8")
 
     raw = {
@@ -210,6 +211,8 @@ def test_unknown_fields_are_detected_through_nested_model_lists_and_transform_ob
             "license_note": "internal license", "provenance": {"provider": "test-provider"},
             "rights_status": "CLEAR",
             "future_rights_contract": {"status": "review", "evidence": ["provider-note"]},
+        }, {
+            "id": "nested-audio", "type": "audio", "file": "assets/audio.wav",
         }],
         "scenes": [{
             "id": "scene-deep-unknown", "start": 0, "duration": 1, "text": "nested archive",
@@ -223,7 +226,7 @@ def test_unknown_fields_are_detected_through_nested_model_lists_and_transform_ob
             }],
         }],
         "audio": [{
-            "type": "bgm", "duration": 1,
+            "type": "bgm", "asset_id": "nested-audio", "duration": 1,
             "future_audio_layout": {"mode": "immersive", "channels": 8},
         }],
         "camera_tracks": [{
