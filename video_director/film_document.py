@@ -5702,6 +5702,12 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
         tid = _safe_id("track-" + cid, "track")
         label = str(lane.get("name") or audio.get("type") or "音频")
         audio_timeline_track = one_clip_track(tid, label, {"id": cid, "tag": "audio", "attrs": attrs})
+        # Preserve the source lane order on the physical Film track. The final
+        # migration ordering pass runs after clip generation and must not
+        # replace AudioTrack.order with a lexical clip/track ID order.
+        audio_timeline_track["attrs"]["data-source-track-order"] = str(
+            int(lane.get("order", 999))
+        )
         if lane.get("locked"):
             audio_timeline_track["attrs"]["locked"] = ""
         if lane.get("hidden"):
@@ -5837,7 +5843,7 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
     # remain before the base picture (for callers that enumerate tracks), the main
     # picture comes next, extra/locked visual layers follow it, and audio/utility
     # tracks stay after the visual stack. Compositing remains governed by z-index.
-    def _migration_track_order(track: dict) -> tuple[int, str]:
+    def _migration_track_order(track: dict) -> tuple[int, int, str]:
         track_id = str(track.get("id") or "")
         if track_id.startswith("track-overlay-"):
             group = 0
@@ -5849,7 +5855,12 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
             group = 4
         else:
             group = 3
-        return group, track_id
+        attrs = track.get("attrs") if isinstance(track.get("attrs"), dict) else {}
+        source_order = (
+            int(attrs.get("data-source-track-order", 999))
+            if group == 4 else 0
+        )
+        return group, source_order, track_id
 
     tracks.sort(key=_migration_track_order)
     if not tracks:
