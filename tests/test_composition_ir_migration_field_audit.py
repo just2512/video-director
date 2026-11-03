@@ -62,6 +62,25 @@ def test_top_level_audit_distinguishes_schema_version_from_runtime_behavior():
     assert "locked" in audio_row and "muted" in audio_row and "hidden" in audio_row
 
 
+
+def test_assetref_fields_have_evidence_backed_runtime_dispositions():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    rows = {
+        line.split("|")[1].strip().strip("`"): [
+            column.strip() for column in line.strip("|").split("|")
+        ]
+        for line in audit.splitlines()
+        if line.startswith("| `AssetRef.") and line.count("|") >= 3
+    }
+    assert rows["AssetRef.id"][1] == "MAPPED"
+    assert rows["AssetRef.file"][1] == "MAPPED"
+    for field in {
+        "type", "duration", "width", "height", "fps", "prompt", "description",
+        "keywords", "source", "license_note", "provenance", "rights_status",
+    }:
+        assert rows[f"AssetRef.{field}"][1] == "ARCHIVED_ONLY"
+        assert "data-source-asset-metadata" in rows[f"AssetRef.{field}"][2]
+
 def test_recursive_nested_model_field_inventory_is_exhaustive_and_explicit():
     """Every reachable Pydantic field must have a row; additions cannot hide in nested models."""
     from typing import get_args, get_type_hints
