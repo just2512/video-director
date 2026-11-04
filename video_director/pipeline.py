@@ -147,6 +147,8 @@ def _recompose_with_size(project_id: str, width: int, height: int):
     以指定画幅重跑 compose_project（幂等，不改旁白时间轴）。
     Variant 引擎的多平台变体由此产出。
     """
+    from video_director import film_document as fd
+    fd.assert_legacy_composition_access(project_id, "按旧 CompositionIR 路径重渲项目")
     import json as _json
     base = config.project_dir(project_id)
     dirs = config.init_project_dirs(base)
@@ -409,6 +411,8 @@ def compose_project(
     narration_scenes: Gate 2 由对齐模块提供（真实时长）；None 则用 estimate。
     """
     pid = project_id or "manual"
+    from video_director import film_document as fd
+    fd.assert_legacy_composition_access(pid, "运行旧 CompositionIR 导演与渲染流程")
     base = config.project_dir(pid)
     dirs = config.init_project_dirs(base)
     warnings: List[str] = []
@@ -866,6 +870,8 @@ def resume_after_confirm(project_id: str, edits: Optional[dict] = None, profile:
     约束：不改 compose_project 签名。resume 里若要重规划，把 planner 注入
     compose_project，让其内部重新 plan——这会覆盖 composition.json，幂等。
     """
+    from video_director import film_document as fd
+    fd.assert_legacy_composition_access(project_id, "继续旧 CompositionIR 导演流程")
     from video_director import confirm as confirm_mod
 
     base = config.project_dir(project_id)
@@ -1141,6 +1147,8 @@ def compose_auto(
       调用方（WebUI/CLI）展示分镜书给用户，用户确认后调
       resume_after_confirm(project_id, edits) 从 RENDERING 继续。
     """
+    from video_director import film_document as fd
+    fd.assert_legacy_composition_access(project_id, "启动旧 CompositionIR 自动导演流程")
     scene_texts = split_script_scenes(script)
     base = config.project_dir(project_id)
     dirs = config.init_project_dirs(base)
