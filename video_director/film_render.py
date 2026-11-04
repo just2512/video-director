@@ -57,6 +57,35 @@ def _fsync_file(path: Path) -> None:
         os.fsync(handle.fileno())
 
 
+def _file_metadata(path: Path) -> dict:
+    """Return stable size and SHA-256 metadata for a regular backup file."""
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise RuntimeError(f"render publication backup is missing or unsafe: {path.name}")
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        before = os.fstat(handle.fileno())
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+        after = os.fstat(handle.fileno())
+    if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
+        raise RuntimeError(f"render publication backup changed while hashing: {path.name}")
+    return {"size": after.st_size, "sha256": digest.hexdigest()}
+
+
+def _validate_render_backup(path: Path, expected: object) -> None:
+    if not isinstance(expected, dict):
+        raise RuntimeError(f"render publication backup metadata is missing: {path.name}")
+    size = expected.get("size")
+    sha256 = expected.get("sha256")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        raise RuntimeError(f"render publication backup size is invalid: {path.name}")
+    if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", sha256):
+        raise RuntimeError(f"render publication backup hash is invalid: {path.name}")
+    actual = _file_metadata(path)
+    if actual["size"] != size or actual["sha256"] != sha256:
+        raise RuntimeError(f"render publication backup integrity check failed: {path.name}")
+
 def _fsync_directory(path: Path) -> None:
     """Persist directory-entry changes where the platform exposes directory fsync."""
     if os.name == "nt":
@@ -141,7 +170,7 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
     payload = json.loads(journal.read_text(encoding="utf-8"))
     if (
         not isinstance(payload, dict)
-        or payload.get("schema_version") != 1
+        or payload.get("schema_version") not in {1, 2}
         or payload.get("revision") != revision
         or not isinstance(payload.get("had_output"), bool)
         or not isinstance(payload.get("had_report"), bool)
@@ -156,6 +185,8 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
 
     if phase == "prepared":
         if payload["had_output"]:
+            if payload["schema_version"] >= 2:
+                _validate_render_backup(workdir / "previous-output.mp4", payload.get("output_backup"))
             _restore_render_backup(
                 workdir / "previous-output.mp4", output, workdir / "restore-output.tmp"
             )
@@ -163,6 +194,8 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
             output.unlink(missing_ok=True)
             _fsync_directory(output.parent)
         if payload["had_report"]:
+            if payload["schema_version"] >= 2:
+                _validate_render_backup(workdir / "previous-qc.json", payload.get("report_backup"))
             _restore_render_backup(
                 workdir / "previous-qc.json", report, workdir / "restore-qc.tmp"
             )
@@ -1010,11 +1043,13 @@ def _publish_render_artifacts(
             # Backups must be durable before the prepared journal can authorize rollback.
             _fsync_directory(temp_root)
             transaction = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "revision": revision,
                 "phase": "prepared",
                 "had_output": had_output,
                 "had_report": had_report,
+                "output_backup": _file_metadata(output_backup) if had_output else None,
+                "report_backup": _file_metadata(report_backup) if had_report else None,
                 "qc_temp_name": qc_temp.name,
             }
             _write_publish_journal(temp_root, transaction)
