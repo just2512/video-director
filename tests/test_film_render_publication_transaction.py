@@ -450,3 +450,33 @@ def test_recovery_fails_closed_for_invalid_backup_integrity(tmp_path, artifact, 
     assert output.read_bytes() == b"published-new-mp4"
     assert report.read_bytes() == b'{"status":"NEW"}'
     assert (workdir / "publish-transaction.json").is_file()
+
+
+def test_orphan_recovery_detects_reused_render_pid(tmp_path, monkeypatch):
+    import json
+    from video_director import film_render
+
+    workdir = tmp_path / "render-workdir"
+    workdir.mkdir()
+    (workdir / "owner.json").write_text(
+        json.dumps({"schema_version": 1, "pid": 987654321, "identity": "linux:old-start"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(film_render, "_process_identity", lambda _pid: "linux:new-start")
+
+    assert not film_render._render_owner_is_alive(workdir, 987654321)
+
+
+def test_orphan_recovery_keeps_workdir_when_owner_identity_is_unknown(tmp_path, monkeypatch):
+    import json
+    from video_director import film_render
+
+    workdir = tmp_path / "render-workdir"
+    workdir.mkdir()
+    (workdir / "owner.json").write_text(
+        json.dumps({"schema_version": 1, "pid": 987654321, "identity": "linux:old-start"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(film_render, "_process_identity", lambda _pid: "UNKNOWN")
+
+    assert film_render._render_owner_is_alive(workdir, 987654321)
