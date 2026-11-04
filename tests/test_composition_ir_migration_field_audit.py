@@ -180,3 +180,20 @@ def test_semantic_anchor_fields_are_archived_as_complete_source_metadata():
     for field, columns in rows.items():
         assert columns[1] == "ARCHIVED_ONLY", field
         assert "data-source-semantic-anchors" in columns[2], field
+
+
+def test_selection_fields_are_archived_as_source_ranges_not_film_clip_behavior():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    rows = {
+        line.split("|")[1].strip().strip("`"): [
+            column.strip() for column in line.strip("|").split("|")
+        ]
+        for line in audit.splitlines()
+        if line.startswith("| `Selection.") and line.count("|") >= 3
+    }
+    assert set(rows) == {
+        "Selection.id", "Selection.text", "Selection.start", "Selection.end",
+    }
+    for field, columns in rows.items():
+        assert columns[1] == "ARCHIVED_ONLY", field
+        assert "data-source-selections" in columns[2], field

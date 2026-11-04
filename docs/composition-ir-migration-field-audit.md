@@ -224,10 +224,10 @@
 | `SceneState.camera` | ARCHIVED_ONLY | 随 SceneIR entrance_state/exit_state 原样序列化到对应 `data-source-*` 属性；嵌套 CameraState 不会驱动 Film 摄影机。 |
 | `SceneState.spatial_map` | ARCHIVED_ONLY | 随 SceneIR entrance_state/exit_state 原样序列化到对应 `data-source-*` 属性；空间映射未进入 Film Runtime 连续性求解。 |
 | `SceneState.visible_layers` | ARCHIVED_ONLY | 随 SceneIR entrance_state/exit_state 原样序列化到对应 `data-source-*` 属性；Film Runtime 不据此切换可见图层。 |
-| `Selection.end` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Selection.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Selection.start` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Selection.text` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `Selection.end` | ARCHIVED_ONLY | 作为完整来源选择区间的结束时间写入剪辑 `data-source-selections` JSON；Film Runtime 不将其转换为可执行关键帧或剪辑边界。 |
+| `Selection.id` | ARCHIVED_ONLY | 作为来源选择锚点标识写入剪辑 `data-source-selections` JSON；不作为 Film clip ID 或运行时选择状态。 |
+| `Selection.start` | ARCHIVED_ONLY | 作为完整来源选择区间的开始时间写入剪辑 `data-source-selections` JSON；不改变 Film clip 的时间位置。 |
+| `Selection.text` | ARCHIVED_ONLY | 作为来源语义文本写入剪辑 `data-source-selections` JSON；不自动生成字幕或文字图层。 |
 | `SemanticAnchor.id` | ARCHIVED_ONLY | 作为 Beat 来源语义锚点完整序列化到视频/音频片段的 `data-source-semantic-anchors` 属性；不参与 Film Runtime 的剪辑、定位或渲染。 |
 | `SemanticAnchor.kind` | ARCHIVED_ONLY | 与 `id`、`label` 一并原样保留在 `data-source-semantic-anchors` JSON 中；仅作来源元数据，不执行语义解析。 |
 | `SemanticAnchor.label` | ARCHIVED_ONLY | 与 `id`、`kind` 一并原样保留在 `data-source-semantic-anchors` JSON 中；不驱动 Film Runtime 展示或行为。 |
