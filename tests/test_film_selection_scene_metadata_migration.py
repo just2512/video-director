@@ -63,3 +63,52 @@ def test_selection_and_scene_semantics_are_preserved_in_film_clip_metadata(tmp_p
     assert json.loads(attrs["data-source-continuity-out"])["to_scene_id"] == "scene-next"
     assert not any("selections 语义锚点未映射" in warning for warning in result["warnings"])
     assert not any("创作 lineage 字段未映射" in warning for warning in result["warnings"])
+
+
+def test_scene_text_planning_lock_and_transition_are_not_silently_executed(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "scene-source-only-semantics"
+    project_root = config.project_dir(project_id)
+    assets = project_root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-still", "file": "assets/still.png", "type": "image"},
+    ]), encoding="utf-8")
+
+    raw = {
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 5},
+        "scenes": [{
+            "id": "scene-source-only", "start": 2, "duration": 1,
+            "text": "这段旁白不得自动变成字幕",
+            "human_locked": True,
+            "transition_out": {"type": "fade", "duration": 0.4},
+            "layers": [{
+                "id": "scene-source-layer", "type": "image", "asset_id": "asset-still",
+                "start": 0.25, "duration": 1.2,
+            }],
+        }],
+    }
+    ir = CompositionIR.model_validate(raw)
+    result = fd.build_film_from_composition(project_id, ir)
+
+    track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
+    clip = next(item for item in track["clips"] if item["attrs"].get("data-source-id") == "scene-source-layer")
+    attrs = clip["attrs"]
+    assert attrs["at"] == "2.25"
+    # Scene duration is source planning metadata; layer timing controls Film clips.
+    assert attrs["src"].endswith("#t=0,1.2")
+    assert "data-clip-locked" not in attrs
+    assert "transition" not in attrs
+    assert "这段旁白不得自动变成字幕" not in json.dumps(attrs, ensure_ascii=False)
+
+    snapshot = json.loads(result["pages"]["migration/source-composition.json"])
+    scene = snapshot["scenes"][0]
+    assert scene["text"] == raw["scenes"][0]["text"]
+    assert scene["human_locked"] is True
+    assert scene["transition_out"] == {"type": "fade", "duration": 0.4}
+    warnings = "\\n".join(result["warnings"])
+    assert "没有自动生成字幕或配音" in warnings
+    assert "不等同于 Film 图层编辑锁" in warnings
+    assert "尚未编译为 Film 转场" in warnings

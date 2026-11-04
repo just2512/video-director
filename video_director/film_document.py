@@ -5089,6 +5089,44 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
                 f"场景 {scene_id} 的入口/出口状态与 continuity link 已保存在 film.html 的 data-source-* 元数据；"
                 "状态比较、carry/morph 等连续性动作尚未编译为播放行为"
             )
+        scene_text = str(scene.get("text") or "").strip()
+        if scene_text:
+            warnings.append(
+                f"场景 {scene_id} 的 text/旁白文案没有自动生成字幕或配音；"
+                "原文仅保存在 migration/source-composition.json"
+            )
+        if scene.get("human_locked"):
+            warnings.append(
+                f"场景 {scene_id} 的 human_locked 是 AI 规划锁，不等同于 Film 图层编辑锁；"
+                "该锁定语义尚未迁移，原值仅保存在 migration/source-composition.json"
+            )
+        raw_transition = scene.get("transition_out") or {}
+        if not isinstance(raw_transition, dict):
+            warnings.append(
+                f"场景 {scene_id} 的 transition_out 格式无效；未生成 Film 转场，"
+                "原值保存在 migration/source-composition.json"
+            )
+        else:
+            transition_type = str(raw_transition.get("type") or config.TRANSITION_DEFAULT)
+            try:
+                transition_duration = _number(
+                    raw_transition.get("duration", 0),
+                    f"scene {scene_id}.transition_out.duration", 0
+                )
+            except FilmError:
+                transition_duration = None
+            if transition_type != config.TRANSITION_DEFAULT or transition_duration not in (0, None):
+                warnings.append(
+                    f"场景 {scene_id} 的 transition_out ({transition_type}, "
+                    f"{raw_transition.get('duration', 0)}s) 尚未编译为 Film 转场；"
+                    "原值仅保存在 migration/source-composition.json"
+                )
+            elif transition_duration is None:
+                warnings.append(
+                    f"场景 {scene_id} 的 transition_out.duration 无效；未生成 Film 转场，"
+                    "原值保存在 migration/source-composition.json"
+                )
+
         scene_start = _number(scene.get("start", 0), "scene start", 0)
 
         # SceneIR.layers are the flattened scene composition. Beat.layers can

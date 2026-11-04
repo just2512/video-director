@@ -200,26 +200,26 @@
 | `Reference.target_artifact_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Reference.target_asset_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `ReferenceGraph.references` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.beats` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.camera` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.continuity_in` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.continuity_out` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.duration` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.entrance_state` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.exit_state` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.human_locked` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.intent` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.layers` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.origin_recipe_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.origin_recipe_version` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.selected_candidate_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.selections` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.semantic_role` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.start` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.text` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.transition_out` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneIR.visual_intent` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `SceneIR.beats` | MAPPED | Beat 图层与音频进入专用迁移路径；beat ID/role/semantic anchors 写入片段 provenance；未产生独立播放行为的标签仍只作来源元数据。 |
+| `SceneIR.camera` | MAPPED | 场景内摄影机关键帧在满足正交 2D、固定俯视方向、linear easing 等条件时转换为 Film camera_x/camera_y channels；不支持条件产生 warning。 |
+| `SceneIR.continuity_in` | ARCHIVED_ONLY | 完整值写入 clip 的 data-source-continuity-in；carry/morph 等连续性动作尚未编译为 Film Runtime 行为。 |
+| `SceneIR.continuity_out` | ARCHIVED_ONLY | 完整值写入 clip 的 data-source-continuity-out；carry/morph 等连续性动作尚未编译为 Film Runtime 行为。 |
+| `SceneIR.duration` | ARCHIVED_ONLY | 仅作为来源场景计划时长保留在 migration/source-composition.json；Film clip 实际时间范围由各 Layer.start/duration 决定，不按 SceneIR.duration 自动裁剪。 |
+| `SceneIR.entrance_state` | ARCHIVED_ONLY | 完整值写入 clip 的 data-source-entrance-state；可见层、锚点、摄影机和空间图不驱动 Film Runtime 状态切换。 |
+| `SceneIR.exit_state` | ARCHIVED_ONLY | 完整值写入 clip 的 data-source-exit-state；可见层、锚点、摄影机和空间图不驱动 Film Runtime 状态切换。 |
+| `SceneIR.human_locked` | ARCHIVED_ONLY | 当前只在 migration/source-composition.json 保留；这是 AI 规划锁，不等同于 Layer.locked 的 Film 编辑锁，迁移时显式 warning。 |
+| `SceneIR.id` | MAPPED | 用于生成稳定的 Film clip ID 前缀并写入 data-source-scene-id；FilmDocument 不创建独立 SceneIR 对象。 |
+| `SceneIR.intent` | ARCHIVED_ONLY | 写入 data-source-scene-intent 供创作意图追溯；不作为渲染或自动规划行为执行。 |
+| `SceneIR.layers` | MAPPED | 仅支持的 video/image Layer 子集生成 Film clips；gap 有意跳过，其他类型/不支持字段必须产生诊断，不能宣称无损。 |
+| `SceneIR.origin_recipe_id` | ARCHIVED_ONLY | 写入 data-source-origin-recipe-id 供镜头配方来源追溯；不自动重新实例化配方。 |
+| `SceneIR.origin_recipe_version` | ARCHIVED_ONLY | 写入 data-source-origin-recipe-version 固定来源版本；不自动重新实例化配方。 |
+| `SceneIR.selected_candidate_id` | ARCHIVED_ONLY | 写入 data-source-selected-candidate-id 供候选来源追溯；不恢复候选集或执行候选选择。 |
+| `SceneIR.selections` | ARCHIVED_ONLY | 与可渲染 Layer 时间相交的 Selection 原样写入 data-source-selections；不转换为剪辑边界/字幕，未匹配项留在源快照并产生 warning。 |
+| `SceneIR.semantic_role` | ARCHIVED_ONLY | 写入 data-source-scene-semantic-role 供语义角色追溯；不驱动 Film Runtime 渲染。 |
+| `SceneIR.start` | MAPPED | 与 Layer.start 相加后形成 Film clip at，成为项目时间线位置。 |
+| `SceneIR.text` | ARCHIVED_ONLY | 脚本/旁白文本不自动生成字幕或配音；迁移时显式 warning，完整原文保留在 migration/source-composition.json。 |
+| `SceneIR.transition_out` | ARCHIVED_ONLY | 当前未编译为 Film 转场；非默认转场或非零时长迁移时显式 warning，完整值保留在 migration/source-composition.json。 |
+| `SceneIR.visual_intent` | ARCHIVED_ONLY | 写入 data-source-scene-visual-intent 供创作意图追溯；不作为渲染行为执行。 |
 | `SceneState.anchor_layer_id` | ARCHIVED_ONLY | 随 SceneIR entrance_state/exit_state 原样序列化到对应 `data-source-*` 属性；未转成 Film Runtime 的锚点选择行为。 |
 | `SceneState.camera` | ARCHIVED_ONLY | 随 SceneIR entrance_state/exit_state 原样序列化到对应 `data-source-*` 属性；嵌套 CameraState 不会驱动 Film 摄影机。 |
 | `SceneState.spatial_map` | ARCHIVED_ONLY | 随 SceneIR entrance_state/exit_state 原样序列化到对应 `data-source-*` 属性；空间映射未进入 Film Runtime 连续性求解。 |
