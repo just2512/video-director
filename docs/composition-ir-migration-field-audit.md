@@ -141,16 +141,16 @@
 | `CompositionIR.visual_overlays` | MAPPED | video/image overlay 映射到独立物理轨道，处理时间、素材、位置、尺寸、opacity、z-order、transform 的支持子集；其他类型明确告警。 |
 | `CompositionIR.visual_tracks` | MAPPED | 轨道顺序、名称、来源 ID 用于 overlay 排序和 provenance；locked 映射 Film 轨道锁定；hidden 是折叠状态，不是画面隐藏，原分组交互不迁移。 |
 | `CompositionIR.watermarks` | MAPPED | 支持的水印素材/时间/展示参数映射；不支持的类型/参数须以迁移 warning 为准。 |
-| `ContinuityLink.camera_path` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ContinuityLink.from_scene_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ContinuityLink.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ContinuityLink.morph_path` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ContinuityLink.source_anchor` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ContinuityLink.source_layer_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ContinuityLink.target_anchor` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ContinuityLink.target_layer_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ContinuityLink.to_scene_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ContinuityLink.type` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `ContinuityLink.camera_path` | ARCHIVED_ONLY | 完整值序列化到主画面轨道的 `data-source-continuity-links`，同时保留于 `migration/source-composition.json`；当前只用于来源追溯，carry/morph 等连续性动作未编译为 Film Runtime 行为。 |
+| `ContinuityLink.from_scene_id` | ARCHIVED_ONLY | 完整值序列化到主画面轨道的 `data-source-continuity-links`，同时保留于 `migration/source-composition.json`；当前只用于来源追溯，carry/morph 等连续性动作未编译为 Film Runtime 行为。 |
+| `ContinuityLink.id` | ARCHIVED_ONLY | 完整值序列化到主画面轨道的 `data-source-continuity-links`，同时保留于 `migration/source-composition.json`；当前只用于来源追溯，carry/morph 等连续性动作未编译为 Film Runtime 行为。 |
+| `ContinuityLink.morph_path` | ARCHIVED_ONLY | 完整值序列化到主画面轨道的 `data-source-continuity-links`，同时保留于 `migration/source-composition.json`；当前只用于来源追溯，carry/morph 等连续性动作未编译为 Film Runtime 行为。 |
+| `ContinuityLink.source_anchor` | ARCHIVED_ONLY | 完整值序列化到主画面轨道的 `data-source-continuity-links`，同时保留于 `migration/source-composition.json`；当前只用于来源追溯，carry/morph 等连续性动作未编译为 Film Runtime 行为。 |
+| `ContinuityLink.source_layer_id` | ARCHIVED_ONLY | 完整值序列化到主画面轨道的 `data-source-continuity-links`，同时保留于 `migration/source-composition.json`；当前只用于来源追溯，carry/morph 等连续性动作未编译为 Film Runtime 行为。 |
+| `ContinuityLink.target_anchor` | ARCHIVED_ONLY | 完整值序列化到主画面轨道的 `data-source-continuity-links`，同时保留于 `migration/source-composition.json`；当前只用于来源追溯，carry/morph 等连续性动作未编译为 Film Runtime 行为。 |
+| `ContinuityLink.target_layer_id` | ARCHIVED_ONLY | 完整值序列化到主画面轨道的 `data-source-continuity-links`，同时保留于 `migration/source-composition.json`；当前只用于来源追溯，carry/morph 等连续性动作未编译为 Film Runtime 行为。 |
+| `ContinuityLink.to_scene_id` | ARCHIVED_ONLY | 完整值序列化到主画面轨道的 `data-source-continuity-links`，同时保留于 `migration/source-composition.json`；当前只用于来源追溯，carry/morph 等连续性动作未编译为 Film Runtime 行为。 |
+| `ContinuityLink.type` | ARCHIVED_ONLY | 完整值序列化到主画面轨道的 `data-source-continuity-links`，同时保留于 `migration/source-composition.json`；当前只用于来源追溯，carry/morph 等连续性动作未编译为 Film Runtime 行为。 |
 | `Keyframe.at` | MAPPED | 转换为 Film clip 局部时间，超出片段时长的点产生 warning 并跳过；重复时间按运行时语义保留最后一个。变换/关键帧迁移测试验证。 |
 | `Keyframe.easing` | MAPPED | 线性、ease_in、ease_out、ease_in_out 进入 Film keyframe channel；FilmRuntime 按时间采样执行。复杂/非法缓动仅在原始输入路径上按显式 warning 处理，不宣称无损。 |
 | `Keyframe.value` | MAPPED | 通过属性白名单与数值/范围校验后写入 Film channel；volume、mask_path 走专用音量包络/蒙版通道，不混入普通视觉通道。 |

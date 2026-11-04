@@ -413,3 +413,45 @@ def test_partial_transform_defaults_and_supported_keyframes_remain_executable(tm
     ]
     assert not any("scale_x" in warning or "scale_y" in warning or "offset_x" in warning or "blur" in warning
                    for warning in result["warnings"])
+
+
+
+def test_continuity_link_fields_are_archived_without_claiming_runtime_carry(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "continuity-link-source-archive"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "scene-a.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "scene-b.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-a", "file": "assets/scene-a.png", "type": "image"},
+        {"id": "asset-b", "file": "assets/scene-b.png", "type": "image"},
+    ]), encoding="utf-8")
+
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 2},
+        "scenes": [
+            {"id": "scene-a", "start": 0, "duration": 1, "text": "A",
+             "layers": [{"id": "layer-a", "type": "image", "asset_id": "asset-a",
+                         "start": 0, "duration": 1}]},
+            {"id": "scene-b", "start": 1, "duration": 1, "text": "B",
+             "layers": [{"id": "layer-b", "type": "image", "asset_id": "asset-b",
+                         "start": 0, "duration": 1}]},
+        ],
+        "continuity_links": [{
+            "id": "carry-a-b", "from_scene_id": "scene-a", "to_scene_id": "scene-b",
+            "type": "carry", "source_layer_id": "layer-a", "target_layer_id": "layer-b",
+            "source_anchor": "center", "target_anchor": "top_left",
+            "camera_path": "camera-path-1", "morph_path": "morph-path-1",
+        }],
+    })
+
+    result = fd.build_film_from_composition(project_id, ir)
+    track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
+    expected = json.loads(ir.model_dump_json())["continuity_links"]
+    assert json.loads(track["attrs"]["data-source-continuity-links"]) == expected
+    source_snapshot = json.loads(result["pages"]["migration/source-composition.json"])
+    assert source_snapshot["continuity_links"] == expected
+    assert any("carry/morph" in warning for warning in result["warnings"])
