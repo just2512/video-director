@@ -5105,33 +5105,6 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
                 f"场景 {scene_id} 的 human_locked 是 AI 规划锁，不等同于 Film 图层编辑锁；"
                 "该锁定语义尚未迁移，原值仅保存在 migration/source-composition.json"
             )
-        raw_transition = scene.get("transition_out") or {}
-        if not isinstance(raw_transition, dict):
-            warnings.append(
-                f"场景 {scene_id} 的 transition_out 格式无效；未生成 Film 转场，"
-                "原值保存在 migration/source-composition.json"
-            )
-        else:
-            transition_type = str(raw_transition.get("type") or config.TRANSITION_DEFAULT)
-            try:
-                transition_duration = _number(
-                    raw_transition.get("duration", 0),
-                    f"scene {scene_id}.transition_out.duration", 0
-                )
-            except FilmError:
-                transition_duration = None
-            if transition_type != config.TRANSITION_DEFAULT or transition_duration not in (0, None):
-                warnings.append(
-                    f"场景 {scene_id} 的 transition_out ({transition_type}, "
-                    f"{raw_transition.get('duration', 0)}s) 尚未编译为 Film 转场；"
-                    "原值仅保存在 migration/source-composition.json"
-                )
-            elif transition_duration is None:
-                warnings.append(
-                    f"场景 {scene_id} 的 transition_out.duration 无效；未生成 Film 转场，"
-                    "原值保存在 migration/source-composition.json"
-                )
-
         scene_start = _number(scene.get("start", 0), "scene start", 0)
 
         # SceneIR.layers are the flattened scene composition. Beat.layers can
@@ -5835,14 +5808,29 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
         )
     for scene in source_scenes:
         transition_spec = scene.get("transition_out") or {}
+        if not isinstance(transition_spec, dict):
+            warnings.append(
+                f"场景 {scene.get('id')} 的 transition_out 格式无效；未生成 Film 转场，"
+                "原值保留于迁移源副本"
+            )
+            continue
         transition = str(transition_spec.get("type") or "cut")
-        transition_duration = _number(
-            transition_spec.get("duration", 0), f"scene {scene.get('id')} transition duration", 0
-        )
+        try:
+            transition_duration = _number(
+                transition_spec.get("duration", 0),
+                f"scene {scene.get('id')} transition duration", 0
+            )
+        except FilmError:
+            warnings.append(
+                f"场景 {scene.get('id')} 的 transition_out.duration 无效；未生成 Film 转场，"
+                "原值保留于迁移源副本"
+            )
+            continue
         if transition not in {"cut", "none", ""} or transition_duration > 0.001:
             warnings.append(
-                f"场景 {scene.get('id')} 转场 type={transition}, duration={transition_duration:.3f}s "
-                "尚未完整映射；原始设置保留于迁移源副本"
+                f"场景 {scene.get('id')} 的 transition_out ({transition}, "
+                f"{transition_duration:.3f}s) 尚未编译为 Film 转场；"
+                "原始设置保留于迁移源副本"
             )
     if clips:
         tracks.append({"id": "track-main",
