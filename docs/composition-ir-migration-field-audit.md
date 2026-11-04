@@ -121,26 +121,26 @@
 | `CameraTrack.id` | ARCHIVED_ONLY | 用于迁移诊断/warning 标识，不作为 Film track 或 clip identity；来源快照保留原 ID。 |
 | `CameraTrack.keyframes` | MAPPED | 单条、正交、固定俯视方向、线性缓动的关键帧轨映射为 Film `camera_x/camera_y` channels；多轨或不支持条件整轨 warning。 |
 | `CameraTrack.projection` | ARCHIVED_ONLY | 仅作为迁移能力门槛：orthographic 才继续处理，perspective 产生明确 warning；投影模型本身未进入 2D FilmRuntime。 |
-| `CompositionIR.active_variant_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.assets` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.audio` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.audio_tracks` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.camera_tracks` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.continuity_links` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.origin_template_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.origin_template_version` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.project` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.references` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.scenes` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.style_contract` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.style_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.subtitle_style` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.subtitle_track` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.variants` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.version` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.visual_overlays` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.visual_tracks` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CompositionIR.watermarks` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `CompositionIR.active_variant_id` | MAPPED | 只选择当前有效 variant；无有效 ID 时按顶层 scenes/audio 迁移并告警，不合并候选变体。 |
+| `CompositionIR.assets` | MAPPED | 被选中时间线引用的素材用于资源解析；未被引用但带来源/版权/提示词/描述元数据的素材只在源快照保留，不自动插入成片。 |
+| `CompositionIR.audio` | MAPPED | 音频片段按类型、asset、时间及支持的参数转换；必须结合下方 audio_tracks 说明，不能推断原始分组完全保留。 |
+| `CompositionIR.audio_tracks` | MAPPED | ID/name/order 参与轨道生成；locked 映射 Film 轨道锁定，muted 与片段 muted 合并为运行时静音；hidden 只保存折叠状态 provenance；多片段 lane 会拆成物理 Film 轨道，原分组关系不保留。 |
+| `CompositionIR.camera_tracks` | MAPPED | 支持的摄影机关键帧转换为 Film transform channels；非法/不支持的关键帧和通道不应被视为已执行。 |
+| `CompositionIR.continuity_links` | ARCHIVED_ONLY | 保存为 `data-source-continuity-links`；carry/morph 等动作尚未编译为播放行为。 |
+| `CompositionIR.origin_template_id` | ARCHIVED_ONLY | 写入来源 lineage 属性，不反向修改模板，也不作为渲染行为。 |
+| `CompositionIR.origin_template_version` | ARCHIVED_ONLY | 写入来源 lineage 属性，不反向修改模板，也不作为渲染行为。 |
+| `CompositionIR.project` | MAPPED | width/height → Film stage；fps 校验后写入；duration 用于时间线范围。非法 fps 明确拒绝。 |
+| `CompositionIR.references` | ARCHIVED_ONLY | ReferenceGraph 保存为 `data-source-reference-graph`；不会自动生成或插入未在时间线中的素材。 |
+| `CompositionIR.scenes` | MAPPED | 主场景、支持的 video/image layers、选择区间及部分语义 lineage 转换；非 video/image 图层、未匹配 selection、部分层字段会告警/不迁移。 |
+| `CompositionIR.style_contract` | MAPPED | motion_temper、safe_zone、部分 palette/typography 仅在白名单和条件满足时应用；未识别的调色板/字体字段仍只保留来源数据并告警。 |
+| `CompositionIR.style_id` | MAPPED | 匹配到内置 Style Registry 时只执行已声明的字幕位置/字号、旧式 zoom 和 BGM 默认音量映射；未知自定义 style 仅保存来源属性并告警。 |
+| `CompositionIR.subtitle_style` | MAPPED | 支持的字体、字号、颜色、描边、背景等转入字幕 HTML；非法值回退并告警；字体文件不随迁移打包。 |
+| `CompositionIR.subtitle_track` | MAPPED | cue 时间与文本进入 Film 字幕轨道；style registry 引用、非 sentence mode、非 tts_word_boundary 来源等 lineage 不执行或不完整保留，发出 warning。 |
+| `CompositionIR.variants` | MAPPED | 仅选中的 variant scenes/tracks/style 参与本次迁移；其他 variants 不并入最终时间线，完整原始 IR 由源快照保存。 |
+| `CompositionIR.version` | ARCHIVED_ONLY | 作为 IR schema/source snapshot 版本参与解析与归档；当前没有对应的 Film Runtime 播放行为或 film.html 运行时字段。历史版本语义兼容仍需独立验证。 |
+| `CompositionIR.visual_overlays` | MAPPED | video/image overlay 映射到独立物理轨道，处理时间、素材、位置、尺寸、opacity、z-order、transform 的支持子集；其他类型明确告警。 |
+| `CompositionIR.visual_tracks` | MAPPED | 轨道顺序、名称、来源 ID 用于 overlay 排序和 provenance；locked 映射 Film 轨道锁定；hidden 是折叠状态，不是画面隐藏，原分组交互不迁移。 |
+| `CompositionIR.watermarks` | MAPPED | 支持的水印素材/时间/展示参数映射；不支持的类型/参数须以迁移 warning 为准。 |
 | `ContinuityLink.camera_path` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `ContinuityLink.from_scene_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `ContinuityLink.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
