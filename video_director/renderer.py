@@ -1603,15 +1603,22 @@ def render_composition(
         final_path = title_engine.render_watermark_layer(final_path, render_wm, wm_out)
 
     artifact_manifest_path = None
-    if project_id and artifact_graph_state is not None:
-        artifact_manifest_path = artifact_graph.record_render(
-            project_id,
-            artifact_graph_state,
-            scene_paths=scene_paths,
-            visual_path=visual_path,
-            master_path=master_path,
-            final_path=final_path,
-        )
+    if project_id:
+        from video_director import film_document as fd
+        from video_director.project_lock import project_lock
+        with project_lock(project_id):
+            # Recheck after the long render: initialization may have switched
+            # project authority while the legacy renderer was producing intermediates.
+            fd.assert_legacy_composition_access(project_id, "完成旧 CompositionIR 渲染")
+            if artifact_graph_state is not None:
+                artifact_manifest_path = artifact_graph.record_render(
+                    project_id,
+                    artifact_graph_state,
+                    scene_paths=scene_paths,
+                    visual_path=visual_path,
+                    master_path=master_path,
+                    final_path=final_path,
+                )
 
     return RenderResult(
         visual_path=visual_path,
