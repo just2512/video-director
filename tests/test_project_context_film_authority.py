@@ -206,3 +206,34 @@ def test_project_save_reports_version_from_the_same_composition_snapshot(tmp_pat
     assert result["result"]["version"] == original_snapshot(project_id)[1]
     assert result["result"]["duration"] == 1.0
     assert snapshots == [project_id, project_id]
+
+
+def test_all_legacy_pipeline_and_renderer_entrypoints_fail_closed_for_film_projects(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    from video_director import pipeline, renderer
+
+    project_id = "context-legacy-entrypoint-gate"
+    _write_film(project_id, FILM_HTML)
+    project_dir = config.project_dir(project_id)
+    composition_path = project_dir / "plans" / "composition.json"
+    composition_path.parent.mkdir(parents=True, exist_ok=True)
+    composition_path.write_text('{"must_remain":"unchanged"}', encoding="utf-8")
+    before = composition_path.read_bytes()
+    render_workdir = tmp_path / "legacy-render-work"
+
+    calls = [
+        lambda: pipeline.compose_project("legacy", [], [], project_id),
+        lambda: pipeline.compose_auto("legacy", [], [], project_id),
+        lambda: pipeline.resume_after_confirm(project_id),
+        lambda: pipeline._recompose_with_size(project_id, 640, 360),
+        lambda: renderer.render_composition(None, {}, render_workdir, project_id=project_id),
+    ]
+    for call in calls:
+        with pytest.raises(film_document.FilmError) as caught:
+            call()
+        assert caught.value.code == "FILM_AUTHORITY_ACTIVE"
+
+    assert composition_path.read_bytes() == before
+    assert not (project_dir / "input" / "script.txt").exists()
+    assert not (project_dir / "plans" / "scenes.json").exists()
+    assert not render_workdir.exists()
