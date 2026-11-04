@@ -287,3 +287,22 @@ def test_project_reference_and_transition_field_audit_has_explicit_boundaries():
     ):
         assert rows[field][1] == "ARCHIVED_ONLY", field
         assert "migration/source-composition.json" in rows[field][2] or "data-source-reference-graph" in rows[field][2]
+
+
+def test_style_contract_nested_field_audit_matches_supported_runtime_subset():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    rows = {
+        line.split("|")[1].strip().strip("`"): [
+            column.strip() for column in line.strip("|").split("|")
+        ]
+        for line in audit.splitlines()
+        if line.startswith("| `StyleContract.") and line.count("|") >= 3
+    }
+    assert set(rows) == {
+        "StyleContract.motion_temper", "StyleContract.palette",
+        "StyleContract.safe_zone", "StyleContract.style_id",
+        "StyleContract.typography",
+    }
+    assert all(columns[1] == "MAPPED" for columns in rows.values())
+    assert "无显式 subtitle_style" in rows["StyleContract.palette"][2]
+    assert "未注册 ID" in rows["StyleContract.style_id"][2]

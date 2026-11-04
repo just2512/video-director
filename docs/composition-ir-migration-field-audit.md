@@ -232,11 +232,11 @@
 | `SemanticAnchor.kind` | ARCHIVED_ONLY | 与 `id`、`label` 一并原样保留在 `data-source-semantic-anchors` JSON 中；仅作来源元数据，不执行语义解析。 |
 | `SemanticAnchor.label` | ARCHIVED_ONLY | 与 `id`、`kind` 一并原样保留在 `data-source-semantic-anchors` JSON 中；不驱动 Film Runtime 展示或行为。 |
 | `SpatialMap.layer_anchors` | ARCHIVED_ONLY | 随 SceneState 的 entrance_state/exit_state 原样序列化；仅保留 layer→anchor 来源关系，不执行空间布局或连续性求解。 |
-| `StyleContract.motion_temper` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `StyleContract.palette` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `StyleContract.safe_zone` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `StyleContract.style_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `StyleContract.typography` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `StyleContract.motion_temper` | MAPPED | calm/energetic/cinematic 映射为受限 image_motion_intensity 并驱动支持的图层动效；未知值不猜测执行。 |
+| `StyleContract.palette` | MAPPED | 仅在无显式 subtitle_style/注册风格时，将合法 #RRGGBB 的 subtitle/text/foreground 映射为字幕颜色；其他 palette token 只保存在来源数据并 warning。 |
+| `StyleContract.safe_zone` | MAPPED | 经 0.5–1.0 校验后写入字幕 safe_zone margin；越界值 warning 且不应用。 |
+| `StyleContract.style_id` | MAPPED | 匹配内置 Style Registry 时执行其白名单字幕/动效/BGM 默认值；未注册 ID 只保存在 data-source-style-id 并 warning。 |
+| `StyleContract.typography` | MAPPED | 仅在无显式 subtitle_style/注册风格时，将白名单 font_family/font/font_size/subtitle_font_size 映射为字幕字体与字号；其他字段不执行。 |
 | `SubtitleCue.end` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `SubtitleCue.start` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `SubtitleCue.text` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
