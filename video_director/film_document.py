@@ -5952,6 +5952,15 @@ def initialize_project_film(project_id: str, document: dict, pages: dict[str, st
     text = serialize_film(document)
     parse_film(text)
     with project_lock(pid):
+        from video_director import store as project_store
+        project = project_store.get_project(pid)
+        active_stages = {"TTS", "ALIGNMENT", "MATCHING", "PLANNING", "RENDERING", "QC"}
+        if project and str(project.get("stage") or "") in active_stages:
+            raise FilmError(
+                "PROJECT_BUSY",
+                f"项目当前处于 {project.get('stage')} 阶段；请等待旧导演任务结束后再初始化 film.html。",
+                409,
+            )
         path = _film_path(pid)
         try:
             path.lstat()
