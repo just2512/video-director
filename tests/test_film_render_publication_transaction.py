@@ -196,3 +196,53 @@ def test_failed_rollback_retains_journal_and_backups_for_startup_recovery(
 
     assert output.read_bytes() == b"old-mp4"
     assert report_path.read_bytes() == b'{"status":"OLD"}'
+
+
+@pytest.mark.parametrize(
+    ("had_output", "had_report"),
+    [(True, False), (False, True)],
+)
+def test_commit_failure_restores_mixed_prior_artifact_state(
+    tmp_path, monkeypatch, had_output, had_report,
+):
+    film_render, _root, workdir, output_temp, output, report_path = _publication_layout(
+        tmp_path, monkeypatch, had_previous=False
+    )
+    if had_output:
+        output.write_bytes(b"old-mp4")
+    if had_report:
+        report_path.write_bytes(b'{"status":"OLD"}')
+
+    real_replace = film_render.os.replace
+    journal = workdir / "publish-transaction.json"
+    journal_replacements = 0
+
+    def fail_commit_journal(source, destination):
+        nonlocal journal_replacements
+        if Path(destination) == journal:
+            journal_replacements += 1
+            if journal_replacements == 2:
+                raise OSError("injected committed-journal failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(film_render.os, "replace", fail_commit_journal)
+
+    with pytest.raises(OSError, match="injected committed-journal failure"):
+        film_render._publish_render_artifacts(
+            "project-transaction",
+            REVISION,
+            output_temp,
+            output,
+            {"source_revision": REVISION, "status": "PASS"},
+            workdir,
+        )
+
+    if had_output:
+        assert output.read_bytes() == b"old-mp4"
+    else:
+        assert not output.exists()
+    if had_report:
+        assert report_path.read_bytes() == b'{"status":"OLD"}'
+    else:
+        assert not report_path.exists()
+    assert not journal.exists()
