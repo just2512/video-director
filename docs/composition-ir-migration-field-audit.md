@@ -272,38 +272,38 @@
 | `Variant.style` | MAPPED | 所选变体 style 的注册风格/白名单参数可执行；完整原始对象写入 data-source-variant-style，未知参数不猜测执行。 |
 | `Variant.tracks` | MAPPED | 仅所选 Variant.tracks 替代顶层 audio 进入音频迁移；不与顶层音频自动合并。 |
 | `Variant.version` | MAPPED | 写入片段 data-source-variant-version 作为来源版本标识；不作为 Runtime 播放行为。 |
-| `VisualOverlayClip.asset_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.duration` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.fit_mode` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.height` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.opacity` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.presentation_mode` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.source_audio_enabled` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.source_audio_volume` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.source_in` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.speed` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.start` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.track_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.transform` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.width` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.x` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.y` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `VisualOverlayClip.z_index` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `VisualOverlayClip.asset_id` | MAPPED | 解析为 Film clip src 与 data-asset-id；资源不存在/类型不支持时按迁移错误或 warning 处理。 |
+| `VisualOverlayClip.duration` | MAPPED | 写入 clip 时长及视频源区间换算；超出素材时长等问题由资源/时间校验处理。 |
+| `VisualOverlayClip.fit_mode` | MAPPED | cover/contain 转为 clip object-fit 或 transform fit_mode；模型拒绝其他值。 |
+| `VisualOverlayClip.height` | MAPPED | picture_in_picture/sticker 模式按归一高度换算为 stage 像素；full_frame 使用完整 stage 尺寸。 |
+| `VisualOverlayClip.id` | MAPPED | 用于稳定生成 Film clip/track ID，并写入 data-source-id。 |
+| `VisualOverlayClip.opacity` | MAPPED | 写入 clip opacity；存在 canonical transform 时与 transform.opacity 相乘。 |
+| `VisualOverlayClip.presentation_mode` | MAPPED | full_frame 使用整画幅；picture_in_picture/sticker 使用归一位置/尺寸；模型拒绝未知模式。 |
+| `VisualOverlayClip.source_audio_enabled` | MAPPED | 仅 video overlay 生效：true 保留源音轨，false 写入 muted；静态图片不适用并 warning。 |
+| `VisualOverlayClip.source_audio_volume` | MAPPED | 仅 video overlay 生效并写入 volume；静态图片不适用且非默认值会 warning。 |
+| `VisualOverlayClip.source_in` | MAPPED | 写入媒体 src 时间区间起点；视频按 speed 换算 source_out。 |
+| `VisualOverlayClip.speed` | MAPPED | video overlay 写入 speed 并按 timeline duration 换算 source_out；image overlay 固定按 1 倍处理。 |
+| `VisualOverlayClip.start` | MAPPED | 写入 Film clip at，决定项目时间线位置。 |
+| `VisualOverlayClip.track_id` | MAPPED | 保留 data-source-track-id/order/name 并参与叠加层排序；每个 overlay 仍拆成独立物理 Film track，原组联动编辑不迁移。 |
+| `VisualOverlayClip.transform` | MAPPED | full_frame canonical transform 经 _film_transform_metadata 转为 Film transform/style/channels；模型禁止非 full_frame 组合。 |
+| `VisualOverlayClip.width` | MAPPED | picture_in_picture/sticker 模式按归一宽度换算为 stage 像素；full_frame 使用完整 stage 尺寸。 |
+| `VisualOverlayClip.x` | MAPPED | picture_in_picture/sticker 模式按归一水平位置换算为 stage 像素；full_frame 忽略该定位并使用全画幅。 |
+| `VisualOverlayClip.y` | MAPPED | picture_in_picture/sticker 模式按归一垂直位置换算为 stage 像素；full_frame 忽略该定位并使用全画幅。 |
+| `VisualOverlayClip.z_index` | MAPPED | 作为片段本地 z-index 写入 style；跨物理轨道的最终 render z-index 按 source track order 与 authored z_index 重新排序。 |
 | `VisualTrack.hidden` | ARCHIVED_ONLY | 源轨 hidden 表示时间线折叠，不隐藏画面；写入 `data-source-track-hidden` 并产生 warning。`tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved` 验证。 |
 | `VisualTrack.id` | MAPPED | 通过 `VisualOverlayClip.track_id` 关联来源视觉轨道，写入 `data-source-track-id`；缺省/未知轨道走默认轨道回退。视觉轨道迁移测试验证。 |
 | `VisualTrack.locked` | MAPPED | 写入生成的 Film overlay 轨道 `attrs.locked`，运行时阻止该轨道编辑；`test_visual_source_track_order_identity_and_lock_are_preserved` 验证。 |
 | `VisualTrack.name` | MAPPED | 写入 Film overlay 轨道 `attrs.data-label`；视觉轨道迁移测试验证自定义名称。 |
 | `VisualTrack.order` | MAPPED | 决定 overlay 轨道生成顺序，并写入来源顺序 provenance；视觉轨道迁移测试验证顺序与 `data-source-track-order`。 |
-| `WatermarkLayer.anchor` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `WatermarkLayer.asset_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `WatermarkLayer.duration` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `WatermarkLayer.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `WatermarkLayer.kind` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `WatermarkLayer.offset_x` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `WatermarkLayer.offset_y` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `WatermarkLayer.opacity` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `WatermarkLayer.safe_area` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `WatermarkLayer.scale` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `WatermarkLayer.start` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `WatermarkLayer.text` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `WatermarkLayer.anchor` | MAPPED | 九宫格 anchor 映射为水印 HTML 定位；不支持值产生 warning 并拒绝该水印。 |
+| `WatermarkLayer.asset_id` | MAPPED | image/logo/svg 水印解析为项目媒体 URL 并写入来源资产元数据；text 水印不消费该字段。 |
+| `WatermarkLayer.duration` | MAPPED | 写入水印 iframe 时间范围；None 表示从 start 持续到项目片尾，超出片尾会截短并 warning。 |
+| `WatermarkLayer.id` | MAPPED | 用于生成稳定水印 clip/track ID，并写入 data-source-watermark-id。 |
+| `WatermarkLayer.kind` | MAPPED | text 生成文本水印页；image/logo/svg 生成媒体水印；其他类型 warning 并拒绝。 |
+| `WatermarkLayer.offset_x` | MAPPED | 按 anchor 方向转换为水印 HTML 像素偏移。 |
+| `WatermarkLayer.offset_y` | MAPPED | 按 anchor 方向转换为水印 HTML 像素偏移。 |
+| `WatermarkLayer.opacity` | MAPPED | 映射为水印 HTML opacity；超出 0–1 由模型/渲染校验拒绝。 |
+| `WatermarkLayer.safe_area` | MAPPED | 按 anchor 方向参与水印内缩像素位置计算；限制在 0–200px。 |
+| `WatermarkLayer.scale` | MAPPED | 映射为水印 HTML scale；大于 10 会限制并 warning；文本水印按 24px 基准字号换算并提示视觉复核。 |
+| `WatermarkLayer.start` | MAPPED | 写入水印 iframe clip at；起点超出影片时长时 warning 并拒绝该水印。 |
+| `WatermarkLayer.text` | MAPPED | kind=text 时写入文本水印 HTML；图片类 kind 不消费该字段。 |

@@ -345,3 +345,33 @@ def test_variant_field_audit_distinguishes_selected_content_from_archived_metada
     }
     assert rows["Variant.metadata"][1] == "ARCHIVED_ONLY"
     assert "data-source-variant-metadata" in rows["Variant.metadata"][2]
+
+
+def test_visual_overlay_and_watermark_field_audit_has_no_unclassified_fields():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    rows = {
+        line.split("|")[1].strip().strip("`"): [
+            column.strip() for column in line.strip("|").split("|")
+        ]
+        for line in audit.splitlines()
+        if line.startswith("| `VisualOverlayClip.") or line.startswith("| `WatermarkLayer.")
+    }
+    expected_overlay = {
+        "VisualOverlayClip.asset_id", "VisualOverlayClip.duration", "VisualOverlayClip.fit_mode",
+        "VisualOverlayClip.height", "VisualOverlayClip.id", "VisualOverlayClip.opacity",
+        "VisualOverlayClip.presentation_mode", "VisualOverlayClip.source_audio_enabled",
+        "VisualOverlayClip.source_audio_volume", "VisualOverlayClip.source_in",
+        "VisualOverlayClip.speed", "VisualOverlayClip.start", "VisualOverlayClip.track_id",
+        "VisualOverlayClip.transform", "VisualOverlayClip.width", "VisualOverlayClip.x",
+        "VisualOverlayClip.y", "VisualOverlayClip.z_index",
+    }
+    expected_watermark = {
+        "WatermarkLayer.anchor", "WatermarkLayer.asset_id", "WatermarkLayer.duration",
+        "WatermarkLayer.id", "WatermarkLayer.kind", "WatermarkLayer.offset_x",
+        "WatermarkLayer.offset_y", "WatermarkLayer.opacity", "WatermarkLayer.safe_area",
+        "WatermarkLayer.scale", "WatermarkLayer.start", "WatermarkLayer.text",
+    }
+    assert set(rows) == expected_overlay | expected_watermark
+    assert all(columns[1] == "MAPPED" for columns in rows.values())
+    assert "每个 overlay" in rows["VisualOverlayClip.track_id"][2]
+    assert "静态图片不适用" in rows["VisualOverlayClip.source_audio_enabled"][2]
