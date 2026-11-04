@@ -86,6 +86,10 @@ def test_scene_text_planning_lock_and_transition_are_not_silently_executed(tmp_p
             "transition_out": {"type": "fade", "duration": 0.4},
             "layers": [
                 {
+                    "id": "scene-base-layer", "type": "image", "asset_id": "asset-still",
+                    "start": 0, "duration": 2,
+                },
+                {
                     "id": "scene-leading-layer", "type": "image", "asset_id": "asset-still",
                     "start": 2, "duration": 0.25,
                 },
