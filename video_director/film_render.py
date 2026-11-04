@@ -108,6 +108,85 @@ _RENDER_WORKDIR_RE = re.compile(r"^\.film-render-([0-9a-f]{64})-(\d+)-(\d+)\.wor
 _QC_TEMP_RE = re.compile(r"^\.film-final-([0-9a-f]{64})\.json\.(\d+)\.(\d+)\.tmp$")
 
 
+def _process_identity(pid: int) -> str | None:
+    """Return an OS process-start token; None means the PID no longer exists."""
+    if pid <= 0:
+        return None
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class FILETIME(ctypes.Structure):
+                _fields_ = [("dwLowDateTime", wintypes.DWORD), ("dwHighDateTime", wintypes.DWORD)]
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+            kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE, ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME), ctypes.POINTER(FILETIME)]
+            kernel32.GetProcessTimes.restype = wintypes.BOOL
+            kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+            handle = kernel32.OpenProcess(0x1000, False, int(pid))
+            if not handle:
+                return None if ctypes.get_last_error() in {87, 1168} else "UNKNOWN"
+            try:
+                creation, exit_time, kernel_time, user_time = FILETIME(), FILETIME(), FILETIME(), FILETIME()
+                if not kernel32.GetProcessTimes(handle, ctypes.byref(creation), ctypes.byref(exit_time), ctypes.byref(kernel_time), ctypes.byref(user_time)):
+                    return "UNKNOWN"
+                ticks = (int(creation.dwHighDateTime) << 32) | int(creation.dwLowDateTime)
+                return f"windows:{ticks}"
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return "UNKNOWN"
+    stat_path = Path(f"/proc/{int(pid)}/stat")
+    if stat_path.exists():
+        try:
+            raw = stat_path.read_text(encoding="ascii")
+            tail = raw[raw.rfind(")") + 1:].split()
+            return "linux:" + tail[19]
+        except Exception:
+            return "UNKNOWN"
+    if Path("/proc").is_dir():
+        return None
+    return "UNKNOWN"
+
+
+def _write_render_owner(workdir: Path, pid: int) -> None:
+    identity = _process_identity(pid)
+    if not isinstance(identity, str) or not identity or identity == "UNKNOWN":
+        raise RuntimeError("cannot establish render owner process identity")
+    marker = Path(workdir) / "owner.json"
+    with marker.open("x", encoding="utf-8") as handle:
+        json.dump({"schema_version": 1, "pid": int(pid), "identity": identity}, handle, separators=(",", ":"))
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    _fsync_directory(Path(workdir))
+
+
+def _render_owner_is_alive(workdir: Path, pid: int) -> bool:
+    marker = Path(workdir) / "owner.json"
+    if not marker.exists() and not marker.is_symlink():
+        # Backward compatibility for workdirs created before owner markers.
+        return _render_process_is_alive(pid)
+    if marker.is_symlink() or not marker.is_file():
+        raise RuntimeError("render owner marker is missing or unsafe")
+    owner = json.loads(marker.read_text(encoding="utf-8"))
+    if (
+        not isinstance(owner, dict)
+        or owner.get("schema_version") != 1
+        or isinstance(owner.get("pid"), bool)
+        or owner.get("pid") != pid
+        or not isinstance(owner.get("identity"), str)
+        or not owner["identity"]
+    ):
+        raise RuntimeError("render owner marker is invalid")
+    current = _process_identity(pid)
+    if current == "UNKNOWN":
+        return True
+    return current is not None and current == owner["identity"]
+
 def _render_process_is_alive(pid: int) -> bool:
     """Fail closed when process liveness cannot be established."""
     if pid <= 0:
@@ -254,7 +333,7 @@ def cleanup_orphaned_render_artifacts(storage_root: Path | None = None) -> dict:
                             continue
                         revision, raw_pid, _created_ns = match.groups()
                         pid = int(raw_pid)
-                        if _render_process_is_alive(pid):
+                        if _render_owner_is_alive(workdir, pid):
                             continue
                         try:
                             journal = workdir / "publish-transaction.json"
@@ -1188,6 +1267,11 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
     output = fps_dir / f"film-final-{revision}.mp4"
     temp_root = fps_dir / f".film-render-{revision}-{os.getpid()}-{time.time_ns()}.work"
     temp_root.mkdir(parents=True, exist_ok=False)
+    try:
+        _write_render_owner(temp_root, os.getpid())
+    except Exception:
+        shutil.rmtree(temp_root, ignore_errors=True)
+        raise
     frame_dir = temp_root / "frames"
     frame_dir.mkdir()
     silent_video = temp_root / "silent.mp4"
