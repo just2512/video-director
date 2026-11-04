@@ -416,5 +416,5 @@ def test_reference_graph_is_archived_without_implicitly_inserting_reference_asse
     assert "reference-only-image" not in clip_asset_ids
     assert any("引用图不会自动生成或插入" in warning for warning in result["warnings"])
     assert result["document"]["fps"] == 25
-    assert result["document"]["width"] == 640
-    assert result["document"]["height"] == 360
+    assert result["document"]["stage"]["width"] == 640
+    assert result["document"]["stage"]["height"] == 360
