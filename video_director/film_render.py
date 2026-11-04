@@ -994,13 +994,13 @@ def _publish_render_artifacts(
             report_published = False
             try:
                 os.replace(output_temp, output)
+                output_published = True
                 _fsync_directory(Path(output_temp).parent)
                 _fsync_directory(output.parent)
-                output_published = True
                 os.replace(qc_temp, report_path)
+                report_published = True
                 _fsync_directory(qc_temp.parent)
                 _fsync_directory(report_path.parent)
-                report_published = True
                 transaction["phase"] = "committed"
                 _write_publish_journal(temp_root, transaction)
             except Exception:
