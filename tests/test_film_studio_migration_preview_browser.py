@@ -277,6 +277,7 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 archive_path = project_root / "migration" / "source-composition.json"
                 assert archive_path.is_file()
                 archive_bytes = archive_path.read_bytes()
+                persisted_snapshot = archive_bytes.decode("utf-8")
                 archive_sha256 = __import__("hashlib").sha256(archive_bytes).hexdigest()
                 assert migration_record["source_archive"] == {
                     "path": "migration/source-composition.json",
@@ -378,8 +379,8 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                     arg={"projectId": project_id, "revision": external_revision},
                     timeout=15000,
                 )
-                assert archive_file.read_text(encoding="utf-8") == persisted_snapshot
-                assert __import__("hashlib").sha256(archive_file.read_bytes()).hexdigest() == archive_sha256
+                assert archive_path.read_text(encoding="utf-8") == persisted_snapshot
+                assert __import__("hashlib").sha256(archive_path.read_bytes()).hexdigest() == archive_sha256
                 manual_state = fd.read_project_film(project_id)
                 director_base = manual_state["rev"]
 
