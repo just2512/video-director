@@ -669,3 +669,19 @@ def test_windows_write_through_replace_and_delete_round_trip(tmp_path):
     film_render._durable_unlink(destination)
     assert not destination.exists()
     assert not list(tmp_path.glob(".film-delete-*.tmp"))
+
+
+def test_render_owner_marker_round_trips_current_process_identity(tmp_path):
+    import json
+    from video_director import film_render
+
+    workdir = tmp_path / "render-workdir"
+    workdir.mkdir()
+    pid = os.getpid()
+
+    film_render._write_render_owner(workdir, pid)
+
+    owner = json.loads((workdir / "owner.json").read_text(encoding="utf-8"))
+    assert owner["pid"] == pid
+    assert owner["identity"] not in ("", "UNKNOWN")
+    assert film_render._render_owner_is_alive(workdir, pid)
