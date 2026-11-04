@@ -329,3 +329,19 @@ def test_subtitle_nested_field_audit_matches_renderer_contract():
     }
     assert {field for field, cols in rows.items() if cols[1] == "MAPPED"} == expected_mapped
     assert {field for field, cols in rows.items() if cols[1] == "ARCHIVED_ONLY"} == expected_archived
+
+
+def test_variant_field_audit_distinguishes_selected_content_from_archived_metadata():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    rows = {
+        line.split("|")[1].strip().strip("`"): [
+            column.strip() for column in line.strip("|").split("|")
+        ]
+        for line in audit.splitlines()
+        if line.startswith("| `Variant.") and line.count("|") >= 3
+    }
+    assert {field for field, cols in rows.items() if cols[1] == "MAPPED"} == {
+        "Variant.id", "Variant.scenes", "Variant.style", "Variant.tracks", "Variant.version",
+    }
+    assert rows["Variant.metadata"][1] == "ARCHIVED_ONLY"
+    assert "data-source-variant-metadata" in rows["Variant.metadata"][2]

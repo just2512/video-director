@@ -266,12 +266,12 @@
 | `Transform.y` | MAPPED | 写入归一化 `data-film-transform.y` 并由 FilmRuntime 映射到画布位置；变换迁移及浏览器运行时测试覆盖。 |
 | `TransitionOut.duration` | ARCHIVED_ONLY | 当前未写入 Film clip/track 转场行为；非零时长迁移时显式 warning，完整值保留在 migration/source-composition.json。 |
 | `TransitionOut.type` | ARCHIVED_ONLY | 当前未编译为 Film 转场；非默认类型迁移时显式 warning，完整值保留在 migration/source-composition.json。 |
-| `Variant.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Variant.metadata` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Variant.scenes` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Variant.style` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Variant.tracks` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Variant.version` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `Variant.id` | MAPPED | 参与 active_variant_id 显式选择，并写入 clip data-source-variant-id；FilmDocument 只执行所选单一变体。 |
+| `Variant.metadata` | ARCHIVED_ONLY | 写入最终轨道 data-source-variant-metadata；明确不作为渲染指令执行。 |
+| `Variant.scenes` | MAPPED | 仅所选 Variant.scenes 替代顶层 scenes 进入场景/图层迁移；其他变体不合并，完整源数据保留在 source snapshot。 |
+| `Variant.style` | MAPPED | 所选变体 style 的注册风格/白名单参数可执行；完整原始对象写入 data-source-variant-style，未知参数不猜测执行。 |
+| `Variant.tracks` | MAPPED | 仅所选 Variant.tracks 替代顶层 audio 进入音频迁移；不与顶层音频自动合并。 |
+| `Variant.version` | MAPPED | 写入片段 data-source-variant-version 作为来源版本标识；不作为 Runtime 播放行为。 |
 | `VisualOverlayClip.asset_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `VisualOverlayClip.duration` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `VisualOverlayClip.fit_mode` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
