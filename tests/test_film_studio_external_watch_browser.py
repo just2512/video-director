@@ -3964,8 +3964,24 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                     timeout=15_000,
                 )
                 assert fd.read_project_film(project_id)["rev"] == expected_revision
+                # The Studio may discover the revision through its API refresh
+                # before the debounced filesystem watcher has finished journaling
+                # it. Wait for the durable undo-history entry instead of assuming
+                # the UI reload and watcher debounce complete in the same tick.
+                history_deadline = time.monotonic() + 5.0
                 history = fd._history_read(project_id)
-                assert history["past"][-1]["source"] == "external_file"
+                while not any(
+                    entry.get("source") == "external_file"
+                    and entry.get("after_rev") == expected_revision
+                    for entry in history["past"]
+                ) and time.monotonic() < history_deadline:
+                    time.sleep(0.02)
+                    history = fd._history_read(project_id)
+                assert history["past"] and history["past"][-1]["source"] == "external_file", {
+                    "history": history,
+                    "watcher_state": web_server._FILM_REVISION_WATCHER._projects.get(project_id),
+                    "expected_revision": expected_revision,
+                }
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
             finally:
                 context.close()
