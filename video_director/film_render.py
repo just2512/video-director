@@ -186,8 +186,11 @@ def _render_owner_is_alive(workdir: Path, pid: int) -> bool:
     owner = json.loads(marker.read_text(encoding="utf-8"))
     if (
         not isinstance(owner, dict)
+        or isinstance(owner.get("schema_version"), bool)
+        or not isinstance(owner.get("schema_version"), int)
         or owner.get("schema_version") != 1
         or isinstance(owner.get("pid"), bool)
+        or not isinstance(owner.get("pid"), int)
         or owner.get("pid") != pid
         or not isinstance(owner.get("identity"), str)
         or not owner["identity"]
