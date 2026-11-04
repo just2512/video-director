@@ -146,3 +146,53 @@ def test_mp4_replace_failure_leaves_previous_artifacts_untouched(tmp_path, monke
     assert not (workdir / "publish-transaction.json").exists()
     assert not (workdir / "previous-output.mp4").exists()
     assert not (workdir / "previous-qc.json").exists()
+
+
+def test_failed_rollback_retains_journal_and_backups_for_startup_recovery(
+    tmp_path, monkeypatch,
+):
+    import os
+
+    film_render, project_root, workdir, output_temp, output, report_path = _publication_layout(
+        tmp_path, monkeypatch, had_previous=True
+    )
+    real_replace = film_render.os.replace
+    output_replace_count = 0
+
+    def fail_publication_and_rollback(source, destination):
+        nonlocal output_replace_count
+        destination = Path(destination)
+        if destination == report_path:
+            raise OSError("injected QC publication failure")
+        if destination == output:
+            output_replace_count += 1
+            if output_replace_count == 2:
+                raise OSError("injected rollback replacement failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(film_render.os, "replace", fail_publication_and_rollback)
+
+    with pytest.raises(RuntimeError, match="rollback was deferred"):
+        film_render._publish_render_artifacts(
+            "project-transaction",
+            REVISION,
+            output_temp,
+            output,
+            {"source_revision": REVISION, "status": "PASS"},
+            workdir,
+        )
+
+    journal = workdir / "publish-transaction.json"
+    assert journal.is_file()
+    assert (workdir / "previous-output.mp4").read_bytes() == b"old-mp4"
+    assert (workdir / "previous-qc.json").read_bytes() == b'{"status":"OLD"}'
+    assert output.read_bytes() == b"new-mp4"
+    assert report_path.read_bytes() == b'{"status":"OLD"}'
+
+    monkeypatch.setattr(film_render.os, "replace", real_replace)
+    film_render._recover_render_publication(
+        project_root, workdir, REVISION, os.getpid()
+    )
+
+    assert output.read_bytes() == b"old-mp4"
+    assert report_path.read_bytes() == b'{"status":"OLD"}'
