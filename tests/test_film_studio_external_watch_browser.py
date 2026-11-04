@@ -7,6 +7,7 @@ import os
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import threading
+import time
 from urllib.parse import quote as quote_for_test
 
 import pytest
