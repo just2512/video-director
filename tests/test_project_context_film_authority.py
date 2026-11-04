@@ -231,7 +231,7 @@ def test_all_legacy_pipeline_and_renderer_entrypoints_fail_closed_for_film_proje
     for call in calls:
         with pytest.raises(film_document.FilmError) as caught:
             call()
-        assert caught.value.code == "FILM_AUTHORITY_ACTIVE"
+        assert caught.value.code == "FILM_DOCUMENT_AUTHORITATIVE"
 
     assert composition_path.read_bytes() == before
     assert not (project_dir / "input" / "script.txt").exists()
