@@ -253,6 +253,14 @@ def test_dangling_film_symlink_never_reactivates_legacy_authority(tmp_path, monk
     context = inspect_project_context(project_id)
 
     assert context["authority"] == "unknown"
+    with pytest.raises(film_document.FilmError) as read_error:
+        film_document.read_project_film(project_id)
+    assert read_error.value.code == "FILM_PATH_UNSAFE"
+    with pytest.raises(film_document.FilmError) as init_error:
+        film_document.initialize_project_film(
+            project_id, film_document.parse_film(FILM_HTML), {}, 0, []
+        )
+    assert init_error.value.code == "FILM_ALREADY_INITIALIZED"
     with pytest.raises(film_document.FilmError) as caught:
         film_document.assert_legacy_composition_access(project_id, "旧时间线写入")
     assert caught.value.code == "FILM_DOCUMENT_AUTHORITATIVE"
