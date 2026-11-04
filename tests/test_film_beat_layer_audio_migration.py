@@ -83,6 +83,8 @@ def test_beat_layers_and_audio_are_migrated_and_tagged_without_duplicate_global_
     original = next(clip for clip in audio_matches if clip["attrs"].get("id") == "audio-sfx-shared")
     distinct = next(clip for clip in audio_matches if clip is not original)
     assert original["attrs"]["data-source-beat-ids"] == '["beat-hook"]'
+    assert original["attrs"]["data-source-beat-roles"] == '["hook"]'
+    assert json.loads(original["attrs"]["data-source-semantic-anchors"])[0]["id"] == "anchor-hook"
     assert float(original["attrs"]["at"]) == 0.2
     assert float(original["attrs"]["volume"]) == 0.6
     assert float(distinct["attrs"]["volume"]) == 0.2
@@ -130,6 +132,7 @@ def test_audio_lane_order_controls_film_track_order_not_clip_start(tmp_path, mon
         if track.get("clips") and track["clips"][0].get("tag") == "audio"
     ]
     assert [track["attrs"]["data-label"] for track in audio_tracks] == ["前置轨", "后置轨"]
+    assert [track["attrs"]["data-source-track-order"] for track in audio_tracks] == ["1", "9"]
     assert [track["clips"][0]["attrs"]["data-source-id"] for track in audio_tracks] == [
         "clip-late", "clip-early",
     ]

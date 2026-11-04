@@ -103,11 +103,11 @@
 | `AudioTrack.track_id` | MAPPED | 关联 AudioLane，决定 label/order/locked/muted/hidden provenance；写入 `data-source-track-id`。 |
 | `AudioTrack.type` | MAPPED | 写入 `data-role`，保留 narration/dialogue/original/bgm/sfx/ambience 混音语义。 |
 | `AudioTrack.volume` | MAPPED | 写入 Film clip `volume`；BGM 默认音量仅在未显式指定 volume 时可被注册 style 覆盖。 |
-| `Beat.audio` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Beat.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Beat.layers` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Beat.role` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Beat.semantic_anchors` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `Beat.audio` | MAPPED | 作为独立音频片段进入统一音频迁移路径；按内容签名与全局音频去重，ID 冲突但内容不同时保留独立片段；Beat ID/role/anchors 写入片段 provenance。测试覆盖去重、冲突保留、时间/音量和 beat lineage；不表示 Beat 音频有独立于 AudioTrack 的时间原点。 |
+| `Beat.id` | ARCHIVED_ONLY | 不作为 Film Runtime 的独立对象或行为；作为 `data-source-beat-ids` provenance，并在音频 ID 冲突时参与确定性派生 ID。完整源值保留于 source-composition 快照。 |
+| `Beat.layers` | MAPPED | 合并到 Scene 图层迁移：与 scene.layers 内容签名匹配时附加 beat provenance；不匹配时作为独立图层进入后续 video/image Film clip 转换。仅支持的图层类型/字段可执行，其他字段仍按 Layer 迁移 warning/边界处理。测试覆盖独立 overlay、时间、fit_mode 和 beat lineage。 |
+| `Beat.role` | ARCHIVED_ONLY | 作为 `data-source-beat-roles` provenance 写入关联 Film clip；没有对应的 Film Runtime 渲染或编辑行为。 |
+| `Beat.semantic_anchors` | ARCHIVED_ONLY | 作为 `data-source-semantic-anchors` provenance 写入关联 Film clip；不编译为连续性、镜头或渲染行为。 |
 | `CameraConstraint.kind` | ARCHIVED_ONLY | 当前 2D FilmRuntime 不执行摄影机约束；CameraTrack 含 constraints 时整条摄影机轨不映射并产生 warning，原字段保留在 source-composition 快照。 |
 | `CameraConstraint.target` | ARCHIVED_ONLY | 当前 2D FilmRuntime 不解析约束目标；constraints 非空即阻断该摄影机轨映射，目标值只随来源快照保留。 |
 | `CameraKeyframe.at` | MAPPED | 线性正交俯视摄影机关键帧时间转换为每个 Film clip 的局部关键帧时间；`test_orthographic_camera_pan_maps_to_deterministic_film_keyframes` 验证。 |
