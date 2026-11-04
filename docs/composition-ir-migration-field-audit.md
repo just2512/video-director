@@ -228,9 +228,9 @@
 | `Selection.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Selection.start` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Selection.text` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SemanticAnchor.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SemanticAnchor.kind` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SemanticAnchor.label` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `SemanticAnchor.id` | ARCHIVED_ONLY | 作为 Beat 来源语义锚点完整序列化到视频/音频片段的 `data-source-semantic-anchors` 属性；不参与 Film Runtime 的剪辑、定位或渲染。 |
+| `SemanticAnchor.kind` | ARCHIVED_ONLY | 与 `id`、`label` 一并原样保留在 `data-source-semantic-anchors` JSON 中；仅作来源元数据，不执行语义解析。 |
+| `SemanticAnchor.label` | ARCHIVED_ONLY | 与 `id`、`kind` 一并原样保留在 `data-source-semantic-anchors` JSON 中；不驱动 Film Runtime 展示或行为。 |
 | `SpatialMap.layer_anchors` | ARCHIVED_ONLY | 随 SceneState 的 entrance_state/exit_state 原样序列化；仅保留 layer→anchor 来源关系，不执行空间布局或连续性求解。 |
 | `StyleContract.motion_temper` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `StyleContract.palette` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |

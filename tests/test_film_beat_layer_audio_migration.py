@@ -65,7 +65,7 @@ def test_beat_layers_and_audio_are_migrated_and_tagged_without_duplicate_global_
     overlay_track, overlay_clip = beat_layer_matches[0]
     assert overlay_clip["attrs"]["data-source-beat-ids"] == '["beat-hook"]'
     assert overlay_clip["attrs"]["data-source-beat-roles"] == '["hook"]'
-    assert json.loads(overlay_clip["attrs"]["data-source-semantic-anchors"])[0]["id"] == "anchor-hook"
+    assert json.loads(overlay_clip["attrs"]["data-source-semantic-anchors"]) == [\n        {"id": "anchor-hook", "kind": "moment", "label": "开场强调"},\n    ]
     assert overlay_clip["attrs"]["data-source-beat-layer"] == "true"
     assert float(overlay_clip["attrs"]["at"]) == 0.25
     assert "object-fit:contain" in overlay_clip["attrs"]["style"]
@@ -84,7 +84,7 @@ def test_beat_layers_and_audio_are_migrated_and_tagged_without_duplicate_global_
     distinct = next(clip for clip in audio_matches if clip is not original)
     assert original["attrs"]["data-source-beat-ids"] == '["beat-hook"]'
     assert original["attrs"]["data-source-beat-roles"] == '["hook"]'
-    assert json.loads(original["attrs"]["data-source-semantic-anchors"])[0]["id"] == "anchor-hook"
+    assert json.loads(original["attrs"]["data-source-semantic-anchors"]) == [\n        {"id": "anchor-hook", "kind": "moment", "label": "开场强调"},\n    ]
     assert float(original["attrs"]["at"]) == 0.2
     assert float(original["attrs"]["volume"]) == 0.6
     assert float(distinct["attrs"]["volume"]) == 0.2

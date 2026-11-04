@@ -163,3 +163,20 @@ def test_recursive_duplicate_composition_ir_rows_match_top_level_disposition():
             f"top={top[field]}, nested={disposition}"
         )
     assert len(nested) == len(top), "all CompositionIR top-level rows must have matching recursive entries"
+
+
+def test_semantic_anchor_fields_are_archived_as_complete_source_metadata():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    rows = {
+        line.split("|")[1].strip().strip("`"): [
+            column.strip() for column in line.strip("|").split("|")
+        ]
+        for line in audit.splitlines()
+        if line.startswith("| `SemanticAnchor.") and line.count("|") >= 3
+    }
+    assert set(rows) == {
+        "SemanticAnchor.id", "SemanticAnchor.kind", "SemanticAnchor.label",
+    }
+    for field, columns in rows.items():
+        assert columns[1] == "ARCHIVED_ONLY", field
+        assert "data-source-semantic-anchors" in columns[2], field
