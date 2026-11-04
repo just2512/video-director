@@ -298,14 +298,20 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
     ):
         raise RuntimeError("render publication journal is invalid")
     qc_temp_name = payload.get("qc_temp_name")
-    qc_temp_match = _QC_TEMP_RE.fullmatch(qc_temp_name) if isinstance(qc_temp_name, str) else None
-    if (
-        qc_temp_match is None
-        or Path(qc_temp_name).name != qc_temp_name
-        or qc_temp_match.group(1) != revision
-        or int(qc_temp_match.group(2)) != pid
-    ):
-        raise RuntimeError("render publication journal QC temporary path is invalid")
+    # Schema v1 journals predate mandatory QC-temp tracking. Preserve their
+    # historical null/empty representation; schema v2 must name the exact
+    # transaction-owned temporary file so recovery cannot silently skip it.
+    if schema_version == 1 and qc_temp_name in (None, ""):
+        qc_temp_name = None
+    else:
+        qc_temp_match = _QC_TEMP_RE.fullmatch(qc_temp_name) if isinstance(qc_temp_name, str) else None
+        if (
+            qc_temp_match is None
+            or Path(qc_temp_name).name != qc_temp_name
+            or qc_temp_match.group(1) != revision
+            or int(qc_temp_match.group(2)) != pid
+        ):
+            raise RuntimeError("render publication journal QC temporary path is invalid")
     phase = payload.get("phase")
     output = project_root / "render" / f"film-final-{revision}.mp4"
     report = project_root / "qc" / f"film-final-{revision}.json"
@@ -335,10 +341,11 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
     elif phase != "committed":
         raise RuntimeError("render publication journal has an unknown phase")
 
-    qc_temp = project_root / "qc" / qc_temp_name
-    if qc_temp.is_symlink():
-        raise RuntimeError("render QC temporary path is a symlink")
-    qc_temp.unlink(missing_ok=True)
+    if qc_temp_name is not None:
+        qc_temp = project_root / "qc" / qc_temp_name
+        if qc_temp.is_symlink():
+            raise RuntimeError("render QC temporary path is a symlink")
+        qc_temp.unlink(missing_ok=True)
 
 
 def cleanup_orphaned_render_artifacts(storage_root: Path | None = None) -> dict:
