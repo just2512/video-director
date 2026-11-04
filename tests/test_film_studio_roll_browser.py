@@ -53,7 +53,8 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
     project_id = "film-studio-roll-browser"
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
     assert fd.read_project_film(project_id)["exists"]
 
     results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
@@ -261,6 +262,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 x = bounds["x"] + bounds["width"] / 2
                 y = bounds["y"] + bounds["height"] / 2
                 roll_document_before = fd.read_project_film(project_id)
+                roll_bytes_before = film_path.read_bytes()
                 roll_geometry_before = page.evaluate("""ids => Object.fromEntries(ids.map(id => {
                   const node = document.querySelector('#fs-timeline .fs-clip[data-clip="' + id + '"]');
                   return [id, node ? {left:node.style.left,width:node.style.width} : null];
@@ -328,6 +330,27 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                     start, end = source.rsplit("#t=", 1)[1].split(",", 1)
                     return float(start), float(end)
                 assert source_range(clips["clip-a"])[1] == source_range(clips[right_id])[0]
+                roll_document_after = fd.read_project_film(project_id)
+                roll_bytes_after = film_path.read_bytes()
+
+                # Roll is one history unit: undo restores the exact post-split document,
+                # then redo restores the same source boundary and right-clip position.
+                page.evaluate("() => window.filmStudioUndo()")
+                page.wait_for_function(
+                    "revision => { const s=window.filmStudioStore?.getSnapshot(); "
+                    "return !!s && !s.busy && s.pendingTransaction===null && s.revision===revision; }",
+                    arg=roll_document_before["rev"], timeout=10000,
+                )
+                assert film_path.read_bytes() == roll_bytes_before
+                assert fd.read_project_film(project_id)["rev"] == roll_document_before["rev"]
+                page.evaluate("() => window.filmStudioRedo()")
+                page.wait_for_function(
+                    "revision => { const s=window.filmStudioStore?.getSnapshot(); "
+                    "return !!s && !s.busy && s.pendingTransaction===null && s.revision===revision; }",
+                    arg=roll_document_after["rev"], timeout=10000,
+                )
+                assert film_path.read_bytes() == roll_bytes_after
+                assert fd.read_project_film(project_id)["rev"] == roll_document_after["rev"]
 
                 # Re-split the rolled right segment, then exercise Slide trim through
                 # the actual clip-body modifier gesture (Alt+Shift drag).
@@ -352,6 +375,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 page.locator('[data-film-action="slide-mode"]:visible').click()
                 assert page.locator('[data-film-action="slide-mode"]:visible').get_attribute("aria-pressed") == "true"
                 slide_document_before = fd.read_project_film(project_id)
+                slide_bytes_before = film_path.read_bytes()
                 slide_clips_before = {
                     item["id"]: item
                     for track in slide_document_before["doc"]["tracks"]
@@ -434,6 +458,8 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert abs(float(clips[right_id]["attrs"]["at"]) * slide_preview["fps"] -
                            round(float(clips[right_id]["attrs"]["at"]) * slide_preview["fps"])) < 0.00002
                 assert abs(fd.clip_end(clips[slide_right_id]) - 5) < 0.001
+                slide_document_after = fd.read_project_film(project_id)
+                slide_bytes_after = film_path.read_bytes()
 
                 page.locator('[data-film-action="slide-mode"]:visible').click()
                 page.wait_for_function(
@@ -445,6 +471,22 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                     "() => document.querySelector('#film-studio-panel')?.getAttribute('data-busy') !== 'true'",
                     timeout=15000,
                 )
+                # Undo/redo the preceding Slide gesture as one exact document transaction.
+                page.evaluate("() => window.filmStudioUndo()")
+                page.wait_for_function(
+                    "revision => { const s=window.filmStudioStore?.getSnapshot(); "
+                    "return !!s && !s.busy && s.pendingTransaction===null && s.revision===revision; }",
+                    arg=slide_document_before["rev"], timeout=10000,
+                )
+                assert film_path.read_bytes() == slide_bytes_before
+                page.evaluate("() => window.filmStudioRedo()")
+                page.wait_for_function(
+                    "revision => { const s=window.filmStudioStore?.getSnapshot(); "
+                    "return !!s && !s.busy && s.pendingTransaction===null && s.revision===revision; }",
+                    arg=slide_document_after["rev"], timeout=10000,
+                )
+                assert film_path.read_bytes() == slide_bytes_after
+
                 # Slip the left clip without moving it or changing its timeline
                 # duration. Use the explicit mode for this integration assertion;
                 # Alt-drag remains a supported shortcut but is not required for discoverability.
@@ -456,6 +498,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert left_box and left_box["width"] > 40
                 x, y = left_box["x"] + left_box["width"] / 2, left_box["y"] + left_box["height"] / 2
                 slip_document_before = fd.read_project_film(project_id)
+                slip_bytes_before = film_path.read_bytes()
                 slip_clip_before = next(
                     item for track in slip_document_before["doc"]["tracks"]
                     for item in track["clips"] if item["id"] == "clip-a"
@@ -511,6 +554,42 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert abs((slip_source_after[0] - slip_original_source_range[0]) - slip_delta_source) < 0.001, clips["clip-a"]
                 assert abs((slip_source_after[1] - slip_original_source_range[1]) - slip_delta_source) < 0.001, clips["clip-a"]
                 assert abs(fd.clip_duration(clips["clip-a"]) - slip_original_duration) < 0.001, clips["clip-a"]
+                slip_document_after = fd.read_project_film(project_id)
+                slip_bytes_after = film_path.read_bytes()
+
+                page.locator('[data-film-action="slip-mode"]:visible').click()
+                page.wait_for_function(
+                    "() => document.querySelector('#fs-react-timeline-toolbar [data-film-action=\"slip-mode\"]')"
+                    "?.getAttribute('aria-pressed') === 'false'", timeout=5000,
+                )
+                page.wait_for_function(
+                    "() => document.querySelector('#film-studio-panel')?.getAttribute('data-busy') !== 'true'",
+                    timeout=10000,
+                )
+                # Slip undo restores the exact source range without moving the clip;
+                # redo restores the exact same committed bytes and revision.
+                page.evaluate("() => window.filmStudioUndo()")
+                page.wait_for_function(
+                    "revision => { const s=window.filmStudioStore?.getSnapshot(); "
+                    "return !!s && !s.busy && s.pendingTransaction===null && s.revision===revision; }",
+                    arg=slip_document_before["rev"], timeout=10000,
+                )
+                assert film_path.read_bytes() == slip_bytes_before
+                undone_slip = fd.read_project_film(project_id)
+                undone_clip = next(item for track in undone_slip["doc"]["tracks"] for item in track["clips"] if item["id"] == "clip-a")
+                assert source_range(undone_clip) == slip_original_source_range
+                assert fd.clip_duration(undone_clip) == pytest.approx(slip_original_duration)
+                page.evaluate("() => window.filmStudioRedo()")
+                page.wait_for_function(
+                    "revision => { const s=window.filmStudioStore?.getSnapshot(); "
+                    "return !!s && !s.busy && s.pendingTransaction===null && s.revision===revision; }",
+                    arg=slip_document_after["rev"], timeout=10000,
+                )
+                assert film_path.read_bytes() == slip_bytes_after
+                redone_slip = fd.read_project_film(project_id)
+                redone_clip = next(item for track in redone_slip["doc"]["tracks"] for item in track["clips"] if item["id"] == "clip-a")
+                assert source_range(redone_clip) == slip_source_after
+                assert fd.clip_duration(redone_clip) == pytest.approx(slip_original_duration)
 
                 # A regular edge trim is a visual-only preview until pointer-up, then one authoritative operation.
                 trim_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
