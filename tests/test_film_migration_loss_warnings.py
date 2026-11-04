@@ -407,7 +407,7 @@ def test_reference_graph_is_archived_without_implicitly_inserting_reference_asse
     })
     result = fd.build_film_from_composition(project_id, ir)
     main = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
-    assert json.loads(main["attrs"]["data-source-reference-graph"]) == raw_references
+    assert json.loads(main["attrs"]["data-source-reference-graph"]) == json.loads(ir.model_dump_json())["references"]
     clip_asset_ids = {
         clip["attrs"].get("data-asset-id")
         for track in result["document"]["tracks"]
