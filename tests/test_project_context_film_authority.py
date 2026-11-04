@@ -226,6 +226,7 @@ def test_all_legacy_pipeline_and_renderer_entrypoints_fail_closed_for_film_proje
         lambda: pipeline.compose_auto("legacy", [], [], project_id),
         lambda: pipeline.resume_after_confirm(project_id),
         lambda: pipeline._recompose_with_size(project_id, 640, 360),
+        lambda: pipeline._write_legacy_ir_snapshot(project_id, composition_path, None),
         lambda: renderer.render_composition(None, {}, render_workdir, project_id=project_id),
     ]
     for call in calls:
