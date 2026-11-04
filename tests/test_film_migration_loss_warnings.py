@@ -367,3 +367,54 @@ def test_migrated_film_document_lifecycle_preserves_authority_and_source_archive
     assert persisted_manifest["source_snapshot_sha256"] == __import__("hashlib").sha256(
         archive_file.read_bytes()
     ).hexdigest()
+
+
+def test_reference_graph_is_archived_without_implicitly_inserting_reference_assets(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "reference-graph-archive-only"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "base.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "base-image", "file": "assets/base.png", "type": "image"},
+    ]), encoding="utf-8")
+    raw_references = {
+        "references": [
+            {
+                "id": "reference-first-frame", "ref_type": "first_frame",
+                "target_asset_id": "reference-only-image", "role": "opening",
+                "note": "仅供生成参考，不应自动插入时间线",
+            },
+            {
+                "id": "reference-artifact", "ref_type": "visual_reference",
+                "target_artifact_id": "artifact-reference-42", "role": "visual-style",
+                "note": "仅保存来源关系",
+            },
+        ],
+    }
+    ir = CompositionIR.model_validate({
+        "project": {"width": 640, "height": 360, "fps": 25, "duration": 2},
+        "scenes": [{
+            "id": "reference-scene", "start": 0, "duration": 1, "text": "reference",
+            "layers": [{
+                "id": "base-layer", "type": "image", "asset_id": "base-image",
+                "start": 0, "duration": 1,
+            }],
+        }],
+        "references": raw_references,
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    main = next(track for track in result["document"]["tracks"] if track["id"] == "track-main")
+    assert json.loads(main["attrs"]["data-source-reference-graph"]) == raw_references
+    clip_asset_ids = {
+        clip["attrs"].get("data-asset-id")
+        for track in result["document"]["tracks"]
+        for clip in track.get("clips", [])
+    }
+    assert "reference-only-image" not in clip_asset_ids
+    assert any("引用图不会自动生成或插入" in warning for warning in result["warnings"])
+    assert result["document"]["fps"] == 25
+    assert result["document"]["width"] == 640
+    assert result["document"]["height"] == 360

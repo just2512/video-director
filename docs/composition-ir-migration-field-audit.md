@@ -189,17 +189,17 @@
 | `Mask.width` | MAPPED | 作为 rectangle/ellipse 的归一宽度参与 CSS clip-path 几何计算；非法值拒绝该蒙版。 |
 | `Mask.x` | MAPPED | 作为 rectangle/ellipse 的归一水平中心参与 CSS clip-path 几何计算。 |
 | `Mask.y` | MAPPED | 作为 rectangle/ellipse 的归一垂直中心参与 CSS clip-path 几何计算。 |
-| `ProjectSpec.duration` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ProjectSpec.fps` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ProjectSpec.height` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ProjectSpec.width` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Reference.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Reference.note` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Reference.ref_type` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Reference.role` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Reference.target_artifact_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Reference.target_asset_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `ReferenceGraph.references` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `ProjectSpec.duration` | MAPPED | 作为 FilmDocument 初始时间范围；选中 Variant 时以其最晚场景/音轨结束时间覆盖，并在与声明时长不一致时 warning。 |
+| `ProjectSpec.fps` | MAPPED | 经项目帧率校验后写入 FilmDocument fps；非法值拒绝迁移，不静默回退。 |
+| `ProjectSpec.height` | MAPPED | 写入 FilmDocument stage 高度，参与 transform/蒙版等画幅坐标换算。 |
+| `ProjectSpec.width` | MAPPED | 写入 FilmDocument stage 宽度，参与 transform/蒙版等画幅坐标换算。 |
+| `Reference.id` | ARCHIVED_ONLY | 随完整 ReferenceGraph 序列化到最终轨道 data-source-reference-graph；不作为 Film clip/asset ID。 |
+| `Reference.note` | ARCHIVED_ONLY | 随 ReferenceGraph 原样序列化到 data-source-reference-graph；仅供来源说明，不驱动渲染。 |
+| `Reference.ref_type` | ARCHIVED_ONLY | 随 ReferenceGraph 原样序列化到 data-source-reference-graph；引用类型不会自动触发素材生成或时间线插入。 |
+| `Reference.role` | ARCHIVED_ONLY | 随 ReferenceGraph 原样序列化到 data-source-reference-graph；语义角色不驱动 Film Runtime。 |
+| `Reference.target_artifact_id` | ARCHIVED_ONLY | 随 ReferenceGraph 原样序列化到 data-source-reference-graph；不自动恢复/插入 Artifact。 |
+| `Reference.target_asset_id` | ARCHIVED_ONLY | 随 ReferenceGraph 原样序列化到 data-source-reference-graph；不会自动生成或插入未被时间线引用的素材。 |
+| `ReferenceGraph.references` | ARCHIVED_ONLY | 完整引用数组序列化到最终轨道 data-source-reference-graph；ReferenceGraph 不参与 Film Runtime 的素材生成、定位或渲染。 |
 | `SceneIR.beats` | MAPPED | Beat 图层与音频进入专用迁移路径；beat ID/role/semantic anchors 写入片段 provenance；未产生独立播放行为的标签仍只作来源元数据。 |
 | `SceneIR.camera` | MAPPED | 场景内摄影机关键帧在满足正交 2D、固定俯视方向、linear easing 等条件时转换为 Film camera_x/camera_y channels；不支持条件产生 warning。 |
 | `SceneIR.continuity_in` | ARCHIVED_ONLY | 完整值写入 clip 的 data-source-continuity-in；carry/morph 等连续性动作尚未编译为 Film Runtime 行为。 |
@@ -264,8 +264,8 @@
 | `Transform.scale_y` | MAPPED | 写入 `data-film-transform.scale_y` 并执行非等比垂直缩放；迁移测试验证 0.75，浏览器蒙版/变换测试验证运行时尺寸变化。 |
 | `Transform.x` | MAPPED | 写入归一化 `data-film-transform.x` 并由 FilmRuntime 映射到画布位置；变换迁移及浏览器运行时测试覆盖。 |
 | `Transform.y` | MAPPED | 写入归一化 `data-film-transform.y` 并由 FilmRuntime 映射到画布位置；变换迁移及浏览器运行时测试覆盖。 |
-| `TransitionOut.duration` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `TransitionOut.type` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `TransitionOut.duration` | ARCHIVED_ONLY | 当前未写入 Film clip/track 转场行为；非零时长迁移时显式 warning，完整值保留在 migration/source-composition.json。 |
+| `TransitionOut.type` | ARCHIVED_ONLY | 当前未编译为 Film 转场；非默认类型迁移时显式 warning，完整值保留在 migration/source-composition.json。 |
 | `Variant.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Variant.metadata` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Variant.scenes` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |

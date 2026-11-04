@@ -267,3 +267,23 @@ def test_mask_field_audit_classifies_runtime_and_loss_boundaries():
     assert {field: columns[1] for field, columns in rows.items()} == expected
     assert "CSS clip-path" in rows["Mask.feather"][2]
     assert "data-film-mask-keyframes" in rows["Mask.keyframes"][2]
+
+
+def test_project_reference_and_transition_field_audit_has_explicit_boundaries():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    rows = {
+        line.split("|")[1].strip().strip("`"): [
+            column.strip() for column in line.strip("|").split("|")
+        ]
+        for line in audit.splitlines()
+        if line.startswith("| `") and line.count("|") >= 3
+    }
+    for field in ("ProjectSpec.width", "ProjectSpec.height", "ProjectSpec.fps", "ProjectSpec.duration"):
+        assert rows[field][1] == "MAPPED", field
+    for field in (
+        "Reference.id", "Reference.note", "Reference.ref_type", "Reference.role",
+        "Reference.target_artifact_id", "Reference.target_asset_id", "ReferenceGraph.references",
+        "TransitionOut.type", "TransitionOut.duration",
+    ):
+        assert rows[field][1] == "ARCHIVED_ONLY", field
+        assert "migration/source-composition.json" in rows[field][2] or "data-source-reference-graph" in rows[field][2]
