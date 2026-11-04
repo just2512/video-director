@@ -246,3 +246,57 @@ def test_commit_failure_restores_mixed_prior_artifact_state(
     else:
         assert not report_path.exists()
     assert not journal.exists()
+
+
+def test_publication_flushes_backups_before_prepared_journal_and_syncs_renames(
+    tmp_path, monkeypatch,
+):
+    film_render, project_root, workdir, output_temp, output, report_path = _publication_layout(
+        tmp_path, monkeypatch, had_previous=True
+    )
+    events = []
+    real_replace = film_render.os.replace
+    real_fsync_file = film_render._fsync_file
+    real_fsync_directory = film_render._fsync_directory
+
+    def track_file(path):
+        events.append(("file", Path(path).name))
+        return real_fsync_file(path)
+
+    def track_directory(path):
+        events.append(("directory", Path(path)))
+        return real_fsync_directory(path)
+
+    def track_replace(source, destination):
+        events.append(("replace", Path(destination)))
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(film_render, "_fsync_file", track_file)
+    monkeypatch.setattr(film_render, "_fsync_directory", track_directory)
+    monkeypatch.setattr(film_render.os, "replace", track_replace)
+
+    film_render._publish_render_artifacts(
+        "project-transaction",
+        REVISION,
+        output_temp,
+        output,
+        {"source_revision": REVISION, "status": "PASS"},
+        workdir,
+    )
+
+    prepared_journal = next(
+        index for index, event in enumerate(events)
+        if event == ("replace", workdir / "publish-transaction.json")
+    )
+    assert events.index(("file", "previous-output.mp4")) < prepared_journal
+    assert events.index(("file", "previous-qc.json")) < prepared_journal
+    assert events.index(("directory", workdir)) < prepared_journal
+
+    output_replace = events.index(("replace", output))
+    assert events[output_replace + 1:output_replace + 3] == [
+        ("directory", workdir), ("directory", output.parent)
+    ]
+    report_replace = events.index(("replace", report_path))
+    assert events[report_replace + 1:report_replace + 3] == [
+        ("directory", report_path.parent), ("directory", report_path.parent)
+    ]
