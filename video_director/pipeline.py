@@ -574,8 +574,7 @@ def compose_project(
 
     # 5. 保存 IR（Composition IR 是源代码，MP4 是 build artifact，V2 §78）
     # style_id 由 compose_auto 选定后经 config 传递；此处读回写入 IR（可追溯）
-    with open(dirs["plans"] / "composition.json", "w", encoding="utf-8") as f:
-        json.dump(json.loads(ir.model_dump_json()), f, ensure_ascii=False, indent=2)
+    _write_legacy_ir_snapshot(pid, dirs["plans"] / "composition.json", ir)
 
     # 6. 校验
     result = validator.validate_composition(
@@ -621,8 +620,12 @@ def compose_project(
             if report.ok:
                 # 输出 final
                 final_out = dirs["output"] / "final.mp4"
-                if Path(render_out.final_path) != final_out:
-                    shutil.copyfile(render_out.final_path, final_out)
+                from video_director import film_document as fd
+                from video_director.project_lock import project_lock
+                with project_lock(pid):
+                    fd.assert_legacy_composition_access(pid, "发布旧 CompositionIR 最终成片")
+                    if Path(render_out.final_path) != final_out:
+                        shutil.copyfile(render_out.final_path, final_out)
                 return PipelineResult(
                     project_dir=str(base),
                     final_path=str(final_out),
@@ -651,8 +654,9 @@ def compose_project(
                             json.dumps(recheck.to_dict()))
                 _fail(f"VALIDATION_{recheck.verdict.value}: {recheck.to_dict()}")
                 raise PipelineError(f"修复后 IR 校验失败: {recheck.to_dict()}")
-            with open(dirs["plans"] / f"composition.r{repair_rounds}.json", "w", encoding="utf-8") as f:
-                json.dump(json.loads(ir.model_dump_json()), f, ensure_ascii=False, indent=2)
+            _write_legacy_ir_snapshot(
+                pid, dirs["plans"] / f"composition.r{repair_rounds}.json", ir
+            )
         except MissingAssetError as exc:
             _save_error(dirs, "MISSING_ASSET", str(exc), scene_id=exc.scene_id)
             _fail(f"MISSING_ASSET: {exc}")
@@ -689,6 +693,19 @@ def _repair(
         return new_ir
     return ir  # 其余项重试（例如瞬态 ffmpeg 失败）
 
+
+def _write_legacy_ir_snapshot(project_id: str, path: Path, ir: CompositionIR) -> None:
+    """Serialize a legacy IR only while the project lock still confirms legacy authority."""
+    from video_director import film_document as fd
+    from video_director.project_lock import project_lock
+
+    with project_lock(project_id):
+        fd.assert_legacy_composition_access(project_id, "写入旧 CompositionIR 快照")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(json.loads(ir.model_dump_json()), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
 def _save_error(dirs: dict, code: str, detail: str, scene_id: str = None):
     err = {"code": code, "detail": detail}
@@ -763,8 +780,7 @@ def _compose_to_pending(
     style_mod.apply_to_ir(ir, style_contract, config)
 
     # IR 落盘（与 compose_project 一致：composition.json 是渲染唯一输入）
-    with open(dirs["plans"] / "composition.json", "w", encoding="utf-8") as f:
-        json.dump(json.loads(ir.model_dump_json()), f, ensure_ascii=False, indent=2)
+    _write_legacy_ir_snapshot(project_id, dirs["plans"] / "composition.json", ir)
 
     # 匹配结果（若 ContentMatchPlanner 路径）从 planner 里取
     assignments: dict = {}
