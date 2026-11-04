@@ -396,6 +396,24 @@ def cleanup_orphaned_render_artifacts(storage_root: Path | None = None) -> dict:
                                 f"{project_root.name}/{temporary.name}: {type(exc).__name__}: {str(exc)[:240]}"
                             )
 
+                for cleanup_dir in (render_dir, qc_dir):
+                    if not cleanup_dir.is_dir() or cleanup_dir.is_symlink():
+                        continue
+                    for tombstone in sorted(cleanup_dir.iterdir(), key=lambda item: item.name):
+                        tombstone_match = _DELETE_TEMP_RE.fullmatch(tombstone.name)
+                        if not tombstone_match or tombstone.is_symlink() or not tombstone.is_file():
+                            continue
+                        if _render_process_is_alive(int(tombstone_match.group(1))):
+                            continue
+                        try:
+                            tombstone.unlink()
+                            summary.setdefault("delete_tombstones_removed", 0)
+                            summary["delete_tombstones_removed"] += 1
+                        except OSError as exc:
+                            summary["errors"].append(
+                                f"{project_root.name}/{tombstone.name}: {type(exc).__name__}: {str(exc)[:240]}"
+                            )
+
         except Exception as exc:
             summary["errors"].append(
                 f"{project_root.name}: {type(exc).__name__}: {str(exc)[:240]}"
