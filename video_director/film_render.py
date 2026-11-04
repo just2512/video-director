@@ -28,6 +28,25 @@ from PIL import Image, ImageChops, ImageStat
 from video_director import config
 from video_director import film_document as fd
 
+def _atomic_replace(source: Path, destination: Path) -> None:
+    """Atomically replace a sibling file and request durable rename semantics."""
+    source = Path(source)
+    destination = Path(destination)
+    if os.name != "nt":
+        _atomic_replace(source, destination)
+        return
+
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    move_file_ex = kernel32.MoveFileExW
+    move_file_ex.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong]
+    move_file_ex.restype = ctypes.c_int
+    # Same-volume sibling renames only: no COPY_ALLOWED fallback.
+    flags = 0x00000001 | 0x00000008  # REPLACE_EXISTING | WRITE_THROUGH
+    if not move_file_ex(str(source), str(destination), flags):
+        raise ctypes.WinError(ctypes.get_last_error())
+
 def _fsync_file(path: Path) -> None:
     """Flush file contents before a journal can make them authoritative."""
     with Path(path).open("rb+") as handle:
@@ -94,7 +113,7 @@ def _write_publish_journal(temp_root: Path, payload: dict) -> Path:
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temporary, journal)
+        _atomic_replace(temporary, journal)
         _fsync_directory(temp_root)
     finally:
         temporary.unlink(missing_ok=True)
@@ -107,7 +126,7 @@ def _restore_render_backup(backup: Path, destination: Path, temporary: Path) -> 
         raise RuntimeError(f"render publication backup is missing: {backup.name}")
     shutil.copy2(backup, temporary)
     _fsync_file(temporary)
-    os.replace(temporary, destination)
+    _atomic_replace(temporary, destination)
     _fsync_directory(destination.parent)
 
 
@@ -933,7 +952,7 @@ def _write_qc_report(project_id: str, report: dict) -> Path:
             json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
             encoding="utf-8",
         )
-        os.replace(temporary, report_path)
+        _atomic_replace(temporary, report_path)
     finally:
         try:
             temporary.unlink(missing_ok=True)
@@ -998,11 +1017,11 @@ def _publish_render_artifacts(
             output_published = False
             report_published = False
             try:
-                os.replace(output_temp, output)
+                _atomic_replace(output_temp, output)
                 output_published = True
                 _fsync_directory(Path(output_temp).parent)
                 _fsync_directory(output.parent)
-                os.replace(qc_temp, report_path)
+                _atomic_replace(qc_temp, report_path)
                 report_published = True
                 _fsync_directory(qc_temp.parent)
                 _fsync_directory(report_path.parent)
@@ -1507,7 +1526,7 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                     "look 检查期间影片文档已变化；旧 revision 的预览接触表未发布。请重新载入最新版本后再检查。",
                     409,
                 )
-            os.replace(temp_output, output)
+            _atomic_replace(temp_output, output)
         return {
             "ok": True,
             "project_id": pid,
