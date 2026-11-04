@@ -78,9 +78,9 @@ def test_scene_text_planning_lock_and_transition_are_not_silently_executed(tmp_p
     ]), encoding="utf-8")
 
     raw = {
-        "project": {"width": 320, "height": 180, "fps": 30, "duration": 5},
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 3.45},
         "scenes": [{
-            "id": "scene-source-only", "start": 2, "duration": 1,
+            "id": "scene-source-only", "start": 2, "duration": 1.45,
             "text": "这段旁白不得自动变成字幕",
             "human_locked": True,
             "transition_out": {"type": "fade", "duration": 0.4},
@@ -97,7 +97,7 @@ def test_scene_text_planning_lock_and_transition_are_not_silently_executed(tmp_p
     clip = next(item for item in track["clips"] if item["attrs"].get("data-source-id") == "scene-source-layer")
     attrs = clip["attrs"]
     assert attrs["at"] == "2.25"
-    # Scene duration is source planning metadata; layer timing controls Film clips.
+    # Film clip timing is derived from the layer offset and duration, not a scene clip.
     assert attrs["src"].endswith("#t=0,1.2")
     assert "data-clip-locked" not in attrs
     assert "transition" not in attrs
