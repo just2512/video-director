@@ -197,3 +197,45 @@ def test_selection_fields_are_archived_as_source_ranges_not_film_clip_behavior()
     for field, columns in rows.items():
         assert columns[1] == "ARCHIVED_ONLY", field
         assert "data-source-selections" in columns[2], field
+
+def test_layer_fields_have_explicit_runtime_or_source_archive_dispositions():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    rows = {
+        line.split("|")[1].strip().strip("`"): [
+            column.strip() for column in line.strip("|").split("|")
+        ]
+        for line in audit.splitlines()
+        if line.startswith("| `Layer.") and line.count("|") >= 3
+    }
+    expected = {
+        "Layer.animation": "REJECTED",
+        "Layer.asset_id": "MAPPED",
+        "Layer.clip_id": "ARCHIVED_ONLY",
+        "Layer.duration": "MAPPED",
+        "Layer.fit_mode": "MAPPED",
+        "Layer.id": "ARCHIVED_ONLY",
+        "Layer.keyframes": "MAPPED",
+        "Layer.locked": "MAPPED",
+        "Layer.mask": "MAPPED",
+        "Layer.motion": "MAPPED",
+        "Layer.motion_instance": "MAPPED",
+        "Layer.motion_recipe_id": "MAPPED",
+        "Layer.motion_version": "MAPPED",
+        "Layer.source_in": "MAPPED",
+        "Layer.source_out": "MAPPED",
+        "Layer.speed": "MAPPED",
+        "Layer.start": "MAPPED",
+        "Layer.text": "ARCHIVED_ONLY",
+        "Layer.track_id": "ARCHIVED_ONLY",
+        "Layer.transform": "MAPPED",
+        "Layer.type": "MAPPED",
+    }
+    assert set(rows) == set(expected)
+    for field, disposition in expected.items():
+        assert rows[field][1] == disposition, field
+        assert rows[field][2], field
+    assert "unsupported" in rows["Layer.animation"][2]
+    assert "gap" in rows["Layer.type"][2]
+    assert "image" in rows["Layer.speed"][2]
+    assert "data-source-id" in rows["Layer.id"][2]
+    assert "data-source-track-id" in rows["Layer.track_id"][2]

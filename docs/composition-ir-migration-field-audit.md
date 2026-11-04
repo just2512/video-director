@@ -156,27 +156,27 @@
 | `Keyframe.value` | MAPPED | 通过属性白名单与数值/范围校验后写入 Film channel；volume、mask_path 走专用音量包络/蒙版通道，不混入普通视觉通道。 |
 | `KeyframeTrack.keyframes` | MAPPED | 普通视觉属性转为 `data-film-keyframes`；volume 与 mask_path 分流至专用迁移路径。测试覆盖变换关键帧、蒙版关键帧和音量包络。 |
 | `KeyframeTrack.property` | MAPPED | 通过属性白名单决定 Film 目标通道；x/y/scale/scale_x/scale_y/rotation/opacity/blur/camera_x/camera_y/camera_scale/offset_x/offset_y 为普通通道，volume/mask_path 专用分流。 |
-| `Layer.animation` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.asset_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.clip_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.duration` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.fit_mode` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.keyframes` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.locked` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.mask` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.motion` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.motion_instance` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.motion_recipe_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.motion_version` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.source_in` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.source_out` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.speed` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.start` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.text` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.track_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.transform` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Layer.type` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `Layer.animation` | REJECTED | Film Runtime 没有对应的旧式 animation 字段执行路径；迁移诊断将其列为 unsupported，原始值保留在 migration/source-composition.json，不伪造动画效果。 |
+| `Layer.asset_id` | MAPPED | 经 asset_uri() 解析为实际媒体 src，同时写入 data-asset-id；可用资产目录元数据另存 data-source-asset-metadata。 |
+| `Layer.clip_id` | ARCHIVED_ONLY | 仅在 Layer.id 缺失时作为 data-source-id 的来源身份回退值；不作为 Film clip ID（Film clip ID 由迁移器独立生成）。 |
+| `Layer.duration` | MAPPED | 作为 Film clip duration，并参与 video 源区间与 speed 的一致性约束。 |
+| `Layer.fit_mode` | MAPPED | 支持 cover/contain/fill/none/scale-down 并写入 object-fit；非法值发出迁移提示后回退 cover。 |
+| `Layer.id` | ARCHIVED_ONLY | 优先写入 data-source-id 作为来源身份；Film clip ID 由迁移器生成，不复用来源 ID。 |
+| `Layer.keyframes` | MAPPED | 按属性拆分并迁移可表达的视觉、音量与 mask_path 关键帧；不支持的属性逐项产生诊断，不静默伪造。 |
+| `Layer.locked` | MAPPED | 为真时写入 data-clip-locked；Film Studio 以该属性阻止剪辑编辑。 |
+| `Layer.mask` | MAPPED | 将 Runtime 可表达的静态蒙版和兼容的 mask_path 关键帧迁入 clip-path/data-film-mask-keyframes；反向动态蒙版及不兼容路径显式告警并保留源快照。 |
+| `Layer.motion` | MAPPED | 仅支持 slow_zoom_in/slow_zoom_out/pan_left/pan_right 等已实现预设生成 Film channels；未知预设产生迁移提示。 |
+| `Layer.motion_instance` | MAPPED | 与 motion_recipe_id/version 配合解析为 Film channels；原始实例参数同时保留在 data-motion-instance，未解析 recipe 会告警。 |
+| `Layer.motion_recipe_id` | MAPPED | 作为 MotionRecipe 解析入口生成受支持的 Film channels，并写入 data-motion-recipe-id 供来源追溯；未知 recipe 告警。 |
+| `Layer.motion_version` | MAPPED | 与 motion_recipe_id 一起固定 recipe 版本并参与解析，同时写入 data-motion-recipe-version。 |
+| `Layer.source_in` | MAPPED | video 层作为媒体源起点写入 src 时间片段；image 层不消费该字段。 |
+| `Layer.source_out` | MAPPED | video 层作为媒体源终点写入 src 时间片段；image 层不消费该字段。 |
+| `Layer.speed` | MAPPED | video 层写入 speed 并用于源时间区间换算；image 层固定按 1.0 处理。 |
+| `Layer.start` | MAPPED | 与场景起点相加后写入 Film clip at，成为项目时间线位置。 |
+| `Layer.text` | ARCHIVED_ONLY | 当前迁移路径不把 Layer.text 转成字幕或文字图层；原始值只在 migration/source-composition.json 中保留。 |
+| `Layer.track_id` | ARCHIVED_ONLY | 写入 data-source-track-id 供来源轨道追溯；Film 轨道由迁移器按实际时间冲突重新分配。 |
+| `Layer.transform` | MAPPED | 经 _film_transform_metadata() 归一化并写入 Film transform/style；与关键帧、CameraTrack 和蒙版坐标空间规则共同生效。 |
+| `Layer.type` | MAPPED | video/image 分别迁移为 video/img clip；gap 有意跳过；其他类型不生成 Film clip 并产生不可无损迁移诊断。 |
 | `Mask.animated` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Mask.feather` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Mask.geometry` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
