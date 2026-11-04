@@ -336,3 +336,64 @@ def test_directory_fsync_failure_after_mp4_replace_still_rolls_back(
     assert not (workdir / "publish-transaction.json").exists()
     assert not (workdir / "previous-output.mp4").exists()
     assert not (workdir / "previous-qc.json").exists()
+
+
+def test_atomic_replace_uses_posix_os_replace(tmp_path, monkeypatch):
+    from video_director import film_render
+
+    source = tmp_path / "source.tmp"
+    destination = tmp_path / "destination.bin"
+    source.write_bytes(b"payload")
+    calls = []
+    real_replace = film_render.os.replace
+
+    def record_replace(src, dst):
+        calls.append((Path(src), Path(dst)))
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(film_render, "_is_windows_platform", lambda: False)
+    monkeypatch.setattr(film_render.os, "replace", record_replace)
+    film_render._atomic_replace(source, destination)
+
+    assert calls == [(source, destination)]
+    assert destination.read_bytes() == b"payload"
+    assert not source.exists()
+
+
+def test_atomic_replace_uses_windows_write_through_flags(tmp_path, monkeypatch):
+    import ctypes
+    from types import SimpleNamespace
+    from video_director import film_render
+
+    source = tmp_path / "source.tmp"
+    destination = tmp_path / "destination.bin"
+    calls = []
+
+    def move_file_ex(src, dst, flags):
+        calls.append((src, dst, flags))
+        return 1
+
+    monkeypatch.setattr(film_render, "_is_windows_platform", lambda: True)
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *_args, **_kwargs: SimpleNamespace(MoveFileExW=move_file_ex), raising=False)
+    film_render._atomic_replace(source, destination)
+
+    assert calls == [(str(source), str(destination), 0x00000001 | 0x00000008)]
+    assert move_file_ex.argtypes == [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong]
+    assert move_file_ex.restype == ctypes.c_int
+
+
+def test_atomic_replace_propagates_windows_api_error(tmp_path, monkeypatch):
+    import ctypes
+    from types import SimpleNamespace
+    from video_director import film_render
+
+    def move_file_ex(_src, _dst, _flags):
+        return 0
+
+    monkeypatch.setattr(film_render, "_is_windows_platform", lambda: True)
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *_args, **_kwargs: SimpleNamespace(MoveFileExW=move_file_ex), raising=False)
+    monkeypatch.setattr(ctypes, "get_last_error", lambda: 5, raising=False)
+    monkeypatch.setattr(ctypes, "WinError", lambda code: OSError(code, "access denied"), raising=False)
+
+    with pytest.raises(OSError, match="access denied"):
+        film_render._atomic_replace(tmp_path / "source.tmp", tmp_path / "destination.bin")
