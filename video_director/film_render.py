@@ -1068,6 +1068,10 @@ def _publish_render_artifacts(
                 _write_publish_journal(temp_root, transaction)
             except Exception:
                 try:
+                    if had_output:
+                        _validate_render_backup(output_backup, transaction.get("output_backup"))
+                    if had_report:
+                        _validate_render_backup(report_backup, transaction.get("report_backup"))
                     if output_published:
                         if had_output:
                             _restore_render_backup(
