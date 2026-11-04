@@ -210,3 +210,33 @@ def test_invalid_orphaned_transaction_is_preserved_for_inspection(tmp_path, monk
     assert summary["workdirs_removed"] == 0
     assert summary["transactions_recovered"] == 0
     assert len(summary["errors"]) == 1
+
+
+def test_orphan_cleanup_holds_cross_process_project_lock(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from video_director import film_render
+
+    _project_root, workdir, _output, _report = _project_layout(tmp_path)
+    lock_events = []
+
+    @contextmanager
+    def tracked_project_lock(project_id):
+        lock_events.append(("enter", project_id))
+        try:
+            yield
+        finally:
+            lock_events.append(("exit", project_id))
+
+    def owner_is_dead(_pid):
+        assert lock_events == [("enter", "project-one")]
+        return False
+
+    monkeypatch.setattr(film_render.fd, "project_lock", tracked_project_lock)
+    monkeypatch.setattr(film_render, "_render_process_is_alive", owner_is_dead)
+
+    summary = film_render.cleanup_orphaned_render_artifacts(tmp_path)
+
+    assert lock_events == [("enter", "project-one"), ("exit", "project-one")]
+    assert not workdir.exists()
+    assert summary["workdirs_removed"] == 1
+    assert summary["errors"] == []
