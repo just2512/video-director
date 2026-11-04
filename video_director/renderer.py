@@ -1391,6 +1391,9 @@ def render_composition(
     lower_third_name：人物条名称（§17 Lower Third），非空时片头后叠加
     左下角身份条（名前+可选头衔，4s 渐入渐出，不改时长）。
     """
+    if project_id:
+        from video_director import film_document as fd
+        fd.assert_legacy_composition_access(project_id, "渲染旧 CompositionIR 成片")
     seg_dir = work_dir / "segments"
     seg_dir.mkdir(parents=True, exist_ok=True)
     w, h = ir.project.width, ir.project.height
