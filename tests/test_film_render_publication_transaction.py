@@ -480,3 +480,31 @@ def test_orphan_recovery_keeps_workdir_when_owner_identity_is_unknown(tmp_path, 
     monkeypatch.setattr(film_render, "_process_identity", lambda _pid: "UNKNOWN")
 
     assert film_render._render_owner_is_alive(workdir, 987654321)
+
+
+def test_durable_unlink_uses_windows_write_through_rename(tmp_path, monkeypatch):
+    import ctypes
+    from types import SimpleNamespace
+    from video_director import film_render
+
+    target = tmp_path / "published.mp4"
+    target.write_bytes(b"old-artifact")
+    calls = []
+    real_replace = film_render.os.replace
+
+    def move_file_ex(src, dst, flags):
+        calls.append((Path(src), Path(dst), flags))
+        real_replace(src, dst)
+        return 1
+
+    monkeypatch.setattr(film_render, "_is_windows_platform", lambda: True)
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *_args, **_kwargs: SimpleNamespace(MoveFileExW=move_file_ex), raising=False)
+    film_render._durable_unlink(target)
+
+    assert not target.exists()
+    assert len(calls) == 1
+    assert calls[0][0] == target
+    assert calls[0][1].parent == target.parent
+    assert calls[0][1].name.startswith(".film-delete-")
+    assert calls[0][2] == 0x00000008
+    assert not calls[0][1].exists()
