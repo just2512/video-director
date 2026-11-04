@@ -295,6 +295,9 @@ def test_publication_flushes_backups_before_prepared_journal_and_syncs_renames(
     assert events.index(("file", "previous-output.mp4.tmp")) < prepared_journal
     assert events.index(("file", "previous-qc.json.tmp")) < prepared_journal
     assert events.index(("directory", workdir)) < prepared_journal
+    for backup_name in ("previous-output.mp4", "previous-qc.json"):
+        backup_replace = events.index(("replace", workdir / backup_name))
+        assert events.index(("file", backup_name + ".tmp")) < backup_replace < prepared_journal
 
     output_replace = events.index(("replace", output))
     assert events[output_replace + 1:output_replace + 3] == [
