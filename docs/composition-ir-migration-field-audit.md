@@ -177,18 +177,18 @@
 | `Layer.track_id` | ARCHIVED_ONLY | 写入 data-source-track-id 供来源轨道追溯；Film 轨道由迁移器按实际时间冲突重新分配。 |
 | `Layer.transform` | MAPPED | 经 _film_transform_metadata() 归一化并写入 Film transform/style；与关键帧、CameraTrack 和蒙版坐标空间规则共同生效。 |
 | `Layer.type` | MAPPED | video/image 分别迁移为 video/img clip；gap 有意跳过；其他类型不生成 Film clip 并产生不可无损迁移诊断。 |
-| `Mask.animated` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Mask.feather` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Mask.geometry` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Mask.height` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Mask.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Mask.inverted` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Mask.keyframes` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Mask.opacity` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Mask.shape` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Mask.width` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Mask.x` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `Mask.y` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `Mask.animated` | ARCHIVED_ONLY | 仅作为来源标记保留在 source snapshot；Runtime 是否应用蒙版关键帧由可迁移的 mask_path 数据决定，不以该布尔值创建动画。 |
+| `Mask.feather` | ARCHIVED_ONLY | CSS clip-path 不支持该羽化语义；feather 大于 0 时产生 warning，完整值保留在 source snapshot。 |
+| `Mask.geometry` | MAPPED | polygon/path 的归一顶点转换为 CSS polygon；rectangle/ellipse 使用 x/y/width/height，path 的 Bezier/开放路径语义不在当前 schema。 |
+| `Mask.height` | MAPPED | 作为 rectangle/ellipse 的归一高度参与 CSS clip-path 几何计算；非法值拒绝该蒙版。 |
+| `Mask.id` | ARCHIVED_ONLY | 仅保留在 migration/source-composition.json；Film Runtime 不创建独立 Mask 对象或 ID。 |
+| `Mask.inverted` | ARCHIVED_ONLY | 反向蒙版不能由当前 CSS clip-path 无损表达；产生 warning，不应用为正向蒙版，完整值保留在 source snapshot。 |
+| `Mask.keyframes` | MAPPED | 仅支持有效 mask_path 归一多边形关键帧进入 data-film-mask-keyframes；顶点数不一致、越界或不支持属性产生 warning 并拒绝相应动画。 |
+| `Mask.opacity` | ARCHIVED_ONLY | 蒙版独立 opacity 不映射为片段 opacity；小于 1 时产生 warning，原值保留在 source snapshot。 |
+| `Mask.shape` | MAPPED | rectangle/ellipse/polygon 及归一顶点 path 转为 CSS clip-path；rounded_rect 因缺少圆角半径拒绝映射，未知形状产生 warning。 |
+| `Mask.width` | MAPPED | 作为 rectangle/ellipse 的归一宽度参与 CSS clip-path 几何计算；非法值拒绝该蒙版。 |
+| `Mask.x` | MAPPED | 作为 rectangle/ellipse 的归一水平中心参与 CSS clip-path 几何计算。 |
+| `Mask.y` | MAPPED | 作为 rectangle/ellipse 的归一垂直中心参与 CSS clip-path 几何计算。 |
 | `ProjectSpec.duration` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `ProjectSpec.fps` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `ProjectSpec.height` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |

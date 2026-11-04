@@ -283,3 +283,55 @@ def test_visual_track_order_precedes_each_overlay_local_z_index(tmp_path, monkey
     assert 100001 <= back_z < front_z < 200002, (
         "all overlay tracks must remain below subtitles/watermarks"
     )
+
+
+def test_mask_id_feather_opacity_and_keyframes_have_explicit_migration_boundaries(tmp_path, monkeypatch):
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "mask-field-boundary-migration"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-image", "file": "assets/still.png", "type": "image"},
+    ]), encoding="utf-8")
+    raw_mask = {
+        "id": "mask-source-identity",
+        "shape": "polygon",
+        "x": 0.5, "y": 0.5, "width": 0.8, "height": 0.7,
+        "feather": 6,
+        "inverted": False,
+        "opacity": 0.4,
+        "animated": True,
+        "geometry": [[0.1, 0.1], [0.9, 0.1], [0.8, 0.9], [0.2, 0.9]],
+        "keyframes": [{
+            "property": "mask_path",
+            "keyframes": [
+                {"at": 0, "value": [[0.1, 0.1], [0.9, 0.1], [0.8, 0.9], [0.2, 0.9]]},
+                {"at": 1, "value": [[0.2, 0.1], [0.9, 0.2], [0.8, 0.9], [0.2, 0.9]]},
+            ],
+        }],
+    }
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "assets": [{"id": "asset-image", "type": "image", "file": "assets/still.png"}],
+        "scenes": [{
+            "id": "mask-boundary-scene", "start": 0, "duration": 1, "text": "mask",
+            "layers": [{
+                "type": "image", "asset_id": "asset-image", "start": 0, "duration": 1,
+                "mask": raw_mask,
+            }],
+        }],
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
+    attrs = track["clips"][0]["attrs"]
+    assert "clip-path:polygon(" in attrs["style"]
+    assert "data-film-mask-keyframes" in attrs
+    assert "data-source-mask-id" not in attrs
+    warnings = "\\n".join(result["warnings"])
+    assert "feather 羽化未映射" in warnings
+    assert "蒙版独立 opacity 未映射" in warnings
+    archived = json.loads(result["pages"]["migration/source-composition.json"])
+    assert archived["scenes"][0]["layers"][0]["mask"] == raw_mask

@@ -239,3 +239,31 @@ def test_layer_fields_have_explicit_runtime_or_source_archive_dispositions():
     assert "image" in rows["Layer.speed"][2]
     assert "data-source-id" in rows["Layer.id"][2]
     assert "data-source-track-id" in rows["Layer.track_id"][2]
+
+
+def test_mask_field_audit_classifies_runtime_and_loss_boundaries():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    rows = {
+        line.split("|")[1].strip().strip("`"): [
+            column.strip() for column in line.strip("|").split("|")
+        ]
+        for line in audit.splitlines()
+        if line.startswith("| `Mask.") and line.count("|") >= 3
+    }
+    expected = {
+        "Mask.animated": "ARCHIVED_ONLY",
+        "Mask.feather": "ARCHIVED_ONLY",
+        "Mask.geometry": "MAPPED",
+        "Mask.height": "MAPPED",
+        "Mask.id": "ARCHIVED_ONLY",
+        "Mask.inverted": "ARCHIVED_ONLY",
+        "Mask.keyframes": "MAPPED",
+        "Mask.opacity": "ARCHIVED_ONLY",
+        "Mask.shape": "MAPPED",
+        "Mask.width": "MAPPED",
+        "Mask.x": "MAPPED",
+        "Mask.y": "MAPPED",
+    }
+    assert {field: columns[1] for field, columns in rows.items()} == expected
+    assert "CSS clip-path" in rows["Mask.feather"][2]
+    assert "data-film-mask-keyframes" in rows["Mask.keyframes"][2]
