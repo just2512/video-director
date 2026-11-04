@@ -84,10 +84,16 @@ def test_scene_text_planning_lock_and_transition_are_not_silently_executed(tmp_p
             "text": "这段旁白不得自动变成字幕",
             "human_locked": True,
             "transition_out": {"type": "fade", "duration": 0.4},
-            "layers": [{
-                "id": "scene-source-layer", "type": "image", "asset_id": "asset-still",
-                "start": 0.25, "duration": 1.2,
-            }],
+            "layers": [
+                {
+                    "id": "scene-leading-layer", "type": "image", "asset_id": "asset-still",
+                    "start": 0, "duration": 0.25,
+                },
+                {
+                    "id": "scene-source-layer", "type": "image", "asset_id": "asset-still",
+                    "start": 0.25, "duration": 1.2,
+                },
+            ],
         }],
     }
     ir = CompositionIR.model_validate(raw)
