@@ -79,6 +79,17 @@ def _read_params(row: Optional[dict]) -> dict:
         return {}
 
 
+def _film_document_path_present(path: Path) -> bool:
+    """Treat symlinks and unreadable film paths as authority-present, never as absent."""
+    try:
+        path.lstat()
+        return True
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+
+
 def _dir_meta(project_id: str) -> dict:
     """目录状态探测（storyboard/run/draft/final/composition/graphic_plan）。
 
