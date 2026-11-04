@@ -114,8 +114,8 @@
 | `CameraKeyframe.easing` | MAPPED | 仅 `linear` 被接受并写入 Film `camera_x/camera_y` 关键帧；非线性缓动整条 camera 迁移拒绝并 warning，不做曲线近似。 |
 | `CameraKeyframe.position` | ARCHIVED_ONLY | 用于验证三维坐标、归一 x/y 和固定俯视方向；不直接写入 Film camera channel，z/方向语义留在来源快照。 |
 | `CameraKeyframe.target` | MAPPED | 仅 target.x/target.y 映射为 Film `camera_x/camera_y` 线性关键帧；target.z 不映射。测试验证两轴数值与时间。 |
-| `CameraState.position` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `CameraState.target` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `CameraState.position` | ARCHIVED_ONLY | 作为 entrance_state/exit_state 的嵌套 JSON 写入 `data-source-entrance-state` / `data-source-exit-state`；仅作摄影机状态追溯，未转换为 Film camera channel。 |
+| `CameraState.target` | ARCHIVED_ONLY | 作为 entrance_state/exit_state 的嵌套 JSON 写入 `data-source-entrance-state` / `data-source-exit-state`；仅作摄影机目标追溯，未转换为 Film camera channel。 |
 | `CameraTrack.constraints` | ARCHIVED_ONLY | 非空 constraints 会阻断整条 CameraTrack 的 2D 迁移并产生 warning；FilmRuntime 不执行约束，原值只在来源快照。 |
 | `CameraTrack.follow_target` | ARCHIVED_ONLY | 非空 follow_target 会阻断整条 CameraTrack 的独立 2D 迁移并产生 warning；不伪造目标跟随行为。 |
 | `CameraTrack.id` | ARCHIVED_ONLY | 用于迁移诊断/warning 标识，不作为 Film track 或 clip identity；来源快照保留原 ID。 |
@@ -220,10 +220,10 @@
 | `SceneIR.text` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `SceneIR.transition_out` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `SceneIR.visual_intent` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneState.anchor_layer_id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneState.camera` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneState.spatial_map` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SceneState.visible_layers` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `SceneState.anchor_layer_id` | ARCHIVED_ONLY | 随 SceneIR entrance_state/exit_state 原样序列化到对应 `data-source-*` 属性；未转成 Film Runtime 的锚点选择行为。 |
+| `SceneState.camera` | ARCHIVED_ONLY | 随 SceneIR entrance_state/exit_state 原样序列化到对应 `data-source-*` 属性；嵌套 CameraState 不会驱动 Film 摄影机。 |
+| `SceneState.spatial_map` | ARCHIVED_ONLY | 随 SceneIR entrance_state/exit_state 原样序列化到对应 `data-source-*` 属性；空间映射未进入 Film Runtime 连续性求解。 |
+| `SceneState.visible_layers` | ARCHIVED_ONLY | 随 SceneIR entrance_state/exit_state 原样序列化到对应 `data-source-*` 属性；Film Runtime 不据此切换可见图层。 |
 | `Selection.end` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Selection.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `Selection.start` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
@@ -231,7 +231,7 @@
 | `SemanticAnchor.id` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `SemanticAnchor.kind` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `SemanticAnchor.label` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
-| `SpatialMap.layer_anchors` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
+| `SpatialMap.layer_anchors` | ARCHIVED_ONLY | 随 SceneState 的 entrance_state/exit_state 原样序列化；仅保留 layer→anchor 来源关系，不执行空间布局或连续性求解。 |
 | `StyleContract.motion_temper` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `StyleContract.palette` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |
 | `StyleContract.safe_zone` | UNKNOWN | 待逐字段核验迁移实现、运行时行为及回归测试。 |

@@ -455,3 +455,44 @@ def test_continuity_link_fields_are_archived_without_claiming_runtime_carry(tmp_
     source_snapshot = json.loads(result["pages"]["migration/source-composition.json"])
     assert source_snapshot["continuity_links"] == expected
     assert any("carry/morph" in warning for warning in result["warnings"])
+
+
+def test_scene_state_camera_and_spatial_map_are_archived_not_executed(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "scene-state-source-archive"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "scene.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "scene-asset", "file": "assets/scene.png", "type": "image"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "scenes": [{
+            "id": "scene-state", "start": 0, "duration": 1, "text": "state archive",
+            "layers": [{"type": "image", "asset_id": "scene-asset", "start": 0, "duration": 1}],
+            "entrance_state": {
+                "visible_layers": ["layer-a"], "anchor_layer_id": "layer-a",
+                "camera": {"position": [0.2, 0.3, 5], "target": [0.4, 0.5, 0]},
+                "spatial_map": {"layer_anchors": {"layer-a": "center"}},
+            },
+            "exit_state": {
+                "visible_layers": ["layer-b"], "anchor_layer_id": "layer-b",
+                "camera": {"position": [0.6, 0.7, 5], "target": [0.8, 0.9, 0]},
+                "spatial_map": {"layer_anchors": {"layer-b": "bottom_right"}},
+            },
+        }],
+    })
+
+    result = fd.build_film_from_composition(project_id, ir)
+    track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
+    clip = track["clips"][0]
+    expected = json.loads(ir.model_dump_json())["scenes"][0]
+    assert json.loads(clip["attrs"]["data-source-entrance-state"]) == expected["entrance_state"]
+    assert json.loads(clip["attrs"]["data-source-exit-state"]) == expected["exit_state"]
+    source_snapshot = json.loads(result["pages"]["migration/source-composition.json"])
+    assert source_snapshot["scenes"][0]["entrance_state"] == expected["entrance_state"]
+    assert source_snapshot["scenes"][0]["exit_state"] == expected["exit_state"]
+    assert not any("camera state" in warning.lower() for warning in result["warnings"])
