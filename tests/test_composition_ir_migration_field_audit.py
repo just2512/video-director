@@ -132,3 +132,34 @@ def test_recursive_nested_model_field_inventory_is_exhaustive_and_explicit():
         f"nested CompositionIR audit drift: missing={sorted(expected - actual)}, "
         f"stale={sorted(actual - expected)}"
     )
+
+
+def test_recursive_duplicate_composition_ir_rows_match_top_level_disposition():
+    """CompositionIR appears in both inventories; its disposition must not contradict itself."""
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    top_section, nested_section = audit.split("## 嵌套字段逐字段库存（运行时模型递归）", 1)
+
+    def rows_by_field(section, qualified):
+        rows = {}
+        for line in section.splitlines():
+            if not line.startswith("| `"):
+                continue
+            columns = [column.strip() for column in line.strip("|").split("|")]
+            field_path = columns[0].strip("`")
+            key = field_path if qualified else field_path.split(".")[-1]
+            rows[key] = (columns[1], columns[2])
+        return rows
+
+    top = rows_by_field(top_section, False)
+    nested = {
+        path.removeprefix("CompositionIR."): value
+        for path, value in rows_by_field(nested_section, True).items()
+        if path.startswith("CompositionIR.")
+    }
+    for field, disposition in nested.items():
+        assert field in top, f"nested duplicate has no top-level row: {field}"
+        assert disposition == top[field], (
+            f"contradictory CompositionIR audit row for {field}: "
+            f"top={top[field]}, nested={disposition}"
+        )
+    assert len(nested) == len(top), "all CompositionIR top-level rows must have matching recursive entries"
