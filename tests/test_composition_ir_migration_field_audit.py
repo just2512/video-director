@@ -75,8 +75,10 @@ def test_assetref_fields_have_evidence_backed_runtime_dispositions():
     }
     assert rows["AssetRef.id"][1] == "MAPPED"
     assert rows["AssetRef.file"][1] == "MAPPED"
+    assert rows["AssetRef.type"][1] == "MAPPED"
+    assert "VisualOverlayClip" in rows["AssetRef.type"][2]
     for field in {
-        "type", "duration", "width", "height", "fps", "prompt", "description",
+        "duration", "width", "height", "fps", "prompt", "description",
         "keywords", "source", "license_note", "provenance", "rights_status",
     }:
         assert rows[f"AssetRef.{field}"][1] == "ARCHIVED_ONLY"
@@ -282,6 +284,7 @@ def test_project_reference_and_transition_field_audit_has_explicit_boundaries():
     }
     for field in ("ProjectSpec.width", "ProjectSpec.height", "ProjectSpec.fps", "ProjectSpec.duration"):
         assert rows[field][1] == "MAPPED", field
+    assert rows["SceneIR.duration"][1] == "MAPPED"
     for field in (
         "Reference.id", "Reference.note", "Reference.ref_type", "Reference.role",
         "Reference.target_artifact_id", "Reference.target_asset_id", "ReferenceGraph.references",

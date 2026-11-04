@@ -78,7 +78,7 @@
 | `AssetRef.provenance` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`；仅保留来源结构，不作为运行时行为。 |
 | `AssetRef.rights_status` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`；状态仅作追溯，迁移不会据此替代版权审核。 |
 | `AssetRef.source` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`，不改变素材 URI 的信任边界或来源类型。 |
-| `AssetRef.type` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`；可执行 clip 类型由 Layer/AudioTrack 决定。 |
+| `AssetRef.type` | MAPPED | 写入 `data-source-asset-metadata`；当 VisualOverlayClip 未声明 type/kind 时，作为叠加媒体类型推断的后备来源；主场景 Layer 类型仍由 Layer.type 决定。 |
 | `AssetRef.width` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`，不直接决定 clip 宽度或 transform。 |
 | `AudioLane.hidden` | ARCHIVED_ONLY | hidden 仅写入 `data-source-track-hidden`，代表来源时间线折叠状态，不隐藏画面/静音；现有迁移测试验证。 |
 | `AudioLane.id` | MAPPED | 用于 `AudioTrack.track_id` 关联并写入 clip `data-source-track-id`；无匹配 lane 时走默认标签/默认顺序。 |
@@ -204,7 +204,7 @@
 | `SceneIR.camera` | MAPPED | 场景内摄影机关键帧在满足正交 2D、固定俯视方向、linear easing 等条件时转换为 Film camera_x/camera_y channels；不支持条件产生 warning。 |
 | `SceneIR.continuity_in` | ARCHIVED_ONLY | 完整值写入 clip 的 data-source-continuity-in；carry/morph 等连续性动作尚未编译为 Film Runtime 行为。 |
 | `SceneIR.continuity_out` | ARCHIVED_ONLY | 完整值写入 clip 的 data-source-continuity-out；carry/morph 等连续性动作尚未编译为 Film Runtime 行为。 |
-| `SceneIR.duration` | ARCHIVED_ONLY | 仅作为来源场景计划时长保留在 migration/source-composition.json；Film clip 实际时间范围由各 Layer.start/duration 决定，不按 SceneIR.duration 自动裁剪。 |
+| `SceneIR.duration` | MAPPED | 不裁剪单个 Film clip；但所选 Variant 的项目总时长以场景 start + duration 与音轨结束时间计算，超出 project.duration 时产生 warning。 |
 | `SceneIR.entrance_state` | ARCHIVED_ONLY | 完整值写入 clip 的 data-source-entrance-state；可见层、锚点、摄影机和空间图不驱动 Film Runtime 状态切换。 |
 | `SceneIR.exit_state` | ARCHIVED_ONLY | 完整值写入 clip 的 data-source-exit-state；可见层、锚点、摄影机和空间图不驱动 Film Runtime 状态切换。 |
 | `SceneIR.human_locked` | ARCHIVED_ONLY | 当前只在 migration/source-composition.json 保留；这是 AI 规划锁，不等同于 Layer.locked 的 Film 编辑锁，迁移时显式 warning。 |
