@@ -2827,7 +2827,7 @@ def record_external_film_revision(
         path = _film_path(pid)
         try:
             if not _film_path_is_regular(path):
-                return {"status": "missing", "revision": after_revision}
+                return {"status": "unreadable", "revision": after_revision}
             current_text = path.read_text(encoding="utf-8")
         except FilmError as exc:
             return {"status": "unsafe", "error": exc.code, "revision": after_revision}
