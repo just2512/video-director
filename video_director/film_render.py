@@ -69,6 +69,7 @@ def _durable_unlink(path: Path) -> None:
     _windows_move_file(path, tombstone, 0x00000008)
     tombstone.unlink(missing_ok=True)
 
+
 def _fsync_file(path: Path) -> None:
     """Flush file contents before a journal can make them authoritative."""
     with Path(path).open("rb+") as handle:
@@ -103,6 +104,7 @@ def _validate_render_backup(path: Path, expected: object) -> None:
     actual = _file_metadata(path)
     if actual["size"] != size or actual["sha256"] != sha256:
         raise RuntimeError(f"render publication backup integrity check failed: {path.name}")
+
 
 def _fsync_directory(path: Path) -> None:
     """Persist directory-entry changes where the platform exposes directory fsync."""
@@ -213,12 +215,14 @@ def _render_owner_is_alive(workdir: Path, pid: int) -> bool:
         or owner.get("pid") != pid
         or not isinstance(owner.get("identity"), str)
         or not owner["identity"]
+        or owner["identity"] == "UNKNOWN"
     ):
         raise RuntimeError("render owner marker is invalid")
     current = _process_identity(pid)
     if current == "UNKNOWN":
         return True
     return current is not None and current == owner["identity"]
+
 
 def _render_process_is_alive(pid: int) -> bool:
     """Fail closed when process liveness cannot be established."""
@@ -344,7 +348,13 @@ def cleanup_orphaned_render_artifacts(storage_root: Path | None = None) -> dict:
     are skipped. Invalid transactions remain on disk for manual inspection.
     """
     root = Path(storage_root) if storage_root is not None else config.composer_storage_root()
-    summary = {"workdirs_removed": 0, "transactions_recovered": 0, "qc_temps_removed": 0, "errors": []}
+    summary = {
+        "workdirs_removed": 0,
+        "transactions_recovered": 0,
+        "qc_temps_removed": 0,
+        "delete_tombstones_removed": 0,
+        "errors": [],
+    }
     if root.is_symlink() or not root.is_dir():
         return summary
 
@@ -409,7 +419,6 @@ def cleanup_orphaned_render_artifacts(storage_root: Path | None = None) -> dict:
                             continue
                         try:
                             tombstone.unlink()
-                            summary.setdefault("delete_tombstones_removed", 0)
                             summary["delete_tombstones_removed"] += 1
                         except OSError as exc:
                             summary["errors"].append(
