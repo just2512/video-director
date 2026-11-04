@@ -32,6 +32,17 @@ def _is_windows_platform() -> bool:
     return os.name == "nt"
 
 
+def _windows_move_file(source: Path, destination: Path, flags: int) -> None:
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    move_file_ex = kernel32.MoveFileExW
+    move_file_ex.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong]
+    move_file_ex.restype = ctypes.c_int
+    if not move_file_ex(str(source), str(destination), int(flags)):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
 def _atomic_replace(source: Path, destination: Path) -> None:
     """Atomically replace a sibling file and request durable rename semantics."""
     source = Path(source)
@@ -39,17 +50,24 @@ def _atomic_replace(source: Path, destination: Path) -> None:
     if not _is_windows_platform():
         os.replace(source, destination)
         return
-
-    import ctypes
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    move_file_ex = kernel32.MoveFileExW
-    move_file_ex.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong]
-    move_file_ex.restype = ctypes.c_int
     # Same-volume sibling renames only: no COPY_ALLOWED fallback.
-    flags = 0x00000001 | 0x00000008  # REPLACE_EXISTING | WRITE_THROUGH
-    if not move_file_ex(str(source), str(destination), flags):
-        raise ctypes.WinError(ctypes.get_last_error())
+    _windows_move_file(source, destination, 0x00000001 | 0x00000008)
+
+
+def _durable_unlink(path: Path) -> None:
+    """Remove a file; on Windows first durably rename it out of its public name."""
+    path = Path(path)
+    if not path.exists() and not path.is_symlink():
+        return
+    if not _is_windows_platform():
+        path.unlink(missing_ok=True)
+        _fsync_directory(path.parent)
+        return
+    tombstone = path.with_name(f".film-delete-{os.getpid()}-{time.time_ns()}.tmp")
+    # If power is lost after this write-through rename, the public name is still
+    # durably absent and startup cleanup can safely remove the hidden tombstone.
+    _windows_move_file(path, tombstone, 0x00000008)
+    tombstone.unlink(missing_ok=True)
 
 def _fsync_file(path: Path) -> None:
     """Flush file contents before a journal can make them authoritative."""
@@ -298,7 +316,7 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
                 workdir / "previous-output.mp4", output, workdir / "restore-output.tmp"
             )
         else:
-            output.unlink(missing_ok=True)
+            _durable_unlink(output)
             _fsync_directory(output.parent)
         if payload["had_report"]:
             if payload["schema_version"] >= 2:
@@ -307,7 +325,7 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
                 workdir / "previous-qc.json", report, workdir / "restore-qc.tmp"
             )
         else:
-            report.unlink(missing_ok=True)
+            _durable_unlink(report)
             _fsync_directory(report.parent)
     elif phase != "committed":
         raise RuntimeError("render publication journal has an unknown phase")
@@ -1181,7 +1199,7 @@ def _publish_render_artifacts(
                                 output_backup, output, temp_root / "rollback-output.tmp"
                             )
                         else:
-                            output.unlink(missing_ok=True)
+                            _durable_unlink(output)
                             _fsync_directory(output.parent)
                     if report_published:
                         if had_report:
@@ -1189,9 +1207,9 @@ def _publish_render_artifacts(
                                 report_backup, report_path, temp_root / "rollback-qc.tmp"
                             )
                         else:
-                            report_path.unlink(missing_ok=True)
+                            _durable_unlink(report_path)
                             _fsync_directory(report_path.parent)
-                    journal.unlink(missing_ok=True)
+                    _durable_unlink(journal)
                     _fsync_directory(temp_root)
                 except Exception as rollback_error:
                     raise RuntimeError(
