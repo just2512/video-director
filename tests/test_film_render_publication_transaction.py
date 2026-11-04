@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+import os
 from pathlib import Path
 
 import pytest
@@ -650,3 +651,21 @@ def test_prepared_recovery_replays_after_partial_restore_crash(tmp_path, monkeyp
     assert output.read_bytes() == b"old-mp4"
     assert report.read_bytes() == b'{"status":"OLD"}'
     assert (workdir / "publish-transaction.json").is_file()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires the Windows MoveFileExW implementation")
+def test_windows_write_through_replace_and_delete_round_trip(tmp_path):
+    from video_director import film_render
+
+    source = tmp_path / "source.tmp"
+    destination = tmp_path / "published.mp4"
+    source.write_bytes(b"new-content")
+    destination.write_bytes(b"old-content")
+
+    film_render._atomic_replace(source, destination)
+    assert destination.read_bytes() == b"new-content"
+    assert not source.exists()
+
+    film_render._durable_unlink(destination)
+    assert not destination.exists()
+    assert not list(tmp_path.glob(".film-delete-*.tmp"))
