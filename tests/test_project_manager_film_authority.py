@@ -109,7 +109,7 @@ def test_project_index_keeps_dangling_film_symlink_authoritative():
     film_path.unlink()
     film_path.symlink_to("missing-film-target.html")
 
-    metadata = pm._metadata(project_id)
+    metadata = pm._dir_meta(project_id)
     timeline = pm._timeline_snapshot(project_id, metadata)
 
     assert metadata["has_film"] is True
