@@ -2697,6 +2697,29 @@ def _film_path(project_id: str) -> Path:
     return _project_root(project_id) / FILM_NAME
 
 
+def _film_path_is_regular(path: Path) -> bool:
+    """Return false only for a genuinely absent film path; reject links and special files."""
+    import stat
+
+    try:
+        metadata = Path(path).lstat()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise FilmError(
+            "PROJECT_AUTHORITY_UNKNOWN",
+            f"无法确认 film.html 文件状态：{exc}",
+            503,
+        ) from exc
+    if not stat.S_ISREG(metadata.st_mode):
+        raise FilmError(
+            "FILM_PATH_UNSAFE",
+            "film.html 必须是普通文件，不能是符号链接或特殊文件。",
+            409,
+        )
+    return True
+
+
 def assert_legacy_composition_access(project_id: str, operation: str = "编辑或渲染") -> None:
     """Fail closed unless the absence of film.html is positively established.
 
@@ -2759,7 +2782,7 @@ def _write_atomic(path: Path, text: str):
 
 def read_project_film(project_id: str) -> dict:
     path = _film_path(project_id)
-    if not path.is_file():
+    if not _film_path_is_regular(path):
         return {"exists": False, "project_id": project_id, "text": "", "rev": revision_of(""), "doc": None}
     text = path.read_text(encoding="utf-8")
     return {"exists": True, "project_id": project_id, "text": text, "rev": revision_of(text), "doc": parse_film(text)}
@@ -2803,7 +2826,11 @@ def record_external_film_revision(
     with project_lock(pid):
         path = _film_path(pid)
         try:
+            if not _film_path_is_regular(path):
+                return {"status": "missing", "revision": after_revision}
             current_text = path.read_text(encoding="utf-8")
+        except FilmError as exc:
+            return {"status": "unsafe", "error": exc.code, "revision": after_revision}
         except (OSError, UnicodeError):
             return {"status": "unreadable", "revision": after_revision}
         if current_text != after_text:
@@ -5926,8 +5953,14 @@ def initialize_project_film(project_id: str, document: dict, pages: dict[str, st
     parse_film(text)
     with project_lock(pid):
         path = _film_path(pid)
-        if path.exists():
-            raise FilmError("FILM_ALREADY_INITIALIZED", "film.html 已存在，不会覆盖已有影片文档", 409)
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise FilmError("PROJECT_AUTHORITY_UNKNOWN", f"无法确认 film.html 状态：{exc}", 503) from exc
+        else:
+            raise FilmError("FILM_ALREADY_INITIALIZED", "film.html 路径已存在，不会覆盖已有影片文档", 409)
         # This initialization transaction already owns project_lock. Calling
         # the public composition_version() would re-enter the non-reentrant lock;
         # read the version through the lock-aware internal helper instead.
