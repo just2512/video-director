@@ -168,3 +168,45 @@ def test_orphaned_committed_publication_keeps_new_artifacts_and_removes_workdir(
     assert summary["transactions_recovered"] == 0
     assert summary["workdirs_removed"] == 1
     assert summary["errors"] == []
+
+
+def test_live_render_workdir_is_not_recovered_or_removed(tmp_path, monkeypatch):
+    from video_director import film_render
+
+    _project_root, workdir, _output, _report = _project_layout(tmp_path)
+    monkeypatch.setattr(film_render, "_render_process_is_alive", lambda _pid: True)
+
+    summary = film_render.cleanup_orphaned_render_artifacts(tmp_path)
+
+    assert workdir.is_dir()
+    assert summary["workdirs_removed"] == 0
+    assert summary["transactions_recovered"] == 0
+    assert summary["errors"] == []
+
+
+def test_invalid_orphaned_transaction_is_preserved_for_inspection(tmp_path, monkeypatch):
+    from video_director import film_render
+
+    _project_root, workdir, output, report = _project_layout(tmp_path)
+    output.write_bytes(b"keep-output")
+    report.write_bytes(b"keep-report")
+    (workdir / "publish-transaction.json").write_text(
+        json.dumps({
+            "schema_version": 99,
+            "revision": REVISION,
+            "phase": "prepared",
+            "had_output": True,
+            "had_report": True,
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(film_render, "_render_process_is_alive", lambda _pid: False)
+
+    summary = film_render.cleanup_orphaned_render_artifacts(tmp_path)
+
+    assert workdir.is_dir()
+    assert output.read_bytes() == b"keep-output"
+    assert report.read_bytes() == b"keep-report"
+    assert summary["workdirs_removed"] == 0
+    assert summary["transactions_recovered"] == 0
+    assert len(summary["errors"]) == 1
