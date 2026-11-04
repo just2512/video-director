@@ -440,7 +440,7 @@ def test_recovery_fails_closed_for_invalid_backup_integrity(tmp_path, artifact, 
         "had_report": artifact == "report",
         "output_backup": metadata if artifact == "output" else None,
         "report_backup": metadata if artifact == "report" else None,
-        "qc_temp_name": None,
+        "qc_temp_name": f".film-final-{revision}.json.987654321.1.tmp",
     }
     (workdir / "publish-transaction.json").write_text(json.dumps(payload), encoding="utf-8")
 
