@@ -237,3 +237,22 @@ def test_all_legacy_pipeline_and_renderer_entrypoints_fail_closed_for_film_proje
     assert not (project_dir / "input" / "script.txt").exists()
     assert not (project_dir / "plans" / "scenes.json").exists()
     assert not render_workdir.exists()
+
+
+def test_dangling_film_symlink_never_reactivates_legacy_authority(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
+    project_id = "context-dangling-film-link"
+    _write_film(project_id, FILM_HTML)
+    project_dir = config.project_dir(project_id)
+    film_path = project_dir / film_document.FILM_NAME
+    film_path.unlink()
+    film_path.symlink_to("missing-film-target.html")
+    (project_dir / "plans").mkdir(parents=True, exist_ok=True)
+    (project_dir / "plans" / "composition.json").write_text('{"stale":true}', encoding="utf-8")
+
+    context = inspect_project_context(project_id)
+
+    assert context["authority"] == "unknown"
+    with pytest.raises(film_document.FilmError) as caught:
+        film_document.assert_legacy_composition_access(project_id, "旧时间线写入")
+    assert caught.value.code == "FILM_DOCUMENT_AUTHORITATIVE"
