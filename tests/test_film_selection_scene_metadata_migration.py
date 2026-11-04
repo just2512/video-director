@@ -103,9 +103,17 @@ def test_scene_text_planning_lock_and_transition_are_not_silently_executed(tmp_p
     ir = CompositionIR.model_validate(raw)
     result = fd.build_film_from_composition(project_id, ir)
 
-    track = next(item for item in result["document"]["tracks"] if item["id"] == "track-main")
-    clip = next(item for item in track["clips"] if item["attrs"].get("data-source-id") == "scene-source-layer")
-    attrs = clip["attrs"]
+    # Overlapping or non-leading scene layers are emitted onto dedicated Film
+    # tracks. Locate the source layer by provenance across the whole document,
+    # rather than assuming every scene layer remains on track-main.
+    source_clips = [
+        clip
+        for track in result["document"]["tracks"]
+        for clip in track["clips"]
+        if clip["attrs"].get("data-source-id") == "scene-source-layer"
+    ]
+    assert len(source_clips) == 1, source_clips
+    attrs = source_clips[0]["attrs"]
     assert attrs["at"] == "2.25"
     # Film clip timing is derived from the layer offset and duration, not a scene clip.
     assert attrs["src"].endswith("#t=0,1.2")
