@@ -32,7 +32,8 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
                 "id": "legacy-layer-opening-01",
                 "track_id": "legacy-visual-track",
                 "type": "image", "asset_id": "asset-image", "start": 0, "duration": 1,
-                "motion": "slow_zoom_in", "locked": True,
+                "motion": "slow_zoom_in", "locked": True, "fit_mode": "contain",
+                "animation": "legacy-fade", "text": "不应自动生成字幕",
             }],
         }],
         "audio_tracks": [{
@@ -68,6 +69,8 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
     assert snapshot["active_variant_id"] == "alternative"
     assert snapshot["variants"][0]["id"] == "alternative"
     assert snapshot["watermarks"][0]["text"] == "测试水印"
+    assert snapshot["scenes"][0]["layers"][0]["animation"] == "legacy-fade"
+    assert snapshot["scenes"][0]["layers"][0]["text"] == "不应自动生成字幕"
     assert snapshot["subtitle_style"]["font"] == "Brand Subtitle Font"
     warnings = "\n".join(result["warnings"])
     assert "24 FPS" not in warnings
@@ -80,6 +83,7 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
     assert "camera_tracks" in warnings
     assert "水印" in warnings
     assert "ducking" in warnings
+    assert "animation" in warnings
     assert "字幕 font-family='Brand Subtitle Font' 已映射到字幕 HTML" in warnings
     assert "字幕样式字段 font" not in warnings
     assert "模板来源 lineage" in warnings
@@ -108,7 +112,9 @@ def test_migration_maps_audio_fades_and_lane_mute_and_warns_for_unmapped_fields(
     assert transform["anchor"] == "center"
     assert transform["base_width"] == 320 and transform["base_height"] == 180
     assert any(channel["property"] == "scale" for channel in channels)
-    assert "object-fit:cover" in image_clip["attrs"]["style"]
+    assert "object-fit:contain" in image_clip["attrs"]["style"]
+    assert "animation" not in image_clip["attrs"]
+    assert "text" not in image_clip["attrs"]
 
     audio_track = next(track for track in result["document"]["tracks"]
                        if track["id"] == "track-audio-music-bed")
