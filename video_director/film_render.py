@@ -28,6 +28,25 @@ from PIL import Image, ImageChops, ImageStat
 from video_director import config
 from video_director import film_document as fd
 
+def _fsync_file(path: Path) -> None:
+    """Flush file contents before a journal can make them authoritative."""
+    with Path(path).open("rb") as handle:
+        os.fsync(handle.fileno())
+
+
+def _fsync_directory(path: Path) -> None:
+    """Persist directory-entry changes where the platform exposes directory fsync."""
+    if os.name == "nt":
+        # Python/Windows does not expose a portable directory fsync operation.
+        return
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(Path(path), flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 FPS_DEFAULT = 30
 MAX_RENDER_SECONDS = 600
 MAX_RENDER_FRAMES = 18_000
@@ -76,6 +95,7 @@ def _write_publish_journal(temp_root: Path, payload: dict) -> Path:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, journal)
+        _fsync_directory(temp_root)
     finally:
         temporary.unlink(missing_ok=True)
     return journal
@@ -86,7 +106,9 @@ def _restore_render_backup(backup: Path, destination: Path, temporary: Path) -> 
     if not backup.is_file() or backup.is_symlink():
         raise RuntimeError(f"render publication backup is missing: {backup.name}")
     shutil.copy2(backup, temporary)
+    _fsync_file(temporary)
     os.replace(temporary, destination)
+    _fsync_directory(destination.parent)
 
 
 def _recover_render_publication(project_root: Path, workdir: Path, revision: str, pid: int) -> None:
@@ -953,8 +975,12 @@ def _publish_render_artifacts(
             had_report = report_path.is_file()
             if had_output:
                 shutil.copy2(output, output_backup)
+                _fsync_file(output_backup)
             if had_report:
                 shutil.copy2(report_path, report_backup)
+                _fsync_file(report_backup)
+            # Backups must be durable before the prepared journal can authorize rollback.
+            _fsync_directory(temp_root)
             transaction = {
                 "schema_version": 1,
                 "revision": revision,
@@ -968,8 +994,12 @@ def _publish_render_artifacts(
             report_published = False
             try:
                 os.replace(output_temp, output)
+                _fsync_directory(Path(output_temp).parent)
+                _fsync_directory(output.parent)
                 output_published = True
                 os.replace(qc_temp, report_path)
+                _fsync_directory(qc_temp.parent)
+                _fsync_directory(report_path.parent)
                 report_published = True
                 transaction["phase"] = "committed"
                 _write_publish_journal(temp_root, transaction)
@@ -990,6 +1020,7 @@ def _publish_render_artifacts(
                         else:
                             report_path.unlink(missing_ok=True)
                     journal.unlink(missing_ok=True)
+                    _fsync_directory(temp_root)
                 except Exception as rollback_error:
                     raise RuntimeError(
                         f"artifact publication failed and rollback was deferred: {rollback_error}"
@@ -1003,6 +1034,7 @@ def _publish_render_artifacts(
                 journal_state = json.loads(journal.read_text(encoding="utf-8"))
                 if journal_state.get("phase") == "committed":
                     journal.unlink(missing_ok=True)
+                    _fsync_directory(temp_root)
             except Exception:
                 pass
         if not journal.exists():
