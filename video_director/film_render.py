@@ -1154,6 +1154,8 @@ def _publish_render_artifacts(
     qc_temp = qc_dir / f".{report_path.name}.{os.getpid()}.{time.time_ns()}.tmp"
     output_backup = temp_root / "previous-output.mp4"
     report_backup = temp_root / "previous-qc.json"
+    output_backup_temp = temp_root / "previous-output.mp4.tmp"
+    report_backup_temp = temp_root / "previous-qc.json.tmp"
     journal = temp_root / "publish-transaction.json"
     try:
         qc_temp.write_text(
@@ -1175,11 +1177,13 @@ def _publish_render_artifacts(
             had_output = output.is_file()
             had_report = report_path.is_file()
             if had_output:
-                shutil.copy2(output, output_backup)
-                _fsync_file(output_backup)
+                shutil.copy2(output, output_backup_temp)
+                _fsync_file(output_backup_temp)
+                _atomic_replace(output_backup_temp, output_backup)
             if had_report:
-                shutil.copy2(report_path, report_backup)
-                _fsync_file(report_backup)
+                shutil.copy2(report_path, report_backup_temp)
+                _fsync_file(report_backup_temp)
+                _atomic_replace(report_backup_temp, report_backup)
             # Backups must be durable before the prepared journal can authorize rollback.
             _fsync_directory(temp_root)
             transaction = {
