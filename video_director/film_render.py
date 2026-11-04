@@ -30,7 +30,7 @@ from video_director import film_document as fd
 
 def _fsync_file(path: Path) -> None:
     """Flush file contents before a journal can make them authoritative."""
-    with Path(path).open("rb") as handle:
+    with Path(path).open("rb+") as handle:
         os.fsync(handle.fileno())
 
 
