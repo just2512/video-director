@@ -395,7 +395,7 @@ def test_reference_graph_is_archived_without_implicitly_inserting_reference_asse
         ],
     }
     ir = CompositionIR.model_validate({
-        "project": {"width": 640, "height": 360, "fps": 25, "duration": 2},
+        "project": {"width": 640, "height": 360, "fps": 25, "duration": 1},
         "scenes": [{
             "id": "reference-scene", "start": 0, "duration": 1, "text": "reference",
             "layers": [{
