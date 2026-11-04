@@ -602,3 +602,51 @@ def test_windows_process_identity_uses_process_creation_time(tmp_path, monkeypat
     monkeypatch.setattr(ctypes, "WinDLL", lambda *_args, **_kwargs: kernel32, raising=False)
 
     assert film_render._process_identity(987654321) == f"windows:{(456 << 32) | 123}"
+
+
+def test_prepared_recovery_replays_after_partial_restore_crash(tmp_path, monkeypatch):
+    import json
+    from video_director import film_render
+
+    _, project_root, workdir, _output_temp, output, report = _publication_layout(
+        tmp_path, monkeypatch, had_previous=False
+    )
+    output.write_bytes(b"published-new-mp4")
+    report.write_bytes(b'{"status":"NEW"}')
+    output_backup = workdir / "previous-output.mp4"
+    report_backup = workdir / "previous-qc.json"
+    output_backup.write_bytes(b"old-mp4")
+    report_backup.write_bytes(b'{"status":"OLD"}')
+    payload = {
+        "schema_version": 2,
+        "revision": REVISION,
+        "phase": "prepared",
+        "had_output": True,
+        "had_report": True,
+        "output_backup": film_render._file_metadata(output_backup),
+        "report_backup": film_render._file_metadata(report_backup),
+        "qc_temp_name": f".film-final-{REVISION}.json.987654321.1.tmp",
+    }
+    (workdir / "publish-transaction.json").write_text(json.dumps(payload), encoding="utf-8")
+    original_restore = film_render._restore_render_backup
+
+    def fail_report_restore(source, destination, temporary):
+        if Path(source).name == "previous-qc.json":
+            raise OSError("simulated crash during report restore")
+        return original_restore(source, destination, temporary)
+
+    monkeypatch.setattr(film_render, "_restore_render_backup", fail_report_restore)
+    with pytest.raises(OSError, match="simulated crash"):
+        film_render._recover_render_publication(project_root, workdir, REVISION, 987654321)
+
+    assert output.read_bytes() == b"old-mp4"
+    assert report.read_bytes() == b'{"status":"NEW"}'
+    assert (workdir / "publish-transaction.json").is_file()
+
+    monkeypatch.setattr(film_render, "_restore_render_backup", original_restore)
+    film_render._recover_render_publication(project_root, workdir, REVISION, 987654321)
+    film_render._recover_render_publication(project_root, workdir, REVISION, 987654321)
+
+    assert output.read_bytes() == b"old-mp4"
+    assert report.read_bytes() == b'{"status":"OLD"}'
+    assert (workdir / "publish-transaction.json").is_file()
