@@ -306,3 +306,26 @@ def test_style_contract_nested_field_audit_matches_supported_runtime_subset():
     assert all(columns[1] == "MAPPED" for columns in rows.values())
     assert "无显式 subtitle_style" in rows["StyleContract.palette"][2]
     assert "未注册 ID" in rows["StyleContract.style_id"][2]
+
+
+def test_subtitle_nested_field_audit_matches_renderer_contract():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    rows = {
+        line.split("|")[1].strip().strip("`"): [
+            column.strip() for column in line.strip("|").split("|")
+        ]
+        for line in audit.splitlines()
+        if line.startswith("| `Subtitle") and line.count("|") >= 3
+    }
+    expected_mapped = {
+        "SubtitleCue.end", "SubtitleCue.start", "SubtitleCue.text",
+        "SubtitleStyle.alignment", "SubtitleStyle.animation", "SubtitleStyle.background",
+        "SubtitleStyle.background_opacity", "SubtitleStyle.color", "SubtitleStyle.font",
+        "SubtitleStyle.max_width", "SubtitleStyle.position", "SubtitleStyle.size",
+        "SubtitleStyle.stroke_color", "SubtitleStyle.stroke_width", "SubtitleTrack.cues",
+    }
+    expected_archived = {
+        "SubtitleStyle.mode", "SubtitleTrack.mode", "SubtitleTrack.source", "SubtitleTrack.style_id",
+    }
+    assert {field for field, cols in rows.items() if cols[1] == "MAPPED"} == expected_mapped
+    assert {field for field, cols in rows.items() if cols[1] == "ARCHIVED_ONLY"} == expected_archived

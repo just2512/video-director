@@ -5042,6 +5042,11 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
             "旧字幕样式字段 " + ", ".join(unsupported_subtitle_style)
             + " 含未映射或尚未验证的字段"
         )
+    if subtitle_style.get("mode") not in (None, "", "sentence"):
+        warnings.append(
+            "旧 subtitle_style.mode 不参与字幕 cue 粒度控制；"
+            "当前 Runtime 仍按每条 cue 自身时间与文本渲染"
+        )
     subtitle_track = raw_ir.get("subtitle_track") or {}
     if subtitle_track.get("style_id"):
         warnings.append("旧 subtitle_track.style_id 样式注册表引用未解析")

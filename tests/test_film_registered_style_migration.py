@@ -252,3 +252,37 @@ def test_subtitle_renderer_rejects_fractional_or_boolean_line_limits():
         fd._subtitle_page(320, 180, 1, [{"start": 0, "end": 1, "text": "line"}], {"max_lines": 1.5})
     with pytest.raises(fd.FilmError, match="有限数字"):
         fd._subtitle_page(320, 180, 1, [{"start": 0, "end": 1, "text": "line"}], {"max_lines": False})
+
+
+def test_word_mode_metadata_is_not_mistaken_for_runtime_subtitle_mode(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "subtitle-word-mode-migration-boundary"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-image", "file": "assets/still.png", "type": "image"},
+    ]), encoding="utf-8")
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 1},
+        "scenes": [{
+            "id": "subtitle-mode-scene", "start": 0, "duration": 1, "text": "scene script",
+            "layers": [{"type": "image", "asset_id": "asset-image", "start": 0, "duration": 1}],
+        }],
+        "subtitle_style": {"mode": "word"},
+        "subtitle_track": {
+            "mode": "word", "source": "manual", "style_id": "custom-subtitle-style",
+            "cues": [{"start": 0, "end": 0.4, "text": "逐词"}, {"start": 0.4, "end": 1, "text": "字幕"}],
+        },
+    })
+    result = fd.build_film_from_composition(project_id, ir)
+    subtitle_page = result["pages"]["scenes/subtitles.html"]
+    assert '"text":"逐词"' in subtitle_page
+    assert '"text":"字幕"' in subtitle_page
+    warnings = "\\n".join(result["warnings"])
+    assert "subtitle_style.mode 不参与字幕 cue 粒度控制" in warnings
+    assert "旧字幕 mode 元数据未写入 film.html" in warnings
+    assert "旧字幕对齐来源元数据未写入 film.html" in warnings
+    assert "旧 subtitle_track.style_id 样式注册表引用未解析" in warnings
