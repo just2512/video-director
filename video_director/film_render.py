@@ -352,7 +352,6 @@ def cleanup_orphaned_render_artifacts(storage_root: Path | None = None) -> dict:
         "workdirs_removed": 0,
         "transactions_recovered": 0,
         "qc_temps_removed": 0,
-        "delete_tombstones_removed": 0,
         "errors": [],
     }
     if root.is_symlink() or not root.is_dir():
@@ -419,6 +418,7 @@ def cleanup_orphaned_render_artifacts(storage_root: Path | None = None) -> dict:
                             continue
                         try:
                             tombstone.unlink()
+                            summary.setdefault("delete_tombstones_removed", 0)
                             summary["delete_tombstones_removed"] += 1
                         except OSError as exc:
                             summary["errors"].append(
