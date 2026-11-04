@@ -5,6 +5,7 @@ import base64
 import importlib
 import json
 import threading
+import time
 from http.server import ThreadingHTTPServer
 from urllib.request import urlopen
 
@@ -322,7 +323,64 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 )
                 manual_state = fd.read_project_film(project_id)
                 saved_clips = [clip for track in manual_state["doc"]["tracks"] for clip in track["clips"]]
-                assert any(clip.get("attrs", {}).get("title") == saved_title for clip in saved_clips)
+                saved_clip = next(
+                    clip for clip in saved_clips
+                    if clip.get("attrs", {}).get("title") == saved_title
+                )
+
+                # Continue the same project through a real external Agent write.
+                # The watcher must journal it, Studio must reload that revision,
+                # and a fresh browser session must reopen the same FilmDocument
+                # without changing the immutable CompositionIR source archive.
+                external_doc, _ = fd.apply_ops(manual_state["doc"], [{
+                    "op": "set", "clip": saved_clip["id"], "field": "title",
+                    "value": saved_title + " 外部 Agent 修改",
+                }])
+                external_text = fd.serialize_film(external_doc)
+                film_path.write_text(external_text, encoding="utf-8")
+                external_revision = fd.revision_of(external_text)
+                page.wait_for_function(
+                    """expected => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return state?.projectId === "unified-studio-migration-preview-browser" &&
+                        state?.revision === expected &&
+                        document.querySelector("#film-studio-alert")?.textContent.includes("修改来源：外部文件");
+                    }""",
+                    arg=external_revision,
+                    timeout=15000,
+                )
+                history_deadline = time.monotonic() + 5.0
+                history = fd._history_read(project_id)
+                while not any(
+                    entry.get("source") == "external_file"
+                    and entry.get("after_rev") == external_revision
+                    for entry in history["past"]
+                ) and time.monotonic() < history_deadline:
+                    time.sleep(0.02)
+                    history = fd._history_read(project_id)
+                assert history["past"] and history["past"][-1]["source"] == "external_file", {
+                    "history": history,
+                    "watcher_state": web_server._FILM_REVISION_WATCHER._projects.get(project_id),
+                    "external_revision": external_revision,
+                }
+
+                page.reload(wait_until="domcontentloaded")
+                page.wait_for_function("typeof window.workspaceOpen === 'function'")
+                reopened_external = page.evaluate("(pid) => workspaceOpen(pid)", project_id)
+                assert reopened_external.get("ok") is True, reopened_external
+                page.wait_for_function(
+                    """expected => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return state?.projectId === expected.projectId &&
+                        state?.revision === expected.revision &&
+                        state?.film?.exists === true;
+                    }""",
+                    arg={"projectId": project_id, "revision": external_revision},
+                    timeout=15000,
+                )
+                assert archive_file.read_text(encoding="utf-8") == persisted_snapshot
+                assert __import__("hashlib").sha256(archive_file.read_bytes()).hexdigest() == archive_sha256
+                manual_state = fd.read_project_film(project_id)
                 director_base = manual_state["rev"]
 
                 page.locator('[data-film-action="director-mode"]').click()
