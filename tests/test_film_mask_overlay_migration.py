@@ -334,4 +334,5 @@ def test_mask_id_feather_opacity_and_keyframes_have_explicit_migration_boundarie
     assert "feather 羽化未映射" in warnings
     assert "蒙版独立 opacity 未映射" in warnings
     archived = json.loads(result["pages"]["migration/source-composition.json"])
-    assert archived["scenes"][0]["layers"][0]["mask"] == raw_mask
+    expected_mask = json.loads(ir.model_dump_json())["scenes"][0]["layers"][0]["mask"]
+    assert archived["scenes"][0]["layers"][0]["mask"] == expected_mask
