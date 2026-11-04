@@ -310,17 +310,19 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
             raise RuntimeError(f"render artifact directory is missing or unsafe: {parent.name}")
 
     if phase == "prepared":
-        if payload["had_output"]:
-            if payload["schema_version"] >= 2:
+        # Validate every required backup before changing either published artifact.
+        if payload["schema_version"] >= 2:
+            if payload["had_output"]:
                 _validate_render_backup(workdir / "previous-output.mp4", payload.get("output_backup"))
+            if payload["had_report"]:
+                _validate_render_backup(workdir / "previous-qc.json", payload.get("report_backup"))
+        if payload["had_output"]:
             _restore_render_backup(
                 workdir / "previous-output.mp4", output, workdir / "restore-output.tmp"
             )
         else:
             _durable_unlink(output)
         if payload["had_report"]:
-            if payload["schema_version"] >= 2:
-                _validate_render_backup(workdir / "previous-qc.json", payload.get("report_backup"))
             _restore_render_backup(
                 workdir / "previous-qc.json", report, workdir / "restore-qc.tmp"
             )
