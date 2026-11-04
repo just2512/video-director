@@ -133,7 +133,7 @@ def _invalid_film_context(project_id: str, selection: Optional[Dict[str, Any]], 
         return _unknown_authority_context(project_id, selection, path_error)
 
     try:
-        metadata = path.stat()
+        metadata = path.lstat()
     except FileNotFoundError as stat_error:
         # _active_film_context already observed the file; disappearance during
         # recovery is a race, not evidence that legacy authority is safe.
@@ -181,7 +181,7 @@ def _active_film_context(project_id: str, selection: Optional[Dict[str, Any]]) -
     try:
         pid = validate_project_id(project_id)
         path = config.composer_storage_root() / pid / film_document.FILM_NAME
-        metadata = path.stat()
+        metadata = path.lstat()
     except FileNotFoundError:
         return None
     except Exception as exc:
