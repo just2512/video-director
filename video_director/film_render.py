@@ -138,12 +138,14 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
             )
         else:
             output.unlink(missing_ok=True)
+            _fsync_directory(output.parent)
         if payload["had_report"]:
             _restore_render_backup(
                 workdir / "previous-qc.json", report, workdir / "restore-qc.tmp"
             )
         else:
             report.unlink(missing_ok=True)
+            _fsync_directory(report.parent)
     elif phase != "committed":
         raise RuntimeError("render publication journal has an unknown phase")
 
@@ -1015,6 +1017,7 @@ def _publish_render_artifacts(
                             )
                         else:
                             output.unlink(missing_ok=True)
+                            _fsync_directory(output.parent)
                     if report_published:
                         if had_report:
                             _restore_render_backup(
@@ -1022,6 +1025,7 @@ def _publish_render_artifacts(
                             )
                         else:
                             report_path.unlink(missing_ok=True)
+                            _fsync_directory(report_path.parent)
                     journal.unlink(missing_ok=True)
                     _fsync_directory(temp_root)
                 except Exception as rollback_error:
