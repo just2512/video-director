@@ -555,3 +555,26 @@ def test_recovery_validates_both_backups_before_changing_either_artifact(tmp_pat
     assert output.read_bytes() == b"published-new-mp4"
     assert report.read_bytes() == b'{"status":"NEW"}'
     assert (workdir / "publish-transaction.json").is_file()
+
+
+def test_startup_cleanup_removes_orphaned_delete_tombstones(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from video_director import film_render
+
+    project_root = tmp_path / "project-transaction"
+    render_dir = project_root / "render"
+    qc_dir = project_root / "qc"
+    render_dir.mkdir(parents=True)
+    qc_dir.mkdir()
+    render_tombstone = render_dir / ".film-delete-987654321-1.tmp"
+    qc_tombstone = qc_dir / ".film-delete-987654321-2.tmp"
+    render_tombstone.write_bytes(b"orphan")
+    qc_tombstone.write_bytes(b"orphan")
+    monkeypatch.setattr(film_render.fd, "project_lock", lambda _project_id: nullcontext())
+    monkeypatch.setattr(film_render, "_render_process_is_alive", lambda _pid: False)
+
+    summary = film_render.cleanup_orphaned_render_artifacts(tmp_path)
+
+    assert not render_tombstone.exists()
+    assert not qc_tombstone.exists()
+    assert summary["delete_tombstones_removed"] == 2
