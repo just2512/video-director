@@ -154,45 +154,52 @@ def cleanup_orphaned_render_artifacts(storage_root: Path | None = None) -> dict:
         except Exception:
             continue
 
-        render_dir = project_root / "render"
-        if render_dir.is_dir() and not render_dir.is_symlink():
-            for workdir in sorted(render_dir.iterdir(), key=lambda item: item.name):
-                match = _RENDER_WORKDIR_RE.fullmatch(workdir.name)
-                if not match or workdir.is_symlink() or not workdir.is_dir():
-                    continue
-                revision, raw_pid, _created_ns = match.groups()
-                pid = int(raw_pid)
-                if _render_process_is_alive(pid):
-                    continue
-                try:
-                    journal = workdir / "publish-transaction.json"
-                    if journal.exists() or journal.is_symlink():
-                        _recover_render_publication(project_root, workdir, revision, pid)
-                        state = json.loads(journal.read_text(encoding="utf-8"))
-                        if state.get("phase") == "prepared":
-                            summary["transactions_recovered"] += 1
-                    shutil.rmtree(workdir)
-                    summary["workdirs_removed"] += 1
-                except Exception as exc:
-                    summary["errors"].append(
-                        f"{project_root.name}/{workdir.name}: {type(exc).__name__}: {str(exc)[:240]}"
-                    )
+        try:
+            with fd.project_lock(project_root.name):
+            render_dir = project_root / "render"
+            if render_dir.is_dir() and not render_dir.is_symlink():
+                for workdir in sorted(render_dir.iterdir(), key=lambda item: item.name):
+                    match = _RENDER_WORKDIR_RE.fullmatch(workdir.name)
+                    if not match or workdir.is_symlink() or not workdir.is_dir():
+                        continue
+                    revision, raw_pid, _created_ns = match.groups()
+                    pid = int(raw_pid)
+                    if _render_process_is_alive(pid):
+                        continue
+                    try:
+                        journal = workdir / "publish-transaction.json"
+                        if journal.exists() or journal.is_symlink():
+                            _recover_render_publication(project_root, workdir, revision, pid)
+                            state = json.loads(journal.read_text(encoding="utf-8"))
+                            if state.get("phase") == "prepared":
+                                summary["transactions_recovered"] += 1
+                        shutil.rmtree(workdir)
+                        summary["workdirs_removed"] += 1
+                    except Exception as exc:
+                        summary["errors"].append(
+                            f"{project_root.name}/{workdir.name}: {type(exc).__name__}: {str(exc)[:240]}"
+                        )
 
-        qc_dir = project_root / "qc"
-        if qc_dir.is_dir() and not qc_dir.is_symlink():
-            for temporary in sorted(qc_dir.iterdir(), key=lambda item: item.name):
-                match = _QC_TEMP_RE.fullmatch(temporary.name)
-                if not match or temporary.is_symlink() or not temporary.is_file():
-                    continue
-                if _render_process_is_alive(int(match.group(2))):
-                    continue
-                try:
-                    temporary.unlink()
-                    summary["qc_temps_removed"] += 1
-                except OSError as exc:
-                    summary["errors"].append(
-                        f"{project_root.name}/{temporary.name}: {type(exc).__name__}: {str(exc)[:240]}"
-                    )
+            qc_dir = project_root / "qc"
+            if qc_dir.is_dir() and not qc_dir.is_symlink():
+                for temporary in sorted(qc_dir.iterdir(), key=lambda item: item.name):
+                    match = _QC_TEMP_RE.fullmatch(temporary.name)
+                    if not match or temporary.is_symlink() or not temporary.is_file():
+                        continue
+                    if _render_process_is_alive(int(match.group(2))):
+                        continue
+                    try:
+                        temporary.unlink()
+                        summary["qc_temps_removed"] += 1
+                    except OSError as exc:
+                        summary["errors"].append(
+                            f"{project_root.name}/{temporary.name}: {type(exc).__name__}: {str(exc)[:240]}"
+                        )
+
+        except Exception as exc:
+            summary["errors"].append(
+                f"{project_root.name}: {type(exc).__name__}: {str(exc)[:240]}"
+            )
     return summary
 
 
