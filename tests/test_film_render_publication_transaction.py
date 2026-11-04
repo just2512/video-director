@@ -397,3 +397,56 @@ def test_atomic_replace_propagates_windows_api_error(tmp_path, monkeypatch):
 
     with pytest.raises(OSError, match="access denied"):
         film_render._atomic_replace(tmp_path / "source.tmp", tmp_path / "destination.bin")
+
+
+@pytest.mark.parametrize("artifact", ["output", "report"])
+@pytest.mark.parametrize("damage", ["missing", "corrupt", "truncated", "wrong_hash"])
+def test_recovery_fails_closed_for_invalid_backup_integrity(tmp_path, artifact, damage):
+    import hashlib
+    import json
+    from video_director import film_render
+
+    revision = REVISION
+    project_root = tmp_path / "project-transaction"
+    render_dir = project_root / "render"
+    qc_dir = project_root / "qc"
+    workdir = render_dir / f".film-render-{revision}-987654321-1.work"
+    render_dir.mkdir(parents=True)
+    qc_dir.mkdir()
+    workdir.mkdir()
+    output = render_dir / f"film-final-{revision}.mp4"
+    report = qc_dir / f"film-final-{revision}.json"
+    output.write_bytes(b"published-new-mp4")
+    report.write_bytes(b'{"status":"NEW"}')
+
+    backup_name = "previous-output.mp4" if artifact == "output" else "previous-qc.json"
+    backup = workdir / backup_name
+    backup.write_bytes(b"previous-known-good-content")
+    metadata = film_render._file_metadata(backup)
+    if damage == "missing":
+        backup.unlink()
+    elif damage == "corrupt":
+        backup.write_bytes(b"tampered-known-good-content")
+    elif damage == "truncated":
+        backup.write_bytes(b"previous")
+    elif damage == "wrong_hash":
+        metadata["sha256"] = hashlib.sha256(b"different content").hexdigest()
+
+    payload = {
+        "schema_version": 2,
+        "revision": revision,
+        "phase": "prepared",
+        "had_output": artifact == "output",
+        "had_report": artifact == "report",
+        "output_backup": metadata if artifact == "output" else None,
+        "report_backup": metadata if artifact == "report" else None,
+        "qc_temp_name": None,
+    }
+    (workdir / "publish-transaction.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="backup"):
+        film_render._recover_render_publication(project_root, workdir, revision, 987654321)
+
+    assert output.read_bytes() == b"published-new-mp4"
+    assert report.read_bytes() == b'{"status":"NEW"}'
+    assert (workdir / "publish-transaction.json").is_file()
