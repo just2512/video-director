@@ -100,3 +100,19 @@ def test_project_index_refreshes_film_authority_when_initial_metadata_is_stale()
     assert timeline["valid"] is True
     assert timeline["scene_count"] == 1
     assert timeline["clip_count"] == 2
+
+
+def test_project_index_keeps_dangling_film_symlink_authoritative():
+    project_id = "web-film-dangling-link"
+    _project_with_film(project_id, FILM_HTML)
+    film_path = config.project_dir(project_id) / film_document.FILM_NAME
+    film_path.unlink()
+    film_path.symlink_to("missing-film-target.html")
+
+    metadata = pm._metadata(project_id)
+    timeline = pm._timeline_snapshot(project_id, metadata)
+
+    assert metadata["has_film"] is True
+    assert timeline["authority"] == "film.html"
+    assert timeline["valid"] is False
+    assert timeline["error"]["code"] == "FILM_PATH_UNSAFE"
