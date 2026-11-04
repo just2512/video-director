@@ -149,7 +149,18 @@ def _process_identity(pid: int) -> str | None:
             return "UNKNOWN"
     if Path("/proc").is_dir():
         return None
-    return "UNKNOWN"
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(int(pid))],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=3,
+        )
+        value = result.stdout.strip()
+        return "ps:" + value if result.returncode == 0 and value else None
+    except Exception:
+        return "UNKNOWN"
 
 
 def _write_render_owner(workdir: Path, pid: int) -> None:
