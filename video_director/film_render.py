@@ -168,14 +168,28 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
     if journal.is_symlink() or not journal.is_file():
         raise RuntimeError("render publication journal is missing or unsafe")
     payload = json.loads(journal.read_text(encoding="utf-8"))
+    schema_version = payload.get("schema_version") if isinstance(payload, dict) else None
     if (
         not isinstance(payload, dict)
-        or payload.get("schema_version") not in {1, 2}
+        or isinstance(schema_version, bool)
+        or not isinstance(schema_version, int)
+        or schema_version not in {1, 2}
+        or not isinstance(revision, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", revision)
         or payload.get("revision") != revision
         or not isinstance(payload.get("had_output"), bool)
         or not isinstance(payload.get("had_report"), bool)
     ):
         raise RuntimeError("render publication journal is invalid")
+    qc_temp_name = payload.get("qc_temp_name")
+    qc_temp_match = _QC_TEMP_RE.fullmatch(qc_temp_name) if isinstance(qc_temp_name, str) else None
+    if (
+        qc_temp_match is None
+        or Path(qc_temp_name).name != qc_temp_name
+        or qc_temp_match.group(1) != revision
+        or int(qc_temp_match.group(2)) != pid
+    ):
+        raise RuntimeError("render publication journal QC temporary path is invalid")
     phase = payload.get("phase")
     output = project_root / "render" / f"film-final-{revision}.mp4"
     report = project_root / "qc" / f"film-final-{revision}.json"
@@ -205,14 +219,10 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
     elif phase != "committed":
         raise RuntimeError("render publication journal has an unknown phase")
 
-    qc_temp_name = payload.get("qc_temp_name")
-    if isinstance(qc_temp_name, str) and Path(qc_temp_name).name == qc_temp_name:
-        match = _QC_TEMP_RE.fullmatch(qc_temp_name)
-        if match and match.group(1) == revision and int(match.group(2)) == pid:
-            qc_temp = project_root / "qc" / qc_temp_name
-            if qc_temp.is_symlink():
-                raise RuntimeError("render QC temporary path is a symlink")
-            qc_temp.unlink(missing_ok=True)
+    qc_temp = project_root / "qc" / qc_temp_name
+    if qc_temp.is_symlink():
+        raise RuntimeError("render QC temporary path is a symlink")
+    qc_temp.unlink(missing_ok=True)
 
 
 def cleanup_orphaned_render_artifacts(storage_root: Path | None = None) -> dict:
