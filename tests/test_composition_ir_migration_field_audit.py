@@ -36,6 +36,7 @@ def test_migration_audit_uses_only_explicit_disposition_categories():
     for row in rows:
         columns = [column.strip() for column in row.strip("|").split("|")]
         assert columns[1] in {"MAPPED", "ARCHIVED_ONLY", "REJECTED", "UNKNOWN"}, row
+        assert columns[1] != "UNKNOWN", "migration field remains unclassified: " + row
         assert columns[2], row
 
 
@@ -124,6 +125,7 @@ def test_recursive_nested_model_field_inventory_is_exhaustive_and_explicit():
         columns = [column.strip() for column in row.strip("|").split("|")]
         field_path = columns[0].strip("`")
         assert columns[1] in {"MAPPED", "ARCHIVED_ONLY", "REJECTED", "UNKNOWN"}, row
+        assert columns[1] != "UNKNOWN", "migration field remains unclassified: " + row
         assert columns[2], row
         assert field_path not in actual, f"duplicate nested field audit row: {field_path}"
         actual.add(field_path)
