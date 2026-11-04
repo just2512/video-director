@@ -91,7 +91,7 @@ def _dir_meta(project_id: str) -> dict:
         return {
             "dir_exists": d.is_dir(),
             "has_composition": (d / "plans" / "composition.json").is_file(),
-            "has_film": (d / "film.html").is_file(),
+            "has_film": _film_document_path_present(d / "film.html"),
             "has_graphic_plan": (d / "plans" / "graphic_plan.json").is_file(),
             "has_storyboard": (d / "plans" / "storyboard.json").is_file(),
             "has_draft": (d / "output" / "draft.mp4").is_file(),
@@ -149,6 +149,14 @@ def _timeline_snapshot(project_id: str, meta: dict) -> dict:
 
         path = root / fd.FILM_NAME
         try:
+            import stat
+            metadata = path.lstat()
+            if not stat.S_ISREG(metadata.st_mode):
+                return {
+                    "authority": "film.html", "revision": None, "valid": False,
+                    "error": {"code": "FILM_PATH_UNSAFE", "message": "film.html 必须是普通文件，不能是符号链接或特殊文件"},
+                    "scene_count": 0, "duration": 0.0, "clip_count": 0, "track_count": 0,
+                }
             raw = path.read_text(encoding="utf-8")
         except Exception as exc:  # noqa: BLE001 保留存在态，绝不回退到 CompositionIR
             return {
@@ -201,7 +209,7 @@ def _timeline_snapshot(project_id: str, meta: dict) -> dict:
             # initialization. If the snapshot lock now observes Film authority,
             # refresh the authority decision rather than exposing a stale
             # Composition read failure in the project index.
-            if (root / "film.html").is_file():
+            if _film_document_path_present(root / "film.html"):
                 return _timeline_snapshot(project_id, {**meta, "has_film": True})
             return {
                 "authority": "composition.json", "revision": None, "valid": False,
