@@ -421,10 +421,39 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 assert page.locator("#fs-qc-download").is_visible()
                 assert fd.read_project_film(project_id)["rev"] == export_revision
                 mp4_href = page.locator("#fs-render-download").get_attribute("href")
+                qc_href = page.locator("#fs-qc-download").get_attribute("href")
                 assert mp4_href and mp4_href.startswith("/file?path="), mp4_href
+                assert qc_href and qc_href.startswith("/file?path="), qc_href
                 mp4_response = page.request.get(f"http://127.0.0.1:{server.server_port}{mp4_href}")
+                qc_response = page.request.get(f"http://127.0.0.1:{server.server_port}{qc_href}")
                 assert mp4_response.status == 200
-                assert len(mp4_response.body()) > 0
+                mp4_bytes = mp4_response.body()
+                assert mp4_bytes
+                assert qc_response.status == 200
+                qc_report = json.loads(qc_response.body().decode("utf-8"))
+                assert qc_report["status"] == "PASS", qc_report
+                assert qc_report["revision_status"] == "CURRENT", qc_report
+                assert qc_report["current_revision_match"] is True, qc_report
+                assert qc_report["source_revision"] == export_revision, qc_report
+                assert qc_report["current_revision"] == export_revision, qc_report
+                output = qc_report["output"]
+                assert output["size_bytes"] == len(mp4_bytes), output
+                assert output["sha256"] == __import__("hashlib").sha256(mp4_bytes).hexdigest(), output
+                assert output["video_codec"], output
+                assert output["width"] == 160 and output["height"] == 90, output
+                assert output["fps"] == manual_state["doc"].get("fps", 30), output
+                assert abs(output["duration_seconds"] - 1.0) <= 0.25, output
+                assert qc_report["determinism"]["status"] == "PASS", qc_report
+                assert qc_report["determinism"]["samples_checked"] >= 1, qc_report
+                assert qc_report["visual_samples"], qc_report
+                assert all(
+                    sample["width"] == output["width"]
+                    and sample["height"] == output["height"]
+                    and sample["sha256"]
+                    for sample in qc_report["visual_samples"]
+                ), qc_report["visual_samples"]
+                assert qc_report["checks"], qc_report
+                assert all(check["status"] == "PASS" for check in qc_report["checks"]), qc_report["checks"]
                 assert not page_errors, f"browser JavaScript errors: {page_errors}"
 
                 page.locator("#editor-project").select_option(target_project_id)
