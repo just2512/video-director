@@ -300,3 +300,39 @@ def test_publication_flushes_backups_before_prepared_journal_and_syncs_renames(
     assert events[report_replace + 1:report_replace + 3] == [
         ("directory", report_path.parent), ("directory", report_path.parent)
     ]
+
+
+def test_directory_fsync_failure_after_mp4_replace_still_rolls_back(
+    tmp_path, monkeypatch,
+):
+    film_render, _root, workdir, output_temp, output, report_path = _publication_layout(
+        tmp_path, monkeypatch, had_previous=True
+    )
+    real_fsync_directory = film_render._fsync_directory
+    failed = False
+
+    def fail_once_after_mp4_replace(path):
+        nonlocal failed
+        if Path(path) == output.parent and not failed:
+            failed = True
+            raise OSError("injected render directory fsync failure")
+        return real_fsync_directory(path)
+
+    monkeypatch.setattr(film_render, "_fsync_directory", fail_once_after_mp4_replace)
+
+    with pytest.raises(OSError, match="injected render directory fsync failure"):
+        film_render._publish_render_artifacts(
+            "project-transaction",
+            REVISION,
+            output_temp,
+            output,
+            {"source_revision": REVISION, "status": "PASS"},
+            workdir,
+        )
+
+    assert failed
+    assert output.read_bytes() == b"old-mp4"
+    assert report_path.read_bytes() == b'{"status":"OLD"}'
+    assert not (workdir / "publish-transaction.json").exists()
+    assert not (workdir / "previous-output.mp4").exists()
+    assert not (workdir / "previous-qc.json").exists()
