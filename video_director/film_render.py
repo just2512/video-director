@@ -962,6 +962,9 @@ def _publish_render_artifacts(
             json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False) + "\n",
             encoding="utf-8",
         )
+        # Both new payloads must be durable before their names become visible.
+        _fsync_file(output_temp)
+        _fsync_file(qc_temp)
         with fd.project_lock(project_id):
             after = fd.read_project_film(project_id)
             if after.get("rev") != revision:
