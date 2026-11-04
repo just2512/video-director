@@ -193,6 +193,10 @@ def test_failed_rollback_retains_journal_and_backups_for_startup_recovery(
     film_render._recover_render_publication(
         project_root, workdir, REVISION, os.getpid()
     )
+    # A crash after one successful recovery pass must be safe to replay.
+    film_render._recover_render_publication(
+        project_root, workdir, REVISION, os.getpid()
+    )
 
     assert output.read_bytes() == b"old-mp4"
     assert report_path.read_bytes() == b'{"status":"OLD"}'
@@ -508,3 +512,46 @@ def test_durable_unlink_uses_windows_write_through_rename(tmp_path, monkeypatch)
     assert calls[0][1].name.startswith(".film-delete-")
     assert calls[0][2] == 0x00000008
     assert not calls[0][1].exists()
+
+
+def test_recovery_validates_both_backups_before_changing_either_artifact(tmp_path):
+    import json
+    from video_director import film_render
+
+    revision = REVISION
+    project_root = tmp_path / "project-transaction"
+    render_dir = project_root / "render"
+    qc_dir = project_root / "qc"
+    workdir = render_dir / f".film-render-{revision}-987654321-1.work"
+    render_dir.mkdir(parents=True)
+    qc_dir.mkdir()
+    workdir.mkdir()
+    output = render_dir / f"film-final-{revision}.mp4"
+    report = qc_dir / f"film-final-{revision}.json"
+    output.write_bytes(b"published-new-mp4")
+    report.write_bytes(b'{"status":"NEW"}')
+    output_backup = workdir / "previous-output.mp4"
+    report_backup = workdir / "previous-qc.json"
+    output_backup.write_bytes(b"old-mp4")
+    report_backup.write_bytes(b'{"status":"OLD"}')
+    output_meta = film_render._file_metadata(output_backup)
+    report_meta = film_render._file_metadata(report_backup)
+    report_backup.write_bytes(b"damaged")
+    payload = {
+        "schema_version": 2,
+        "revision": revision,
+        "phase": "prepared",
+        "had_output": True,
+        "had_report": True,
+        "output_backup": output_meta,
+        "report_backup": report_meta,
+        "qc_temp_name": f".film-final-{revision}.json.987654321.1.tmp",
+    }
+    (workdir / "publish-transaction.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="backup integrity"):
+        film_render._recover_render_publication(project_root, workdir, revision, 987654321)
+
+    assert output.read_bytes() == b"published-new-mp4"
+    assert report.read_bytes() == b'{"status":"NEW"}'
+    assert (workdir / "publish-transaction.json").is_file()
