@@ -133,7 +133,7 @@ def test_active_variant_and_2d_keyframes_are_converted_not_only_warned(tmp_path,
     assert "CompositionIR.variants[0].scenes[0].layers[0].transform.scale_x" not in warnings_text
     assert "CompositionIR.variants[0].scenes[0].layers[0].transform.scale_y" not in warnings_text
     assert "未建模字段" in warnings_text
-    assert "转场 type=dissolve" in warnings_text
+    assert "transition_out (dissolve, 0.250s) 尚未编译为 Film 转场" in warnings_text
     assert not any(
         f"keyframes:{name}" in warning
         for warning in result["warnings"]

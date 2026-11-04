@@ -86,4 +86,3 @@ if ($LASTEXITCODE -ne 0) {
 
 workflow 的真实模型验收入口仍然是 opt-in；未带标记的普通 push 应报告 MISSING，而不是把 mock 测试当作真实模型通过。
 
-本次执行固定使用 `[live-stream-smoke] [live-provider=nvidia] [live-model=z-ai/glm-5.3-flash]` 触发一次真实验收；该标记不会改变持久化 Provider 配置。
