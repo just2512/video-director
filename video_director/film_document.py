@@ -2706,7 +2706,7 @@ def assert_legacy_composition_access(project_id: str, operation: str = "编辑�
     pid = validate_project_id(project_id)
     path = _film_path(pid)
     try:
-        path.stat()
+        path.lstat()
     except FileNotFoundError:
         return
     except OSError as exc:
