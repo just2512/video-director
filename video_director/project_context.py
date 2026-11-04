@@ -196,7 +196,7 @@ def _active_film_context(project_id: str, selection: Optional[Dict[str, Any]]) -
     except Exception as exc:
         return _invalid_film_context(project_id, selection, exc)
     if not state.get("exists"):
-        # stat() already confirmed the file exists. A false "missing" response
+        # lstat() already confirmed the path exists. A false "missing" response
         # from a higher-level reader is indeterminate, never permission to fall back.
         return _unknown_authority_context(
             project_id, selection, OSError("film.html exists but document reader reported it missing")
