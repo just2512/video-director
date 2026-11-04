@@ -124,6 +124,7 @@ MAX_STAGE_EDGE = 3840
 _MEDIA_CHUNK = 64 * 1024
 _RENDER_WORKDIR_RE = re.compile(r"^\.film-render-([0-9a-f]{64})-(\d+)-(\d+)\.work$")
 _QC_TEMP_RE = re.compile(r"^\.film-final-([0-9a-f]{64})\.json\.(\d+)\.(\d+)\.tmp$")
+_DELETE_TEMP_RE = re.compile(r"^\.film-delete-(\d+)-(\d+)\.tmp$")
 
 
 def _process_identity(pid: int) -> str | None:
@@ -317,7 +318,6 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
             )
         else:
             _durable_unlink(output)
-            _fsync_directory(output.parent)
         if payload["had_report"]:
             if payload["schema_version"] >= 2:
                 _validate_render_backup(workdir / "previous-qc.json", payload.get("report_backup"))
@@ -326,7 +326,6 @@ def _recover_render_publication(project_root: Path, workdir: Path, revision: str
             )
         else:
             _durable_unlink(report)
-            _fsync_directory(report.parent)
     elif phase != "committed":
         raise RuntimeError("render publication journal has an unknown phase")
 
@@ -1200,7 +1199,6 @@ def _publish_render_artifacts(
                             )
                         else:
                             _durable_unlink(output)
-                            _fsync_directory(output.parent)
                     if report_published:
                         if had_report:
                             _restore_render_backup(
@@ -1208,7 +1206,6 @@ def _publish_render_artifacts(
                             )
                         else:
                             _durable_unlink(report_path)
-                            _fsync_directory(report_path.parent)
                     _durable_unlink(journal)
                     _fsync_directory(temp_root)
                 except Exception as rollback_error:
@@ -1223,7 +1220,7 @@ def _publish_render_artifacts(
             try:
                 journal_state = json.loads(journal.read_text(encoding="utf-8"))
                 if journal_state.get("phase") == "committed":
-                    journal.unlink(missing_ok=True)
+                    _durable_unlink(journal)
                     _fsync_directory(temp_root)
             except Exception:
                 pass
