@@ -581,3 +581,24 @@ def test_startup_cleanup_removes_orphaned_delete_tombstones(tmp_path, monkeypatc
     assert not render_tombstone.exists()
     assert not qc_tombstone.exists()
     assert summary["delete_tombstones_removed"] == 2
+
+
+def test_windows_process_identity_uses_process_creation_time(tmp_path, monkeypatch):
+    import ctypes
+    from types import SimpleNamespace
+    from video_director import film_render
+
+    def get_process_times(_handle, creation, _exit, _kernel, _user):
+        creation._obj.dwLowDateTime = 123
+        creation._obj.dwHighDateTime = 456
+        return 1
+
+    kernel32 = SimpleNamespace(
+        OpenProcess=lambda *_args: 123,
+        GetProcessTimes=get_process_times,
+        CloseHandle=lambda _handle: 1,
+    )
+    monkeypatch.setattr(film_render, "os", SimpleNamespace(name="nt"))
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *_args, **_kwargs: kernel32, raising=False)
+
+    assert film_render._process_identity(987654321) == f"windows:{(456 << 32) | 123}"
