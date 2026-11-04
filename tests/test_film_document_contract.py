@@ -3427,3 +3427,29 @@ def test_apply_proposal_concurrent_http_requests_commit_exactly_once(tmp_path, m
         server.server_close()
         thread.join(timeout=5)
 
+
+
+def test_film_initialization_rejects_active_legacy_pipeline_stage(tmp_path, monkeypatch):
+    from video_director import config, editor, store
+    from video_director.models import CompositionIR, Layer, LayerType, ProjectSpec, SceneIR
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "film-init-active-legacy-job"
+    ir = CompositionIR(
+        project=ProjectSpec(width=160, height=90, fps=30, duration=1.0),
+        scenes=[SceneIR(
+            id="legacy-scene", start=0, duration=1.0, text="active render",
+            layers=[Layer(type=LayerType.image, duration=1.0)],
+        )],
+    )
+    editor.save_composition(project_id, ir)
+    source_version = editor.composition_version(project_id)
+    monkeypatch.setattr(store, "get_project", lambda _pid: {"stage": "RENDERING"})
+
+    with pytest.raises(fd.FilmError) as caught:
+        fd.initialize_project_film(
+            project_id, fd.parse_film(SAMPLE), {}, source_version, [],
+        )
+
+    assert caught.value.code == "PROJECT_BUSY"
+    assert not (config.project_dir(project_id) / fd.FILM_NAME).exists()
