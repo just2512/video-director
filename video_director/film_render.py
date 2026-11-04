@@ -28,12 +28,16 @@ from PIL import Image, ImageChops, ImageStat
 from video_director import config
 from video_director import film_document as fd
 
+def _is_windows_platform() -> bool:
+    return os.name == "nt"
+
+
 def _atomic_replace(source: Path, destination: Path) -> None:
     """Atomically replace a sibling file and request durable rename semantics."""
     source = Path(source)
     destination = Path(destination)
-    if os.name != "nt":
-        _atomic_replace(source, destination)
+    if not _is_windows_platform():
+        os.replace(source, destination)
         return
 
     import ctypes
