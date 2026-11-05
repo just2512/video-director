@@ -309,7 +309,7 @@
 1. 在 Windows 原生环境执行并留存 `test_windows_write_through_replace_and_delete_round_trip` 的实际结果；若失败，按 Win32 API 错误与磁盘行为修复，不以 Linux mock 代替。
 2. 按本仓库真实 NVIDIA 配置执行一次显式 live-stream acceptance，保存 JUnit 和状态结果；只接受 `PASS`，`MISSING` / `BLOCKED_PROVIDER` / `REJECT` / `UNKNOWN` 不得关闭该门禁。
 3. 项目生命周期 E2E **已有单一真实 Chromium fixture**：`test_workspace_open_previews_migration_in_studio_before_creating_film_html` 覆盖 create → open → migration preview → initialize/archive SHA-256 → Inspector edit → external Agent revision → watcher journal → full-page reopen → Director proposal/reject → MP4/QC PASS → project switch。本轮在该路径补充 selected clip 在 external revision reload 后仍有效的断言；不再重复新建同类 fixture。
-4. 继续按具体失败路径补充编辑操作组合回归；未覆盖的排列保持 UNKNOWN，不以已有单项操作通过推断全排列正确。视频任务提交的 `submission_unknown` 还需要明确的人工核对/解除流程，禁止通过自动重提绕过该状态。
+4. 继续按具体失败路径补充编辑操作组合回归；未覆盖的排列保持 UNKNOWN，不以已有单项操作通过推断全排列正确。视频任务提交的 `submission_unknown` 已提供 `generation-jobs list/resolve` 人工核对/解除 CLI；操作人必须先核对供应商任务和账单，禁止自动重提。该 CLI 的原子状态变更和路径安全测试已提交，仍待最新 CI 验证。
 
 ### 2026-11-05 视频生成并发保护补验（source `47d80a9c`，CI 待验）
 
