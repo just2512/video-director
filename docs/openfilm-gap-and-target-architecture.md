@@ -308,5 +308,14 @@
 
 1. 在 Windows 原生环境执行并留存 `test_windows_write_through_replace_and_delete_round_trip` 的实际结果；若失败，按 Win32 API 错误与磁盘行为修复，不以 Linux mock 代替。
 2. 按本仓库真实 NVIDIA 配置执行一次显式 live-stream acceptance，保存 JUnit 和状态结果；只接受 `PASS`，`MISSING` / `BLOCKED_PROVIDER` / `REJECT` / `UNKNOWN` 不得关闭该门禁。
-3. 将已有 migration preview/source archive、外部 revision recovery、手动素材采用与 MP4/QC 证据收敛为一个项目生命周期 E2E fixture：create → open → initialize/migrate → edit → external revision → reopen → render；每个边界核对 project ID、FilmDocument revision、选中 clip 和 source archive digest。
-4. 继续按具体失败路径补充编辑操作组合回归；未覆盖的排列保持 UNKNOWN，不以已有单项操作通过推断全排列正确。
+3. 项目生命周期 E2E **已有单一真实 Chromium fixture**：`test_workspace_open_previews_migration_in_studio_before_creating_film_html` 覆盖 create → open → migration preview → initialize/archive SHA-256 → Inspector edit → external Agent revision → watcher journal → full-page reopen → Director proposal/reject → MP4/QC PASS → project switch。本轮在该路径补充 selected clip 在 external revision reload 后仍有效的断言；不再重复新建同类 fixture。
+4. 继续按具体失败路径补充编辑操作组合回归；未覆盖的排列保持 UNKNOWN，不以已有单项操作通过推断全排列正确。视频任务提交的 `submission_unknown` 还需要明确的人工核对/解除流程，禁止通过自动重提绕过该状态。
+
+### 2026-11-05 视频生成并发保护补验（source `47d80a9c`，CI 待验）
+
+- `_video_submission_lock(project_id, input_fp, variant)` 将任务查询、预留、供应商 POST 和 task ID 持久化串成一个按指纹/变体隔离的提交边界；同一请求的竞争调用只能复用已持久化任务。
+- 非幂等的视频提交关闭 OpenAI SDK 自动重试（`max_retries=0`）。仅明确 HTTP 404/405 才尝试旧端点；超时/连接中断不再盲目 POST 第二端点。
+- 提交前先写入 `status=submitting`。提交结果不确定或进程在 task ID 落盘前中断时转为 `submission_unknown`；相同指纹再次请求会 fail closed，要求先核对供应商任务/账单，不能自动重复收费。
+- 回归新增：并发相同指纹/变体只允许一次供应商 POST；验证 POST 前 reservation 已持久化；验证超时后的重试被拦截；验证 404 端点降级仍可用；验证 SDK 自动重试关闭。
+- 项目生命周期测试新增 external revision 后的 selected clip 保留断言，验证 revision 更新不会清空仍然有效的选中对象。
+- [最新源代码回归 run `41947785273`](https://github.com/just2512/video-director/actions/runs/41947785273) 当前尚未完成；在该 run 对精确提交 `47d80a9c21d8c592a6ba6a0b6d6c722f7bea2700` 通过前，本节只记录实现与待验测试，不得标记 PASS。
