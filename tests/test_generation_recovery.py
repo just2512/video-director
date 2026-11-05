@@ -364,6 +364,21 @@ class TestConcurrentVideoSubmission:
                 "b" * 64, "A", str(config.project_dir(project_id) / "result.mp4"),
                 timeout=1,
             )
+        jobs = gen._load_jobs(project_id)
+        assert len(jobs) == 1
+        reservation = next(iter(jobs.values()))
+        assert reservation["status"] == "submission_unknown"
+        assert reservation["submission_error_type"] == "TimeoutError"
+
+        # A retry with the same fingerprint must stop before another POST:
+        # the first request may have been accepted even though its response timed out.
+        with pytest.raises(gen.GenerationError) as retry_error:
+            gen._create_poll_and_persist_video(
+                client, project_id, "fake-model", "prompt", 320, 180,
+                "b" * 64, "A", str(config.project_dir(project_id) / "retry.mp4"),
+                timeout=1,
+            )
+        assert retry_error.value.code == "VIDEO_SUBMISSION_UNKNOWN"
         assert client.paths == ["/video/generations"]
 
     def test_explicit_unsupported_route_uses_legacy_provider_endpoint(

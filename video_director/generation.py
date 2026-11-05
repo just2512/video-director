@@ -173,6 +173,17 @@ def _prompt_fingerprint(prompt: str, gen_type: str) -> str:
 
 def _find_reusable_job(project_id: str, input_fp: str, variant: str) -> Optional[dict]:
     """同 fingerprint+variant 且仍在跑的外部任务 → 复用轮询，不重复提交付费。"""
+
+def _find_unresolved_submission(project_id: str, input_fp: str, variant: str) -> Optional[dict]:
+    """Find a durable reservation whose provider submission outcome is unknown."""
+    for job in _load_jobs(project_id).values():
+        if (job.get("input_fingerprint") == input_fp
+                and job.get("variant") == variant
+                and job.get("status") in ("submitting", "submission_unknown")
+                and not job.get("provider_task_id")):
+            return job
+    return None
+
     for job in _load_jobs(project_id).values():
         if (job.get("input_fingerprint") == input_fp
                 and job.get("variant") == variant
@@ -186,7 +197,13 @@ def _video_client(cfg: dict):
     """OpenAI 兼容 client 构造（集中一处，测试可 monkeypatch 隔离）。"""
     try:
         from openai import OpenAI
-        return OpenAI(api_key=cfg["api_key"], base_url=cfg.get("base_url") or "")
+        # Video task creation is non-idempotent. SDK-level retries after an
+        # ambiguous timeout can submit and charge for the same generation twice.
+        return OpenAI(
+            api_key=cfg["api_key"],
+            base_url=cfg.get("base_url") or "",
+            max_retries=0,
+        )
     except Exception as exc:
         raise GenerationError("VIDEO_PROVIDER_UNAVAILABLE", f"openai 库不可用: {exc}") from exc
 
@@ -724,10 +741,20 @@ def _create_poll_and_persist_video(
     一致，仅叠加持久化。
     """
     import time as _time
-    # Serialize the entire lookup/submit/persist boundary. The provider POST
-    # stays inside this per-fingerprint lock until its task ID is durable, so a
-    # competing process can only observe and reuse the persisted task.
+    # Serialize the lookup/reservation/submit/persist boundary. A durable
+    # "submitting" reservation is written before the non-idempotent provider
+    # POST. If the process dies or the response times out after provider
+    # acceptance, the next caller fails closed instead of charging again.
     with _video_submission_lock(project_id, input_fp, variant):
+        unresolved = _find_unresolved_submission(project_id, input_fp, variant)
+        if unresolved:
+            raise GenerationError(
+                "VIDEO_SUBMISSION_UNKNOWN",
+                "相同素材请求存在结果不确定的供应商提交记录 "
+                f"({unresolved.get('job_id')})；为避免重复付费，系统不会自动重提。"
+                "请先核实供应商任务/账单，再人工处理该任务记录。",
+            )
+
         reusable = _find_reusable_job(project_id, input_fp, variant)
         if reusable:
             job_id = reusable["job_id"]
@@ -735,23 +762,44 @@ def _create_poll_and_persist_video(
             logger.info(f"generation: 复用 running 视频任务 {job_id}"
                         f"（fingerprint={input_fp[:12]}，不重复提交）")
         else:
+            job_id = f"genjob-{uuid.uuid4().hex[:12]}"
+            reservation = {
+                "provider": model or "video-llm",
+                "gen_type": "video",
+                "prompt_fingerprint": _prompt_fingerprint(prompt, "video"),
+                "input_fingerprint": input_fp,
+                "variant": variant,
+                "status": "submitting",
+                "output_file": out_file,
+            }
+            _update_job(project_id, job_id, reservation)
+
             size = _image_size(width, height)
             try:
-                create = client.post(
-                    "/video/generations",
-                    json={"model": model, "prompt": prompt, "size": size},
-                )
+                try:
+                    create = client.post(
+                        "/video/generations",
+                        json={"model": model, "prompt": prompt, "size": size},
+                    )
+                except Exception as exc:
+                    # Only an explicit unsupported-route response proves that
+                    # the first endpoint did not create a task. A timeout or
+                    # connection error is ambiguous and must never trigger a
+                    # second non-idempotent POST.
+                    if getattr(exc, "status_code", None) not in (404, 405):
+                        raise
+                    create = client.post(
+                        "/videos",
+                        json={"model": model, "prompt": prompt, "size": size},
+                    )
             except Exception as exc:
-                # Only an explicit unsupported-route response proves that the
-                # first endpoint did not create a task. A timeout/connection
-                # failure is ambiguous: retrying another endpoint could charge
-                # twice if the provider accepted the first request.
-                if getattr(exc, "status_code", None) not in (404, 405):
-                    raise
-                create = client.post(
-                    "/videos",
-                    json={"model": model, "prompt": prompt, "size": size},
-                )
+                _update_job(project_id, job_id, {
+                    "status": "submission_unknown",
+                    "submission_error_type": type(exc).__name__,
+                    "submission_http_status": getattr(exc, "status_code", None),
+                })
+                raise
+
             data = create.json() if hasattr(create, "json") else create
             if isinstance(data, dict) and "data" in data:
                 data = data["data"]
@@ -761,19 +809,19 @@ def _create_poll_and_persist_video(
             elif isinstance(data, list) and data:
                 task_id = data[0].get("id")
             if not task_id:
+                _update_job(project_id, job_id, {
+                    "status": "submission_unknown",
+                    "submission_error_type": "MissingProviderTaskId",
+                })
                 raise GenerationError(
-                    "VIDEO_GENERATION_FAILED", f"生视频任务无 id：{str(data)[:200]}")
-            job_id = f"genjob-{uuid.uuid4().hex[:12]}"
+                    "VIDEO_SUBMISSION_UNKNOWN",
+                    f"供应商响应未包含任务 ID；为避免重复付费，不会自动重提：{str(data)[:200]}",
+                )
+
             # Provider task ID is durable before releasing the submission lock.
             _update_job(project_id, job_id, {
-                "provider": model or "video-llm",
                 "provider_task_id": task_id,
-                "gen_type": "video",
-                "prompt_fingerprint": _prompt_fingerprint(prompt, "video"),
-                "input_fingerprint": input_fp,
-                "variant": variant,
                 "status": "running",
-                "output_file": out_file,
             })
 
     deadline = _time.time() + timeout
