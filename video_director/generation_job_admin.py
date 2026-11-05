@@ -9,9 +9,15 @@ import time
 from typing import Optional
 
 from video_director import generation
+from video_director import film_document
+
+
+def _validated_project_id(project_id: str) -> str:
+    return film_document.validate_project_id(project_id)
 
 
 def list_video_jobs(project_id: str, status: Optional[str] = None) -> list[dict]:
+    project_id = _validated_project_id(project_id)
     jobs = list(generation._load_jobs(project_id).values())
     if status:
         jobs = [job for job in jobs if job.get("status") == status]
@@ -32,6 +38,7 @@ def resolve_video_submission(
     - confirm_no_provider_task: provider dashboard confirms no task was created;
       explicitly release the reservation so a later user request may submit again.
     """
+    project_id = _validated_project_id(project_id)
     if bool(provider_task_id) == bool(confirm_no_provider_task):
         raise generation.GenerationError(
             "INVALID_SUBMISSION_RESOLUTION",
