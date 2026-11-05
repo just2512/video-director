@@ -745,17 +745,17 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
             url = _create_poll_and_persist_video(
                 client, project_id, model, prompt, width, height,
                 input_fp, v, str(out_file))
+        except GenerationError:
+            # Preserve machine-readable safety states such as VIDEO_SUBMISSION_UNKNOWN.
+            raise
         except Exception as exc:
             # 供应商拒绝/配额/网络故障 → 诚实暴露，不 fake。
-            # 配额类（429/insufficient quota/欠费）自动归类 QUOTA_EXCEEDED，
-            # 网络超时归类 recoverable（可由恢复路径重试）。
+            # 配额类（429/insufficient quota/欠费）自动归类 QUOTA_EXCEEDED。
             err = GenerationError(
                 "VIDEO_GENERATION_FAILED",
                 f"生视频调用失败（model={model}）：{exc}",
             )
             if err.is_quota():
-                # 项目当前无第二供应商切换机制：明确提示充值或配置备用供应商，
-                # 不发明切换逻辑（越界）
                 logger.warning(f"生视频配额耗尽，请充值或配置备用供应商: {err}")
             raise err from exc
         job = next((item for item in _load_jobs(project_id).values()
