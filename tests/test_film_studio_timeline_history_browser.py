@@ -1085,8 +1085,8 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
         thread.join(timeout=5)
 
 
-def test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture(tmp_path, monkeypatch):
-    """A concurrent FilmDocument edit invalidates an active pointer drag without clobbering it."""
+def test_react_multi_select_drag_is_discarded_when_revision_changes_mid_gesture(tmp_path, monkeypatch):
+    """A concurrent FilmDocument edit invalidates a grouped pointer drag without clobbering it."""
     storage_root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
     import webui.server as web_server
@@ -1164,6 +1164,13 @@ def test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture(tmp_path
 
                 clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
                 clip.wait_for(state="visible")
+                companion = page.locator('#fs-timeline .fs-clip[data-clip="clip-b"]')
+                companion.click(modifiers=["Control"])
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state?.selectedIds?.includes("clip-a") &&
+                    state?.selectedIds?.includes("clip-b");
+                }""", timeout=5000)
                 scale = float(page.evaluate("window.filmStudioStore.getSnapshot().pixelsPerSecond"))
                 box = clip.bounding_box()
                 assert box and scale > 0
@@ -1179,7 +1186,8 @@ def test_react_clip_drag_is_discarded_when_revision_changes_mid_gesture(tmp_path
                       const state=window.filmStudioStore?.getSnapshot();
                       return !!state && state.revision===revision &&
                         !!state.timelineGestureContext?.active &&
-                        !!state.timelineGesturePreview?.['clip-a'];
+                        !!state.timelineGesturePreview?.['clip-a'] &&
+                        !!state.timelineGesturePreview?.['clip-b'];
                     }""",
                     arg=start_revision,
                     timeout=5000,
