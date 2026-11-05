@@ -166,7 +166,7 @@ def _save_jobs(project_id: str, jobs: dict) -> None:
     )
     temporary = Path(temporary_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\\n") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(jobs, ensure_ascii=False, indent=2))
             handle.flush()
             os.fsync(handle.fileno())
