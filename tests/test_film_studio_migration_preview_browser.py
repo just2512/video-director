@@ -297,6 +297,10 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 # Moving the shared selector must not weaken draft protection:
                 # a changed Inspector value blocks switching and remains intact.
                 page.locator("#fs-timeline .fs-clip[data-clip]").first.click()
+                selected_clip_before_external = page.evaluate(
+                    "() => window.filmStudioStore?.getSnapshot()?.selectedId || \"\""
+                )
+                assert selected_clip_before_external, "Inspector click must establish a canonical selected clip"
                 title_input = page.locator("#fs-field-title")
                 title_input.wait_for(state="visible")
                 original_title = title_input.input_value()
@@ -328,6 +332,7 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                     clip for clip in saved_clips
                     if clip.get("attrs", {}).get("title") == saved_title
                 )
+                assert saved_clip["id"] == selected_clip_before_external
 
                 # Continue the same project through a real external Agent write.
                 # The watcher must journal it, Studio must reload that revision,
@@ -350,6 +355,12 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                     arg=external_revision,
                     timeout=15000,
                 )
+                selected_after_external = page.evaluate("""() => ({
+                  selectedId:window.filmStudioStore?.getSnapshot()?.selectedId || "",
+                  selectedIds:window.filmStudioStore?.getSnapshot()?.selectedIds || []
+                })""")
+                assert selected_after_external["selectedId"] == saved_clip["id"], selected_after_external
+                assert saved_clip["id"] in selected_after_external["selectedIds"], selected_after_external
                 history_deadline = time.monotonic() + 5.0
                 history = fd._history_read(project_id)
                 while not any(

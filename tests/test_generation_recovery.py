@@ -241,6 +241,36 @@ class TestFingerprintReuse:
 class TestConcurrentVideoSubmission:
     """Competing callers must not submit duplicate paid provider tasks."""
 
+    def test_video_client_disables_sdk_retries_for_non_idempotent_submit(
+        self, tmp_path, monkeypatch
+    ):
+        import sys
+        import types
+
+        _isolate(tmp_path, monkeypatch)
+        from video_director import generation as gen
+
+        captured = {}
+
+        class FakeOpenAI:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        fake_module = types.ModuleType("openai")
+        fake_module.OpenAI = FakeOpenAI
+        monkeypatch.setitem(sys.modules, "openai", fake_module)
+
+        client = gen._video_client({
+            "api_key": "test-key",
+            "base_url": "https://provider.example/v1",
+        })
+        assert isinstance(client, FakeOpenAI)
+        assert captured == {
+            "api_key": "test-key",
+            "base_url": "https://provider.example/v1",
+            "max_retries": 0,
+        }
+
     def test_same_fingerprint_concurrent_callers_share_one_provider_task(
         self, tmp_path, monkeypatch
     ):
@@ -263,6 +293,11 @@ class TestConcurrentVideoSubmission:
                 self.both_gets_started = threading.Event()
 
             def post(self, path, json=None):
+                reservations = gen._load_jobs(project_id)
+                assert len(reservations) == 1
+                assert next(iter(reservations.values()))["status"] == "submitting", (
+                    "durable reservation must exist before the provider POST"
+                )
                 with post_lock:
                     self.post_calls += 1
                 post_entered.set()
