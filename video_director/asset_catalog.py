@@ -163,7 +163,7 @@ def _save_catalog(catalog: dict) -> None:
         prefix=".catalog-", suffix=".tmp", dir=str(path.parent))
     temporary = Path(temporary_name)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\\n") as handle:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(json.dumps(catalog, ensure_ascii=False, indent=2))
             handle.flush()
             os.fsync(handle.fileno())
