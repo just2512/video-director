@@ -26,6 +26,7 @@ import json
 import os
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -35,6 +36,8 @@ from typing import List, Optional
 from loguru import logger
 
 from video_director import config
+
+_CATALOG_THREAD_LOCK = threading.RLock()
 
 #: §26 目录结构（storage/assets 四子目录）
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
@@ -106,7 +109,7 @@ def _load_catalog() -> dict:
 
 
 @contextmanager
-def _catalog_lock():
+def _catalog_file_lock():
     """Serialize Library catalog transactions across threads and processes."""
     lock_path = library_root() / ".catalog.lock"
     with lock_path.open("a+b") as handle:
@@ -142,6 +145,14 @@ def _catalog_lock():
                 yield
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def _catalog_lock():
+    """Thread + process lock for catalog read/modify/write transactions."""
+    with _CATALOG_THREAD_LOCK:
+        with _catalog_file_lock():
+            yield
 
 
 def _save_catalog(catalog: dict) -> None:
@@ -501,15 +512,18 @@ def delete_asset(asset_id: str, *, require_unused: bool = True) -> dict:
         used_in = asset_usage(asset_id) if require_unused else []
         if used_in:
             return {"ok": False, "code": "ASSET_IN_USE", "error": f"素材正在被项目引用：{', '.join(used_in)}", "used_in": used_in}
+        catalog.pop(asset_id, None)
+        try:
+            _save_catalog(catalog)
+        except OSError as exc:
+            return {"ok": False, "code": "CATALOG_WRITE_FAILED", "error": f"素材台账写入失败，原素材保留：{exc}"}
         try:
             file_path = entry.get("file") or ""
             if file_path and Path(file_path).is_file():
                 Path(file_path).unlink()
             (library_root() / "thumbnails" / f"{asset_id}.jpg").unlink(missing_ok=True)
         except OSError as exc:
-            return {"ok": False, "code": "DELETE_FAILED", "error": f"素材文件删除失败：{exc}"}
-        catalog.pop(asset_id, None)
-        _save_catalog(catalog)
+            return {"ok": False, "code": "DELETE_FAILED", "error": f"素材台账已移除，但文件清理失败：{exc}"}
         return {"ok": True, "asset_id": asset_id}
 
 
