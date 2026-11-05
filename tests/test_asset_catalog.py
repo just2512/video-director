@@ -269,6 +269,45 @@ class TestAssetLibrary:
         assert Path(first["file"]).is_file()
         assert Path(second["file"]).is_file()
 
+    def test_project_manifest_writer_serializes_with_library_deletion(self, _iso, fixtures):
+        """项目引用写入必须与全局素材删除共用事务锁，避免检查后新增引用。"""
+        import threading
+        from video_director import asset_catalog as ac, project_manifest
+
+        entry = ac.import_asset(fixtures["img"])
+        project_id = "al-reference-delete-race"
+        started = threading.Event()
+        finished = threading.Event()
+        errors = []
+
+        def add_reference():
+            started.set()
+            try:
+                project_manifest.merge_project_manifest_entries(
+                    project_id,
+                    [{"id": entry["asset_id"], "type": "image", "file": entry["file"]}],
+                )
+            except Exception as exc:
+                errors.append(exc)
+            finally:
+                finished.set()
+
+        with ac._catalog_lock():
+            writer = threading.Thread(target=add_reference, daemon=True)
+            writer.start()
+            assert started.wait(timeout=5)
+            assert not finished.wait(timeout=0.1), "manifest writer bypassed catalog transaction lock"
+
+        assert finished.wait(timeout=5), "manifest writer did not resume after catalog lock release"
+        writer.join(timeout=5)
+        assert not errors, errors
+
+        result = ac.delete_asset(entry["asset_id"])
+        assert result["ok"] is False
+        assert result["code"] == "ASSET_IN_USE"
+        assert ac.get_asset(entry["asset_id"]) is not None
+        assert Path(entry["file"]).is_file()
+
     def test_delete_fails_closed_when_project_manifest_is_corrupt(self, _iso, fixtures):
         """无法读取项目引用清单时，单项和批量删除都必须拒绝。"""
         from video_director import asset_catalog as ac
