@@ -269,6 +269,52 @@ class TestAssetLibrary:
         assert Path(first["file"]).is_file()
         assert Path(second["file"]).is_file()
 
+    def test_delete_fails_closed_when_project_manifest_is_corrupt(self, _iso, fixtures):
+        """无法读取项目引用清单时，单项和批量删除都必须拒绝。"""
+        from video_director import asset_catalog as ac
+
+        first = ac.import_asset(fixtures["img"])
+        second = ac.import_asset(fixtures["img2"])
+        project_dir = config.project_dir("al-corrupt-manifest")
+        manifest = project_dir / "assets" / "manifest.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        manifest.write_text('{"broken":', encoding="utf-8")
+
+        single = ac.delete_asset(first["asset_id"])
+        assert single["ok"] is False
+        assert single["code"] == "ASSET_USAGE_UNKNOWN"
+        assert ac.get_asset(first["asset_id"]) is not None
+        assert Path(first["file"]).is_file()
+
+        batch = ac.delete_assets([first["asset_id"], second["asset_id"]])
+        assert batch["ok"] is False
+        assert batch["code"] == "ASSET_USAGE_UNKNOWN"
+        assert ac.get_asset(first["asset_id"]) is not None
+        assert ac.get_asset(second["asset_id"]) is not None
+        assert Path(first["file"]).is_file()
+        assert Path(second["file"]).is_file()
+
+    def test_delete_fails_closed_for_symlinked_project_manifest(self, _iso, fixtures):
+        """项目引用清单指向外部文件时，不得把无法核验当成未引用。"""
+        from video_director import asset_catalog as ac
+
+        entry = ac.import_asset(fixtures["img"])
+        project_dir = config.project_dir("al-symlink-manifest")
+        manifest = project_dir / "assets" / "manifest.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        outside = project_dir / "outside.json"
+        outside.write_text("[]", encoding="utf-8")
+        try:
+            manifest.symlink_to(outside)
+        except (OSError, NotImplementedError):
+            pytest.skip("当前运行环境不支持创建符号链接")
+
+        result = ac.delete_asset(entry["asset_id"])
+        assert result["ok"] is False
+        assert result["code"] == "ASSET_USAGE_UNKNOWN"
+        assert ac.get_asset(entry["asset_id"]) is not None
+        assert Path(entry["file"]).is_file()
+
     def test_list_filters(self, _iso, fixtures):
         from video_director import asset_catalog as ac
         ac.import_asset(fixtures["clip"], tags=["咖啡"])
