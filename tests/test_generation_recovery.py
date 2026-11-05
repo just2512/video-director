@@ -306,6 +306,54 @@ class TestFingerprintReuse:
         assert fake2.get_calls == 1  # 仅入口恢复器查询；Manifest 命中后不再轮询
 
 
+    def test_manifest_write_failure_keeps_recovery_marker_and_retry_does_not_resubmit(
+        self, tmp_path, monkeypatch
+    ):
+        """Manifest 持久化失败时不得提前置 registered；重试复用已落盘 MP4。"""
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import config, generation as gen
+
+        pid = "proj-manifest-write-failure"
+        config.init_project_dirs(config.project_dir(pid))
+        fake = FakeVideoClient(statuses=["completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda cfg: fake)
+        monkeypatch.setattr(gen, "_download_bytes", lambda url: b"durable-video-output")
+        save_manifest = gen._save_manifest
+
+        def fail_manifest_write(project_id, additions):
+            raise OSError("simulated manifest disk failure")
+
+        monkeypatch.setattr(gen, "_save_manifest", fail_manifest_write)
+        with pytest.raises(OSError, match="simulated manifest disk failure"):
+            gen.generate(pid, "persist after output", "video", variant="A")
+
+        jobs = gen._load_jobs(pid)
+        assert len(jobs) == 1
+        job = next(iter(jobs.values()))
+        assert job["status"] == "done"
+        assert job["manifest_registered"] is not True
+        assert job["recovery_needs_registration"] is True
+        assert Path(job["output_file"]).read_bytes() == b"durable-video-output"
+        assert fake.post_calls == 1
+
+        # 恢复 Manifest 写入后再次请求：复用原子落盘文件，不再次提交或轮询。
+        monkeypatch.setattr(gen, "_save_manifest", save_manifest)
+        results = gen.generate(pid, "persist after output", "video", variant="A")
+        assert len(results) == 1
+        assert fake.post_calls == 1
+        assert fake.get_calls == 1
+        repaired = gen._load_jobs(pid)[job["job_id"]]
+        assert repaired["manifest_registered"] is True
+        assert repaired["recovery_needs_registration"] is False
+        manifest = gen._load_manifest(pid)
+        assert len([
+            item for item in manifest
+            if item.get("input_fingerprint") == results[0].input_fingerprint
+            and item.get("variant") == "A"
+            and item.get("type") == "video"
+        ]) == 1
+
     def test_done_registered_job_remains_reusable_if_manifest_row_is_lost(
         self, tmp_path, monkeypatch
     ):
