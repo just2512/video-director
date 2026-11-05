@@ -176,7 +176,11 @@ def _find_reusable_job(project_id: str, input_fp: str, variant: str) -> Optional
     for job in _load_jobs(project_id).values():
         reusable_status = job.get("status") in ("pending", "running", "downloading")
         recovered_output = (
-            job.get("status") == "done" and job.get("recovery_needs_registration") is True
+            job.get("status") == "done"
+            and (
+                job.get("recovery_needs_registration") is True
+                or job.get("manifest_registered") is True
+            )
         )
         if (job.get("input_fingerprint") == input_fp
                 and job.get("variant") == variant
