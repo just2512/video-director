@@ -617,7 +617,7 @@ def project_reference(project_id: str, asset_id: str) -> bool:
             "content_hash": entry.get("content_hash", ""),
         }
         from video_director import project_manifest
-        return bool(project_manifest.merge_project_manifest_entries(project_id, [ref]))
+        return bool(project_manifest.merge_project_manifest_entries(\n            project_id, [ref], _catalog_lock_held=True\n        ))
 
 
 # ---------------------------------------------------------------------------
