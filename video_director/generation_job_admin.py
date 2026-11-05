@@ -44,49 +44,57 @@ def resolve_video_submission(
             "INVALID_SUBMISSION_RESOLUTION",
             "必须且只能提供 --provider-task-id 或 --confirm-no-provider-task 其中一项",
         )
-    jobs = generation._load_jobs(project_id)
-    job = jobs.get(job_id)
-    if not job:
-        raise generation.GenerationError("VIDEO_JOB_NOT_FOUND", f"找不到视频任务 {job_id}")
-    if job.get("status") not in ("submitting", "submission_unknown"):
-        raise generation.GenerationError(
-            "VIDEO_JOB_NOT_UNRESOLVED",
-            f"任务当前状态为 {job.get('status')!r}，只允许处理 submitting/submission_unknown",
-        )
+    # The state check, duplicate-ID check, and write must be one critical section:
+    # two operator sessions must not both resolve the same reservation differently.
+    with generation._jobs_lock(project_id):
+        jobs = generation._load_jobs(project_id)
+        job = jobs.get(job_id)
+        if not job:
+            raise generation.GenerationError("VIDEO_JOB_NOT_FOUND", f"找不到视频任务 {job_id}")
+        if job.get("status") not in ("submitting", "submission_unknown"):
+            raise generation.GenerationError(
+                "VIDEO_JOB_NOT_UNRESOLVED",
+                f"任务当前状态为 {job.get('status')!r}，只允许处理 submitting/submission_unknown",
+            )
 
-    now = time.time()
-    if provider_task_id:
-        provider_task_id = provider_task_id.strip()
-        if not provider_task_id:
-            raise generation.GenerationError(
-                "INVALID_PROVIDER_TASK_ID", "供应商任务 ID 不能为空",
-            )
-        duplicate = next((
-            other_id for other_id, other in jobs.items()
-            if other_id != job_id and other.get("provider_task_id") == provider_task_id
-        ), None)
-        if duplicate:
-            raise generation.GenerationError(
-                "PROVIDER_TASK_ALREADY_LINKED",
-                f"供应商任务 ID 已关联到本项目任务 {duplicate}，拒绝重复绑定",
-            )
-        fields = {
-            "provider_task_id": provider_task_id,
-            "status": "running",
-            "submission_resolution": {
-                "decision": "provider_task_found",
+        now = time.time()
+        if provider_task_id:
+            provider_task_id = provider_task_id.strip()
+            if not provider_task_id:
+                raise generation.GenerationError(
+                    "INVALID_PROVIDER_TASK_ID", "供应商任务 ID 不能为空",
+                )
+            duplicate = next((
+                other_id for other_id, other in jobs.items()
+                if other_id != job_id and other.get("provider_task_id") == provider_task_id
+            ), None)
+            if duplicate:
+                raise generation.GenerationError(
+                    "PROVIDER_TASK_ALREADY_LINKED",
+                    f"供应商任务 ID 已关联到本项目任务 {duplicate}，拒绝重复绑定",
+                )
+            fields = {
                 "provider_task_id": provider_task_id,
-                "resolved_at": now,
-                "source": "operator_cli",
-            },
-        }
-    else:
-        fields = {
-            "status": "submission_rejected",
-            "submission_resolution": {
-                "decision": "provider_task_not_found_confirmed",
-                "resolved_at": now,
-                "source": "operator_cli",
-            },
-        }
-    return generation._update_job(project_id, job_id, fields)
+                "status": "running",
+                "submission_resolution": {
+                    "decision": "provider_task_found",
+                    "provider_task_id": provider_task_id,
+                    "resolved_at": now,
+                    "source": "operator_cli",
+                },
+            }
+        else:
+            fields = {
+                "status": "submission_rejected",
+                "submission_resolution": {
+                    "decision": "provider_task_not_found_confirmed",
+                    "resolved_at": now,
+                    "source": "operator_cli",
+                },
+            }
+        job.update(fields)
+        job["job_id"] = job_id
+        job["updated_at"] = now
+        jobs[job_id] = job
+        generation._save_jobs(project_id, jobs)
+    return job
