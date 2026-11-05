@@ -482,23 +482,37 @@ def list_assets(kind: Optional[str] = None, source: Optional[str] = None,
 
 
 def asset_usage(asset_id: str) -> List[str]:
-    """扫描项目 manifest，返回实际引用该 Asset 的项目 ID。"""
+    """扫描项目 manifest；任何引用状态不明时都拒绝给出「未使用」结论。"""
     used = []
     root = config.composer_storage_root()
     if not root.is_dir():
         return used
-    for d in root.iterdir():
-        if not d.is_dir():
+    from video_director import project_manifest
+
+    try:
+        projects = list(root.iterdir())
+    except OSError as exc:
+        raise AssetLibraryError(
+            "ASSET_USAGE_UNKNOWN", f"无法枚举项目素材清单：{exc}"
+        ) from exc
+    for project_dir_path in projects:
+        if not project_dir_path.is_dir():
             continue
-        manifest = d / "assets" / "manifest.json"
-        if not manifest.is_file():
+        manifest = project_dir_path / "assets" / "manifest.json"
+        if not manifest.exists() and not manifest.is_symlink():
             continue
         try:
-            rows = json.loads(manifest.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        if any(isinstance(a, dict) and a.get("id") == asset_id for a in rows):
-            used.append(d.name)
+            # The project-level lock prevents a concurrent manifest update from
+            # being observed halfway through. Corrupt/unreadable/unsafe manifests
+            # are not equivalent to an empty reference list.
+            rows = project_manifest.read_project_manifest(project_dir_path.name)
+        except Exception as exc:
+            raise AssetLibraryError(
+                "ASSET_USAGE_UNKNOWN",
+                f"项目 {project_dir_path.name} 的素材引用无法核验：{exc}",
+            ) from exc
+        if any(item.get("id") == asset_id for item in rows):
+            used.append(project_dir_path.name)
     return used
 
 
@@ -509,7 +523,13 @@ def delete_asset(asset_id: str, *, require_unused: bool = True) -> dict:
         entry = catalog.get(asset_id)
         if entry is None:
             return {"ok": False, "code": "NOT_FOUND", "error": f"素材不存在：{asset_id}"}
-        used_in = asset_usage(asset_id) if require_unused else []
+        try:
+            used_in = asset_usage(asset_id) if require_unused else []
+        except AssetLibraryError as exc:
+            return {
+                "ok": False, "code": "ASSET_USAGE_UNKNOWN",
+                "error": f"无法确认素材是否仍被项目引用，已拒绝删除：{exc}",
+            }
         if used_in:
             return {"ok": False, "code": "ASSET_IN_USE", "error": f"素材正在被项目引用：{', '.join(used_in)}", "used_in": used_in}
         catalog.pop(asset_id, None)
@@ -536,11 +556,17 @@ def delete_assets(asset_ids: List[str]) -> dict:
         catalog = _load_catalog()
         missing = [x for x in ids if x not in catalog]
         usage = {}
-        for aid in ids:
-            if aid in catalog:
-                refs = asset_usage(aid)
-                if refs:
-                    usage[aid] = refs
+        try:
+            for aid in ids:
+                if aid in catalog:
+                    refs = asset_usage(aid)
+                    if refs:
+                        usage[aid] = refs
+        except AssetLibraryError as exc:
+            return {
+                "ok": False, "code": "ASSET_USAGE_UNKNOWN",
+                "error": f"无法确认素材是否仍被项目引用，整批删除已拒绝：{exc}",
+            }
         if missing:
             return {"ok": False, "code": "NOT_FOUND", "error": "存在不存在的素材：" + ",".join(missing)}
         if usage:
