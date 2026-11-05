@@ -254,10 +254,13 @@ class TestConcurrentVideoSubmission:
         post_entered = threading.Event()
         release_post = threading.Event()
         post_lock = threading.Lock()
+        get_lock = threading.Lock()
 
         class BlockingClient:
             def __init__(self):
                 self.post_calls = 0
+                self.get_calls = 0
+                self.both_gets_started = threading.Event()
 
             def post(self, path, json=None):
                 with post_lock:
@@ -268,6 +271,15 @@ class TestConcurrentVideoSubmission:
                 return _FakeResp({"id": "shared-provider-task", "status": "queued"})
 
             def get(self, path):
+                with get_lock:
+                    self.get_calls += 1
+                    if self.get_calls == 2:
+                        self.both_gets_started.set()
+                # Hold the first poll until the competing caller has passed the
+                # lookup/submit gate. This prevents a fast fake provider completion
+                # from turning a concurrent test into a sequential retry.
+                if not self.both_gets_started.wait(timeout=10):
+                    raise TimeoutError("second caller did not reuse the persisted task")
                 return _FakeResp({
                     "id": "shared-provider-task",
                     "status": "completed",
@@ -303,6 +315,9 @@ class TestConcurrentVideoSubmission:
                 worker.start()
             assert post_entered.wait(timeout=5), "first provider submission did not start"
             release_post.set()
+            assert client.both_gets_started.wait(timeout=5), (
+                "second caller did not reach the shared task poll"
+            )
             for worker in workers:
                 worker.join(timeout=10)
             assert all(not worker.is_alive() for worker in workers), "submission workers deadlocked"
