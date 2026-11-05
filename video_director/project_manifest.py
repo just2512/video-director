@@ -145,4 +145,6 @@ def merge_project_manifest_entries(
             added.append(asset_id)
         return list(added)
 
-    return mutate_project_manifest(\n        project_id, apply, _catalog_lock_held=_catalog_lock_held\n    )  # type: ignore[return-value]
+    return mutate_project_manifest(
+        project_id, apply, _catalog_lock_held=_catalog_lock_held
+    )  # type: ignore[return-value]
