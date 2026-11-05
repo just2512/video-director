@@ -208,6 +208,39 @@ def _video_client(cfg: dict):
         raise GenerationError("VIDEO_PROVIDER_UNAVAILABLE", f"openai 库不可用: {exc}") from exc
 
 
+def _video_output_lock(project_id: str, job_id: str):
+    """Serialize finalization of one provider task across poll/recovery workers."""
+    from filelock import FileLock
+    lock_path = _jobs_path(project_id).with_name(f".generation-output-{job_id}.lock")
+    return FileLock(str(lock_path), timeout=120)
+
+
+def _persist_video_output(project_id: str, job_id: str, out_file: str, url: str) -> Path:
+    """Atomically materialize an MP4 before making its job terminal (done)."""
+    target = Path(out_file)
+    with _video_output_lock(project_id, job_id):
+        current = _load_jobs(project_id).get(job_id, {})
+        if current.get("status") == "done" and target.is_file() and target.stat().st_size > 0:
+            return target
+        _update_job(project_id, job_id, {"status": "downloading", "output_file": str(target)})
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(target.name + ".part")
+        try:
+            payload = _download_bytes(url)
+            if not payload:
+                raise GenerationError("VIDEO_OUTPUT_EMPTY", "供应商返回的视频文件为空")
+            temporary.write_bytes(payload)
+            temporary.replace(target)
+            _update_job(project_id, job_id, {"status": "done", "output_file": str(target)})
+        except Exception:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
+    return target
+
+
 def recover_pending_video_jobs(project_id: str) -> List[dict]:
     """进程中断后的视频任务恢复（审计差距 2）。
 
@@ -218,8 +251,8 @@ def recover_pending_video_jobs(project_id: str) -> List[dict]:
     """
     jobs = _load_jobs(project_id)
     pending = [j for j in jobs.values()
-               if j.get("status") == "running" and j.get("provider_task_id")
-               and j.get("gen_type") == "video"]
+               if j.get("status") in ("running", "downloading")
+               and j.get("provider_task_id") and j.get("gen_type") == "video"]
     if not pending:
         return []
     try:
@@ -244,15 +277,16 @@ def recover_pending_video_jobs(project_id: str) -> List[dict]:
             _update_job(project_id, job_id, {"status": "running"})
             continue
         out_file = job.get("output_file") or ""
-        if out_file and url:
-            try:
-                Path(out_file).write_bytes(_download_bytes(url))
-            except Exception as exc:
-                logger.warning(
-                    f"generation: 任务 {job_id} 产物下载失败（保持 running 下次重试）: {exc}")
-                continue
-        _update_job(project_id, job_id, {"status": "done", "output_file": out_file})
-        recovered.append({**job, "status": "done"})
+        try:
+            if out_file and url:
+                _persist_video_output(project_id, job_id, out_file, url)
+            else:
+                _update_job(project_id, job_id, {"status": "done", "output_file": out_file})
+        except Exception as exc:
+            logger.warning(
+                f"generation: 任务 {job_id} 产物下载/落盘失败（保持 downloading，下次恢复）: {exc}")
+            continue
+        recovered.append({**job, "status": "done", "output_file": out_file})
     return recovered
 
 
@@ -724,7 +758,16 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
                 # 不发明切换逻辑（越界）
                 logger.warning(f"生视频配额耗尽，请充值或配置备用供应商: {err}")
             raise err from exc
-        out_file.write_bytes(_download_bytes(url))
+        job = next((item for item in _load_jobs(project_id).values()
+                    if item.get("input_fingerprint") == input_fp
+                    and item.get("variant") == v
+                    and item.get("provider_task_id")), None)
+        if job is None:
+            raise GenerationError(
+                "VIDEO_JOB_MISSING",
+                "供应商任务已返回视频地址，但未找到持久化任务记录；禁止静默登记成品",
+            )
+        _persist_video_output(project_id, job["job_id"], str(out_file), url)
         _register_result(manifest, results, asset_id, "video", out_file, width, height,
                          5.0, model, "video-llm", prompt, input_fp, v)
     return results
@@ -832,7 +875,7 @@ def _create_poll_and_persist_video(
                 raise GenerationError(
                     "VIDEO_GENERATION_FAILED", "生视频任务完成但无 url")
             _update_job(project_id, job_id,
-                        {"status": "done", "output_file": out_file})
+                        {"status": "downloading", "output_file": out_file})
             return url
         if status == "failed":
             _update_job(project_id, job_id, {"status": "failed"})
@@ -840,9 +883,11 @@ def _create_poll_and_persist_video(
                                   f"生视频任务失败：{str(_raw)[:200]}")
         _update_job(project_id, job_id, {"status": "running"})
         _time.sleep(5.0)
-    _update_job(project_id, job_id, {"status": "failed"})
-    raise GenerationError("VIDEO_GENERATION_FAILED",
-                          f"生视频任务超时（>{int(timeout)}s）")
+    # Provider task remains live/ambiguous after our local wait expires.
+    # Keep it recoverable; a timeout is not proof that generation failed.
+    _update_job(project_id, job_id, {"status": "running"})
+    raise GenerationError("VIDEO_GENERATION_TIMEOUT",
+                          f"生视频任务仍在供应商侧运行（本地等待超过 {int(timeout)}s）；可由恢复器继续轮询")
 
 
 def _query_video_status(client, task_id: str) -> tuple:
