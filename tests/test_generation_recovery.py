@@ -183,6 +183,7 @@ class TestRecoverPendingVideoJobs:
         pid = "proj-poll-downloading"
         config.init_project_dirs(config.project_dir(pid))
         fake = FakeVideoClient(statuses=["completed"])
+        monkeypatch.setattr(gen, "_download_bytes", lambda url: b"fake-mp4")
         url = gen._create_poll_and_persist_video(
             fake, pid, "fake-model", "prompt", 320, 180,
             "e" * 16, "A", str(config.project_dir(pid) / "result.mp4"), timeout=1,
