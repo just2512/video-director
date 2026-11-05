@@ -756,8 +756,14 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
             and item.get("type") == "video"
             and item.get("source") == "generated"
         ), None)
-        if existing and Path(existing.get("file") or "").is_file():
-            existing_path = Path(existing["file"])
+        if existing:
+            existing_path = Path(existing.get("file") or "")
+            if not existing_path.is_file() or existing_path.stat().st_size <= 0:
+                raise GenerationError(
+                    "VIDEO_MANIFEST_OUTPUT_MISSING",
+                    "Manifest 已登记该视频，但本地文件缺失或为空；为避免重复付费，"
+                    "系统不会自动创建新供应商任务。请先核对原任务记录与文件恢复情况。",
+                )
             results.append(GenerationResult(
                 asset_id=existing["id"], variant=v, type="video",
                 file=str(existing_path), width=int(existing.get("width") or width),
