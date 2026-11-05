@@ -26,7 +26,6 @@ import json
 import os
 import subprocess
 import tempfile
-import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -519,26 +518,44 @@ def delete_assets(asset_ids: List[str]) -> dict:
     ids = list(dict.fromkeys(str(x).strip() for x in (asset_ids or []) if str(x).strip()))
     if not ids:
         return {"ok": False, "code": "EMPTY_SELECTION", "error": "未选择素材"}
-    catalog = _load_catalog()
-    missing = [x for x in ids if x not in catalog]
-    usage = {}
-    for aid in ids:
-        if aid in catalog:
-            refs = asset_usage(aid)
-            if refs:
-                usage[aid] = refs
-    if missing:
-        return {"ok": False, "code": "NOT_FOUND", "error": "存在不存在的素材：" + ",".join(missing)}
-    if usage:
-        detail = "；".join(f"{aid} → {','.join(refs)}" for aid, refs in usage.items())
-        return {"ok": False, "code": "ASSET_IN_USE", "error": "所选素材仍被项目引用：" + detail}
-    deleted = []
-    for aid in ids:
-        result = delete_asset(aid, require_unused=False)
-        if not result.get("ok"):
-            return {"ok": False, "code": result.get("code") or "DELETE_FAILED", "error": result.get("error") or "删除失败", "deleted": deleted}
-        deleted.append(aid)
-    return {"ok": True, "deleted": deleted}
+    with _catalog_lock():
+        catalog = _load_catalog()
+        missing = [x for x in ids if x not in catalog]
+        usage = {}
+        for aid in ids:
+            if aid in catalog:
+                refs = asset_usage(aid)
+                if refs:
+                    usage[aid] = refs
+        if missing:
+            return {"ok": False, "code": "NOT_FOUND", "error": "存在不存在的素材：" + ",".join(missing)}
+        if usage:
+            detail = "；".join(f"{aid} → {','.join(refs)}" for aid, refs in usage.items())
+            return {"ok": False, "code": "ASSET_IN_USE", "error": "所选素材仍被项目引用：" + detail}
+
+        # Commit the catalog removal atomically before unlinking payloads. If a
+        # file unlink fails, the remaining file is an orphan (recoverable), not
+        # a catalog row pointing at a missing asset.
+        entries = [catalog[aid] for aid in ids]
+        for aid in ids:
+            catalog.pop(aid, None)
+        _save_catalog(catalog)
+
+        deleted = []
+        for aid, entry in zip(ids, entries):
+            try:
+                file_path = entry.get("file") or ""
+                if file_path and Path(file_path).is_file():
+                    Path(file_path).unlink()
+                (library_root() / "thumbnails" / f"{aid}.jpg").unlink(missing_ok=True)
+            except OSError as exc:
+                return {
+                    "ok": False, "code": "DELETE_FAILED",
+                    "error": f"素材台账已移除，但文件清理失败：{exc}",
+                    "deleted": deleted, "orphaned": ids[len(deleted):],
+                }
+            deleted.append(aid)
+        return {"ok": True, "deleted": deleted}
 
 
 def project_reference(project_id: str, asset_id: str) -> bool:
@@ -547,19 +564,20 @@ def project_reference(project_id: str, asset_id: str) -> bool:
     （复用项目现有 assets/manifest.json 结构——Layer.asset_id 照旧指向；
     Library 是可复用的源，项目 manifest 是本项目用了哪些。）
     """
-    entry = get_asset(asset_id)
-    if entry is None:
-        raise AssetLibraryError("NOT_FOUND", f"Library 里没有 {asset_id}")
-    ref = {
-        "id": asset_id, "type": entry["type"], "file": entry["file"],
-        "duration": entry.get("duration"), "width": entry.get("width"),
-        "height": entry.get("height"), "fps": entry.get("fps"),
-        "source": entry.get("source"), "license_note": entry.get("license_note", ""),
-        "description": entry.get("description", ""),
-        "content_hash": entry.get("content_hash", ""),
-    }
-    from video_director import project_manifest
-    return bool(project_manifest.merge_project_manifest_entries(project_id, [ref]))
+    with _catalog_lock():
+        entry = _load_catalog().get(asset_id)
+        if entry is None:
+            raise AssetLibraryError("NOT_FOUND", f"Library 里没有 {asset_id}")
+        ref = {
+            "id": asset_id, "type": entry["type"], "file": entry["file"],
+            "duration": entry.get("duration"), "width": entry.get("width"),
+            "height": entry.get("height"), "fps": entry.get("fps"),
+            "source": entry.get("source"), "license_note": entry.get("license_note", ""),
+            "description": entry.get("description", ""),
+            "content_hash": entry.get("content_hash", ""),
+        }
+        from video_director import project_manifest
+        return bool(project_manifest.merge_project_manifest_entries(project_id, [ref]))
 
 
 # ---------------------------------------------------------------------------
