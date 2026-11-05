@@ -188,6 +188,7 @@ class TestRecoverPendingVideoJobs:
         gen._update_job(pid, "genjob-after-replace", {
             "provider_task_id": "ext-task-z", "gen_type": "video",
             "status": "downloading", "output_file": str(out_file),
+            "output_commit_protocol": "atomic-v1",
         })
         monkeypatch.setattr(
             gen, "_download_bytes",
