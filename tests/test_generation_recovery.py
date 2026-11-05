@@ -863,3 +863,53 @@ class TestReferenceAutoAnalysis:
         except RuntimeError as exc:
             # execute() 里同样的 try/except Exception 会吸收该异常
             assert "意外炸点" in str(exc)
+
+class TestGenerationJobLedgerIntegrity:
+    """损坏的任务账本不能被误判为空，否则会重复创建收费的外部任务。"""
+
+    def test_corrupt_ledger_blocks_video_submission_without_overwriting_evidence(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import config, generation as gen
+
+        project_id = "proj-corrupt-generation-ledger"
+        config.init_project_dirs(config.project_dir(project_id))
+        ledger = gen._jobs_path(project_id)
+        original = b'{"possibly_charged_task":'
+        ledger.write_bytes(original)
+
+        fake = FakeVideoClient(statuses=["queued"])
+        monkeypatch.setattr(gen, "_video_client", lambda cfg: fake)
+
+        with pytest.raises(gen.GenerationError) as caught:
+            gen.generate(project_id, "same paid request", "video", variant="A")
+
+        assert caught.value.code == "VIDEO_JOB_STORE_CORRUPT"
+        assert fake.post_calls == 0
+        assert ledger.read_bytes() == original
+
+    def test_symlinked_ledger_is_rejected_without_following_target(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+
+        project_id = "proj-symlink-generation-ledger"
+        config.init_project_dirs(config.project_dir(project_id))
+        ledger = gen._jobs_path(project_id)
+        outside = tmp_path / "outside-generation-jobs.json"
+        original = b'{"keep": "external"}'
+        outside.write_bytes(original)
+        try:
+            ledger.symlink_to(outside)
+        except (OSError, NotImplementedError):
+            pytest.skip("当前运行环境不支持创建符号链接")
+
+        with pytest.raises(gen.GenerationError) as caught:
+            gen._load_jobs(project_id)
+
+        assert caught.value.code == "VIDEO_JOB_STORE_UNSAFE"
+        assert outside.read_bytes() == original
+\n
