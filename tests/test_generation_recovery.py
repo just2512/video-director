@@ -374,6 +374,40 @@ class TestFingerprintReuse:
         assert job["manifest_registered"] is True
         assert job["recovery_needs_registration"] is False
 
+    def test_registered_video_with_missing_file_fails_closed_without_resubmit(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+        import hashlib
+
+        pid = "proj-missing-registered-video"
+        config.init_project_dirs(config.project_dir(pid))
+        prompt = "missing registered output"
+        input_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
+        missing = config.project_dir(pid) / "assets" / "generated" / "missing.mp4"
+        gen._save_manifest(pid, [{
+            "id": "gen-missing", "type": "video", "file": str(missing),
+            "source": "generated", "variant": "A",
+            "input_fingerprint": input_fp, "output_fingerprint": "0" * 64,
+            "width": 320, "height": 180, "provider_id": "video-llm",
+        }])
+        gen._update_job(pid, "genjob-missing", {
+            "provider_task_id": "provider-task-existing",
+            "gen_type": "video", "input_fingerprint": input_fp,
+            "variant": "A", "status": "done", "output_file": str(missing),
+            "manifest_registered": True,
+        })
+        monkeypatch.setattr(
+            gen, "_video_client",
+            lambda cfg: (_ for _ in ()).throw(
+                AssertionError("must not create or query another provider task")
+            ),
+        )
+        with pytest.raises(gen.GenerationError) as exc:
+            gen.generate(pid, prompt, "video", variant="A")
+        assert exc.value.code == "VIDEO_MANIFEST_OUTPUT_MISSING"
+
 class TestConcurrentVideoSubmission:
     """Competing callers must not submit duplicate paid provider tasks."""
 
