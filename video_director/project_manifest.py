@@ -1,6 +1,7 @@
 """Serialized, atomic updates to a project's shared assets/manifest.json."""
 from __future__ import annotations
 
+from contextlib import nullcontext
 import json
 import os
 import tempfile
@@ -76,16 +77,30 @@ def _write_atomic(path: Path, entries: list[dict]) -> None:
 def mutate_project_manifest(
     project_id: str,
     mutate: Callable[[list[dict]], object],
+    *,
+    _catalog_lock_held: bool = False,
 ) -> object:
-    """Run a read/modify/write transaction under the cross-process project lock."""
-    with project_lock(project_id):
-        entries = _read_unlocked(project_id)
-        before = json.dumps(entries, ensure_ascii=False, sort_keys=True)
-        result = mutate(entries)
-        after = json.dumps(entries, ensure_ascii=False, sort_keys=True)
-        if after != before:
-            _write_atomic(manifest_path(project_id), entries)
-        return result
+    """Run a read/modify/write transaction under catalog + project locks.
+
+    The catalog lock coordinates manifest references with global Asset Library
+    deletion. The project lock then serializes writers to this one manifest.
+    Callers already holding the catalog transaction may set the private flag to
+    avoid re-acquiring the process-level file lock.
+    """
+    if _catalog_lock_held:
+        catalog_lock = nullcontext()
+    else:
+        from video_director.asset_catalog import _catalog_lock
+        catalog_lock = _catalog_lock()
+    with catalog_lock:
+        with project_lock(project_id):
+            entries = _read_unlocked(project_id)
+            before = json.dumps(entries, ensure_ascii=False, sort_keys=True)
+            result = mutate(entries)
+            after = json.dumps(entries, ensure_ascii=False, sort_keys=True)
+            if after != before:
+                _write_atomic(manifest_path(project_id), entries)
+            return result
 
 
 def merge_project_manifest_entries(
@@ -94,6 +109,7 @@ def merge_project_manifest_entries(
     *,
     replace_ids: Iterable[str] = (),
     reject_conflicting_ids: bool = False,
+    _catalog_lock_held: bool = False,
 ) -> list[str]:
     """Merge rows without dropping concurrent additions; replacement is explicit."""
     rows = [dict(item) for item in additions]
@@ -129,4 +145,4 @@ def merge_project_manifest_entries(
             added.append(asset_id)
         return list(added)
 
-    return mutate_project_manifest(project_id, apply)  # type: ignore[return-value]
+    return mutate_project_manifest(\n        project_id, apply, _catalog_lock_held=_catalog_lock_held\n    )  # type: ignore[return-value]
