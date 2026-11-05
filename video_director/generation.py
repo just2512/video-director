@@ -174,9 +174,13 @@ def _prompt_fingerprint(prompt: str, gen_type: str) -> str:
 def _find_reusable_job(project_id: str, input_fp: str, variant: str) -> Optional[dict]:
     """同 fingerprint+variant 且仍在跑的外部任务 → 复用轮询，不重复提交付费。"""
     for job in _load_jobs(project_id).values():
+        reusable_status = job.get("status") in ("pending", "running", "downloading")
+        recovered_output = (
+            job.get("status") == "done" and job.get("recovery_needs_registration") is True
+        )
         if (job.get("input_fingerprint") == input_fp
                 and job.get("variant") == variant
-                and job.get("status") in ("pending", "running")
+                and (reusable_status or recovered_output)
                 and job.get("provider_task_id")):
             return job
     return None
@@ -223,7 +227,10 @@ def _persist_video_output(project_id: str, job_id: str, out_file: str, url: str)
         if (current.get("output_commit_protocol") == "atomic-v1"
                 and target.is_file() and target.stat().st_size > 0):
             # Covers a crash after atomic replace but before the terminal status write.
-            _update_job(project_id, job_id, {"status": "done", "output_file": str(target)})
+            _update_job(project_id, job_id, {
+                "status": "done", "output_file": str(target),
+                "recovery_needs_registration": True,
+            })
             return target
         _update_job(project_id, job_id, {
             "status": "downloading",
@@ -238,7 +245,10 @@ def _persist_video_output(project_id: str, job_id: str, out_file: str, url: str)
                 raise GenerationError("VIDEO_OUTPUT_EMPTY", "供应商返回的视频文件为空")
             temporary.write_bytes(payload)
             temporary.replace(target)
-            _update_job(project_id, job_id, {"status": "done", "output_file": str(target)})
+            _update_job(project_id, job_id, {
+                "status": "done", "output_file": str(target),
+                "recovery_needs_registration": True,
+            })
         except Exception:
             try:
                 temporary.unlink(missing_ok=True)
@@ -777,6 +787,10 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
         _persist_video_output(project_id, job["job_id"], str(out_file), url)
         _register_result(manifest, results, asset_id, "video", out_file, width, height,
                          5.0, model, "video-llm", prompt, input_fp, v)
+        _update_job(project_id, job["job_id"], {
+            "manifest_registered": True,
+            "recovery_needs_registration": False,
+        })
     return results
 
 
