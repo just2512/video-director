@@ -108,14 +108,48 @@ def _jobs_path(project_id: str) -> Path:
 
 
 def _load_jobs(project_id: str) -> dict:
+    """Load durable provider jobs without treating corruption as an empty store.
+
+    An unreadable ledger can contain a provider task that was already charged.
+    Returning {} here would permit a duplicate paid submission, so only a truly
+    absent file represents an empty project ledger.
+    """
     p = _jobs_path(project_id)
+    if p.is_symlink():
+        raise GenerationError(
+            "VIDEO_JOB_STORE_UNSAFE",
+            f"视频任务台账是符号链接，已拒绝读取：{p}",
+        )
+    if not p.exists():
+        return {}
     if not p.is_file():
-        return {}
+        raise GenerationError(
+            "VIDEO_JOB_STORE_UNSAFE",
+            f"视频任务台账不是普通文件，已拒绝读取：{p}",
+        )
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
+        raw = p.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise GenerationError(
+            "VIDEO_JOB_STORE_UNREADABLE",
+            f"视频任务台账无法读取；为避免重复提交，已停止生成：{exc}",
+        ) from exc
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise GenerationError(
+            "VIDEO_JOB_STORE_CORRUPT",
+            f"视频任务台账 JSON 损坏；为避免重复提交，已停止生成：{exc}",
+        ) from exc
+    if not isinstance(data, dict) or any(
+        not isinstance(job_id, str) or not isinstance(job, dict)
+        for job_id, job in data.items()
+    ):
+        raise GenerationError(
+            "VIDEO_JOB_STORE_INVALID",
+            "视频任务台账结构无效；为避免重复提交，已停止生成",
+        )
+    return data
 
 
 def _save_jobs(project_id: str, jobs: dict) -> None:
