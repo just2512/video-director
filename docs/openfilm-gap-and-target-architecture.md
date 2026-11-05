@@ -334,3 +334,16 @@
 - `generation-jobs list/resolve` CLI 已提供人工核对入口：确认 task 存在时绑定真实 provider task ID 并恢复轮询；确认不存在时显式记录 `submission_rejected`。CLI 不查询供应商、不自动重提；操作人必须先核对供应商任务和账单。CLI 对 project ID 复用 FilmDocument 的路径安全校验；resolve 的状态检查、供应商 task ID 去重与写回在同一 jobs 文件锁内完成，避免并发解除同一 reservation。操作说明见 `docs/FILM_AGENT_MANUAL.md`。
 - 视频恢复再补齐一个持久化边界：Manifest merge 必须先持久化，之后才写 `manifest_registered=true`；若进程在 Manifest 已保存但 job 标记尚未写入时中断，下一次请求按 `input_fingerprint+variant` 复用已有且文件存在的 Manifest 行，不再次查询供应商或创建重复素材。只有 Manifest 行缺失时才进入供应商恢复/新生成路径。若 Manifest 已登记但文件缺失/为空，系统以 `VIDEO_MANIFEST_OUTPUT_MISSING` fail closed，不会自动再次创建付费任务；若 Manifest 行后来丢失但 job 仍记录 `manifest_registered=true`，完成态 provider job 仍会被复用，不直接重新 POST。
 - 新增回归覆盖 `submission_unknown` 两种人工处理、拒绝重复 task ID、拒绝不安全 project ID、downloading 中断恢复、原子文件替换后补齐终态、恢复完成后不重复提交、Manifest 持久化后无需供应商凭据即可恢复注册标记、已登记文件缺失时阻止自动付费重提。上述变更已提交 main；CI 尚未验证。
+## Asset Library 持久化与并发一致性（2026-11-05）
+
+`storage/assets/catalog.json` 是全局 Asset Library 台账，不能按普通项目 Manifest 的方式无锁覆盖。当前实现约束：
+
+- Catalog 的 read/modify/write 事务由全局 `.catalog.lock` 串行化；同一进程内先经线程锁，再获取跨进程文件锁，避免线程与多进程并发丢更新。
+- `catalog.json` 写入同目录唯一临时文件，flush + fsync 后用 `os.replace` 原子替换。替换失败时保留旧台账并清理临时文件。
+- 素材导入在耗时 probe 后仍须进入锁内重新按内容 hash 查重；锁外的查重只能作为快速返回，不能作为并发正确性保证。
+- 语义字段更新必须在同一锁内重新读取最新 Catalog，再修改指定条目并原子保存，防止两个素材的并发编辑互相覆盖。
+- 项目引用写入与 Library 删除共用 Catalog 锁：引用先确认素材仍存在并写入项目 Manifest；删除在锁内重新扫描引用。被引用素材返回 `ASSET_IN_USE`，不删除。
+- 批量删除先完成全量存在性/引用预检，再一次性原子移除 Catalog 条目，随后清理文件。文件清理失败会明确返回 orphan 信息；不能留下 Catalog 指向已删除文件的记录。
+- 单项删除同样先提交 Catalog 移除，再清理媒体文件。Catalog 写入失败时原素材文件保持不动；媒体清理失败时返回 `DELETE_FAILED`，此时可能留下可人工清理的孤立文件。
+
+验收覆盖：同内容并发导入只产生一个 Asset；并发语义更新不丢其他条目；Catalog 原子替换失败保留旧 JSON；被项目引用的素材单项/批量删除均拒绝且不影响同批其他条目。跨平台锁的 Windows 原生行为仍须在 Windows runner 验证。
