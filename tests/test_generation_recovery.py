@@ -341,7 +341,6 @@ class TestFingerprintReuse:
         self, tmp_path, monkeypatch
     ):
         _isolate(tmp_path, monkeypatch)
-        _video_cfg(monkeypatch)
         from video_director import config, generation as gen
         import hashlib
 
@@ -366,11 +365,11 @@ class TestFingerprintReuse:
             "recovery_needs_registration": True,
             "manifest_registered": False,
         })
-        fake = FakeVideoClient(statuses=[])
-        monkeypatch.setattr(gen, "_video_client", lambda cfg: fake)
+        def forbidden_provider_client(cfg):
+            raise AssertionError("durable manifest replay must not require provider access")
+        monkeypatch.setattr(gen, "_video_client", forbidden_provider_client)
         results = gen.generate(pid, prompt, "video", variant="A")
         assert len(results) == 1 and results[0].asset_id == "gen-existing"
-        assert fake.post_calls == 0 and fake.get_calls == 0
         job = gen._load_jobs(pid)["genjob-manifest-existing"]
         assert job["manifest_registered"] is True
         assert job["recovery_needs_registration"] is False
