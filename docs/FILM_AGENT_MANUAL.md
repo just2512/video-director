@@ -272,3 +272,30 @@ Remove-Item Env:VD_LLM_LIVE_STREAM_TEST -ErrorAction SilentlyContinue
 - **MISSING:** opt-in flag was not set; no live-model claim may be made.
 
 A local PASS applies only to this provider/model/configuration and fixture. It does not replace browser regressions or render/export tests. Repeat after changing provider, model, proxy, streaming implementation, or proposal schema.
+
+
+## Reconcile an ambiguous video submission
+
+A video POST can time out after the provider has accepted and charged for the task. Such a record is stored as `submission_unknown`; the application deliberately refuses to submit the same fingerprint again. The CLI reconciliation commands do not contact the provider and do not create tasks.
+
+List the project's task records:
+
+```powershell
+python -m video_director generation-jobs list --project-id PROJECT_ID
+```
+
+After checking the provider dashboard and billing records, resolve exactly one task:
+
+- If the provider confirms the task exists, attach its real task ID. The task returns to `running` and the next explicit video-generation request can resume polling without a second POST.
+
+```powershell
+python -m video_director generation-jobs resolve --project-id PROJECT_ID --job-id genjob-XXXXXXXXXXXX --provider-task-id PROVIDER_TASK_ID
+```
+
+- Only if the provider dashboard confirms that no task was created, explicitly release the reservation:
+
+```powershell
+python -m video_director generation-jobs resolve --project-id PROJECT_ID --job-id genjob-XXXXXXXXXXXX --confirm-no-provider-task
+```
+
+The second command records `submission_rejected`; it does not submit anything. A later, separately initiated generation request may create a new task. Never use this option merely because a task is not immediately visible: first account for provider-side indexing delay and billing records. The resolution decision and timestamp are retained in `generation_jobs.json`.
