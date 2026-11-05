@@ -295,15 +295,15 @@ class TestFingerprintReuse:
         job_id = next(iter(jobs))
         gen._update_job(pid, job_id, {"status": "running"})
 
-        # 模拟重启：新 client。入口 recover 先查一次（running → 保持 running），
-        # 随后同 prompt+variant → 命中 running 任务 → 不再 POST，直接接管轮询
-        # 到 completed（防重复付费）。
+        # 模拟重启：新 client。入口 recover 先查询一次；由于此前成品和
+        # Manifest 已持久化，后续 _generate_video 应直接复用 Manifest 行，
+        # 不再依赖供应商查询，也不重复 POST。
         fake2 = FakeVideoClient(statuses=["running", "completed"])
         monkeypatch.setattr(gen, "_video_client", lambda cfg: fake2)
         monkeypatch.setattr(gen, "_download_bytes", lambda url: b"x2")
         gen.generate(pid, "同一段提示词", "video", variant="A", model="m1")
         assert fake2.post_calls == 0, "复用任务不得二次提交（防重复付费）"
-        assert fake2.get_calls >= 2  # recover 一次 + 复用轮询一次
+        assert fake2.get_calls == 1  # 仅入口恢复器查询；Manifest 命中后不再轮询
 
 
     def test_done_registered_job_remains_reusable_if_manifest_row_is_lost(
