@@ -21,6 +21,12 @@ def manifest_path(project_id: str) -> Path:
 
 def _read_unlocked(project_id: str) -> list[dict]:
     path = manifest_path(project_id)
+    # A symlink or non-regular manifest is not a trustworthy reference record.
+    # Callers that use the manifest for destructive decisions must fail closed.
+    if path.is_symlink():
+        raise ProjectManifestError("项目素材清单是符号链接，已拒绝读取")
+    if path.exists() and not path.is_file():
+        raise ProjectManifestError("项目素材清单不是普通文件，已拒绝读取")
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
