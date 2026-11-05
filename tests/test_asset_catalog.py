@@ -81,6 +81,7 @@ class TestAssetLibrary:
         self, _iso, fixtures
     ):
         """并发导入同一内容必须在最终写入事务内再次查重。"""
+        from concurrent.futures import ThreadPoolExecutor
         from video_director import asset_catalog as ac
 
         with ThreadPoolExecutor(max_workers=4) as pool:
@@ -320,7 +321,6 @@ class TestAssetCatalogCrossProcess:
         import os
         import sys
 
-        from concurrent.futures import ThreadPoolExecutor
         from video_director import asset_catalog as ac
 
         storage = tmp_path / "composer"
