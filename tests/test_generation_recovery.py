@@ -151,6 +151,50 @@ class TestRecoverPendingVideoJobs:
         assert jobs["genjob-abc"]["status"] == "done"
         assert jobs["genjob-abc"]["provider_task_id"] == "ext-task-9"
 
+    def test_recover_finishes_downloading_job_after_process_interruption(
+        self, tmp_path, monkeypatch
+    ):
+        """供应商任务已完成但本地 MP4 未落盘时，downloading 必须可恢复。"""
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import config, generation as gen
+        pid = "proj-recover-downloading"
+        config.init_project_dirs(config.project_dir(pid))
+        out_file = config.project_dir(pid) / "assets" / "generated" / "interrupted.mp4"
+        gen._update_job(pid, "genjob-downloading", {
+            "provider": "fake", "provider_task_id": "ext-task-d",
+            "gen_type": "video", "input_fingerprint": "d" * 16,
+            "variant": "A", "status": "downloading", "output_file": str(out_file),
+        })
+        fake = FakeVideoClient(statuses=["completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda cfg: fake)
+        monkeypatch.setattr(gen, "_download_bytes", lambda url: b"recovered-after-download-crash")
+
+        recovered = gen.recover_pending_video_jobs(pid)
+        assert len(recovered) == 1 and recovered[0]["status"] == "done"
+        assert out_file.read_bytes() == b"recovered-after-download-crash"
+        assert gen._load_jobs(pid)["genjob-downloading"]["status"] == "done"
+
+    def test_poll_does_not_mark_done_before_local_output_is_persisted(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+        pid = "proj-poll-downloading"
+        config.init_project_dirs(config.project_dir(pid))
+        fake = FakeVideoClient(statuses=["completed"])
+        url = gen._create_poll_and_persist_video(
+            fake, pid, "fake-model", "prompt", 320, 180,
+            "e" * 16, "A", str(config.project_dir(pid) / "result.mp4"), timeout=1,
+        )
+        assert url == "https://cdn/x.mp4"
+        job = next(iter(gen._load_jobs(pid).values()))
+        assert job["status"] == "downloading"
+        assert not Path(job["output_file"]).exists()
+        gen._persist_video_output(pid, job["job_id"], job["output_file"], url)
+        assert gen._load_jobs(pid)[job["job_id"]]["status"] == "done"
+        assert Path(job["output_file"]).read_bytes() == b"fake-mp4"
+
     def test_recover_marks_external_failure(self, tmp_path, monkeypatch):
         _isolate(tmp_path, monkeypatch)
         _video_cfg(monkeypatch)
