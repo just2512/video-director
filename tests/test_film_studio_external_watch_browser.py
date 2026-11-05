@@ -2816,6 +2816,31 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert located_track(cross_undone, "clip-b") == "video-main"
                 assert located_track(cross_undone, "audio-1") == "audio-bed"
 
+                # Redo must replay the same grouped cross-track transaction and restore
+                # both clip owners together; a second undo returns the fixture to baseline.
+                page.evaluate("window.filmStudioRedo()")
+                page.wait_for_function("""targets => {
+                  const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                  return !!video && !!audio &&
+                    video.closest('.fs-track')?.getAttribute('data-track') === targets.video &&
+                    audio.closest('.fs-track')?.getAttribute('data-track') === targets.audio;
+                }""", arg={"video":cross_track_destination_id,"audio":cross_track_companion_id}, timeout=10000)
+                cross_redone = fd.read_project_film(project_id)
+                assert located_track(cross_redone, "clip-b") == cross_track_destination_id
+                assert located_track(cross_redone, "audio-1") == cross_track_companion_id
+                page.evaluate("window.filmStudioUndo()")
+                page.wait_for_function("""() => {
+                  const video = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                  const audio = document.querySelector('#fs-timeline .fs-clip[data-clip="audio-1"]');
+                  return !!video && !!audio &&
+                    video.closest('.fs-track')?.getAttribute('data-track') === 'video-main' &&
+                    audio.closest('.fs-track')?.getAttribute('data-track') === 'audio-bed';
+                }""", timeout=10000)
+                cross_redone_undone = fd.read_project_film(project_id)
+                assert located_track(cross_redone_undone, "clip-b") == "video-main"
+                assert located_track(cross_redone_undone, "audio-1") == "audio-bed"
+
                 group_before = fd.read_project_film(project_id)
                 group_video_before = next(
                     item for track in group_before["doc"]["tracks"]
