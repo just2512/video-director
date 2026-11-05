@@ -175,6 +175,28 @@ class TestRecoverPendingVideoJobs:
         assert out_file.read_bytes() == b"recovered-after-download-crash"
         assert gen._load_jobs(pid)["genjob-downloading"]["status"] == "done"
 
+    def test_existing_atomic_output_repairs_missing_done_status(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+        pid = "proj-recover-after-replace"
+        config.init_project_dirs(config.project_dir(pid))
+        out_file = config.project_dir(pid) / "assets" / "generated" / "already-written.mp4"
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_bytes(b"complete-atomic-output")
+        gen._update_job(pid, "genjob-after-replace", {
+            "provider_task_id": "ext-task-z", "gen_type": "video",
+            "status": "downloading", "output_file": str(out_file),
+        })
+        monkeypatch.setattr(
+            gen, "_download_bytes",
+            lambda url: (_ for _ in ()).throw(AssertionError("must not redownload")),
+        )
+        gen._persist_video_output(pid, "genjob-after-replace", str(out_file), "unused")
+        assert gen._load_jobs(pid)["genjob-after-replace"]["status"] == "done"
+        assert out_file.read_bytes() == b"complete-atomic-output"
+
     def test_poll_does_not_mark_done_before_local_output_is_persisted(
         self, tmp_path, monkeypatch
     ):
