@@ -242,6 +242,33 @@ class TestAssetLibrary:
                          .read_text(encoding="utf-8"))
         assert any(a["id"] == entry["asset_id"] for a in man)
 
+    def test_referenced_asset_cannot_be_deleted(self, _iso, fixtures):
+        """项目引用建立后，单项删除必须拒绝且 Library 条目保持存在。"""
+        from video_director import asset_catalog as ac
+
+        entry = ac.import_asset(fixtures["clip"])
+        assert ac.project_reference("al-delete-guard", entry["asset_id"]) is True
+        result = ac.delete_asset(entry["asset_id"])
+        assert result["ok"] is False
+        assert result["code"] == "ASSET_IN_USE"
+        assert ac.get_asset(entry["asset_id"]) is not None
+        assert Path(entry["file"]).is_file()
+
+    def test_batch_delete_preflight_is_all_or_nothing(self, _iso, fixtures):
+        """批量删除发现任一被引用素材时，不得移除批次中的其他素材。"""
+        from video_director import asset_catalog as ac
+
+        first = ac.import_asset(fixtures["img"])
+        second = ac.import_asset(fixtures["img2"])
+        ac.project_reference("al-batch-delete-guard", second["asset_id"])
+        result = ac.delete_assets([first["asset_id"], second["asset_id"]])
+        assert result["ok"] is False
+        assert result["code"] == "ASSET_IN_USE"
+        assert ac.get_asset(first["asset_id"]) is not None
+        assert ac.get_asset(second["asset_id"]) is not None
+        assert Path(first["file"]).is_file()
+        assert Path(second["file"]).is_file()
+
     def test_list_filters(self, _iso, fixtures):
         from video_director import asset_catalog as ac
         ac.import_asset(fixtures["clip"], tags=["咖啡"])
