@@ -758,8 +758,22 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
     for v in variants:
         asset_id = f"gen-{uuid.uuid4().hex[:8]}"
         out_file = assets_dir / f"{asset_id}.mp4"
+        # A previous process may have atomically materialized the MP4 and marked
+        # the job done, then crashed before manifest registration. Reuse that
+        # verified atomic output directly; provider task records may expire and
+        # must not be required to retrieve bytes that are already local.
+        reusable = _find_reusable_job(project_id, input_fp, v)
+        recovered_file = None
+        if (reusable
+                and reusable.get("status") == "done"
+                and reusable.get("recovery_needs_registration") is True
+                and reusable.get("output_commit_protocol") == "atomic-v1"):
+            candidate = Path(reusable.get("output_file") or "")
+            if candidate.is_file() and candidate.stat().st_size > 0:
+                recovered_file = candidate
+                out_file = candidate
         try:
-            url = _create_poll_and_persist_video(
+            url = None if recovered_file else _create_poll_and_persist_video(
                 client, project_id, model, prompt, width, height,
                 input_fp, v, str(out_file))
         except GenerationError:
@@ -784,7 +798,13 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
                 "VIDEO_JOB_MISSING",
                 "供应商任务已返回视频地址，但未找到持久化任务记录；禁止静默登记成品",
             )
-        _persist_video_output(project_id, job["job_id"], str(out_file), url)
+        if url:
+            _persist_video_output(project_id, job["job_id"], str(out_file), url)
+        elif not (out_file.is_file() and out_file.stat().st_size > 0):
+            raise GenerationError(
+                "VIDEO_RECOVERED_OUTPUT_MISSING",
+                "恢复任务没有可用的本地 MP4；为避免重复付费，不会自动重新提交",
+            )
         _register_result(manifest, results, asset_id, "video", out_file, width, height,
                          5.0, model, "video-llm", prompt, input_fp, v)
         _update_job(project_id, job["job_id"], {
