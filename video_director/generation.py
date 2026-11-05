@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import stat
 import time
 import uuid
 from dataclasses import dataclass
@@ -115,17 +116,19 @@ def _load_jobs(project_id: str) -> dict:
     absent file represents an empty project ledger.
     """
     p = _jobs_path(project_id)
-    if p.is_symlink():
-        raise GenerationError(
-            "VIDEO_JOB_STORE_UNSAFE",
-            f"视频任务台账是符号链接，已拒绝读取：{p}",
-        )
-    if not p.exists():
+    try:
+        metadata = p.lstat()
+    except FileNotFoundError:
         return {}
-    if not p.is_file():
+    except OSError as exc:
+        raise GenerationError(
+            "VIDEO_JOB_STORE_UNREADABLE",
+            f"视频任务台账状态无法读取；为避免重复提交，已停止生成：{exc}",
+        ) from exc
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
         raise GenerationError(
             "VIDEO_JOB_STORE_UNSAFE",
-            f"视频任务台账不是普通文件，已拒绝读取：{p}",
+            f"视频任务台账不是安全的普通文件，已拒绝读取：{p}",
         )
     try:
         raw = p.read_text(encoding="utf-8")
