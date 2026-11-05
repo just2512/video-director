@@ -572,6 +572,20 @@ def generate(
         and item.get("id") not in manifest_ids_before_generation
     ]
     _save_manifest(project_id, manifest_additions)
+    if gen_type == "video":
+        # Do not declare registration complete until the manifest merge is durable.
+        for result in results:
+            job = next((
+                item for item in _load_jobs(project_id).values()
+                if item.get("input_fingerprint") == result.input_fingerprint
+                and item.get("variant") == result.variant
+                and item.get("provider_task_id")
+            ), None)
+            if job:
+                _update_job(project_id, job["job_id"], {
+                    "manifest_registered": True,
+                    "recovery_needs_registration": False,
+                })
     # §39 生成产物入 Asset Registry（AI 图片/视频 = 普通 Asset：Library 全局可复用，
     # 与本地/Stock 无差别；失败不阻断生成主链——项目 manifest 已有）。
     try:
@@ -756,6 +770,27 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
 
     results: List[GenerationResult] = []
     for v in variants:
+        # Manifest persistence may have succeeded immediately before a process
+        # crash while the job's manifest_registered marker did not. Reuse that
+        # durable row rather than creating a second asset on the next request.
+        existing = next((
+            item for item in manifest
+            if item.get("input_fingerprint") == input_fp
+            and item.get("variant") == v
+            and item.get("type") == "video"
+            and item.get("source") == "generated"
+        ), None)
+        if existing and Path(existing.get("file") or "").is_file():
+            results.append(GenerationResult(
+                asset_id=existing["id"], variant=v, type="video",
+                file=existing["file"], width=int(existing.get("width") or width),
+                height=int(existing.get("height") or height),
+                input_fingerprint=input_fp,
+                output_fingerprint=existing.get("output_fingerprint") or
+                    _fingerprint(Path(existing["file"]).read_bytes()),
+                provider_id=existing.get("provider_id") or "video-llm",
+            ))
+            continue
         asset_id = f"gen-{uuid.uuid4().hex[:8]}"
         out_file = assets_dir / f"{asset_id}.mp4"
         # A previous process may have atomically materialized the MP4 and marked
@@ -807,10 +842,9 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
             )
         _register_result(manifest, results, asset_id, "video", out_file, width, height,
                          5.0, model, "video-llm", prompt, input_fp, v)
-        _update_job(project_id, job["job_id"], {
-            "manifest_registered": True,
-            "recovery_needs_registration": False,
-        })
+        # The outer generate() persists the manifest atomically before marking
+        # this job registered. A crash between those operations is idempotent:
+        # the next call finds the durable row above and repairs the marker.
     return results
 
 
