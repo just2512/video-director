@@ -306,6 +306,35 @@ class TestFingerprintReuse:
         assert fake2.get_calls >= 2  # recover 一次 + 复用轮询一次
 
 
+    def test_generate_reuses_recovered_completed_task_until_manifest_is_written(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import config, generation as gen
+        import hashlib
+
+        pid = "proj-recover-before-manifest"
+        config.init_project_dirs(config.project_dir(pid))
+        prompt = "recover me"
+        input_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
+        prior_output = config.project_dir(pid) / "assets" / "generated" / "prior.mp4"
+        gen._update_job(pid, "genjob-recovered", {
+            "provider": "fake", "provider_task_id": "ext-task-recovered",
+            "gen_type": "video", "input_fingerprint": input_fp,
+            "variant": "A", "status": "running", "output_file": str(prior_output),
+        })
+        fake = FakeVideoClient(statuses=["completed", "completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda cfg: fake)
+        monkeypatch.setattr(gen, "_download_bytes", lambda url: b"recovered-video")
+        results = gen.generate(pid, prompt, "video", variant="A")
+        assert len(results) == 1
+        assert fake.post_calls == 0, "recovered provider task must not be submitted again"
+        job = gen._load_jobs(pid)["genjob-recovered"]
+        assert job["status"] == "done"
+        assert job["manifest_registered"] is True
+        assert job["recovery_needs_registration"] is False
+
 class TestConcurrentVideoSubmission:
     """Competing callers must not submit duplicate paid provider tasks."""
 
