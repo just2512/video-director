@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import stat
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass
@@ -156,11 +157,24 @@ def _load_jobs(project_id: str) -> dict:
 
 
 def _save_jobs(project_id: str, jobs: dict) -> None:
+    """Atomically persist the provider ledger without following a predictable temp path."""
     path = _jobs_path(project_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(jobs, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(path)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\\n") as handle:
+            handle.write(json.dumps(jobs, ensure_ascii=False, indent=2))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(str(temporary), str(path))
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _jobs_lock(project_id: str):
