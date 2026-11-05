@@ -77,6 +77,64 @@ class TestAssetLibrary:
         assert e1["asset_id"] == e2["asset_id"]
         assert len(ac.list_assets()) == 1
 
+    def test_concurrent_import_same_content_creates_one_library_asset(
+        self, _iso, fixtures
+    ):
+        """并发导入同一内容必须在最终写入事务内再次查重。"""
+        from concurrent.futures import ThreadPoolExecutor
+        from video_director import asset_catalog as ac
+
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            entries = list(pool.map(
+                lambda _: ac.import_asset(fixtures["clip"]),
+                range(4),
+            ))
+        assert len({entry["asset_id"] for entry in entries}) == 1
+        assert len(ac.list_assets()) == 1
+
+    def test_catalog_replace_failure_preserves_previous_json(self, _iso, monkeypatch):
+        """catalog 原子替换失败时，旧 JSON 保持完整且临时文件清理。"""
+        from video_director import asset_catalog as ac
+
+        path = ac._catalog_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        original = {"existing": {"asset_id": "existing"}}
+        path.write_text(json.dumps(original), encoding="utf-8")
+
+        def fail_replace(source, destination):
+            raise OSError("simulated catalog replace failure")
+
+        monkeypatch.setattr(ac.os, "replace", fail_replace)
+        with pytest.raises(OSError, match="simulated catalog replace failure"):
+            ac._save_catalog({"new": {"asset_id": "new"}})
+
+        assert json.loads(path.read_text(encoding="utf-8")) == original
+        assert list(path.parent.glob(".catalog-*.tmp")) == []
+
+    def test_concurrent_semantic_updates_do_not_drop_other_assets(
+        self, _iso, fixtures
+    ):
+        """两个并发语义更新不得因 read/modify/write 覆盖而丢失另一条记录。"""
+        from concurrent.futures import ThreadPoolExecutor
+        from video_director import asset_catalog as ac
+
+        first = ac.import_asset(fixtures["img"])
+        second = ac.import_asset(fixtures["img2"])
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(
+                lambda args: ac.update_asset_semantics(
+                    args[0], description=args[1]
+                ),
+                [(first["asset_id"], "first semantic"),
+                 (second["asset_id"], "second semantic")],
+            ))
+        stored = {entry["asset_id"]: entry for entry in ac.list_assets()}
+        assert stored[first["asset_id"]]["description"] == "first semantic"
+        assert stored[second["asset_id"]]["description"] == "second semantic"
+        assert {item["description"] for item in results} == {
+            "first semantic", "second semantic"
+        }
+
     def test_magic_bytes_reject_fake(self, _iso, tmp_path):
         """§26 安检：内容与扩展名不符拒绝（不进库）。"""
         from video_director import asset_catalog as ac
