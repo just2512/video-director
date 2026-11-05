@@ -238,6 +238,158 @@ class TestFingerprintReuse:
         assert fake2.get_calls >= 2  # recover 一次 + 复用轮询一次
 
 
+class TestConcurrentVideoSubmission:
+    """Competing callers must not submit duplicate paid provider tasks."""
+
+    def test_same_fingerprint_concurrent_callers_share_one_provider_task(
+        self, tmp_path, monkeypatch
+    ):
+        import threading
+
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+
+        project_id = "proj-concurrent-video-submit"
+        config.init_project_dirs(config.project_dir(project_id))
+        post_entered = threading.Event()
+        release_post = threading.Event()
+        post_lock = threading.Lock()
+
+        class BlockingClient:
+            def __init__(self):
+                self.post_calls = 0
+
+            def post(self, path, json=None):
+                with post_lock:
+                    self.post_calls += 1
+                post_entered.set()
+                if not release_post.wait(timeout=10):
+                    raise TimeoutError("test did not release provider submission")
+                return _FakeResp({"id": "shared-provider-task", "status": "queued"})
+
+            def get(self, path):
+                return _FakeResp({
+                    "id": "shared-provider-task",
+                    "status": "completed",
+                    "url": "https://cdn.example/shared.mp4",
+                })
+
+        client = BlockingClient()
+        barrier = threading.Barrier(2)
+        results = []
+        errors = []
+
+        def submit(index):
+            barrier.wait(timeout=5)
+            try:
+                results.append(gen._create_poll_and_persist_video(
+                    client,
+                    project_id,
+                    "fake-model",
+                    "same prompt",
+                    320,
+                    180,
+                    "a" * 64,
+                    "A",
+                    str(config.project_dir(project_id) / "assets" / f"result-{index}.mp4"),
+                    timeout=5,
+                ))
+            except Exception as exc:
+                errors.append(exc)
+
+        workers = [threading.Thread(target=submit, args=(index,)) for index in range(2)]
+        try:
+            for worker in workers:
+                worker.start()
+            assert post_entered.wait(timeout=5), "first provider submission did not start"
+            release_post.set()
+            for worker in workers:
+                worker.join(timeout=10)
+            assert all(not worker.is_alive() for worker in workers), "submission workers deadlocked"
+        finally:
+            release_post.set()
+            for worker in workers:
+                if worker.is_alive():
+                    worker.join(timeout=2)
+
+        assert not errors, errors
+        assert len(results) == 2, results
+        assert results == ["https://cdn.example/shared.mp4"] * 2
+        assert client.post_calls == 1, "same fingerprint/variant must create exactly one paid task"
+        jobs = gen._load_jobs(project_id)
+        assert len(jobs) == 1, jobs
+        job = next(iter(jobs.values()))
+        assert job["provider_task_id"] == "shared-provider-task"
+        assert job["input_fingerprint"] == "a" * 64
+        assert job["variant"] == "A"
+
+    def test_ambiguous_transport_failure_does_not_try_second_provider_endpoint(
+        self, tmp_path, monkeypatch
+    ):
+        import threading
+
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+
+        project_id = "proj-video-submit-timeout"
+        config.init_project_dirs(config.project_dir(project_id))
+
+        class TimeoutClient:
+            def __init__(self):
+                self.paths = []
+
+            def post(self, path, json=None):
+                self.paths.append(path)
+                raise TimeoutError("provider request timed out after submission")
+
+        client = TimeoutClient()
+        with pytest.raises(TimeoutError):
+            gen._create_poll_and_persist_video(
+                client, project_id, "fake-model", "prompt", 320, 180,
+                "b" * 64, "A", str(config.project_dir(project_id) / "result.mp4"),
+                timeout=1,
+            )
+        assert client.paths == ["/video/generations"]
+
+    def test_explicit_unsupported_route_uses_legacy_provider_endpoint(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+
+        project_id = "proj-video-submit-fallback"
+        config.init_project_dirs(config.project_dir(project_id))
+
+        class NotFound(Exception):
+            status_code = 404
+
+        class FallbackClient:
+            def __init__(self):
+                self.paths = []
+
+            def post(self, path, json=None):
+                self.paths.append(path)
+                if path == "/video/generations":
+                    raise NotFound("route not found")
+                return _FakeResp({"id": "fallback-task", "status": "queued"})
+
+            def get(self, path):
+                return _FakeResp({
+                    "id": "fallback-task",
+                    "status": "completed",
+                    "url": "https://cdn.example/fallback.mp4",
+                })
+
+        client = FallbackClient()
+        result = gen._create_poll_and_persist_video(
+            client, project_id, "fake-model", "prompt", 320, 180,
+            "c" * 64, "A", str(config.project_dir(project_id) / "result.mp4"),
+            timeout=1,
+        )
+        assert result == "https://cdn.example/fallback.mp4"
+        assert client.paths == ["/video/generations", "/videos"]
+
+
 class TestReferenceAutoAnalysis:
     """任务 B：bundle references 自动补报告。"""
 

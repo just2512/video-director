@@ -139,6 +139,20 @@ def _jobs_lock(project_id: str):
     lock_path = _jobs_path(project_id).with_suffix(".lock")
     return FileLock(str(lock_path), timeout=30)
 
+def _video_submission_lock(project_id: str, input_fp: str, variant: str):
+    """Serialize provider submission for one project/fingerprint/variant.
+
+    The lookup -> provider POST -> provider_task_id persistence sequence must be
+    atomic with respect to competing callers. Locking only _update_job is too
+    late: two callers can both observe no reusable job and both incur a charge.
+    Keep this lock separate from the jobs read/modify/write lock, and never
+    unlink its stable lock file.
+    """
+    from filelock import FileLock
+    key = hashlib.sha256(f"{input_fp}|{variant}".encode("utf-8")).hexdigest()
+    lock_path = _jobs_path(project_id).with_name(f".generation-submit-{key}.lock")
+    return FileLock(str(lock_path), timeout=120)
+
 
 def _update_job(project_id: str, job_id: str, fields: dict) -> dict:
     """增量更新一条 job 记录并落盘（全程持锁：webui 线程池 + 后台恢复并发安全）。"""
@@ -710,48 +724,57 @@ def _create_poll_and_persist_video(
     一致，仅叠加持久化。
     """
     import time as _time
-    reusable = _find_reusable_job(project_id, input_fp, variant)
-    if reusable:
-        job_id = reusable["job_id"]
-        task_id = reusable["provider_task_id"]
-        logger.info(f"generation: 复用 running 视频任务 {job_id}"
-                    f"（fingerprint={input_fp[:12]}，不重复提交）")
-    else:
-        size = _image_size(width, height)
-        try:
-            create = client.post(
-                "/video/generations",
-                json={"model": model, "prompt": prompt, "size": size},
-            )
-        except Exception:
-            # 部分供应商用 /videos 单例端点
-            create = client.post(
-                "/videos",
-                json={"model": model, "prompt": prompt, "size": size},
-            )
-        data = create.json() if hasattr(create, "json") else create
-        if isinstance(data, dict) and "data" in data:
-            data = data["data"]
-        task_id = None
-        if isinstance(data, dict):
-            task_id = data.get("id")
-        elif isinstance(data, list) and data:
-            task_id = data[0].get("id")
-        if not task_id:
-            raise GenerationError(
-                "VIDEO_GENERATION_FAILED", f"生视频任务无 id：{str(data)[:200]}")
-        job_id = f"genjob-{uuid.uuid4().hex[:12]}"
-        # 提交成功 → 立即落盘 provider_task_id（进程中断后可恢复，防重复付费）
-        _update_job(project_id, job_id, {
-            "provider": model or "video-llm",
-            "provider_task_id": task_id,
-            "gen_type": "video",
-            "prompt_fingerprint": _prompt_fingerprint(prompt, "video"),
-            "input_fingerprint": input_fp,
-            "variant": variant,
-            "status": "running",
-            "output_file": out_file,
-        })
+    # Serialize the entire lookup/submit/persist boundary. The provider POST
+    # stays inside this per-fingerprint lock until its task ID is durable, so a
+    # competing process can only observe and reuse the persisted task.
+    with _video_submission_lock(project_id, input_fp, variant):
+        reusable = _find_reusable_job(project_id, input_fp, variant)
+        if reusable:
+            job_id = reusable["job_id"]
+            task_id = reusable["provider_task_id"]
+            logger.info(f"generation: 复用 running 视频任务 {job_id}"
+                        f"（fingerprint={input_fp[:12]}，不重复提交）")
+        else:
+            size = _image_size(width, height)
+            try:
+                create = client.post(
+                    "/video/generations",
+                    json={"model": model, "prompt": prompt, "size": size},
+                )
+            except Exception as exc:
+                # Only an explicit unsupported-route response proves that the
+                # first endpoint did not create a task. A timeout/connection
+                # failure is ambiguous: retrying another endpoint could charge
+                # twice if the provider accepted the first request.
+                if getattr(exc, "status_code", None) not in (404, 405):
+                    raise
+                create = client.post(
+                    "/videos",
+                    json={"model": model, "prompt": prompt, "size": size},
+                )
+            data = create.json() if hasattr(create, "json") else create
+            if isinstance(data, dict) and "data" in data:
+                data = data["data"]
+            task_id = None
+            if isinstance(data, dict):
+                task_id = data.get("id")
+            elif isinstance(data, list) and data:
+                task_id = data[0].get("id")
+            if not task_id:
+                raise GenerationError(
+                    "VIDEO_GENERATION_FAILED", f"生视频任务无 id：{str(data)[:200]}")
+            job_id = f"genjob-{uuid.uuid4().hex[:12]}"
+            # Provider task ID is durable before releasing the submission lock.
+            _update_job(project_id, job_id, {
+                "provider": model or "video-llm",
+                "provider_task_id": task_id,
+                "gen_type": "video",
+                "prompt_fingerprint": _prompt_fingerprint(prompt, "video"),
+                "input_fingerprint": input_fp,
+                "variant": variant,
+                "status": "running",
+                "output_file": out_file,
+            })
 
     deadline = _time.time() + timeout
     while _time.time() < deadline:
