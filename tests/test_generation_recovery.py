@@ -332,7 +332,7 @@ class TestFingerprintReuse:
         assert len(jobs) == 1
         job = next(iter(jobs.values()))
         assert job["status"] == "done"
-        assert job["manifest_registered"] is not True
+        assert job.get("manifest_registered") is not True
         assert job["recovery_needs_registration"] is True
         assert Path(job["output_file"]).read_bytes() == b"durable-video-output"
         assert fake.post_calls == 1
