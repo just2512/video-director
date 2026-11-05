@@ -163,6 +163,30 @@ def main(argv=None):
 
     caps = sub.add_parser("capabilities", help="能力清单与 preflight 报告")
 
+    generation_jobs = sub.add_parser(
+        "generation-jobs", help="核查与人工处理结果不确定的视频供应商提交"
+    )
+    generation_jobs_sub = generation_jobs.add_subparsers(
+        dest="generation_jobs_cmd", required=True
+    )
+    jobs_list = generation_jobs_sub.add_parser("list", help="列出项目的视频生成任务")
+    jobs_list.add_argument("--project-id", required=True)
+    jobs_list.add_argument("--status", default=None)
+    jobs_resolve = generation_jobs_sub.add_parser(
+        "resolve", help="在供应商后台核对后解除一条不确定提交"
+    )
+    jobs_resolve.add_argument("--project-id", required=True)
+    jobs_resolve.add_argument("--job-id", required=True)
+    jobs_outcome = jobs_resolve.add_mutually_exclusive_group(required=True)
+    jobs_outcome.add_argument(
+        "--provider-task-id", default=None,
+        help="仅当供应商后台确认任务存在时填写其真实 task ID；恢复轮询，不重新提交",
+    )
+    jobs_outcome.add_argument(
+        "--confirm-no-provider-task", action="store_true",
+        help="仅当已核对供应商后台并确认未创建任务时使用；解除阻断但不自动提交",
+    )
+
     film = sub.add_parser("film", help="读取、验证、编辑、检查或导出权威 film.html 工程")
     film_sub = film.add_subparsers(dest="film_cmd", required=True)
     for command, help_text in (
@@ -195,6 +219,30 @@ def main(argv=None):
                                         help="覆盖 film.html 保存的帧率；省略则使用项目帧率")
     
     a = ap.parse_args(argv)
+
+    if a.cmd == "generation-jobs":
+        from video_director import generation_job_admin
+
+        try:
+            if a.generation_jobs_cmd == "list":
+                jobs = generation_job_admin.list_video_jobs(a.project_id, a.status)
+                print(json.dumps(jobs, ensure_ascii=False, indent=2))
+                sys.exit(0)
+            resolved = generation_job_admin.resolve_video_submission(
+                a.project_id,
+                a.job_id,
+                provider_task_id=a.provider_task_id,
+                confirm_no_provider_task=a.confirm_no_provider_task,
+            )
+            print(json.dumps(resolved, ensure_ascii=False, indent=2))
+            sys.exit(0)
+        except Exception as exc:
+            print(json.dumps({
+                "ok": False,
+                "code": getattr(exc, "code", "GENERATION_JOB_COMMAND_FAILED"),
+                "error": str(exc),
+            }, ensure_ascii=False, indent=2), file=sys.stderr)
+            sys.exit(2)
 
     if a.cmd == "film":
         from difflib import unified_diff
