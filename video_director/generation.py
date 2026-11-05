@@ -173,6 +173,14 @@ def _prompt_fingerprint(prompt: str, gen_type: str) -> str:
 
 def _find_reusable_job(project_id: str, input_fp: str, variant: str) -> Optional[dict]:
     """同 fingerprint+variant 且仍在跑的外部任务 → 复用轮询，不重复提交付费。"""
+    for job in _load_jobs(project_id).values():
+        if (job.get("input_fingerprint") == input_fp
+                and job.get("variant") == variant
+                and job.get("status") in ("pending", "running")
+                and job.get("provider_task_id")):
+            return job
+    return None
+
 
 def _find_unresolved_submission(project_id: str, input_fp: str, variant: str) -> Optional[dict]:
     """Find a durable reservation whose provider submission outcome is unknown."""
@@ -181,14 +189,6 @@ def _find_unresolved_submission(project_id: str, input_fp: str, variant: str) ->
                 and job.get("variant") == variant
                 and job.get("status") in ("submitting", "submission_unknown")
                 and not job.get("provider_task_id")):
-            return job
-    return None
-
-    for job in _load_jobs(project_id).values():
-        if (job.get("input_fingerprint") == input_fp
-                and job.get("variant") == variant
-                and job.get("status") in ("pending", "running")
-                and job.get("provider_task_id")):
             return job
     return None
 
