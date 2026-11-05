@@ -744,6 +744,34 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
     generation_jobs.json；同 input_fingerprint+variant 的 running 任务直接
     复用轮询，不重复提交（防重复付费）。
     """
+    # First recover already durable manifest rows. Replaying a completed
+    # generation must not require a still-live provider API or task record.
+    results: List[GenerationResult] = []
+    pending_variants = []
+    for v in variants:
+        existing = next((
+            item for item in manifest
+            if item.get("input_fingerprint") == input_fp
+            and item.get("variant") == v
+            and item.get("type") == "video"
+            and item.get("source") == "generated"
+        ), None)
+        if existing and Path(existing.get("file") or "").is_file():
+            existing_path = Path(existing["file"])
+            results.append(GenerationResult(
+                asset_id=existing["id"], variant=v, type="video",
+                file=str(existing_path), width=int(existing.get("width") or width),
+                height=int(existing.get("height") or height),
+                input_fingerprint=input_fp,
+                output_fingerprint=existing.get("output_fingerprint") or
+                    _fingerprint(existing_path.read_bytes()),
+                provider_id=existing.get("provider_id") or "video-llm",
+            ))
+        else:
+            pending_variants.append(v)
+    if not pending_variants:
+        return results
+
     cfg = _role_cfg("video")
     try:
         from video_director import provider_matrix
@@ -768,29 +796,7 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
         )
     client = _video_client(cfg)
 
-    results: List[GenerationResult] = []
-    for v in variants:
-        # Manifest persistence may have succeeded immediately before a process
-        # crash while the job's manifest_registered marker did not. Reuse that
-        # durable row rather than creating a second asset on the next request.
-        existing = next((
-            item for item in manifest
-            if item.get("input_fingerprint") == input_fp
-            and item.get("variant") == v
-            and item.get("type") == "video"
-            and item.get("source") == "generated"
-        ), None)
-        if existing and Path(existing.get("file") or "").is_file():
-            results.append(GenerationResult(
-                asset_id=existing["id"], variant=v, type="video",
-                file=existing["file"], width=int(existing.get("width") or width),
-                height=int(existing.get("height") or height),
-                input_fingerprint=input_fp,
-                output_fingerprint=existing.get("output_fingerprint") or
-                    _fingerprint(Path(existing["file"]).read_bytes()),
-                provider_id=existing.get("provider_id") or "video-llm",
-            ))
-            continue
+    for v in pending_variants:
         asset_id = f"gen-{uuid.uuid4().hex[:8]}"
         out_file = assets_dir / f"{asset_id}.mp4"
         # A previous process may have atomically materialized the MP4 and marked
