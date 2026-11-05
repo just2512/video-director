@@ -25,7 +25,11 @@ import hashlib
 import json
 import os
 import subprocess
+import tempfile
+import threading
 import time
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from typing import List, Optional
 
@@ -102,9 +106,63 @@ def _load_catalog() -> dict:
         return {}
 
 
+@contextmanager
+def _catalog_lock():
+    """Serialize Library catalog transactions across threads and processes."""
+    lock_path = library_root() / ".catalog.lock"
+    with lock_path.open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+
+            try:
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    handle.write(b"0")
+                    handle.flush()
+            except OSError:
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    raise
+            handle.seek(0)
+            while True:
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    time.sleep(0.02)
+            try:
+                yield
+            finally:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 def _save_catalog(catalog: dict) -> None:
-    _catalog_path().write_text(
-        json.dumps(catalog, ensure_ascii=False, indent=2), encoding="utf-8")
+    """Atomically replace catalog.json; caller owns _catalog_lock()."""
+    path = _catalog_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=".catalog-", suffix=".tmp", dir=str(path.parent))
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\\n") as handle:
+            handle.write(json.dumps(catalog, ensure_ascii=False, indent=2))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(str(temporary), str(path))
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def content_hash(file_path: str, chunk: int = 1 << 20) -> str:
@@ -231,36 +289,53 @@ def import_asset(file_path: str, source: str = "user",
                    else "square")
     meta["orientation"] = orientation
 
-    # 入 Library 分区（§26：local/generated/stock）
-    _ensure_dirs()
-    zone = {"user": "local", "generated": "generated",
-            "pexels": "stock", "pixabay": "stock", "coverr": "stock"}.get(source, "local")
-    asset_id = f"{zone}-{chash[:12]}-{int(time.time()) % 100000}"
-    dst_dir = library_root() / zone
-    dst = dst_dir / f"{asset_id}{ext}"
-    if p.resolve() != dst.resolve():
-        try:
-            import shutil
-            shutil.copy2(str(p), str(dst))
-            file_path = str(dst)
-        except OSError as exc:
-            raise AssetLibraryError("COPY_FAILED", f"素材入库失败：{exc}")
+    # Serialize the final dedup/copy/catalog transaction. The earlier hash lookup
+    # is only a fast path; this second check closes concurrent import races.
+    with _catalog_lock():
+        catalog = _load_catalog()
+        existing = next(
+            (item for item in catalog.values() if item.get("content_hash") == chash),
+            None,
+        )
+        if existing:
+            return existing
 
-    entry = {
-        "asset_id": asset_id, "type": kind, "source": source,
-        "source_id": source_id, "source_page": source_page, "creator": creator,
-        "file": file_path, "width": meta.get("width"),
-        "height": meta.get("height"), "duration": meta.get("duration"),
-        "fps": meta.get("fps"), "has_audio": meta.get("has_audio"),
-        "codec": meta.get("codec"),
-        "orientation": orientation,
-        "tags": tags or [], "description": description,
-        "commercial_status": commercial_status, "license_note": license_note,
-        "created_at": time.time(), "content_hash": chash,
-    }
-    catalog = _load_catalog()
-    catalog[asset_id] = entry
-    _save_catalog(catalog)
+        _ensure_dirs()
+        zone = {"user": "local", "generated": "generated",
+                "pexels": "stock", "pixabay": "stock", "coverr": "stock"}.get(source, "local")
+        asset_id = f"{zone}-{chash[:12]}-{int(time.time()) % 100000}"
+        while asset_id in catalog:
+            asset_id = f"{zone}-{chash[:12]}-{uuid.uuid4().hex[:8]}"
+        dst_dir = library_root() / zone
+        dst = dst_dir / f"{asset_id}{ext}"
+        stored_file = file_path
+        if p.resolve() != dst.resolve():
+            try:
+                import shutil
+                shutil.copy2(str(p), str(dst))
+                stored_file = str(dst)
+            except OSError as exc:
+                raise AssetLibraryError("COPY_FAILED", f"素材入库失败：{exc}")
+
+        entry = {
+            "asset_id": asset_id, "type": kind, "source": source,
+            "source_id": source_id, "source_page": source_page, "creator": creator,
+            "file": stored_file, "width": meta.get("width"),
+            "height": meta.get("height"), "duration": meta.get("duration"),
+            "fps": meta.get("fps"), "has_audio": meta.get("has_audio"),
+            "codec": meta.get("codec"),
+            "orientation": orientation,
+            "tags": tags or [], "description": description,
+            "commercial_status": commercial_status, "license_note": license_note,
+            "created_at": time.time(), "content_hash": chash,
+        }
+        catalog[asset_id] = entry
+        try:
+            _save_catalog(catalog)
+        except OSError:
+            if stored_file != str(p) and Path(stored_file).is_file():
+                Path(stored_file).unlink(missing_ok=True)
+            raise
     logger.info(f"asset_library: 入库 {asset_id} ({kind}/{source}, hash={chash[:10]})")
     return entry
 
@@ -360,17 +435,18 @@ def update_asset_semantics(asset_id: str, description: Optional[str] = None,
     画面的判断，不能顺手把溯源信息一起覆盖掉。None 表示「该字段不修改」；
     传空字符串或空列表表示显式清空。写入后素材清单与 LLM 匹配立即可用。
     """
-    catalog = _load_catalog()
-    entry = catalog.get(asset_id)
-    if entry is None:
-        raise AssetLibraryError("ASSET_NOT_FOUND", f"素材不存在：{asset_id}")
-    if description is not None:
-        entry["description"] = str(description).strip()
-    if tags is not None:
-        entry["tags"] = [str(t).strip() for t in tags if str(t).strip()]
-    entry["semantics_updated_at"] = time.time()
-    catalog[asset_id] = entry
-    _save_catalog(catalog)
+    with _catalog_lock():
+        catalog = _load_catalog()
+        entry = catalog.get(asset_id)
+        if entry is None:
+            raise AssetLibraryError("ASSET_NOT_FOUND", f"素材不存在：{asset_id}")
+        if description is not None:
+            entry["description"] = str(description).strip()
+        if tags is not None:
+            entry["tags"] = [str(t).strip() for t in tags if str(t).strip()]
+        entry["semantics_updated_at"] = time.time()
+        catalog[asset_id] = entry
+        _save_catalog(catalog)
     logger.info(f"asset_library: 语义更新 {asset_id}")
     return entry
 
@@ -418,23 +494,24 @@ def asset_usage(asset_id: str) -> List[str]:
 
 def delete_asset(asset_id: str, *, require_unused: bool = True) -> dict:
     """删除全局 Library Asset；被项目引用时硬拒绝。"""
-    catalog = _load_catalog()
-    entry = catalog.get(asset_id)
-    if entry is None:
-        return {"ok": False, "code": "NOT_FOUND", "error": f"素材不存在：{asset_id}"}
-    used_in = asset_usage(asset_id) if require_unused else []
-    if used_in:
-        return {"ok": False, "code": "ASSET_IN_USE", "error": f"素材正在被项目引用：{', '.join(used_in)}", "used_in": used_in}
-    try:
-        file_path = entry.get("file") or ""
-        if file_path and Path(file_path).is_file():
-            Path(file_path).unlink()
-        (library_root() / "thumbnails" / f"{asset_id}.jpg").unlink(missing_ok=True)
-    except OSError as exc:
-        return {"ok": False, "code": "DELETE_FAILED", "error": f"素材文件删除失败：{exc}"}
-    catalog.pop(asset_id, None)
-    _save_catalog(catalog)
-    return {"ok": True, "asset_id": asset_id}
+    with _catalog_lock():
+        catalog = _load_catalog()
+        entry = catalog.get(asset_id)
+        if entry is None:
+            return {"ok": False, "code": "NOT_FOUND", "error": f"素材不存在：{asset_id}"}
+        used_in = asset_usage(asset_id) if require_unused else []
+        if used_in:
+            return {"ok": False, "code": "ASSET_IN_USE", "error": f"素材正在被项目引用：{', '.join(used_in)}", "used_in": used_in}
+        try:
+            file_path = entry.get("file") or ""
+            if file_path and Path(file_path).is_file():
+                Path(file_path).unlink()
+            (library_root() / "thumbnails" / f"{asset_id}.jpg").unlink(missing_ok=True)
+        except OSError as exc:
+            return {"ok": False, "code": "DELETE_FAILED", "error": f"素材文件删除失败：{exc}"}
+        catalog.pop(asset_id, None)
+        _save_catalog(catalog)
+        return {"ok": True, "asset_id": asset_id}
 
 
 def delete_assets(asset_ids: List[str]) -> dict:
