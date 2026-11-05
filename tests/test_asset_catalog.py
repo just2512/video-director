@@ -310,3 +310,67 @@ class TestRatioFromProject:
         self._mk_project("ratio-s-01", 1080, 1080)
         sp = ac.stock_search_params("ratio-s-01")
         assert sp["ratio"] == "1:1" and sp["orientation"] == "square"
+
+
+class TestAssetCatalogCrossProcess:
+    """进程级并发回归：文件锁必须覆盖独立 Python 进程，而不只是线程。"""
+
+    def test_concurrent_process_import_and_semantic_updates(
+        self, _iso, fixtures, tmp_path, monkeypatch
+    ):
+        import os
+        import sys
+
+        from concurrent.futures import ThreadPoolExecutor
+        from video_director import asset_catalog as ac
+
+        storage = tmp_path / "composer"
+        monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+
+        script_import = (
+            "import json,sys; "
+            "from video_director import asset_catalog as ac; "
+            "print(json.dumps(ac.import_asset(sys.argv[1]), ensure_ascii=False))"
+        )
+        env = os.environ.copy()
+        processes = [
+            subprocess.Popen(
+                [sys.executable, "-c", script_import, fixtures["clip"]],
+                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            for _ in range(4)
+        ]
+        imported = []
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=90)
+            assert process.returncode == 0, stderr
+            imported.append(json.loads(stdout.strip().splitlines()[-1]))
+
+        assert len({entry["asset_id"] for entry in imported}) == 1
+        assert len(ac.list_assets()) == 1
+
+        first = ac.import_asset(fixtures["img"])
+        second = ac.import_asset(fixtures["img2"])
+        script_update = (
+            "import sys; "
+            "from video_director import asset_catalog as ac; "
+            "ac.update_asset_semantics(sys.argv[1], description=sys.argv[2])"
+        )
+        updates = [
+            subprocess.Popen(
+                [sys.executable, "-c", script_update, first["asset_id"], "first-process"],
+                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            ),
+            subprocess.Popen(
+                [sys.executable, "-c", script_update, second["asset_id"], "second-process"],
+                env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            ),
+        ]
+        for process in updates:
+            _stdout, stderr = process.communicate(timeout=60)
+            assert process.returncode == 0, stderr
+
+        stored = {entry["asset_id"]: entry for entry in ac.list_assets()}
+        assert stored[first["asset_id"]]["description"] == "first-process"
+        assert stored[second["asset_id"]]["description"] == "second-process"
+
