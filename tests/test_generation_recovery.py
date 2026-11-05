@@ -334,6 +334,46 @@ class TestFingerprintReuse:
         assert job["status"] == "done"
         assert job["manifest_registered"] is True
         assert job["recovery_needs_registration"] is False
+        assert fake.get_calls == 1, "已落地的 MP4 应直接复用，不再依赖供应商任务查询"
+        assert Path(job["output_file"]).read_bytes() == b"recovered-video"
+
+    def test_existing_manifest_row_repairs_job_registration_marker(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import config, generation as gen
+        import hashlib
+
+        pid = "proj-manifest-already-durable"
+        config.init_project_dirs(config.project_dir(pid))
+        prompt = "durable manifest"
+        input_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
+        out_file = config.project_dir(pid) / "assets" / "generated" / "existing.mp4"
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        out_file.write_bytes(b"durable-video")
+        manifest = []
+        gen._register_result(
+            manifest, [], "gen-existing", "video", out_file, 320, 180,
+            5.0, "fake-model", "video-llm", prompt, input_fp, "A",
+        )
+        gen._save_manifest(pid, manifest)
+        gen._update_job(pid, "genjob-manifest-existing", {
+            "provider_task_id": "provider-task-expired",
+            "gen_type": "video", "input_fingerprint": input_fp,
+            "variant": "A", "status": "done", "output_file": str(out_file),
+            "output_commit_protocol": "atomic-v1",
+            "recovery_needs_registration": True,
+            "manifest_registered": False,
+        })
+        fake = FakeVideoClient(statuses=[])
+        monkeypatch.setattr(gen, "_video_client", lambda cfg: fake)
+        results = gen.generate(pid, prompt, "video", variant="A")
+        assert len(results) == 1 and results[0].asset_id == "gen-existing"
+        assert fake.post_calls == 0 and fake.get_calls == 0
+        job = gen._load_jobs(pid)["genjob-manifest-existing"]
+        assert job["manifest_registered"] is True
+        assert job["recovery_needs_registration"] is False
 
 class TestConcurrentVideoSubmission:
     """Competing callers must not submit duplicate paid provider tasks."""
