@@ -220,11 +220,16 @@ def _persist_video_output(project_id: str, job_id: str, out_file: str, url: str)
     target = Path(out_file)
     with _video_output_lock(project_id, job_id):
         current = _load_jobs(project_id).get(job_id, {})
-        if target.is_file() and target.stat().st_size > 0:
+        if (current.get("output_commit_protocol") == "atomic-v1"
+                and target.is_file() and target.stat().st_size > 0):
             # Covers a crash after atomic replace but before the terminal status write.
             _update_job(project_id, job_id, {"status": "done", "output_file": str(target)})
             return target
-        _update_job(project_id, job_id, {"status": "downloading", "output_file": str(target)})
+        _update_job(project_id, job_id, {
+            "status": "downloading",
+            "output_file": str(target),
+            "output_commit_protocol": "atomic-v1",
+        })
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_name(target.name + ".part")
         try:
