@@ -320,10 +320,10 @@
 - 项目生命周期测试新增 external revision 后的 selected clip 保留断言，验证 revision 更新不会清空仍然有效的选中对象。
 - [源代码回归 run `41948049310`](https://github.com/just2512/video-director/actions/runs/41948049310) 已对精确提交 `1b1451b1b46f4d6450a1fceb2afe515dc469413a` 完成 **SUCCESS**；完整 pytest、React/TypeScript、Studio 构建、集成 smoke、Create Dialog、JavaScript 语法、精选时间线/迁移/导出门禁及受保护 bundle/CSS 发布步骤均完成。真实 NVIDIA live-stream 三个步骤仍为 skipped / MISSING。
 - `41947785273` 是较早提交 `47d80a9c` 的工作流，后续更新被替代，不作为最终验收依据。
-- 随后的 MP4 本地落盘恢复修复（`31b1cef3`、`6abedfdd`）及回归（`3f59f414`、`bd5c1c38`、`9abc90e1`）已直接提交 main；最新源代码 `008bc774a8cffd01b71ee663e523619b1f3e37ad` 尚未取得对应 CI 结果，必须保持 **待验**，不得沿用上述 SUCCESS。
+- 随后的 MP4 本地落盘恢复修复（`31b1cef3`、`6abedfdd`）及回归（`3f59f414`、`bd5c1c38`、`9abc90e1`）已直接提交 main；最新源代码 `ac3cd4f1f66b018ce7cbdd53cb7f47b7a3418b7a` 尚未取得对应 CI 结果，必须保持 **待验**，不得沿用上述 SUCCESS。
 
 
-### 视频任务本地成品落盘恢复（2026-11-05，source `008bc774`，CI 待验）
+### 视频任务本地成品落盘恢复（2026-11-05，source `ac3cd4f1`，CI 待验）
 
 - 供应商返回 completed 后，任务先进入 `downloading`，只有 MP4 原子写入目标路径后才进入 `done`；不再把供应商完成误当成本地成品完成。
 - 恢复器同时接管 `running` 与 `downloading`。若下载失败或进程在写入前中断，任务保留可恢复状态；若进程在临时文件原子替换后、写入 `done` 前中断，仅当任务记录含 `output_commit_protocol=atomic-v1` 且目标文件非空时补齐终态，不重复下载；旧版非原子输出不会走该捷径。
@@ -332,4 +332,5 @@
 - `VIDEO_SUBMISSION_UNKNOWN` 等机器可读安全错误不再被外层统一包装成 `VIDEO_GENERATION_FAILED`。
 - 新增回归覆盖 downloading 中断恢复、done 状态写入前的原子文件恢复、轮询不得提前标记 done，以及恢复完成后在素材 manifest 登记前复用原供应商任务，防止恢复入口再次触发付费 POST。
 - `generation-jobs list/resolve` CLI 已提供人工核对入口：确认 task 存在时绑定真实 provider task ID 并恢复轮询；确认不存在时显式记录 `submission_rejected`。CLI 不查询供应商、不自动重提；操作人必须先核对供应商任务和账单。CLI 对 project ID 复用 FilmDocument 的路径安全校验；resolve 的状态检查、供应商 task ID 去重与写回在同一 jobs 文件锁内完成，避免并发解除同一 reservation。操作说明见 `docs/FILM_AGENT_MANUAL.md`。
-- 新增回归覆盖 `submission_unknown` 两种人工处理、拒绝重复 task ID、拒绝不安全 project ID、downloading 中断恢复、原子文件替换后补齐终态、恢复完成后不重复提交。上述变更已提交 main；CI 尚未验证。
+- 视频恢复再补齐一个持久化边界：Manifest merge 必须先持久化，之后才写 `manifest_registered=true`；若进程在 Manifest 已保存但 job 标记尚未写入时中断，下一次请求按 `input_fingerprint+variant` 复用已有且文件存在的 Manifest 行，不再次查询供应商或创建重复素材。只有 Manifest 行缺失时才进入供应商恢复/新生成路径。
+- 新增回归覆盖 `submission_unknown` 两种人工处理、拒绝重复 task ID、拒绝不安全 project ID、downloading 中断恢复、原子文件替换后补齐终态、恢复完成后不重复提交、Manifest 持久化后无需供应商凭据即可恢复注册标记。上述变更已提交 main；CI 尚未验证。
