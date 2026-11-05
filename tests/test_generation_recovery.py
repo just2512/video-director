@@ -306,6 +306,23 @@ class TestFingerprintReuse:
         assert fake2.get_calls >= 2  # recover 一次 + 复用轮询一次
 
 
+    def test_done_registered_job_remains_reusable_if_manifest_row_is_lost(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+        pid = "proj-manifest-row-lost"
+        config.init_project_dirs(config.project_dir(pid))
+        gen._update_job(pid, "genjob-registered", {
+            "provider_task_id": "provider-task-registered",
+            "gen_type": "video", "input_fingerprint": "a" * 16,
+            "variant": "A", "status": "done",
+            "manifest_registered": True,
+        })
+        reusable = gen._find_reusable_job(pid, "a" * 16, "A")
+        assert reusable is not None
+        assert reusable["job_id"] == "genjob-registered"
+
     def test_generate_reuses_recovered_completed_task_until_manifest_is_written(
         self, tmp_path, monkeypatch
     ):
