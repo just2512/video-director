@@ -292,3 +292,21 @@
 2. **Project lifecycle end-to-end:** exercise create → open → initialize/migrate → edit → external revision → reopen → render using one project fixture, asserting project ID, document revision, selected clip, and source archive digest at every boundary.
 3. **MP4/QC release contract:** assert output file, stream metadata, duration tolerance, subtitle/audio presence where requested, scene-frame acknowledgement, and deterministic QC report are all tied to the exact revision pin. Missing source media or unsupported scene behavior must fail explicitly rather than publish a plausible but invalid MP4.
 4. **Only then** mark the integrated project workflow complete. Real provider streaming remains a separately recorded local acceptance, not a CI mock substitute.
+
+
+### 最新主线复核与下一阶段验收状态（2026-11-05，source `853956f6`）
+
+- [AI Director regression run `41850226773`](https://github.com/just2512/video-director/actions/runs/41850226773) 对 `main` 精确提交 `853956f6b067816cab0e28df9d61f9805006baa6` 完成 **SUCCESS**。完整 pytest：**1799 passed、2 skipped、0 failures、0 errors、7 warnings**（1801 项收集，469.29 秒）；Create Dialog 生命周期门禁 **32 passed**；精选时间线/迁移/导出门禁 **328 passed、0 failed、1 warning**。React 19/TypeScript、Studio 构建、Tailwind 4、集成 smoke、JS 语法、时间线发布门禁与受保护的 bundle/CSS 发布步骤均成功。
+- 本轮新增的 `test_film_studio_roll_browser.py` 对 Roll / Slide / Slip 各自执行真实 Chromium 操作，并核对 Undo/Redo 后正式 `film.html` 字节与 revision，避免只验证界面状态。
+- **生成任务与人工采用**：`test_film_studio_generated_asset_adoption_browser.py::test_generated_project_asset_is_manually_adopted_and_survives_full_page_reload` 已通过。测试在生成请求仍运行时提交用户编辑，验证生成完成不会覆盖新 revision 或自动插入素材；旧 revision 插入请求返回 409；用户从素材库显式采用后，整页刷新重新打开仍恢复已采用素材，并继续实际 MP4/QC 导出。
+- **并发与项目刷新恢复**：`test_editor_command_concurrency.py::test_same_base_version_from_two_processes_cannot_overwrite_timeline` 通过，两个进程以同一 base version 写入时只允许一个提交；`test_film_studio_external_watch_browser.py::test_external_agent_write_hot_reloads_and_recovers_after_broken_document` 及 pending-revision / project-switch 浏览器测试覆盖外部 revision、损坏文档恢复、延迟响应隔离和旧手势拒绝。
+- **导出/QC**：`test_film_full_pipeline_e2e.py::test_blank_film_to_multitrack_mp4_with_html_scene_and_audio_mix` 通过实际 FFmpeg 导出，核对视频/音频流、画面采样、精确 revision、QC 状态、SHA-256、文件大小与音频混合；Studio 导出结果浏览器测试还覆盖 STALE 与 CURRENT、QC WARNING 与 PASS 的区分及 MP4/QC 链接。
+- 两项 skip 已定位且不能改写为 PASS：`test_windows_write_through_replace_and_delete_round_trip` 只在 Windows 原生环境执行，本轮 Linux runner 跳过；`test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film` 因默认 CI 未显式启用真实 Provider 而跳过，日志明确为 `LIVE_STREAM_ACCEPTANCE=MISSING`。前者需 Windows 本机验收，后者按 `docs/live-model-stream-acceptance.md` 在配置 NVIDIA 凭据的环境显式执行。
+- **当前结论**：生成素材手动采用、跨进程同版本写入冲突、外部 revision 刷新/损坏恢复、Roll/Slide/Slip Undo/Redo、MP4/QC revision 绑定均有自动化证据；本轮 CI 可判定代码回归门禁 PASS。不能据此宣称 Windows 原生持久化和真实 NVIDIA token stream 已通过，也不能扩大为任意 HTML/WebGL 场景逐帧确定性或所有编辑操作排列均已穷尽。
+
+#### 下一阶段执行顺序
+
+1. 在 Windows 原生环境执行并留存 `test_windows_write_through_replace_and_delete_round_trip` 的实际结果；若失败，按 Win32 API 错误与磁盘行为修复，不以 Linux mock 代替。
+2. 按本仓库真实 NVIDIA 配置执行一次显式 live-stream acceptance，保存 JUnit 和状态结果；只接受 `PASS`，`MISSING` / `BLOCKED_PROVIDER` / `REJECT` / `UNKNOWN` 不得关闭该门禁。
+3. 将已有 migration preview/source archive、外部 revision recovery、手动素材采用与 MP4/QC 证据收敛为一个项目生命周期 E2E fixture：create → open → initialize/migrate → edit → external revision → reopen → render；每个边界核对 project ID、FilmDocument revision、选中 clip 和 source archive digest。
+4. 继续按具体失败路径补充编辑操作组合回归；未覆盖的排列保持 UNKNOWN，不以已有单项操作通过推断全排列正确。
