@@ -588,6 +588,16 @@ class TestManualSubmissionResolution:
         assert resolved["submission_resolution"]["decision"] == "provider_task_not_found_confirmed"
         assert gen._find_unresolved_submission(pid, "e" * 16, "B") is None
 
+    def test_admin_commands_reject_unsafe_project_ids(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import generation_job_admin as admin
+        with pytest.raises(Exception):
+            admin.list_video_jobs("../outside")
+        with pytest.raises(Exception):
+            admin.resolve_video_submission(
+                "../outside", "job", confirm_no_provider_task=True,
+            )
+
     def test_resolution_rejects_ambiguous_or_duplicate_decisions(self, tmp_path, monkeypatch):
         _isolate(tmp_path, monkeypatch)
         from video_director import config, generation as gen, generation_job_admin as admin
