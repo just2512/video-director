@@ -913,3 +913,27 @@ class TestGenerationJobLedgerIntegrity:
         assert caught.value.code == "VIDEO_JOB_STORE_UNSAFE"
         assert outside.read_bytes() == original
 \n
+
+class TestGenerationJobLedgerAtomicWrite:
+    def test_failed_replace_preserves_previous_job_ledger_and_cleans_temp(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+
+        project_id = "proj-generation-ledger-atomic"
+        config.init_project_dirs(config.project_dir(project_id))
+        gen._update_job(project_id, "job-before", {"status": "running"})
+        ledger = gen._jobs_path(project_id)
+        original = ledger.read_bytes()
+
+        def fail_replace(_source, _destination):
+            raise OSError("simulated ledger replace failure")
+
+        monkeypatch.setattr(gen.os, "replace", fail_replace)
+        with pytest.raises(OSError, match="simulated ledger replace failure"):
+            gen._update_job(project_id, "job-after", {"status": "done"})
+
+        assert ledger.read_bytes() == original
+        assert list(ledger.parent.glob(f".{ledger.name}.*.tmp")) == []
+\n
