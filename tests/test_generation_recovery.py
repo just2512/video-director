@@ -523,6 +523,61 @@ class TestConcurrentVideoSubmission:
         assert client.paths == ["/video/generations", "/videos"]
 
 
+class TestManualSubmissionResolution:
+    def test_found_provider_task_resumes_polling_without_new_submit(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen, generation_job_admin as admin
+        pid = "proj-manual-found"
+        config.init_project_dirs(config.project_dir(pid))
+        gen._update_job(pid, "genjob-unknown", {
+            "input_fingerprint": "f" * 16, "variant": "A",
+            "gen_type": "video", "status": "submission_unknown",
+        })
+        resolved = admin.resolve_video_submission(
+            pid, "genjob-unknown", provider_task_id="provider-real-123",
+        )
+        assert resolved["status"] == "running"
+        assert resolved["provider_task_id"] == "provider-real-123"
+        assert resolved["submission_resolution"]["decision"] == "provider_task_found"
+        assert gen._find_unresolved_submission(pid, "f" * 16, "A") is None
+
+    def test_confirmed_absence_releases_only_after_explicit_operator_action(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen, generation_job_admin as admin
+        pid = "proj-manual-absent"
+        config.init_project_dirs(config.project_dir(pid))
+        gen._update_job(pid, "genjob-unknown", {
+            "input_fingerprint": "e" * 16, "variant": "B",
+            "gen_type": "video", "status": "submission_unknown",
+        })
+        resolved = admin.resolve_video_submission(
+            pid, "genjob-unknown", confirm_no_provider_task=True,
+        )
+        assert resolved["status"] == "submission_rejected"
+        assert resolved["submission_resolution"]["decision"] == "provider_task_not_found_confirmed"
+        assert gen._find_unresolved_submission(pid, "e" * 16, "B") is None
+
+    def test_resolution_rejects_ambiguous_or_duplicate_decisions(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen, generation_job_admin as admin
+        pid = "proj-manual-invalid"
+        config.init_project_dirs(config.project_dir(pid))
+        gen._update_job(pid, "genjob-unknown", {"status": "submission_unknown"})
+        gen._update_job(pid, "genjob-existing", {"provider_task_id": "taken-task"})
+        with pytest.raises(gen.GenerationError):
+            admin.resolve_video_submission(pid, "genjob-unknown")
+        with pytest.raises(gen.GenerationError):
+            admin.resolve_video_submission(
+                pid, "genjob-unknown", provider_task_id="taken-task",
+            )
+        with pytest.raises(gen.GenerationError):
+            admin.resolve_video_submission(
+                pid, "genjob-unknown", provider_task_id="id",
+                confirm_no_provider_task=True,
+            )
+
 class TestReferenceAutoAnalysis:
     """任务 B：bundle references 自动补报告。"""
 
