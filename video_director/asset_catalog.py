@@ -85,7 +85,17 @@ class AssetLibraryError(Exception):
 
 def library_root() -> Path:
     """storage/assets/（Library 根）；拒绝根目录被符号链接替换。"""
-    p = config.composer_storage_root() / "assets"
+    storage = config.composer_storage_root()
+    if storage.is_symlink():
+        raise AssetLibraryError("ASSET_PATH_INVALID", "项目存储根目录是符号链接，已拒绝访问")
+    try:
+        storage.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise AssetLibraryError("ASSET_PATH_INVALID", f"项目存储根目录无法安全创建：{exc}") from exc
+    if storage.is_symlink() or not storage.is_dir():
+        raise AssetLibraryError("ASSET_PATH_INVALID", "项目存储根目录不是可信的普通目录")
+
+    p = storage / "assets"
     if p.is_symlink():
         raise AssetLibraryError("ASSET_PATH_INVALID", "素材库根目录是符号链接，已拒绝访问")
     try:

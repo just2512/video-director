@@ -280,7 +280,13 @@ def _validated_video_output_path(project_id: str, out_file: str) -> Path:
     from video_director.project_lock import validate_project_id
 
     pid = validate_project_id(project_id)
-    project_root = config.project_dir(pid)
+    try:
+        project_root = config.project_dir(pid)
+    except ValueError as exc:
+        raise GenerationError(
+            "VIDEO_OUTPUT_PATH_UNSAFE",
+            "项目目录不是安全的普通目录；已拒绝写入视频产物",
+        ) from exc
     if project_root.is_symlink() or not project_root.is_dir():
         raise GenerationError(
             "VIDEO_OUTPUT_PATH_UNSAFE",

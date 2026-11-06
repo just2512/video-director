@@ -32,7 +32,9 @@ def project_lock(project_id: str) -> Iterator[None]:
     if plans.is_symlink():
         raise ValueError("项目 plans 目录不能是符号链接")
     try:
-        plans.mkdir()
+        # The production project_dir creates its parent. parents=True also
+        # preserves the lock contract for injected/test project roots.
+        plans.mkdir(parents=True)
     except FileExistsError:
         if plans.is_symlink() or not plans.is_dir():
             raise ValueError("项目 plans 路径不是可信的普通目录")
