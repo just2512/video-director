@@ -275,9 +275,62 @@ def _video_output_lock(project_id: str, job_id: str):
     return FileLock(str(lock_path), timeout=120)
 
 
+def _validated_video_output_path(project_id: str, out_file: str) -> Path:
+    """Require generated video outputs to remain inside the real project directory."""
+    from video_director.project_lock import validate_project_id
+
+    pid = validate_project_id(project_id)
+    project_root = config.project_dir(pid)
+    if project_root.is_symlink() or not project_root.is_dir():
+        raise GenerationError(
+            "VIDEO_OUTPUT_PATH_UNSAFE",
+            "项目目录不是安全的普通目录；已拒绝写入视频产物",
+        )
+    root = project_root.resolve(strict=True)
+    target = Path(out_file)
+    if not target.is_absolute() or target.name in {"", ".", ".."}:
+        raise GenerationError(
+            "VIDEO_OUTPUT_PATH_UNSAFE",
+            "视频输出必须是项目目录内的绝对文件路径",
+        )
+    try:
+        parent = target.parent.resolve(strict=False)
+        parent.relative_to(root)
+    except (OSError, ValueError) as exc:
+        raise GenerationError(
+            "VIDEO_OUTPUT_PATH_UNSAFE",
+            "视频输出目录越过项目边界或无法安全解析；已拒绝写入",
+        ) from exc
+    if target.is_symlink():
+        raise GenerationError(
+            "VIDEO_OUTPUT_PATH_UNSAFE",
+            "视频输出目标是符号链接；已拒绝覆盖",
+        )
+    if target.exists() and not target.is_file():
+        raise GenerationError(
+            "VIDEO_OUTPUT_PATH_UNSAFE",
+            "视频输出目标不是普通文件；已拒绝覆盖",
+        )
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+        resolved_parent = target.parent.resolve(strict=True)
+        resolved_parent.relative_to(root)
+    except (OSError, ValueError) as exc:
+        raise GenerationError(
+            "VIDEO_OUTPUT_PATH_UNSAFE",
+            "视频输出目录创建后越过项目边界或无法安全解析；已拒绝写入",
+        ) from exc
+    if target.is_symlink():
+        raise GenerationError(
+            "VIDEO_OUTPUT_PATH_UNSAFE",
+            "视频输出目标在校验期间变成符号链接；已拒绝覆盖",
+        )
+    return target
+
+
 def _persist_video_output(project_id: str, job_id: str, out_file: str, url: str) -> Path:
     """Atomically materialize an MP4 before making its job terminal (done)."""
-    target = Path(out_file)
+    target = _validated_video_output_path(project_id, out_file)
     with _video_output_lock(project_id, job_id):
         current = _load_jobs(project_id).get(job_id, {})
         if (current.get("output_commit_protocol") == "atomic-v1"
@@ -293,7 +346,6 @@ def _persist_video_output(project_id: str, job_id: str, out_file: str, url: str)
             "output_file": str(target),
             "output_commit_protocol": "atomic-v1",
         })
-        target.parent.mkdir(parents=True, exist_ok=True)
         # Never write through a predictable "<target>.part" path: a stale or
         # attacker-planted symlink there could redirect provider bytes outside
         # the project. mkstemp creates an exclusive file beside the target so

@@ -968,3 +968,90 @@ class TestGenerationJobLedgerAtomicWrite:
 
         assert ledger.read_bytes() == original
         assert list(ledger.parent.glob(f".{ledger.name}.*.tmp")) == []
+
+
+
+def test_video_output_rejects_paths_outside_project_before_provider_download(
+    tmp_path, monkeypatch
+):
+    _isolate(tmp_path, monkeypatch)
+    from video_director import config, generation as gen
+
+    project_id = "proj-output-boundary"
+    config.init_project_dirs(config.project_dir(project_id))
+    external = tmp_path / "outside.mp4"
+    monkeypatch.setattr(
+        gen, "_download_bytes",
+        lambda _url: (_ for _ in ()).throw(AssertionError("download must not start")),
+    )
+
+    with pytest.raises(gen.GenerationError) as exc:
+        gen._persist_video_output(
+            project_id, "job-outside", str(external), "https://cdn.example/video.mp4"
+        )
+
+    assert exc.value.code == "VIDEO_OUTPUT_PATH_UNSAFE"
+    assert not external.exists()
+    assert "job-outside" not in gen._load_jobs(project_id)
+
+
+def test_video_output_rejects_symlinked_output_parent(
+    tmp_path, monkeypatch
+):
+    _isolate(tmp_path, monkeypatch)
+    from video_director import config, generation as gen
+
+    project_id = "proj-output-parent-symlink"
+    project_root = config.project_dir(project_id)
+    config.init_project_dirs(project_root)
+    external_dir = tmp_path / "external-output"
+    external_dir.mkdir()
+    link = project_root / "assets" / "linked"
+    try:
+        link.symlink_to(external_dir, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("当前运行环境不支持创建符号链接")
+    external = external_dir / "escaped.mp4"
+    monkeypatch.setattr(
+        gen, "_download_bytes",
+        lambda _url: (_ for _ in ()).throw(AssertionError("download must not start")),
+    )
+
+    with pytest.raises(gen.GenerationError) as exc:
+        gen._persist_video_output(
+            project_id, "job-parent-link", str(link / "escaped.mp4"),
+            "https://cdn.example/video.mp4",
+        )
+
+    assert exc.value.code == "VIDEO_OUTPUT_PATH_UNSAFE"
+    assert not external.exists()
+    assert "job-parent-link" not in gen._load_jobs(project_id)
+
+
+def test_video_output_rejects_symlinked_project_directory(
+    tmp_path, monkeypatch
+):
+    _isolate(tmp_path, monkeypatch)
+    from video_director import config, generation as gen
+
+    root = config.composer_storage_root()
+    external_dir = tmp_path / "external-project"
+    external_dir.mkdir()
+    link = root / "proj-output-project-symlink"
+    try:
+        link.symlink_to(external_dir, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("当前运行环境不支持创建符号链接")
+    monkeypatch.setattr(
+        gen, "_download_bytes",
+        lambda _url: (_ for _ in ()).throw(AssertionError("download must not start")),
+    )
+
+    with pytest.raises(gen.GenerationError) as exc:
+        gen._persist_video_output(
+            "proj-output-project-symlink", "job-project-link",
+            str(external_dir / "escaped.mp4"), "https://cdn.example/video.mp4",
+        )
+
+    assert exc.value.code == "VIDEO_OUTPUT_PATH_UNSAFE"
+    assert not (external_dir / "escaped.mp4").exists()
