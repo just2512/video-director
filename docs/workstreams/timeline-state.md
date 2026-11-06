@@ -8,6 +8,6 @@ Own timeline/editor state consistency:
 - External revision changes must invalidate stale gestures and commands.
 - Project switching must prevent late async responses from mutating the newly selected project.
 
-Primary regression gate: `tests/test_editor_undo_redo.py`, `tests/test_film_studio_timeline_history_browser.py`, `tests/test_film_studio_pending_revision.py`, `tests/test_film_studio_external_watch_browser.py`, `tests/test_editor_command_project_switch_browser.py`, `tests/test_visual_overlay_timeline.py`, `tests/test_audio_clip_timeline.py`.
+Primary regression gate: `tests/test_editor_undo_redo.py`, `tests/test_film_studio_timeline_history_browser.py`, `tests/test_film_studio_pending_revision.py`, `tests/test_film_studio_external_watch_browser.py`, `tests/test_editor_command_project_switch_browser.py`, `tests/test_visual_overlay_timeline.py`, `tests/test_audio_clip_timeline.py`, `tests/test_film_studio_insert_browser.py`.
 
 Avoid generation persistence files. Changes to shared revision contracts must be documented for the lifecycle workstream.
