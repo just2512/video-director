@@ -212,7 +212,7 @@ jobs:
           def fetch_blob(sha):
               return sha, get_json(f"{api}/repos/{repository}/git/blobs/{sha}")
 
-          with ThreadPoolExecutor(max_workers=6) as executor:
+          with ThreadPoolExecutor(max_workers=16) as executor:
               blobs = dict(executor.map(fetch_blob, blob_shas))
           print(f"Fetched {len(blobs)} unique source blobs with bounded concurrency.")
 
