@@ -42,12 +42,12 @@ jobs:
       - name: Install focused Python dependencies
         run: >-
           python -m pip install --disable-pip-version-check
-          pytest pydantic loguru pillow imageio-ffmpeg edge-tts openai pyyaml playwright
+          pytest pydantic loguru pillow imageio-ffmpeg edge-tts openai pyyaml playwright filelock
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
       - name: Run storage, watcher, and migration browser regressions
         run: |
           python -m pytest -q
-          tests/test_asset_catalog.py
-          tests/test_film_external_watch_history.py
-          tests/test_film_studio_migration_preview_browser.py
+            tests/test_asset_catalog.py
+            tests/test_film_external_watch_history.py
+            tests/test_film_studio_migration_preview_browser.py

@@ -15,3 +15,5 @@ playwright>=1.40
 pytest>=7.4
 # HTTPX optional dependency required when the runner uses a SOCKS proxy.
 socksio==1.0.0
+# Cross-process transaction locks used by generation and asset catalog.
+filelock>=3.13
