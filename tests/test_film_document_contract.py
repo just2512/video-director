@@ -188,6 +188,43 @@ def test_locked_track_rejects_edits():
         fd.apply_ops(doc,[{"op":"set","clip":"clip-a","field":"volume","value":0.5}])
 
 
+def test_track_flag_operations_round_trip_all_supported_flags():
+    doc = fd.parse_film(SAMPLE)
+    edited, normalized = fd.apply_ops(doc, [
+        {"op": "track", "track_id": "video-main", "field": "locked", "value": True},
+        {"op": "track", "track_id": "audio-bed", "field": "hidden", "value": True},
+        {"op": "track", "track_id": "audio-bed", "field": "muted", "value": True},
+        {"op": "track", "track_id": "audio-bed", "field": "sync-lock", "value": True},
+    ])
+    tracks = {track["id"]: track for track in edited["tracks"]}
+    assert "locked" in tracks["video-main"]["attrs"]
+    assert all(flag in tracks["audio-bed"]["attrs"] for flag in ("hidden", "muted", "sync-lock"))
+    assert [(op["field"], op["value"]) for op in normalized] == [
+        ("locked", True), ("hidden", True), ("muted", True), ("sync-lock", True),
+    ]
+
+    reparsed = fd.parse_film(fd.serialize_film(edited))
+    round_tripped = {track["id"]: track for track in reparsed["tracks"]}
+    assert all(flag in round_tripped["audio-bed"]["attrs"] for flag in ("hidden", "muted", "sync-lock"))
+
+
+def test_track_flag_batch_rejects_invalid_flags_atomically():
+    doc = fd.parse_film(SAMPLE)
+    before = fd.serialize_film(doc)
+    with pytest.raises(fd.FilmError, match="轨道属性只允许"):
+        fd.apply_ops(doc, [
+            {"op": "track", "track_id": "video-main", "field": "locked", "value": True},
+            {"op": "track", "track_id": "audio-bed", "field": "unknown", "value": True},
+        ])
+    assert fd.serialize_film(doc) == before
+
+    with pytest.raises(fd.FilmError, match="轨道属性只允许"):
+        fd.apply_ops(doc, [
+            {"op": "track", "track_id": "video-main", "field": "muted", "value": "true"},
+        ])
+    assert fd.serialize_film(doc) == before
+
+
 def test_overlap_failure_does_not_mutate_original_document():
     doc=fd.parse_film(SAMPLE);before=fd.serialize_film(doc)
     with pytest.raises(fd.FilmError,match="重叠"):
