@@ -1,0 +1,53 @@
+name: Focused storage and external-edit regression
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "video_director/asset_catalog.py"
+      - "video_director/film_watch.py"
+      - "video_director/film_document.py"
+      - "video_director/project_lock.py"
+      - "webui/server.py"
+      - "tests/test_asset_catalog.py"
+      - "tests/test_film_external_watch_history.py"
+      - "tests/test_film_studio_migration_preview_browser.py"
+      - ".github/workflows/focused-storage-watch.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: focused-storage-watch-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  focused-storage-watch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install native media dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk
+      - name: Install focused Python dependencies
+        run: >-
+          python -m pip install --disable-pip-version-check
+          pytest pydantic loguru pillow imageio-ffmpeg edge-tts openai pyyaml playwright
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Run storage, watcher, and migration browser regressions
+        run: |
+          python -m pytest -q
+          tests/test_asset_catalog.py
+          tests/test_film_external_watch_history.py
+          tests/test_film_studio_migration_preview_browser.py
