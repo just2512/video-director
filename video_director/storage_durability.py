@@ -30,26 +30,37 @@ def fsync_directory(path: str | Path) -> bool:
     return True
 
 
+def posix_atomic_replace(source: str | Path, destination: str | Path) -> bool:
+    """Replace a sibling file and fsync its parent directory on POSIX."""
+    source_path = Path(source)
+    destination_path = Path(destination)
+    os.replace(source_path, destination_path)
+    return fsync_directory(destination_path.parent)
+
+
+def windows_atomic_replace(source: str | Path, destination: str | Path) -> bool:
+    """Replace a sibling file with native MOVEFILE_WRITE_THROUGH semantics."""
+    import ctypes
+
+    source_path = Path(source)
+    destination_path = Path(destination)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    move_file_ex = kernel32.MoveFileExW
+    move_file_ex.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong]
+    move_file_ex.restype = ctypes.c_int
+    flags = 0x00000001 | 0x00000008  # MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+    if not move_file_ex(str(source_path), str(destination_path), flags):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return True
+
+
 def atomic_replace(source: str | Path, destination: str | Path) -> bool:
-    """Atomically replace a sibling file and confirm its directory entry is durable.
+    """Dispatch to POSIX directory fsync or Windows native write-through rename.
 
     Returns False only when the POSIX rename succeeded but directory fsync could
     not be confirmed. Callers must then keep their higher-level transaction
     recoverable and must not submit a paid provider request or mark output done.
     """
-    source_path = Path(source)
-    destination_path = Path(destination)
     if os.name == "nt":
-        import ctypes
-
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        move_file_ex = kernel32.MoveFileExW
-        move_file_ex.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_ulong]
-        move_file_ex.restype = ctypes.c_int
-        flags = 0x00000001 | 0x00000008  # MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
-        if not move_file_ex(str(source_path), str(destination_path), flags):
-            raise ctypes.WinError(ctypes.get_last_error())
-        return True
-
-    os.replace(source_path, destination_path)
-    return fsync_directory(destination_path.parent)
+        return windows_atomic_replace(source, destination)
+    return posix_atomic_replace(source, destination)

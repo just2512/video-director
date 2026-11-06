@@ -27,7 +27,7 @@ from PIL import Image, ImageChops, ImageStat
 
 from video_director import config
 from video_director import film_document as fd
-from video_director.storage_durability import atomic_replace, fsync_directory
+from video_director.storage_durability import fsync_directory, posix_atomic_replace, windows_atomic_replace
 
 def _is_windows_platform() -> bool:
     return os.name == "nt"
@@ -46,7 +46,10 @@ def _windows_move_file(source: Path, destination: Path, flags: int) -> None:
 
 def _atomic_replace(source: Path, destination: Path) -> None:
     """Use the shared POSIX fsync / Windows write-through atomic replacement."""
-    if not atomic_replace(source, destination):
+    if _is_windows_platform():
+        windows_atomic_replace(source, destination)
+        return
+    if not posix_atomic_replace(source, destination):
         raise OSError("render artifact directory durability could not be confirmed")
 
 
