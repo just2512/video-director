@@ -11,3 +11,5 @@ Own the generation task lifecycle and durable persistence contract:
 Primary regression gate: `tests/test_generation_recovery.py`, `tests/test_generation_gap1.py`, `tests/test_film_transaction_recovery.py`, `tests/test_project_manifest.py`.
 
 Avoid timeline UI files. Changes to shared persistence contracts must be documented for the lifecycle workstream.
+
+CI note: this workstream is Python-only; it skips Chromium, FFmpeg, and CJK font installation. Browser/media dependencies are reserved for timeline and lifecycle branches.
