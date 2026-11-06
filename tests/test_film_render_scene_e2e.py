@@ -864,9 +864,9 @@ window.film = {
 def test_migrated_project_external_revision_reopen_look_and_mp4_qc_share_one_revision(
     tmp_path, monkeypatch,
 ):
-    """A migrated project must render/QC the exact externally edited revision after reopen."""
+    """Create → migrate → externally edit → reopen → render/QC one authoritative revision."""
     pytest.importorskip("playwright.sync_api")
-    from video_director import config, film_document as fd, film_render, prober, renderer
+    from video_director import config, film_document as fd, film_render, prober, renderer, store
     from video_director.project_context import inspect_project_context
 
     try:
@@ -876,6 +876,12 @@ def test_migrated_project_external_revision_reopen_look_and_mp4_qc_share_one_rev
 
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
     project_id = "migrated-external-revision-render"
+    store.create_project(project_id, "迁移后外部修订 E2E", {"name": "迁移后外部修订 E2E"})
+    created = next(
+        (row for row in store.list_projects() if row["project_id"] == project_id),
+        None,
+    )
+    assert created is not None and created["stage"] == "CREATED"
     project_root = config.project_dir(project_id)
     assets = project_root / "assets"
     assets.mkdir(parents=True, exist_ok=True)

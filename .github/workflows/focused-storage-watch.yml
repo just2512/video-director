@@ -19,6 +19,7 @@ on:
       - "tests/test_project_manifest.py"
       - "tests/test_storage_durability.py"
       - "tests/test_film_render_publication_transaction.py"
+      - "tests/test_film_render_scene_e2e.py"
       - "tests/test_film_external_watch_history.py"
       - "tests/test_film_studio_migration_preview_browser.py"
       - ".github/workflows/focused-storage-watch.yml"
@@ -64,4 +65,5 @@ jobs:
             tests/test_storage_durability.py \
             tests/test_film_external_watch_history.py \
             tests/test_film_render_publication_transaction.py \
+            tests/test_film_render_scene_e2e.py::test_migrated_project_external_revision_reopen_look_and_mp4_qc_share_one_revision \
             tests/test_film_studio_migration_preview_browser.py
