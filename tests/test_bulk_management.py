@@ -72,9 +72,11 @@ def test_workflow_reconcile_marks_running_interrupted_and_project_failed(isolate
 
 
 def test_asset_bulk_delete_rejects_used_asset_then_deletes_unused(isolated_storage, tmp_path):
-    unused_file = tmp_path / "unused.png"
+    library_local = asset_catalog.library_root() / "local"
+    library_local.mkdir(parents=True, exist_ok=True)
+    unused_file = library_local / "local-unused.png"
     unused_file.write_bytes(b"png-placeholder")
-    used_file = tmp_path / "used.png"
+    used_file = library_local / "local-used.png"
     used_file.write_bytes(b"png-placeholder-2")
     catalog = {
         "local-unused": {

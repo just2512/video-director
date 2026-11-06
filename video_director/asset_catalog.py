@@ -142,9 +142,13 @@ def _validated_thumbnail_path(asset_id: str) -> Path:
     if not isinstance(asset_id, str) or not _ASSET_ID_RE.fullmatch(asset_id):
         raise AssetLibraryError("ASSET_PATH_INVALID", "素材 ID 格式非法，已拒绝访问缩略图")
     root = library_root()
+    if root.is_symlink():
+        raise AssetLibraryError("ASSET_PATH_INVALID", "素材库根目录是符号链接")
     thumb_dir = root / "thumbnails"
+    if thumb_dir.is_symlink():
+        raise AssetLibraryError("ASSET_PATH_INVALID", "缩略图目录是符号链接")
     thumb_dir.mkdir(parents=True, exist_ok=True)
-    if root.is_symlink() or thumb_dir.is_symlink() or not thumb_dir.is_dir():
+    if thumb_dir.is_symlink() or not thumb_dir.is_dir():
         raise AssetLibraryError("ASSET_PATH_INVALID", "缩略图目录不安全")
     thumb = thumb_dir / f"{asset_id}.jpg"
     if thumb.is_symlink():
@@ -153,14 +157,27 @@ def _validated_thumbnail_path(asset_id: str) -> Path:
 
 
 def _load_catalog() -> dict:
+    """读取素材台账；损坏/不可读时必须失败，绝不能伪装成空库。"""
     p = _catalog_path()
-    if not p.is_file():
+    try:
+        if p.is_symlink():
+            raise AssetLibraryError("CATALOG_UNSAFE", "素材台账不能是符号链接")
+        mode = p.lstat().st_mode
+    except FileNotFoundError:
         return {}
+    except OSError as exc:
+        raise AssetLibraryError("CATALOG_UNREADABLE", f"无法检查素材台账：{exc}") from exc
+    if not stat.S_ISREG(mode):
+        raise AssetLibraryError("CATALOG_UNSAFE", "素材台账不是普通文件")
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError):
-        return {}
+    except json.JSONDecodeError as exc:
+        raise AssetLibraryError("CATALOG_CORRUPT", f"素材台账 JSON 已损坏：{exc}") from exc
+    except OSError as exc:
+        raise AssetLibraryError("CATALOG_UNREADABLE", f"素材台账不可读：{exc}") from exc
+    if not isinstance(data, dict):
+        raise AssetLibraryError("CATALOG_CORRUPT", "素材台账顶层结构必须是对象")
+    return data
 
 
 @contextmanager

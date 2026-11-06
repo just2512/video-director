@@ -393,7 +393,7 @@ class TestAssetLibrary:
 
         result = ac.delete_asset(entry["asset_id"])
         assert result["ok"] is False
-        assert result["code"] == "ASSET_USAGE_UNKNOWN"
+        assert result["code"] == "ASSET_PATH_INVALID"
         assert ac.get_asset(entry["asset_id"]) is not None
         stored_path = Path(entry["file"])
         assert (external_root / stored_path.relative_to(original_root)).is_file()
@@ -548,3 +548,51 @@ class TestAssetCatalogCrossProcess:
         assert stored[first["asset_id"]]["description"] == "first-process"
         assert stored[second["asset_id"]]["description"] == "second-process"
 
+
+
+def test_load_catalog_rejects_corrupt_json_without_replacing_it(monkeypatch, tmp_path):
+    from video_director import asset_catalog as ac
+
+    catalog = tmp_path / "catalog.json"
+    original = b'{"preserve": '
+    catalog.write_bytes(original)
+    monkeypatch.setattr(ac, "_catalog_path", lambda: catalog)
+
+    with pytest.raises(ac.AssetLibraryError) as exc:
+        ac._load_catalog()
+
+    assert exc.value.code == "CATALOG_CORRUPT"
+    assert catalog.read_bytes() == original
+
+
+def test_load_catalog_rejects_non_object_schema(monkeypatch, tmp_path):
+    from video_director import asset_catalog as ac
+
+    catalog = tmp_path / "catalog.json"
+    catalog.write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(ac, "_catalog_path", lambda: catalog)
+
+    with pytest.raises(ac.AssetLibraryError) as exc:
+        ac._load_catalog()
+
+    assert exc.value.code == "CATALOG_CORRUPT"
+    assert catalog.read_text(encoding="utf-8") == "[]"
+
+
+def test_load_catalog_rejects_symlink_without_reading_target(monkeypatch, tmp_path):
+    from video_director import asset_catalog as ac
+
+    target = tmp_path / "external-catalog.json"
+    target.write_text('{"external": true}', encoding="utf-8")
+    catalog = tmp_path / "catalog.json"
+    try:
+        catalog.symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("当前运行环境不支持创建符号链接")
+    monkeypatch.setattr(ac, "_catalog_path", lambda: catalog)
+
+    with pytest.raises(ac.AssetLibraryError) as exc:
+        ac._load_catalog()
+
+    assert exc.value.code == "CATALOG_UNSAFE"
+    assert target.read_text(encoding="utf-8") == '{"external": true}'
