@@ -10,6 +10,7 @@ from typing import Callable, Iterable
 
 from video_director import config
 from video_director.project_lock import project_lock, validate_project_id
+from video_director.storage_durability import atomic_replace
 
 
 class ProjectManifestError(RuntimeError):
@@ -99,7 +100,8 @@ def _write_atomic(path: Path, entries: list[dict]) -> None:
         # Check again immediately before replacing the destination.
         if path.parent.is_symlink() or path.is_symlink():
             raise ProjectManifestError("项目素材清单路径不安全，已拒绝替换")
-        os.replace(temp, path)
+        if not atomic_replace(temp, path):
+            raise ProjectManifestError("项目素材清单已原子替换，但目录持久化未确认；请安全重试")
     except Exception:
         try:
             temp.unlink(missing_ok=True)

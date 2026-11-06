@@ -32,6 +32,7 @@ from typing import List, Optional
 from loguru import logger
 
 from video_director import config
+from video_director.storage_durability import atomic_replace, fsync_directory
 
 
 class GenerationError(Exception):
@@ -170,7 +171,11 @@ def _save_jobs(project_id: str, jobs: dict) -> None:
             handle.write(json.dumps(jobs, ensure_ascii=False, indent=2))
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(str(temporary), str(path))
+        if not atomic_replace(temporary, path):
+            raise GenerationError(
+                "VIDEO_JOB_DURABILITY_UNCONFIRMED",
+                "视频任务预留记录已原子替换，但目录持久化未确认；为避免重复付费，已停止供应商提交",
+            )
     finally:
         try:
             temporary.unlink(missing_ok=True)
@@ -339,9 +344,15 @@ def _persist_video_output(project_id: str, job_id: str, out_file: str, url: str)
     target = _validated_video_output_path(project_id, out_file)
     with _video_output_lock(project_id, job_id):
         current = _load_jobs(project_id).get(job_id, {})
-        if (current.get("output_commit_protocol") == "atomic-v1"
+        if (current.get("output_commit_protocol") == "atomic-v2"
                 and target.is_file() and target.stat().st_size > 0):
             # Covers a crash after atomic replace but before the terminal status write.
+            # Reconfirm the directory entry before promoting the job to done.
+            if not fsync_directory(target.parent):
+                raise GenerationError(
+                    "VIDEO_OUTPUT_DURABILITY_UNCONFIRMED",
+                    "视频文件已存在，但输出目录持久化未确认；任务保持 downloading，等待恢复重试",
+                )
             _update_job(project_id, job_id, {
                 "status": "done", "output_file": str(target),
                 "recovery_needs_registration": True,
@@ -350,7 +361,7 @@ def _persist_video_output(project_id: str, job_id: str, out_file: str, url: str)
         _update_job(project_id, job_id, {
             "status": "downloading",
             "output_file": str(target),
-            "output_commit_protocol": "atomic-v1",
+            "output_commit_protocol": "atomic-v2",
         })
         # Never write through a predictable "<target>.part" path: a stale or
         # attacker-planted symlink there could redirect provider bytes outside
@@ -368,7 +379,11 @@ def _persist_video_output(project_id: str, job_id: str, out_file: str, url: str)
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(str(temporary), str(target))
+            if not atomic_replace(temporary, target):
+                raise GenerationError(
+                    "VIDEO_OUTPUT_DURABILITY_UNCONFIRMED",
+                    "视频文件已原子替换，但输出目录持久化未确认；任务保持 downloading，等待恢复重试",
+                )
             _update_job(project_id, job_id, {
                 "status": "done", "output_file": str(target),
                 "recovery_needs_registration": True,
@@ -972,7 +987,7 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
         if (reusable
                 and reusable.get("status") == "done"
                 and reusable.get("recovery_needs_registration") is True
-                and reusable.get("output_commit_protocol") == "atomic-v1"):
+                and reusable.get("output_commit_protocol") == "atomic-v2"):
             candidate = Path(reusable.get("output_file") or "")
             if candidate.is_file() and candidate.stat().st_size > 0:
                 recovered_file = candidate

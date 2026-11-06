@@ -188,7 +188,7 @@ class TestRecoverPendingVideoJobs:
         gen._update_job(pid, "genjob-after-replace", {
             "provider_task_id": "ext-task-z", "gen_type": "video",
             "status": "downloading", "output_file": str(out_file),
-            "output_commit_protocol": "atomic-v1",
+            "output_commit_protocol": "atomic-v2",
         })
         monkeypatch.setattr(
             gen, "_download_bytes",
@@ -426,7 +426,7 @@ class TestFingerprintReuse:
             "provider_task_id": "provider-task-expired",
             "gen_type": "video", "input_fingerprint": input_fp,
             "variant": "A", "status": "done", "output_file": str(out_file),
-            "output_commit_protocol": "atomic-v1",
+            "output_commit_protocol": "atomic-v2",
             "recovery_needs_registration": True,
             "manifest_registered": False,
         })
@@ -638,7 +638,7 @@ class TestConcurrentVideoSubmission:
         assert predictable_part.is_symlink()
         job = gen._load_jobs(project_id)["job-part-symlink"]
         assert job["status"] == "done"
-        assert job["output_commit_protocol"] == "atomic-v1"
+        assert job["output_commit_protocol"] == "atomic-v2"
 
     def test_ambiguous_transport_failure_does_not_try_second_provider_endpoint(
         self, tmp_path, monkeypatch

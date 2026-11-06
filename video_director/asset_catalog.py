@@ -38,6 +38,7 @@ from typing import List, Optional
 from loguru import logger
 
 from video_director import config
+from video_director.storage_durability import atomic_replace
 
 _CATALOG_THREAD_LOCK = threading.RLock()
 
@@ -276,7 +277,11 @@ def _save_catalog(catalog: dict) -> None:
             handle.write(json.dumps(catalog, ensure_ascii=False, indent=2))
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(str(temporary), str(path))
+        if not atomic_replace(temporary, path):
+            raise AssetLibraryError(
+                "CATALOG_DURABILITY_UNCONFIRMED",
+                "素材库台账已原子替换，但目录持久化未确认；请安全重试",
+            )
     finally:
         try:
             temporary.unlink(missing_ok=True)

@@ -27,6 +27,7 @@ from PIL import Image, ImageChops, ImageStat
 
 from video_director import config
 from video_director import film_document as fd
+from video_director.storage_durability import atomic_replace, fsync_directory
 
 def _is_windows_platform() -> bool:
     return os.name == "nt"
@@ -44,14 +45,9 @@ def _windows_move_file(source: Path, destination: Path, flags: int) -> None:
 
 
 def _atomic_replace(source: Path, destination: Path) -> None:
-    """Atomically replace a sibling file and request durable rename semantics."""
-    source = Path(source)
-    destination = Path(destination)
-    if not _is_windows_platform():
-        os.replace(source, destination)
-        return
-    # Same-volume sibling renames only: no COPY_ALLOWED fallback.
-    _windows_move_file(source, destination, 0x00000001 | 0x00000008)
+    """Use the shared POSIX fsync / Windows write-through atomic replacement."""
+    if not atomic_replace(source, destination):
+        raise OSError("render artifact directory durability could not be confirmed")
 
 
 def _durable_unlink(path: Path) -> None:
@@ -108,15 +104,8 @@ def _validate_render_backup(path: Path, expected: object) -> None:
 
 def _fsync_directory(path: Path) -> None:
     """Persist directory-entry changes where the platform exposes directory fsync."""
-    if os.name == "nt":
-        # Python/Windows does not expose a portable directory fsync operation.
-        return
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    descriptor = os.open(Path(path), flags)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    if not fsync_directory(path):
+        raise OSError(f"directory fsync could not be confirmed: {path}")
 
 
 FPS_DEFAULT = 30
