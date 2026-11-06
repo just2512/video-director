@@ -113,7 +113,19 @@ def _cached_runtime_report(template) -> dict:
     # key 必须含 runtime 声明内容：同 id+version 的模板可能被上层替换 runtime
     # （测试 replace()、未来热更新），只按 id+version 缓存会命中旧报告。
     runtime = template.runtime or {}
-    key = (str(template.id), str(template.version), repr(sorted(runtime.items())))
+    # Runtime readiness depends on installed host tools, not only registry metadata.
+    # Include resolved dependencies in the key so installing/updating FFmpeg or a
+    # CJK font does not leave a stale BLOCKED report cached for the life of the process.
+    from video_director import title_engine
+    dependency_state = (
+        str(prober._resolve_ffmpeg() or ""),
+        str(prober._resolve_ffprobe() or ""),
+        str(title_engine.find_cjk_font() or ""),
+    )
+    key = (
+        str(template.id), str(template.version), repr(sorted(runtime.items())),
+        dependency_state,
+    )
     with _RUNTIME_REPORT_LOCK:
         if key not in _RUNTIME_REPORT_CACHE:
             _RUNTIME_REPORT_CACHE[key] = template_runtime_report(template)
