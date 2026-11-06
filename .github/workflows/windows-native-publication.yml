@@ -1,0 +1,33 @@
+name: Windows native publication regression
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: video-director-windows-native-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-native-publication:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install isolated test dependencies
+        run: python -m pip install --disable-pip-version-check pytest pillow
+      - name: Exercise real MoveFileExW write-through replace and durable delete
+        run: >-
+          python -m pytest -q
+          tests/test_film_render_publication_transaction.py::test_windows_write_through_replace_and_delete_round_trip
