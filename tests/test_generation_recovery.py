@@ -123,6 +123,47 @@ class TestVideoJobPersistence:
         assert fake.get_calls >= 2  # 至少轮询过一次非终态
 
 
+
+    def test_terminal_job_status_cannot_be_reopened(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+
+        pid = "proj-terminal-immutable"
+        config.init_project_dirs(config.project_dir(pid))
+        for terminal in ("done", "failed", "submission_rejected", "cancelled"):
+            job_id = f"job-{terminal}"
+            gen._update_job(pid, job_id, {"status": terminal})
+            with pytest.raises(gen.GenerationError) as exc:
+                gen._update_job(pid, job_id, {"status": "running"})
+            assert exc.value.code == "VIDEO_JOB_TERMINAL"
+            assert gen._load_jobs(pid)[job_id]["status"] == terminal
+
+    def test_late_running_poll_cannot_downgrade_job_completed_by_another_worker(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import config, generation as gen
+
+        pid = "proj-terminal-race"
+        config.init_project_dirs(config.project_dir(pid))
+        gen._update_job(pid, "job-race", {
+            "provider_task_id": "provider-race",
+            "gen_type": "video",
+            "status": "running",
+        })
+
+        def complete_during_poll(_client, _task_id):
+            gen._update_job(pid, "job-race", {"status": "done", "manifest_registered": True})
+            return "running", None, {"status": "running"}
+
+        monkeypatch.setattr(gen, "_query_video_status", complete_during_poll)
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: FakeVideoClient(["queued"]))
+
+        assert gen.recover_pending_video_jobs(pid) == []
+        assert gen._load_jobs(pid)["job-race"]["status"] == "done"
+        assert gen._load_jobs(pid)["job-race"]["manifest_registered"] is True
+
 class TestRecoverPendingVideoJobs:
     """任务 A：模拟重启——读 jobs 文件接续外部任务。"""
 
