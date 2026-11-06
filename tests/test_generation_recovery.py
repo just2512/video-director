@@ -912,7 +912,7 @@ class TestGenerationJobLedgerIntegrity:
 
         assert caught.value.code == "VIDEO_JOB_STORE_UNSAFE"
         assert outside.read_bytes() == original
-\n
+
 
 class TestGenerationJobLedgerAtomicWrite:
     def test_failed_replace_preserves_previous_job_ledger_and_cleans_temp(
