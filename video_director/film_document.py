@@ -2805,6 +2805,86 @@ def _history_write(project_id: str, state: dict):
     _write_atomic(_history_path(project_id), json.dumps(state, ensure_ascii=False, separators=(",", ":")))
 
 
+def _transaction_path(project_id: str) -> Path:
+    return _project_root(project_id) / ".film-transaction.json"
+
+
+def _recover_film_transaction(project_id: str) -> None:
+    """Idempotently finish a film/history pair after an interrupted process."""
+    journal = _transaction_path(project_id)
+    if journal.is_symlink():
+        raise FilmError("FILM_TRANSACTION_UNSAFE", "影片事务日志是符号链接，拒绝恢复", 500)
+    if not journal.exists():
+        return
+    if not journal.is_file():
+        raise FilmError("FILM_TRANSACTION_UNSAFE", "影片事务日志不是普通文件，拒绝恢复", 500)
+    try:
+        payload = json.loads(journal.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise FilmError("FILM_TRANSACTION_CORRUPT", f"影片事务日志损坏，拒绝覆盖：{exc}", 500) from exc
+    if (not isinstance(payload, dict) or payload.get("version") != 1
+            or payload.get("project_id") != validate_project_id(project_id)
+            or not isinstance(payload.get("film_text"), str)
+            or not isinstance(payload.get("history"), dict)
+            or not isinstance(payload["history"].get("past"), list)
+            or not isinstance(payload["history"].get("future"), list)
+            or not isinstance(payload.get("before_rev"), str)
+            or not isinstance(payload.get("after_rev"), str)):
+        raise FilmError("FILM_TRANSACTION_CORRUPT", "影片事务日志结构无效，拒绝覆盖", 500)
+    film_text = payload["film_text"]
+    if revision_of(film_text) != payload["after_rev"]:
+        raise FilmError("FILM_TRANSACTION_CORRUPT", "影片事务日志 revision 不匹配，拒绝恢复", 500)
+    parse_film(film_text)
+    path = _film_path(project_id)
+    if not _film_path_is_regular(path):
+        raise FilmError("FILM_TRANSACTION_CONFLICT", "恢复期间 film.html 不存在或路径不安全", 409)
+    current_text = path.read_text(encoding="utf-8")
+    current_rev = revision_of(current_text)
+    if current_rev not in {payload["before_rev"], payload["after_rev"]}:
+        raise FilmError("FILM_TRANSACTION_CONFLICT", "film.html 已被事务之外的修改改变；保留事务日志并拒绝覆盖", 409)
+    if current_rev != payload["after_rev"]:
+        _write_atomic(path, film_text)
+    _history_write(project_id, payload["history"])
+    journal.unlink()
+    try:
+        descriptor = os.open(str(journal.parent), os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        # Directory fsync is not available on every supported platform.
+        pass
+
+
+def _commit_film_transaction(project_id: str, before_text: str, after_text: str, history: dict) -> None:
+    """Persist redo intent first, then atomically replace each member of the pair."""
+    parse_film(after_text)
+    payload = {
+        "version": 1,
+        "project_id": validate_project_id(project_id),
+        "before_rev": revision_of(before_text),
+        "after_rev": revision_of(after_text),
+        "film_text": after_text,
+        "history": history,
+    }
+    journal = _transaction_path(project_id)
+    if journal.exists() or journal.is_symlink():
+        raise FilmError("FILM_TRANSACTION_PENDING", "存在未恢复的影片事务，拒绝启动新写入", 409)
+    _write_atomic(journal, json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    _write_atomic(_film_path(project_id), after_text)
+    _history_write(project_id, history)
+    journal.unlink()
+    try:
+        descriptor = os.open(str(journal.parent), os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        pass
+
+
 def record_external_film_revision(
     project_id: str, before_text: str, after_text: str, *, source: str = "external_file"
 ) -> dict:
@@ -2824,6 +2904,7 @@ def record_external_film_revision(
         return {"status": "unchanged", "revision": after_revision}
 
     with project_lock(pid):
+        _recover_film_transaction(pid)
         path = _film_path(pid)
         try:
             if not _film_path_is_regular(path):
@@ -3401,6 +3482,7 @@ def edit_project_film(
     pid = validate_project_id(project_id)
     source_label = str(source or "api").strip()[:80] or "api"
     with project_lock(pid):
+        _recover_film_transaction(pid)
         current = read_project_film(pid)
         if not current["exists"]:
             raise FilmError("FILM_NOT_INITIALIZED", "当前项目还没有 film.html，请先初始化影片文档", 409)
@@ -3421,8 +3503,7 @@ def edit_project_film(
                                 "source": source_label, "ops": normalized})
         history["past"] = history["past"][-200:]
         history["future"] = []
-        _write_atomic(_film_path(pid), updated)
-        _history_write(pid, history)
+        _commit_film_transaction(pid, current["text"], updated, history)
         return {"ok": True, "project_id": pid, "rev": revision_of(updated), "base": base,
                 "rebased": bool(base and base != current["rev"]), "document": doc,
                 "ops": normalized, "source": source_label}
@@ -3433,6 +3514,7 @@ def undo_redo_project_film(project_id: str, base: str | None, action: str) -> di
     if action not in {"undo", "redo"}:
         raise FilmError("INVALID_HISTORY_ACTION", "action 必须是 undo 或 redo")
     with project_lock(pid):
+        _recover_film_transaction(pid)
         current = read_project_film(pid)
         if not current["exists"]:
             raise FilmError("FILM_NOT_INITIALIZED", "当前项目还没有 film.html", 409)
@@ -3449,8 +3531,7 @@ def undo_redo_project_film(project_id: str, base: str | None, action: str) -> di
         parse_film(text)
         source.pop()
         destination.append(entry)
-        _write_atomic(_film_path(pid), text)
-        _history_write(pid, history)
+        _commit_film_transaction(pid, current["text"], text, history)
         return {"ok": True, "project_id": pid, "rev": revision_of(text), "document": parse_film(text), "action": action}
 
 
@@ -5952,6 +6033,7 @@ def initialize_project_film(project_id: str, document: dict, pages: dict[str, st
     text = serialize_film(document)
     parse_film(text)
     with project_lock(pid):
+        _recover_film_transaction(pid)
         path = _film_path(pid)
         try:
             path.lstat()
