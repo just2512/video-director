@@ -402,7 +402,8 @@ def test_apply_proposal_uses_server_registered_operations_not_request_ops():
     server = (root / "webui" / "server.py").read_text(encoding="utf-8")
     client = (root / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
     assert '_FILM_PROPOSALS.put(proposal["id"], pid, state["rev"], normalized)' in server
-    assert '_FILM_PROPOSALS.take(pid, proposal_id, base_revision)' in server
+    assert '_FILM_PROPOSALS.get(pid, proposal_id, base_revision)' in server
+    assert '_FILM_PROPOSALS.discard(pid, proposal_id)' in server
     apply_route = server.split('if route == "/api/editor/film/apply-proposal":', 1)[1].split(
         'except fd.FilmError', 1
     )[0]

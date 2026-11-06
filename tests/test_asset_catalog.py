@@ -352,8 +352,7 @@ class TestAssetLibrary:
         assert result["ok"] is False
         assert result["code"] == "ASSET_USAGE_UNKNOWN"
         assert ac.get_asset(entry["asset_id"]) is not None
-        stored_path = Path(entry["file"])
-        assert (external_root / stored_path.relative_to(original_root)).is_file()
+        assert Path(entry["file"]).is_file()
 
 
 
@@ -396,7 +395,8 @@ class TestAssetLibrary:
         assert result["ok"] is False
         assert result["code"] == "ASSET_USAGE_UNKNOWN"
         assert ac.get_asset(entry["asset_id"]) is not None
-        assert Path(entry["file"]).is_file()
+        stored_path = Path(entry["file"])
+        assert (external_root / stored_path.relative_to(original_root)).is_file()
 
 
     def test_list_filters(self, _iso, fixtures):

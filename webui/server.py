@@ -1670,10 +1670,23 @@ class Handler(BaseHTTPRequestHandler):
                 # Keep the proposal available if the document transaction fails (for
                 # example, a transient disk error). The revision guard serializes
                 # concurrent confirmations; consume only after a successful commit.
-                result = fd.edit_project_film(
-                    pid, approved["base_revision"], approved["operations"],
-                    require_base=True, source="ai_proposal",
-                )
+                try:
+                    result = fd.edit_project_film(
+                        pid, approved["base_revision"], approved["operations"],
+                        require_base=True, source="ai_proposal",
+                    )
+                except fd.FilmError as exc:
+                    # A competing approval may commit after get() but before this
+                    # transaction acquires the document lock. That makes this
+                    # proposal stale, not a generic client revision conflict.
+                    if exc.code != "REVISION_CONFLICT":
+                        raise
+                    _FILM_PROPOSALS.discard(pid, proposal_id)
+                    raise fd.FilmError(
+                        "PROPOSAL_NOT_FOUND_OR_STALE",
+                        "该 AI 提案已被应用或影片已变化；请重新生成提案。",
+                        409,
+                    ) from exc
                 _FILM_PROPOSALS.discard(pid, proposal_id)
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"],
