@@ -44,6 +44,21 @@ def find_cjk_font() -> Optional[str]:
         if Path(f).is_file():
             _FONT_CACHE = f
             return f
+
+    # Fontconfig may install the requested CJK family outside the legacy
+    # distro-specific path above. Resolve the actual file rather than treating
+    # a registered font family as absent (or passing a family name to FFmpeg).
+    try:
+        resolved = subprocess.run(
+            ["fc-match", "-f", "%{file}", ":lang=zh-cn"],
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout.strip()
+        if resolved and Path(resolved).is_file():
+            _FONT_CACHE = resolved
+            return resolved
+    except (OSError, subprocess.SubprocessError):
+        pass
+
     _FONT_CACHE = ""
     return None
 

@@ -676,12 +676,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "code": "TEMPLATE_NOT_FOUND",
                                  "error": str(exc)}, 404)
                 return
-            runtime = template_runtime_report(template)
-            if not runtime["can_render"]:
-                self._send_json({"ok": False, "code": "RUNTIME_BLOCKED",
-                                 "error": "当前模板的运行依赖/能力门禁未通过，未生成假样片。",
-                                 "runtime": runtime}, 422)
-                return
             from video_director.registries.runtime import template_input_issues
             # Multipart field names are untrusted. Only declared image/video slots may
             # receive files; otherwise a crafted name such as "../../outside_file"
@@ -713,8 +707,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({
                     "ok": False, "code": "REQUIRED_INPUT_MISSING",
                     "error": "必填槽位未完成，尚未运行样片。",
-                    "missing_inputs": input_issues, "runtime": runtime,
+                    "missing_inputs": input_issues,
                 }, 400)
+                return
+
+            # Validate all untrusted multipart names and required inputs before
+            # checking renderer availability. A blocked runtime must not mask a
+            # malformed upload slot (or weaken the security contract).
+            runtime = template_runtime_report(template)
+            if not runtime["can_render"]:
+                self._send_json({"ok": False, "code": "RUNTIME_BLOCKED",
+                                 "error": "当前模板的运行依赖/能力门禁未通过，未生成假样片。",
+                                 "runtime": runtime}, 422)
                 return
 
             assets = {}

@@ -294,7 +294,15 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                 assert film_path.read_bytes() != initial_bytes
 
                 # One undo restores the complete source document, including exact HTML bytes.
-                page.locator('[data-film-action="undo"]:visible').click()
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/undo"),
+                    timeout=10000,
+                ) as undo_response:
+                    page.locator('[data-film-action="undo"]:visible').click()
+                assert undo_response.value.status == 200
+                undo_payload = undo_response.value.json()
+                assert undo_payload.get("action") == "undo", undo_payload
                 wait_for_consistent_state(later_present=True, after_at=6)
                 assert film_path.read_bytes() == initial_bytes
                 restored = fd.read_project_film(project_id)
@@ -334,7 +342,15 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                 assert film_path.read_bytes() != initial_bytes
 
                 # Undo must also restore all tracks together, not just the video selection.
-                page.locator('[data-film-action="undo"]:visible').click()
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/undo"),
+                    timeout=10000,
+                ) as undo_response:
+                    page.locator('[data-film-action="undo"]:visible').click()
+                assert undo_response.value.status == 200
+                undo_payload = undo_response.value.json()
+                assert undo_payload.get("action") == "undo", undo_payload
                 wait_for_consistent_state(later_present=True, after_at=6)
                 assert film_path.read_bytes() == initial_bytes
                 assert not page_errors, page_errors

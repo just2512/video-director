@@ -38,7 +38,7 @@ jobs:
       - name: Install native media dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-cjk
+          sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
       - name: Install focused Python dependencies
         run: >-
           python -m pip install --disable-pip-version-check
