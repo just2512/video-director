@@ -57,7 +57,8 @@ jobs:
             tests/test_film_studio_external_watch_browser.py \
             tests/test_editor_command_project_switch_browser.py \
             tests/test_visual_overlay_timeline.py \
-            tests/test_audio_clip_timeline.py
+            tests/test_audio_clip_timeline.py \
+            tests/test_film_studio_insert_browser.py
       - name: Project lifecycle end-to-end
         if: startsWith(github.ref_name, 'work/lifecycle-e2e')
         run: |
