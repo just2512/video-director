@@ -398,6 +398,14 @@ class TestAssetLibrary:
         stored_path = Path(entry["file"])
         assert (external_root / stored_path.relative_to(original_root)).is_file()
 
+        # The batch endpoint must translate lock-acquisition failures into the
+        # same fail-closed API result rather than leaking an exception.
+        batch_result = ac.delete_assets([entry["asset_id"]])
+        assert batch_result["ok"] is False
+        assert batch_result["code"] == "ASSET_PATH_INVALID"
+        assert ac.get_asset(entry["asset_id"]) is not None
+        assert (external_root / stored_path.relative_to(original_root)).is_file()
+
 
     @pytest.mark.parametrize("batch", [False, True])
     def test_delete_rejects_catalog_payload_outside_library(self, _iso, fixtures, tmp_path, batch):
