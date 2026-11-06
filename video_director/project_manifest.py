@@ -24,7 +24,10 @@ def _validated_manifest_path(project_id: str, *, create_assets: bool = False) ->
     Revalidate after directory creation to close simple path-swap windows.
     """
     pid = validate_project_id(project_id)
-    base = config.project_dir(pid)
+    try:
+        base = config.project_dir(pid)
+    except (OSError, ValueError) as exc:
+        raise ProjectManifestError("项目目录不是可信的普通目录，已拒绝访问") from exc
     if base.is_symlink() or not base.is_dir():
         raise ProjectManifestError("项目目录不是可信的普通目录，已拒绝访问")
     assets = base / "assets"
