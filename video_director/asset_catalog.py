@@ -649,7 +649,20 @@ def asset_usage(asset_id: str) -> List[str]:
 
 
 def delete_asset(asset_id: str, *, require_unused: bool = True) -> dict:
-    """删除全局 Library Asset；被项目引用时硬拒绝。"""
+    """删除全局 Library Asset；路径或锁目录不可信时返回拒绝结果。"""
+    try:
+        return _delete_asset_transaction(asset_id, require_unused=require_unused)
+    except AssetLibraryError as exc:
+        code = exc.code if exc.code == "ASSET_PATH_INVALID" else "ASSET_USAGE_UNKNOWN"
+        return {
+            "ok": False,
+            "code": code,
+            "error": f"素材路径或项目引用无法安全核验，已拒绝删除：{exc}",
+        }
+
+
+def _delete_asset_transaction(asset_id: str, *, require_unused: bool = True) -> dict:
+    """Execute a single-asset deletion while holding the catalog lock."""
     with _catalog_lock():
         catalog = _load_catalog()
         entry = catalog.get(asset_id)
@@ -681,7 +694,20 @@ def delete_asset(asset_id: str, *, require_unused: bool = True) -> dict:
 
 
 def delete_assets(asset_ids: List[str]) -> dict:
-    """批量删除未被项目引用的 Library Asset；先全量预检，任一引用则整批拒绝。"""
+    """批量删除素材；锁目录或存储根不可信时整批拒绝。"""
+    try:
+        return _delete_assets_transaction(asset_ids)
+    except AssetLibraryError as exc:
+        code = exc.code if exc.code == "ASSET_PATH_INVALID" else "ASSET_USAGE_UNKNOWN"
+        return {
+            "ok": False,
+            "code": code,
+            "error": f"无法安全核验素材路径或项目引用，整批删除已拒绝：{exc}",
+        }
+
+
+def _delete_assets_transaction(asset_ids: List[str]) -> dict:
+    """Execute an all-or-nothing preflight and deletion while holding the catalog lock."""
     ids = list(dict.fromkeys(str(x).strip() for x in (asset_ids or []) if str(x).strip()))
     if not ids:
         return {"ok": False, "code": "EMPTY_SELECTION", "error": "未选择素材"}
