@@ -56,6 +56,9 @@ def test_external_agent_edit_enters_shared_history_and_can_undo_redo(tmp_path, m
     assert entry["after_rev"] == fd.revision_of(external)
     assert entry["source"] == "external_file"
     assert entry["ops"] == [{"op": "external_file", "source": "external_file"}]
+    assert watcher._projects[project_id]["last_history_result"] == {
+        "status": "recorded", "revision": fd.revision_of(external)
+    }
     assert events == [("film", {
         "phase": "revision_changed",
         "project_id": project_id,
