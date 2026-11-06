@@ -2872,6 +2872,15 @@ def _commit_film_transaction(project_id: str, before_text: str, after_text: str,
     if journal.exists() or journal.is_symlink():
         raise FilmError("FILM_TRANSACTION_PENDING", "存在未恢复的影片事务，拒绝启动新写入", 409)
     _write_atomic(journal, json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+    # Make the redo intent's directory entry durable before touching film.html.
+    try:
+        descriptor = os.open(str(journal.parent), os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        pass
     _write_atomic(_film_path(project_id), after_text)
     _history_write(project_id, history)
     journal.unlink()
