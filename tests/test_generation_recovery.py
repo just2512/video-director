@@ -1055,3 +1055,30 @@ def test_video_output_rejects_symlinked_project_directory(
 
     assert exc.value.code == "VIDEO_OUTPUT_PATH_UNSAFE"
     assert not (external_dir / "escaped.mp4").exists()
+
+@pytest.mark.parametrize("symlink_component", ["assets", "generated"])
+def test_image_generation_rejects_symlinked_output_directories(
+    tmp_path, monkeypatch, symlink_component,
+):
+    from video_director import config, generation
+
+    storage = tmp_path / "composer"
+    monkeypatch.setattr(config, "composer_storage_root", lambda: storage)
+    project_id = "generation-output-link"
+    project = config.project_dir(project_id)
+    external = tmp_path / "external-output"
+    external.mkdir()
+
+    assets = project / "assets"
+    if symlink_component == "assets":
+        assets.symlink_to(external, target_is_directory=True)
+    else:
+        assets.mkdir()
+        (assets / "generated").symlink_to(external, target_is_directory=True)
+
+    with pytest.raises(generation.GenerationError) as exc:
+        generation.generate(
+            project_id, "a simple test image", gen_type="graphic", variant="A",
+        )
+    assert exc.value.code == "GENERATION_OUTPUT_PATH_UNSAFE"
+    assert list(external.iterdir()) == []

@@ -568,6 +568,38 @@ def _save_manifest(project_id: str, additions: List[dict]) -> None:
     merge_project_manifest_entries(project_id, additions, reject_conflicting_ids=True)
 
 
+def _ensure_project_generated_dir(project_id: str) -> Path:
+    """Create assets/generated only as real directories inside this project."""
+    base = config.project_dir(project_id)
+    current = base
+    for name in ("assets", "generated"):
+        current = current / name
+        if current.is_symlink():
+            raise GenerationError(
+                "GENERATION_OUTPUT_PATH_UNSAFE",
+                f"项目 {name} 路径是符号链接；已拒绝写入生成素材",
+            )
+        try:
+            current.mkdir()
+        except FileExistsError:
+            if current.is_symlink() or not current.is_dir():
+                raise GenerationError(
+                    "GENERATION_OUTPUT_PATH_UNSAFE",
+                    f"项目 {name} 路径不是可信的普通目录；已拒绝写入生成素材",
+                )
+        except OSError as exc:
+            raise GenerationError(
+                "GENERATION_OUTPUT_PATH_UNSAFE",
+                f"项目 {name} 目录无法安全创建：{exc}",
+            ) from exc
+        if current.is_symlink() or not current.is_dir():
+            raise GenerationError(
+                "GENERATION_OUTPUT_PATH_UNSAFE",
+                f"项目 {name} 目录发生路径变化；已拒绝写入生成素材",
+            )
+    return current
+
+
 def generate(
     project_id: str,
     prompt: str,
@@ -625,9 +657,7 @@ def generate(
     else:
         _GEN_STYLE_OVERRIDE = None
     variants = [variant] if variant else list(VARIANTS)
-    base = config.project_dir(project_id)
-    assets_dir = base / "assets" / "generated"
-    assets_dir.mkdir(parents=True, exist_ok=True)
+    assets_dir = _ensure_project_generated_dir(project_id)
 
     # §39 CacheKey + InputFingerprint：prompt + type + 引用 + 首末帧 + providerVersion 都进指纹
     fp_src = prompt + "|" + gen_type
