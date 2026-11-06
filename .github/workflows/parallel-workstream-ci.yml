@@ -4,14 +4,7 @@ on:
   push:
     branches:
       - "work/**"
-    paths:
-      - "video_director/**"
-      - "webui/**"
-      - "studio_ui/**"
-      - "tests/**"
-      - "requirements.txt"
-      - ".github/workflows/parallel-workstream-ci.yml"
-  workflow_dispatch:
+    workflow_dispatch:
 
 permissions:
   contents: read
