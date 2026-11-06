@@ -34,7 +34,10 @@ def db_path() -> Path:
 def _conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(db_path()), timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    # Set the wait policy on every connection. Do not change journal_mode here:
+    # WAL mode is persistent, and issuing PRAGMA journal_mode=WAL on every
+    # process connection can itself race with another process opening the DB.
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 
@@ -70,9 +73,20 @@ CREATE TABLE IF NOT EXISTS probe_cache (
 
 
 def init_db() -> None:
-    """幂等建表（首次调用即建）。"""
-    with DB_LOCK, _conn() as conn:
-        conn.executescript(_SCHEMA)
+    """跨进程串行初始化 schema/WAL，避免并发首次访问互相锁库。"""
+    from filelock import FileLock
+
+    path = db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # threading.Lock only protects this interpreter. probe_media() can call
+    # init_db() from several worker processes at once, so the one-time WAL
+    # transition and schema creation need an OS-visible lock as well.
+    with FileLock(str(path.with_suffix(path.suffix + ".init.lock")), timeout=60):
+        with DB_LOCK, _conn() as conn:
+            mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
+            if mode != "wal":
+                conn.execute("PRAGMA journal_mode=WAL")
+            conn.executescript(_SCHEMA)
 
 
 class Stage(str, Enum):
