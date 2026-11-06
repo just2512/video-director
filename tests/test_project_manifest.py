@@ -82,3 +82,35 @@ def test_manifest_merge_is_idempotent_and_replace_is_explicit(monkeypatch, tmp_p
 
     manifest = json.loads((base / "assets" / "manifest.json").read_text(encoding="utf-8"))
     assert manifest == [replacement]
+
+
+def test_assets_symlink_is_rejected_for_manifest_read_and_write(monkeypatch, tmp_path):
+    project_id = "manifest-assets-link-01"
+    base = _project(monkeypatch, tmp_path, project_id)
+    outside = tmp_path / "outside-assets"
+    outside.mkdir()
+    (outside / "manifest.json").write_text('[{"id":"outside"}]', encoding="utf-8")
+    assets = base / "assets"
+    assets.rmdir()
+    try:
+        assets.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("directory symlinks are unavailable")
+    with pytest.raises(project_manifest.ProjectManifestError, match="assets 目录是符号链接"):
+        project_manifest.read_project_manifest(project_id)
+    with pytest.raises(project_manifest.ProjectManifestError, match="assets 目录是符号链接"):
+        project_manifest.merge_project_manifest_entries(project_id, [{"id":"new"}])
+    assert (outside / "manifest.json").read_text(encoding="utf-8") == '[{"id":"outside"}]'
+
+
+def test_project_root_symlink_is_rejected_before_project_lock_side_effect(monkeypatch, tmp_path):
+    root = tmp_path / "composer"
+    target = tmp_path / "real-project"
+    target.mkdir()
+    (target / "assets").mkdir()
+    root.mkdir()
+    (root / "manifest-root-link").symlink_to(target, target_is_directory=True)
+    monkeypatch.setattr(config, "composer_storage_root", lambda: root)
+    with pytest.raises(project_manifest.ProjectManifestError, match="项目目录不是可信的普通目录"):
+        project_manifest.read_project_manifest("manifest-root-link")
+    assert not (target / "plans").exists()

@@ -9,21 +9,43 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 from video_director import config
-from video_director.project_lock import project_lock
+from video_director.project_lock import project_lock, validate_project_id
 
 
 class ProjectManifestError(RuntimeError):
     """The project's asset manifest cannot be safely read or updated."""
 
 
+def _validated_manifest_path(project_id: str, *, create_assets: bool = False) -> Path:
+    """Resolve the manifest only inside a real project/assets directory.
+
+    Validate before acquiring project_lock: project_lock creates plans/ and its
+    lock file, so a project-root symlink must be rejected before that side effect.
+    Revalidate after directory creation to close simple path-swap windows.
+    """
+    pid = validate_project_id(project_id)
+    base = config.project_dir(pid)
+    if base.is_symlink() or not base.is_dir():
+        raise ProjectManifestError("项目目录不是可信的普通目录，已拒绝访问")
+    assets = base / "assets"
+    if assets.is_symlink():
+        raise ProjectManifestError("项目 assets 目录是符号链接，已拒绝访问")
+    if assets.exists() and not assets.is_dir():
+        raise ProjectManifestError("项目 assets 路径不是目录，已拒绝访问")
+    if create_assets:
+        assets.mkdir(parents=False, exist_ok=True)
+        if assets.is_symlink() or not assets.is_dir():
+            raise ProjectManifestError("项目 assets 目录发生路径变化，已拒绝写入")
+    return assets / "manifest.json"
+
+
 def manifest_path(project_id: str) -> Path:
-    return config.project_dir(project_id) / "assets" / "manifest.json"
+    return _validated_manifest_path(project_id)
 
 
 def _read_unlocked(project_id: str) -> list[dict]:
-    path = manifest_path(project_id)
+    path = _validated_manifest_path(project_id)
     # A symlink or non-regular manifest is not a trustworthy reference record.
-    # Callers that use the manifest for destructive decisions must fail closed.
     if path.is_symlink():
         raise ProjectManifestError("项目素材清单是符号链接，已拒绝读取")
     if path.exists() and not path.is_file():
@@ -49,12 +71,18 @@ def _read_unlocked(project_id: str) -> list[dict]:
 
 def read_project_manifest(project_id: str) -> list[dict]:
     """Return a consistent copy of the project's current asset manifest."""
+    _validated_manifest_path(project_id)
     with project_lock(project_id):
+        _validated_manifest_path(project_id)
         return _read_unlocked(project_id)
 
 
 def _write_atomic(path: Path, entries: list[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    # Revalidate the parent immediately before creating the temporary file.
+    project_id = path.parent.parent.name
+    validated = _validated_manifest_path(project_id, create_assets=True)
+    if validated != path:
+        raise ProjectManifestError("项目素材清单路径发生变化，已拒绝写入")
     payload = json.dumps(entries, ensure_ascii=False, indent=2)
     fd, temp_name = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
@@ -65,6 +93,9 @@ def _write_atomic(path: Path, entries: list[dict]) -> None:
             stream.write(payload)
             stream.flush()
             os.fsync(stream.fileno())
+        # Check again immediately before replacing the destination.
+        if path.parent.is_symlink() or path.is_symlink():
+            raise ProjectManifestError("项目素材清单路径不安全，已拒绝替换")
         os.replace(temp, path)
     except Exception:
         try:
@@ -80,13 +111,9 @@ def mutate_project_manifest(
     *,
     _catalog_lock_held: bool = False,
 ) -> object:
-    """Run a read/modify/write transaction under catalog + project locks.
-
-    The catalog lock coordinates manifest references with global Asset Library
-    deletion. The project lock then serializes writers to this one manifest.
-    Callers already holding the catalog transaction may set the private flag to
-    avoid re-acquiring the process-level file lock.
-    """
+    """Run a read/modify/write transaction under catalog + project locks."""
+    # Do this before the catalog/project locks: both can create persistent files.
+    _validated_manifest_path(project_id)
     if _catalog_lock_held:
         catalog_lock = nullcontext()
     else:
@@ -94,12 +121,13 @@ def mutate_project_manifest(
         catalog_lock = _catalog_lock()
     with catalog_lock:
         with project_lock(project_id):
+            _validated_manifest_path(project_id)
             entries = _read_unlocked(project_id)
             before = json.dumps(entries, ensure_ascii=False, sort_keys=True)
             result = mutate(entries)
             after = json.dumps(entries, ensure_ascii=False, sort_keys=True)
             if after != before:
-                _write_atomic(manifest_path(project_id), entries)
+                _write_atomic(_validated_manifest_path(project_id, create_assets=True), entries)
             return result
 
 
