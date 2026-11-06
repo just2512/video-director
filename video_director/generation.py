@@ -247,6 +247,28 @@ def _find_reusable_job(project_id: str, input_fp: str, variant: str) -> Optional
     return None
 
 
+def _find_video_job(project_id: str, input_fp: str, variant: str) -> Optional[dict]:
+    """Return the newest durable provider job for one generated video variant."""
+    matches = [
+        job for job in _load_jobs(project_id).values()
+        if job.get("gen_type") == "video"
+        and job.get("input_fingerprint") == input_fp
+        and job.get("variant") == variant
+        and job.get("provider_task_id")
+    ]
+    return max(
+        matches,
+        key=lambda job: (
+            job.get("updated_at")
+            if isinstance(job.get("updated_at"), (int, float))
+            and not isinstance(job.get("updated_at"), bool)
+            else 0,
+            str(job.get("job_id") or ""),
+        ),
+        default=None,
+    )
+
+
 def _find_unresolved_submission(project_id: str, input_fp: str, variant: str) -> Optional[dict]:
     """Find a durable reservation whose provider submission outcome is unknown."""
     for job in _load_jobs(project_id).values():
@@ -748,26 +770,62 @@ def generate(
     if gen_type == "video":
         # Do not declare registration complete until the manifest merge is durable.
         for result in results:
-            job = next((
-                item for item in _load_jobs(project_id).values()
-                if item.get("input_fingerprint") == result.input_fingerprint
-                and item.get("variant") == result.variant
-                and item.get("provider_task_id")
-            ), None)
+            job = _find_video_job(
+                project_id, result.input_fingerprint, result.variant
+            )
             if job:
                 _update_job(project_id, job["job_id"], {
                     "manifest_registered": True,
                     "recovery_needs_registration": False,
                 })
-    # §39 生成产物入 Asset Registry（AI 图片/视频 = 普通 Asset：Library 全局可复用，
-    # 与本地/Stock 无差别；失败不阻断生成主链——项目 manifest 已有）。
+
+    # Asset Registry is a separate durable store. Keep an explicit per-video-job
+    # marker so a crash after the catalog write but before the ledger update is
+    # repaired by the next generate() call (register_generated is content-hash
+    # idempotent). A failed catalog write must remain retryable without resubmitting
+    # the provider task.
     try:
         from video_director import asset_catalog as _acat
-        for r in results:
-            if r.file and Path(r.file).is_file():
-                _acat.register_generated(r.file, prompt=prompt[:120])
-    except Exception as exc:  # noqa: BLE001 Library 登记失败不阻断生成
-        logger.warning(f"generation: Library 登记失败（不阻断）: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"generation: Asset Registry 模块不可用（不阻断）: {exc}")
+    else:
+        for result in results:
+            if not result.file or not Path(result.file).is_file():
+                continue
+            try:
+                entry = _acat.register_generated(
+                    result.file, prompt=prompt[:120]
+                )
+                if gen_type == "video":
+                    job = _find_video_job(
+                        project_id, result.input_fingerprint, result.variant
+                    )
+                    if job:
+                        _update_job(project_id, job["job_id"], {
+                            "registry_status": "registered",
+                            "registry_asset_id": entry.get("asset_id"),
+                            "registry_registered_at": time.time(),
+                            "registry_error_type": None,
+                            "registry_error": None,
+                        })
+            except Exception as exc:  # noqa: BLE001 Library 登记失败不阻断生成
+                if gen_type == "video":
+                    try:
+                        job = _find_video_job(
+                            project_id, result.input_fingerprint, result.variant
+                        )
+                        if job:
+                            _update_job(project_id, job["job_id"], {
+                                "registry_status": "pending",
+                                "registry_error_type": type(exc).__name__,
+                                "registry_error": str(exc)[:240],
+                                "registry_last_attempt_at": time.time(),
+                            })
+                    except Exception as ledger_exc:
+                        logger.warning(
+                            f"generation: Asset Registry 失败状态无法写回任务台账: {ledger_exc}"
+                        )
+                logger.warning(f"generation: Library 登记失败（不阻断）: {exc}")
     logger.info(
         f"generation: {gen_type} x{len(results)} prompt={prompt[:30]!r} → {project_id}"
     )
@@ -951,29 +1009,10 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
     if not pending_variants:
         return results
 
-    cfg = _role_cfg("video")
-    try:
-        from video_director import provider_matrix
-        provider_matrix.require("video", "video.generate", cfg)
-    except provider_matrix.ProviderCapabilityError as exc:
-        raise GenerationError(
-            "VIDEO_PROVIDER_UNAVAILABLE" if exc.state.status == provider_matrix.MISSING
-            else "CAPABILITY_UNSUPPORTED",
-            str(exc),
-        ) from exc
-    if not (cfg or {}).get("api_key"):
-        raise GenerationError(
-            "VIDEO_PROVIDER_UNAVAILABLE",
-            "生视频模型未配置（roles.video.api_key 为空）；请按供应商文档填写模型/端点",
-        )
-    model = model or cfg.get("model") or ""
-    base_url = cfg.get("base_url") or ""
-    if not model or not base_url:
-        raise GenerationError(
-            "VIDEO_PROVIDER_UNAVAILABLE",
-            "生视频 model/base_url 未配置完整（供应商特定：Veo/Kling/Wan 兼容端点）",
-        )
-    client = _video_client(cfg)
+    # A completed atomic output is self-contained. Defer provider configuration
+    # and client creation until a variant actually needs a provider poll/submit;
+    # this lets recovery rebuild a lost Manifest row after the provider task expires.
+    client = None
 
     for v in pending_variants:
         asset_id = f"gen-{uuid.uuid4().hex[:8]}"
@@ -984,18 +1023,56 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
         # must not be required to retrieve bytes that are already local.
         reusable = _find_reusable_job(project_id, input_fp, v)
         recovered_file = None
-        if (reusable
-                and reusable.get("status") == "done"
-                and reusable.get("recovery_needs_registration") is True
-                and reusable.get("output_commit_protocol") == "atomic-v2"):
-            candidate = Path(reusable.get("output_file") or "")
+        if (
+            reusable
+            and reusable.get("status") == "done"
+            and reusable.get("output_commit_protocol") == "atomic-v2"
+            and isinstance(reusable.get("output_file"), str)
+            and reusable.get("output_file")
+        ):
+            candidate = _validated_video_output_path(
+                project_id, reusable["output_file"]
+            )
             if candidate.is_file() and candidate.stat().st_size > 0:
+                # Both recovery_needs_registration and manifest_registered are
+                # valid reasons to reuse the already committed bytes. In
+                # particular, a lost Manifest row must not force a provider poll.
                 recovered_file = candidate
                 out_file = candidate
+
         try:
-            url = None if recovered_file else _create_poll_and_persist_video(
-                client, project_id, model, prompt, width, height,
-                input_fp, v, str(out_file))
+            if recovered_file is not None:
+                url = None
+            else:
+                if client is None:
+                    cfg = _role_cfg("video")
+                    try:
+                        from video_director import provider_matrix
+                        provider_matrix.require("video", "video.generate", cfg)
+                    except provider_matrix.ProviderCapabilityError as exc:
+                        raise GenerationError(
+                            "VIDEO_PROVIDER_UNAVAILABLE"
+                            if exc.state.status == provider_matrix.MISSING
+                            else "CAPABILITY_UNSUPPORTED",
+                            str(exc),
+                        ) from exc
+                    if not (cfg or {}).get("api_key"):
+                        raise GenerationError(
+                            "VIDEO_PROVIDER_UNAVAILABLE",
+                            "生视频模型未配置（roles.video.api_key 为空）；请按供应商文档填写模型/端点",
+                        )
+                    model = model or cfg.get("model") or ""
+                    base_url = cfg.get("base_url") or ""
+                    if not model or not base_url:
+                        raise GenerationError(
+                            "VIDEO_PROVIDER_UNAVAILABLE",
+                            "生视频 model/base_url 未配置完整（供应商特定：Veo/Kling/Wan 兼容端点）",
+                        )
+                    client = _video_client(cfg)
+                url = _create_poll_and_persist_video(
+                    client, project_id, model, prompt, width, height,
+                    input_fp, v, str(out_file)
+                )
         except GenerationError:
             # Preserve machine-readable safety states such as VIDEO_SUBMISSION_UNKNOWN.
             raise
@@ -1009,10 +1086,9 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
             if err.is_quota():
                 logger.warning(f"生视频配额耗尽，请充值或配置备用供应商: {err}")
             raise err from exc
-        job = next((item for item in _load_jobs(project_id).values()
-                    if item.get("input_fingerprint") == input_fp
-                    and item.get("variant") == v
-                    and item.get("provider_task_id")), None)
+        job = reusable if recovered_file is not None else _find_video_job(
+            project_id, input_fp, v
+        )
         if job is None:
             raise GenerationError(
                 "VIDEO_JOB_MISSING",
@@ -1074,6 +1150,7 @@ def _create_poll_and_persist_video(
                 "variant": variant,
                 "status": "submitting",
                 "output_file": out_file,
+                "registry_status": "pending",
             }
             _update_job(project_id, job_id, reservation)
 

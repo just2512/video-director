@@ -371,6 +371,97 @@ class TestFingerprintReuse:
         assert reusable is not None
         assert reusable["job_id"] == "genjob-registered"
 
+    def test_missing_manifest_row_is_rebuilt_from_atomic_registered_output_without_provider(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        import hashlib
+        from video_director import config, generation as gen, asset_catalog
+
+        pid = "proj-manifest-row-rebuild"
+        config.init_project_dirs(config.project_dir(pid))
+        prompt = "rebuild a lost manifest row"
+        input_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
+        output = config.project_dir(pid) / "assets" / "generated" / "registered.mp4"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"durable-registered-video")
+
+        gen._update_job(pid, "genjob-registered-output", {
+            "provider_task_id": "provider-task-expired",
+            "gen_type": "video",
+            "input_fingerprint": input_fp,
+            "variant": "A",
+            "status": "done",
+            "output_file": str(output),
+            "output_commit_protocol": "atomic-v2",
+            "manifest_registered": True,
+            "registry_status": "registered",
+            "registry_asset_id": "library-video-1",
+        })
+
+        def provider_must_not_be_contacted(_cfg):
+            raise AssertionError("atomic local output must not require provider access")
+
+        monkeypatch.setattr(gen, "_video_client", provider_must_not_be_contacted)
+        monkeypatch.setattr(
+            asset_catalog, "register_generated",
+            lambda file_path, prompt="", tags=None: {"asset_id": "library-video-1"},
+        )
+
+        results = gen.generate(pid, prompt, "video", variant="A")
+
+        assert len(results) == 1
+        assert results[0].file == str(output)
+        manifest = gen._load_manifest(pid)
+        assert len(manifest) == 1
+        assert manifest[0]["file"] == str(output)
+        job = gen._load_jobs(pid)["genjob-registered-output"]
+        assert job["manifest_registered"] is True
+        assert job["registry_status"] == "registered"
+        assert job["registry_asset_id"] == "library-video-1"
+
+    def test_asset_registry_failure_is_retried_without_provider_resubmission(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import config, generation as gen, asset_catalog
+
+        pid = "proj-registry-retry"
+        config.init_project_dirs(config.project_dir(pid))
+        fake = FakeVideoClient(statuses=["completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda cfg: fake)
+        monkeypatch.setattr(gen, "_download_bytes", lambda _url: b"registry-retry-video")
+
+        attempts = []
+
+        def fail_once_then_register(file_path, prompt="", tags=None):
+            attempts.append(file_path)
+            if len(attempts) == 1:
+                raise OSError("simulated Asset Registry disk failure")
+            return {"asset_id": "library-video-recovered"}
+
+        monkeypatch.setattr(asset_catalog, "register_generated", fail_once_then_register)
+
+        first = gen.generate(pid, "retry Asset Registry", "video", variant="A")
+        assert len(first) == 1
+        job_id = next(iter(gen._load_jobs(pid)))
+        job = gen._load_jobs(pid)[job_id]
+        assert job["manifest_registered"] is True
+        assert job["registry_status"] == "pending"
+        assert job["registry_error_type"] == "OSError"
+        assert fake.post_calls == 1
+
+        second = gen.generate(pid, "retry Asset Registry", "video", variant="A")
+        assert len(second) == 1
+        repaired = gen._load_jobs(pid)[job_id]
+        assert repaired["registry_status"] == "registered"
+        assert repaired["registry_asset_id"] == "library-video-recovered"
+        assert repaired["registry_error"] is None
+        assert len(attempts) == 2
+        assert fake.post_calls == 1
+        assert fake.get_calls == 1
+
     def test_generate_reuses_recovered_completed_task_until_manifest_is_written(
         self, tmp_path, monkeypatch
     ):
