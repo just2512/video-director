@@ -1,0 +1,78 @@
+name: Parallel workstream regression
+
+on:
+  push:
+    branches:
+      - "work/**"
+    paths:
+      - "video_director/**"
+      - "webui/**"
+      - "studio_ui/**"
+      - "tests/**"
+      - "requirements.txt"
+      - ".github/workflows/parallel-workstream-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Each workstream gets its own hosted runner and isolated workspace.
+# Do not reuse the self-hosted WSL runner used by the full integration suite.
+concurrency:
+  group: parallel-workstream-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact pushed revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install system media dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest playwright
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Generation state and crash recovery
+        if: startsWith(github.ref_name, 'work/generation-state')
+        run: |
+          python -m pytest -q \
+            tests/test_generation_recovery.py \
+            tests/test_generation_gap1.py \
+            tests/test_film_transaction_recovery.py \
+            tests/test_project_manifest.py
+      - name: Timeline editing and revision consistency
+        if: startsWith(github.ref_name, 'work/timeline-state')
+        run: |
+          python -m pytest -q \
+            tests/test_editor_undo_redo.py \
+            tests/test_film_studio_timeline_history_browser.py \
+            tests/test_film_studio_pending_revision.py \
+            tests/test_film_studio_external_watch_browser.py \
+            tests/test_editor_command_project_switch_browser.py \
+            tests/test_visual_overlay_timeline.py \
+            tests/test_audio_clip_timeline.py
+      - name: Project lifecycle end-to-end
+        if: startsWith(github.ref_name, 'work/lifecycle-e2e')
+        run: |
+          python -m pytest -q \
+            tests/test_project_manager.py \
+            tests/test_project_manager_film_authority.py \
+            tests/test_film_full_pipeline_e2e.py \
+            tests/test_film_studio_migration_preview_browser.py \
+            tests/test_film_render_publication_transaction.py \
+            tests/test_film_render_scene_e2e.py
