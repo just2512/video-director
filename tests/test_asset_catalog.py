@@ -399,6 +399,51 @@ class TestAssetLibrary:
         assert (external_root / stored_path.relative_to(original_root)).is_file()
 
 
+    @pytest.mark.parametrize("batch", [False, True])
+    def test_delete_rejects_catalog_payload_outside_library(self, _iso, fixtures, tmp_path, batch):
+        """被篡改的 catalog 不能授权删除素材库之外的任意文件。"""
+        from video_director import asset_catalog as ac
+
+        entry = ac.import_asset(fixtures["img"])
+        external = tmp_path / "valuable-user-file.bin"
+        external.write_bytes(b"must survive")
+        catalog = ac._load_catalog()
+        catalog[entry["asset_id"]]["file"] = str(external)
+        ac._save_catalog(catalog)
+
+        result = (ac.delete_assets([entry["asset_id"]]) if batch
+                  else ac.delete_asset(entry["asset_id"]))
+        assert result["ok"] is False
+        assert result["code"] == "ASSET_PATH_INVALID"
+        assert external.read_bytes() == b"must survive"
+        assert ac.get_asset(entry["asset_id"]) is not None
+        assert Path(entry["file"]).is_file()
+
+    def test_delete_rejects_payload_symlink_inside_library(self, _iso, fixtures, tmp_path):
+        """素材文件本身被替换成指向外部的符号链接时，删除必须拒绝。"""
+        from video_director import asset_catalog as ac
+
+        entry = ac.import_asset(fixtures["img"])
+        payload = Path(entry["file"])
+        external = tmp_path / payload.name
+        payload.rename(external)
+        try:
+            payload.symlink_to(external)
+        except (OSError, NotImplementedError):
+            pytest.skip("当前运行环境不支持创建符号链接")
+
+        result = ac.delete_asset(entry["asset_id"])
+        assert result["ok"] is False
+        assert result["code"] == "ASSET_PATH_INVALID"
+        assert external.is_file()
+        assert ac.get_asset(entry["asset_id"]) is not None
+
+    def test_thumbnail_rejects_path_traversal_asset_id(self, _iso):
+        from video_director import asset_catalog as ac
+
+        assert ac.make_thumbnail("../../outside", src_file="unused.jpg") is None
+
+
     def test_list_filters(self, _iso, fixtures):
         from video_director import asset_catalog as ac
         ac.import_asset(fixtures["clip"], tags=["咖啡"])

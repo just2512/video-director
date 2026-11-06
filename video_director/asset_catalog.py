@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 import stat
 import tempfile
@@ -96,6 +97,59 @@ def _catalog_path() -> Path:
 def _ensure_dirs() -> None:
     for sub in ("local", "generated", "stock", "thumbnails"):
         (library_root() / sub).mkdir(parents=True, exist_ok=True)
+
+
+_ASSET_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,127}$")
+
+
+def _validated_asset_payload_path(asset_id: str, entry: dict) -> Path:
+    """Resolve only regular payload files owned by this Asset inside Library zones.
+
+    Catalog JSON is mutable data, not an authority to unlink arbitrary paths.
+    """
+    if not isinstance(asset_id, str) or not _ASSET_ID_RE.fullmatch(asset_id):
+        raise AssetLibraryError("ASSET_PATH_INVALID", "素材 ID 格式非法，已拒绝删除")
+    raw_path = entry.get("file") if isinstance(entry, dict) else None
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        raise AssetLibraryError("ASSET_PATH_INVALID", "素材文件路径缺失，已拒绝删除")
+    candidate = Path(raw_path)
+    if not candidate.is_absolute():
+        raise AssetLibraryError("ASSET_PATH_INVALID", "素材文件路径必须是绝对路径")
+    try:
+        root = library_root()
+        if root.is_symlink():
+            raise AssetLibraryError("ASSET_PATH_INVALID", "素材库根目录是符号链接")
+        root_resolved = root.resolve(strict=True)
+        resolved = candidate.resolve(strict=True)
+        if candidate.is_symlink() or candidate.absolute() != resolved:
+            raise AssetLibraryError("ASSET_PATH_INVALID", "素材文件路径包含符号链接或路径跳转")
+        allowed = {root_resolved / zone for zone in ("local", "generated", "stock")}
+        if resolved.parent not in allowed or resolved.stem != asset_id:
+            raise AssetLibraryError("ASSET_PATH_INVALID", "素材文件不属于该素材 ID 的 Library 分区")
+        if resolved.parent.is_symlink() or not resolved.parent.is_dir():
+            raise AssetLibraryError("ASSET_PATH_INVALID", "素材分区目录不安全")
+        mode = resolved.lstat().st_mode
+        if not stat.S_ISREG(mode):
+            raise AssetLibraryError("ASSET_PATH_INVALID", "素材载荷不是普通文件")
+        return resolved
+    except AssetLibraryError:
+        raise
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise AssetLibraryError("ASSET_PATH_INVALID", f"素材文件路径无法安全核验：{exc}") from exc
+
+
+def _validated_thumbnail_path(asset_id: str) -> Path:
+    if not isinstance(asset_id, str) or not _ASSET_ID_RE.fullmatch(asset_id):
+        raise AssetLibraryError("ASSET_PATH_INVALID", "素材 ID 格式非法，已拒绝访问缩略图")
+    root = library_root()
+    thumb_dir = root / "thumbnails"
+    thumb_dir.mkdir(parents=True, exist_ok=True)
+    if root.is_symlink() or thumb_dir.is_symlink() or not thumb_dir.is_dir():
+        raise AssetLibraryError("ASSET_PATH_INVALID", "缩略图目录不安全")
+    thumb = thumb_dir / f"{asset_id}.jpg"
+    if thumb.is_symlink():
+        raise AssetLibraryError("ASSET_PATH_INVALID", "缩略图是符号链接，已拒绝访问")
+    return thumb
 
 
 def _load_catalog() -> dict:
@@ -388,9 +442,12 @@ def make_thumbnail(asset_id: str, src_file: Optional[str] = None,
     entry = get_asset(asset_id)
     if not entry and not src_file:
         return None
-    _ensure_dirs()
-    thumb_dir = library_root() / "thumbnails"
-    thumb = thumb_dir / f"{asset_id}.jpg"
+    try:
+        thumb = _validated_thumbnail_path(asset_id)
+    except AssetLibraryError as exc:
+        logger.warning(f"asset_library: 缩略图路径被拒绝 {asset_id}: {exc}")
+        return None
+    thumb_dir = thumb.parent
     if thumb.is_file():
         return str(thumb)
     src = src_file or str((entry or {}).get("file") or "")
@@ -545,11 +602,14 @@ def delete_asset(asset_id: str, *, require_unused: bool = True) -> dict:
         if entry is None:
             return {"ok": False, "code": "NOT_FOUND", "error": f"素材不存在：{asset_id}"}
         try:
+            payload_path = _validated_asset_payload_path(asset_id, entry)
+            thumbnail_path = _validated_thumbnail_path(asset_id)
             used_in = asset_usage(asset_id) if require_unused else []
         except AssetLibraryError as exc:
+            code = exc.code if exc.code == "ASSET_PATH_INVALID" else "ASSET_USAGE_UNKNOWN"
             return {
-                "ok": False, "code": "ASSET_USAGE_UNKNOWN",
-                "error": f"无法确认素材是否仍被项目引用，已拒绝删除：{exc}",
+                "ok": False, "code": code,
+                "error": f"素材路径或项目引用无法安全核验，已拒绝删除：{exc}",
             }
         if used_in:
             return {"ok": False, "code": "ASSET_IN_USE", "error": f"素材正在被项目引用：{', '.join(used_in)}", "used_in": used_in}
@@ -559,10 +619,8 @@ def delete_asset(asset_id: str, *, require_unused: bool = True) -> dict:
         except OSError as exc:
             return {"ok": False, "code": "CATALOG_WRITE_FAILED", "error": f"素材台账写入失败，原素材保留：{exc}"}
         try:
-            file_path = entry.get("file") or ""
-            if file_path and Path(file_path).is_file():
-                Path(file_path).unlink()
-            (library_root() / "thumbnails" / f"{asset_id}.jpg").unlink(missing_ok=True)
+            payload_path.unlink()
+            thumbnail_path.unlink(missing_ok=True)
         except OSError as exc:
             return {"ok": False, "code": "DELETE_FAILED", "error": f"素材台账已移除，但文件清理失败：{exc}"}
         return {"ok": True, "asset_id": asset_id}
@@ -577,16 +635,21 @@ def delete_assets(asset_ids: List[str]) -> dict:
         catalog = _load_catalog()
         missing = [x for x in ids if x not in catalog]
         usage = {}
+        payload_paths = {}
+        thumbnail_paths = {}
         try:
             for aid in ids:
                 if aid in catalog:
+                    payload_paths[aid] = _validated_asset_payload_path(aid, catalog[aid])
+                    thumbnail_paths[aid] = _validated_thumbnail_path(aid)
                     refs = asset_usage(aid)
                     if refs:
                         usage[aid] = refs
         except AssetLibraryError as exc:
+            code = exc.code if exc.code == "ASSET_PATH_INVALID" else "ASSET_USAGE_UNKNOWN"
             return {
-                "ok": False, "code": "ASSET_USAGE_UNKNOWN",
-                "error": f"无法确认素材是否仍被项目引用，整批删除已拒绝：{exc}",
+                "ok": False, "code": code,
+                "error": f"无法安全核验素材路径或项目引用，整批删除已拒绝：{exc}",
             }
         if missing:
             return {"ok": False, "code": "NOT_FOUND", "error": "存在不存在的素材：" + ",".join(missing)}
@@ -605,10 +668,8 @@ def delete_assets(asset_ids: List[str]) -> dict:
         deleted = []
         for aid, entry in zip(ids, entries):
             try:
-                file_path = entry.get("file") or ""
-                if file_path and Path(file_path).is_file():
-                    Path(file_path).unlink()
-                (library_root() / "thumbnails" / f"{aid}.jpg").unlink(missing_ok=True)
+                payload_paths[aid].unlink()
+                thumbnail_paths[aid].unlink(missing_ok=True)
             except OSError as exc:
                 return {
                     "ok": False, "code": "DELETE_FAILED",
