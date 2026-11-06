@@ -936,4 +936,3 @@ class TestGenerationJobLedgerAtomicWrite:
 
         assert ledger.read_bytes() == original
         assert list(ledger.parent.glob(f".{ledger.name}.*.tmp")) == []
-\n
