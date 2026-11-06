@@ -82,3 +82,20 @@ def test_invalid_proposal_payload_is_rejected_before_store_mutation():
         with pytest.raises(ValueError):
             store.put(proposal_id, project_id, revision, operations)
     assert store.take("project-a", "proposal", "revision-1") is None
+
+def test_get_keeps_proposal_retryable_until_successful_apply_discards_it():
+    store = FilmProposalStore()
+    operations = [{"op": "remove", "clip": "clip-a"}]
+    store.put("proposal-retry", "project-a", "revision-1", operations)
+
+    first = store.get("project-a", "proposal-retry", "revision-1")
+    assert first is not None
+    first["operations"].clear()
+    assert store.get("project-a", "proposal-retry", "revision-1")["operations"] == operations
+
+    # A failed document transaction does not call discard, so the same proposal
+    # remains available for an explicit retry. Successful apply then consumes it.
+    assert store.get("project-a", "proposal-retry", "revision-1") is not None
+    assert store.discard("project-a", "proposal-retry") is True
+    assert store.get("project-a", "proposal-retry", "revision-1") is None
+    assert store.discard("project-a", "proposal-retry") is False

@@ -1663,14 +1663,18 @@ class Handler(BaseHTTPRequestHandler):
                     raise fd.FilmError("PROPOSAL_ID_REQUIRED", "确认操作缺少提案 ID 或基线 revision。", 400)
                 # The browser can only name a proposal; operation content is authoritative
                 # in this process-local registry and cannot be replaced by request JSON.
-                approved = _FILM_PROPOSALS.take(pid, proposal_id, base_revision)
+                approved = _FILM_PROPOSALS.get(pid, proposal_id, base_revision)
                 if approved is None:
                     raise fd.FilmError("PROPOSAL_NOT_FOUND_OR_STALE",
                                        "提案不存在、已过期、属于其他项目或基线 revision 不匹配；请重新生成。", 409)
+                # Keep the proposal available if the document transaction fails (for
+                # example, a transient disk error). The revision guard serializes
+                # concurrent confirmations; consume only after a successful commit.
                 result = fd.edit_project_film(
                     pid, approved["base_revision"], approved["operations"],
                     require_base=True, source="ai_proposal",
                 )
+                _FILM_PROPOSALS.discard(pid, proposal_id)
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"],
                              "base": approved["base_revision"], "source": result["source"],

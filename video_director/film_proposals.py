@@ -51,6 +51,21 @@ class FilmProposalStore:
             self._items.pop(proposal_id, None)
             return True
 
+    def get(
+        self,
+        project_id: str,
+        proposal_id: str,
+        base_revision: str,
+    ) -> dict[str, Any] | None:
+        """Read a proposal without consuming it; callers discard only after commit."""
+        now = self.clock()
+        with self._lock:
+            self._prune_locked(now)
+            item = self._items.get(proposal_id)
+            if not item or item["project_id"] != project_id or item["base_revision"] != base_revision:
+                return None
+            return copy.deepcopy(item)
+
     def take(
         self,
         project_id: str,
