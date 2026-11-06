@@ -165,6 +165,7 @@ class FilmRevisionWatcher:
                     "last_text": baseline_text,
                     "last_phase": "revision_changed" if matched_initial_snapshot and path.is_file() else "missing",
                     "last_error": None,
+                    "last_history_result": None,
                     "pending_signature": signature,
                     "processed_signature": signature if matched_initial_snapshot else None,
                     "changed_at": now - self.settle_seconds if not matched_initial_snapshot else now,
@@ -301,6 +302,11 @@ class FilmRevisionWatcher:
                 if live is None or live["pending_signature"] != signature:
                     continue
                 live["processed_signature"] = signature
+                if history_result is not None:
+                    # Keep the exact journal outcome beside the observed file
+                    # revision; this distinguishes a successful external write
+                    # from a watcher event whose history transaction was rejected.
+                    live["last_history_result"] = dict(history_result)
                 previous_revision = live.get("last_revision")
                 previous_phase = live.get("last_phase")
                 previous_error = live.get("last_error")
