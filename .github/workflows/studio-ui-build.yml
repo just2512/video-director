@@ -1,104 +1,46 @@
 name: Studio UI build and browser smoke
 
-# Build and browser-smoke the Studio on the repository's existing self-hosted WSL runner.
 on:
-  # ai-director.yml already builds React/Tailwind and runs browser/release gates
-  # for main pushes. This manual-only workflow shares the same self-hosted
-  # checkout, so auto-queuing both workflows for one push would replace one
-  # pending run under GitHub's single-pending concurrency rule.
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
-# Must match ai-director.yml: these workflows share the same checkout and runner.
+# This manual validation runs on an isolated hosted runner. It must never
+# occupy or mutate the shared self-hosted WSL workspace used by ai-director.
 concurrency:
-  group: video-director-self-hosted-${{ github.repository }}
+  group: studio-ui-hosted-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   build-and-smoke:
-    # Same confirmed label contract used by ai-director.yml.
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 30
-    env:
-      GITHUB_TOKEN: ${{ github.token }}
-      PY311_BIN: /home/actions/miniforge3/envs/py311/bin
-      VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO: "1"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
     steps:
-      # Avoid external checkout/setup action downloads. Restore the exact source
-      # revision through the authenticated GitHub archive API using shell tools.
-      - name: Recover exact source revision from GitHub using Git first
-        shell: bash
+      - name: Checkout exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: studio_ui/package-lock.json
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install system media dependencies
         run: |
-          set -euo pipefail
-          expected="$GITHUB_SHA"
-          workspace="$GITHUB_WORKSPACE"
-          git config --global http.version HTTP/1.1
-          if ! git -C "$workspace" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-            git -C "$workspace" init
-          fi
-
-          recovered=false
-          for attempt in 1 2 3; do
-            echo "Recovering exact workflow revision with bounded Git fetch (attempt $attempt/3)."
-            if timeout 35s git -C "$workspace" -c http.version=HTTP/1.1 fetch --no-tags --depth=1 \
-              "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$expected"; then
-              # Only clear the stale workspace after the exact revision is fetchable.
-              git -C "$workspace" clean -ffdx
-              git -C "$workspace" checkout --force --detach FETCH_HEAD
-              recovered=true
-              break
-            fi
-            sleep "$((attempt * 2))"
-          done
-          if [ "$recovered" = true ] && [ "$(git -C "$workspace" rev-parse HEAD)" = "$expected" ]; then
-            git -C "$workspace" reset --hard "$expected"
-            git -C "$workspace" clean -ffdx
-            printf '%s\n' "$expected" > "$workspace/.workflow-source-sha"
-            echo "Restored exact source revision $expected using Git."
-            exit 0
-          fi
-
-          # Last fallback: source archives redirect to codeload.github.com. Keep .git
-          # so the other workflow sharing this runner can recover objects on the next job.
-          archive="$RUNNER_TEMP/video-director-${expected}.tar.gz"
-          source_tmp="$(mktemp -d "$RUNNER_TEMP/video-director-source.XXXXXX")"
-          curl --fail --silent --show-error --location \
-            --retry 2 --retry-all-errors --connect-timeout 15 --max-time 180 \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/tarball/${expected}" \
-            -o "$archive"
-          tar -xzf "$archive" -C "$source_tmp"
-          source_root="$(find "$source_tmp" -mindepth 1 -maxdepth 1 -type d -print -quit)"
-          test -n "$source_root"
-          test -f "$source_root/README.md"
-          find "$workspace" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
-          cp -a "$source_root"/. "$workspace"/
-          printf '%s\n' "$expected" > "$workspace/.workflow-source-sha"
-          test "$(cat "$workspace/.workflow-source-sha")" = "$expected"
-          echo "Restored exact source revision $expected from archive fallback."
-
-      - name: Verify preinstalled toolchain
-        run: |
-          node --version
-          npm --version
-          test -x "$PY311_BIN/python3.11"
-          "$PY311_BIN/python3.11" --version
-          "$PY311_BIN/python3.11" -m pip --version
-
-      - name: Typecheck and build React 19 Studio with Tailwind 4
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
+      - name: Build React 19 Studio and Tailwind 4
         working-directory: studio_ui
-        shell: bash
         run: |
-          set -euo pipefail
-          if [ ! -f package-lock.json ]; then
-            npm install --package-lock-only --ignore-scripts --no-audit --no-fund --fetch-retries=2
-          fi
-          test -s package-lock.json
-          npm ci --no-audit --no-fund --prefer-offline --fetch-retries=2
+          npm ci --no-audit --no-fund
           npm run typecheck
           npm run build:studio
           npm run build:studio:css
@@ -108,36 +50,18 @@ jobs:
             echo "React Studio bundle is still a placeholder" >&2
             exit 1
           fi
-          if [ "$(wc -c < ../webui/static/css/film-studio-tailwind.css)" -lt 1000 ]; then
-            echo "Tailwind CSS output is unexpectedly small" >&2
-            exit 1
-          fi
-
-      - name: Bootstrap Python SOCKS support for the self-hosted proxy
-        shell: bash
-        run: bash tools/bootstrap_python_socks.sh
-
-      - name: Install Remotion render runtime dependencies
+          test "$(wc -c < ../webui/static/css/film-studio-tailwind.css)" -ge 1000
+      - name: Install Remotion runtime dependencies
         working-directory: remotion_runtime
-        shell: bash
-        run: npm install --no-package-lock --no-audit --no-fund --prefer-offline --fetch-retries=2
-
-      - name: Install focused Python and Chromium test dependencies
-        shell: bash
+        run: npm install --no-package-lock --no-audit --no-fund --fetch-retries=2
+      - name: Install Python and browser dependencies
         run: |
-          set -euo pipefail
-          "$PY311_BIN/python3.11" -m pip install \
-            "pydantic>=2.5" "loguru>=0.7" "edge-tts>=7.0" pillow imageio-ffmpeg \
-            openai pyyaml "playwright>=1.40" "pytest>=7.4"
-          # The self-hosted WSL image already has Chromium system libraries;
-          # only download Playwright's browser binary, avoiding privileged apt work.
-          "$PY311_BIN/python3.11" -m playwright install chromium
-
-      - name: Run FilmDocument, migration, and Studio browser regressions
-        shell: bash
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest playwright
+          python -m playwright install --with-deps chromium
+      - name: Run Studio and FilmDocument browser regressions
         run: |
-          set -euo pipefail
-          "$PY311_BIN/python3.11" -m pytest -q --tb=short \
+          python -m pytest -q --tb=short \
             tests/test_film_document_contract.py \
             tests/test_film_timeline_markers.py \
             tests/test_film_overwrite_operations.py \
@@ -173,11 +97,6 @@ jobs:
             tests/test_film_studio_react_ai_director.py \
             tests/test_studio_build_contract.py \
             tests/test_film_studio_inspector_renderer.py
-
       - name: Check JavaScript syntax
-        shell: bash
         run: |
-          set -euo pipefail
           for file in webui/static/js/*.js; do node --check "$file"; done
-      # Asset publication is centralized in ai-director.yml after its expanded
-      # real-browser, CLI/MCP, scene-watcher, and render regression gate.
