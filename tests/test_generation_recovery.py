@@ -608,6 +608,38 @@ class TestConcurrentVideoSubmission:
         assert job["input_fingerprint"] == "a" * 64
         assert job["variant"] == "A"
 
+    def test_output_download_ignores_predictable_part_symlink(
+        self, tmp_path, monkeypatch
+    ):
+        """视频下载不能跟随可预测的 .part 符号链接写入项目外文件。"""
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+
+        project_id = "proj-output-part-symlink"
+        config.init_project_dirs(config.project_dir(project_id))
+        output = config.project_dir(project_id) / "assets" / "final.mp4"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        external = tmp_path / "external-sensitive.bin"
+        external.write_bytes(b"keep-this-content")
+        predictable_part = output.with_name(output.name + ".part")
+        try:
+            predictable_part.symlink_to(external)
+        except (OSError, NotImplementedError):
+            pytest.skip("当前运行环境不支持创建符号链接")
+
+        monkeypatch.setattr(gen, "_download_bytes", lambda _url: b"new-video-payload")
+        result = gen._persist_video_output(
+            project_id, "job-part-symlink", str(output), "https://cdn.example/video.mp4"
+        )
+
+        assert result == output
+        assert output.read_bytes() == b"new-video-payload"
+        assert external.read_bytes() == b"keep-this-content"
+        assert predictable_part.is_symlink()
+        job = gen._load_jobs(project_id)["job-part-symlink"]
+        assert job["status"] == "done"
+        assert job["output_commit_protocol"] == "atomic-v1"
+
     def test_ambiguous_transport_failure_does_not_try_second_provider_endpoint(
         self, tmp_path, monkeypatch
     ):

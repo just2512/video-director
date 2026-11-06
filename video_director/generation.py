@@ -294,18 +294,32 @@ def _persist_video_output(project_id: str, job_id: str, out_file: str, url: str)
             "output_commit_protocol": "atomic-v1",
         })
         target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = target.with_name(target.name + ".part")
+        # Never write through a predictable "<target>.part" path: a stale or
+        # attacker-planted symlink there could redirect provider bytes outside
+        # the project. mkstemp creates an exclusive file beside the target so
+        # os.replace remains atomic on the same filesystem.
+        fd, temporary_name = tempfile.mkstemp(
+            prefix=f".{target.name}.", suffix=".part", dir=str(target.parent)
+        )
+        temporary = Path(temporary_name)
         try:
             payload = _download_bytes(url)
             if not payload:
                 raise GenerationError("VIDEO_OUTPUT_EMPTY", "供应商返回的视频文件为空")
-            temporary.write_bytes(payload)
-            temporary.replace(target)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(str(temporary), str(target))
             _update_job(project_id, job_id, {
                 "status": "done", "output_file": str(target),
                 "recovery_needs_registration": True,
             })
         except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
             try:
                 temporary.unlink(missing_ok=True)
             except OSError:
