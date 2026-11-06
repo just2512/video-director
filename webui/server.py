@@ -699,6 +699,9 @@ class Handler(BaseHTTPRequestHandler):
                     "invalid_slots": unknown_upload_slots,
                 }, 400)
                 return
+            # Resolve the runtime after untrusted upload names have been validated,
+            # but before required-input responses so callers retain the readiness detail.
+            runtime = template_runtime_report(template)
             uploaded_slots = {
                 item["name"][:-5] for item in file_uploads if item.get("data")
             }
@@ -711,10 +714,8 @@ class Handler(BaseHTTPRequestHandler):
                 }, 400)
                 return
 
-            # Validate all untrusted multipart names and required inputs before
-            # checking renderer availability. A blocked runtime must not mask a
-            # malformed upload slot (or weaken the security contract).
-            runtime = template_runtime_report(template)
+            # A blocked runtime must not mask a malformed upload slot or
+            # required-input error; reject execution only after request validation.
             if not runtime["can_render"]:
                 self._send_json({"ok": False, "code": "RUNTIME_BLOCKED",
                                  "error": "当前模板的运行依赖/能力门禁未通过，未生成假样片。",
