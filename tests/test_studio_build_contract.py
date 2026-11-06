@@ -23,7 +23,7 @@ def test_react_build_uses_film_authority_safe_director_plan_handoff():
     assert "当前项目使用 film.html" in studio
 
 
-def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
+def test_studio_build_uses_isolated_hosted_runner_and_lockfile():
     root = Path(__file__).resolve().parents[1]
     workflow = (root / ".github" / "workflows" / "studio-ui-build.yml").read_text(encoding="utf-8")
     contract = (root / "CONTRACT.md").read_text(encoding="utf-8")
@@ -34,12 +34,13 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     package = json.loads(package_path.read_text(encoding="utf-8"))
     remotion_package = json.loads((root / "remotion_runtime" / "package.json").read_text(encoding="utf-8"))
 
-    assert "runs-on: [self-hosted, linux, x64]" in workflow
-    assert "runs-on: ubuntu-latest" not in workflow
-    assert "PY311_BIN: /home/actions/miniforge3/envs/py311/bin" in workflow
-    assert "npm ci --no-audit --no-fund --prefer-offline --fetch-retries=2" in workflow
+    assert "runs-on: ubuntu-24.04" in workflow
+    assert "self-hosted" not in workflow
+    assert "group: studio-ui-hosted-" in workflow
+    assert "ref: ${{ github.sha }}" in workflow
+    assert "npm ci --no-audit --no-fund" in workflow
     assert "working-directory: studio_ui" in workflow
-    assert "bash tools/bootstrap_python_socks.sh" in workflow
+    assert "bash tools/bootstrap_python_socks.sh" not in workflow
     assert "bash tools/bootstrap_python_socks.sh" in ai_workflow
     # The real-provider credential must exist only in the isolated live-test child
     # process; broad regressions must not inherit the runner's paid model config.
@@ -76,13 +77,12 @@ def test_studio_build_uses_existing_self_hosted_runner_and_lockfile():
     assert "import socks" in proxy_bootstrap and "import socksio" in proxy_bootstrap
     assert "socksio==1.0.0" in requirements
     assert not any(line.startswith(("import json", "import sys", "from pathlib")) for line in workflow.splitlines())
-    assert "Install Remotion render runtime dependencies" in workflow
+    assert "Install Remotion runtime dependencies" in workflow
     assert "Install Remotion rendering runtime dependencies" in ai_workflow
     assert "working-directory: studio_ui" in ai_workflow
     assert "studio_ui/package-lock.json" in ai_workflow
     assert 'if "HTTP 404" not in str(exc):' in ai_workflow
-    assert "-m playwright install chromium" in workflow
-    assert "--with-deps chromium" not in workflow
+    assert "-m playwright install --with-deps chromium" in workflow
     assert "build:studio" in package["scripts"]
     assert "build:studio:css" in package["scripts"]
     assert package["scripts"]["build:studio:css"].startswith("tailwindcss -i film-studio-tailwind.css")
@@ -119,7 +119,10 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     live_acceptance = (root / "video_director" / "live_stream_acceptance.py").read_text(encoding="utf-8")
 
     assert "Publish built Studio assets without overwriting newer main" not in studio_workflow
-    assert "Asset publication is centralized in ai-director.yml" in studio_workflow
+    assert "runs-on: ubuntu-24.04" in studio_workflow
+    assert "workflow_dispatch" in studio_workflow
+    assert "Publish verified React Studio bundle" not in studio_workflow
+    assert "git push" not in studio_workflow
 
     gate = ai_workflow.split(
         "      - name: Gate Studio asset publication on timeline browser regressions", 1
@@ -520,13 +523,16 @@ def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
     assert "cancel(\"missing commit runtime bridge/controller contract\")" in end_body
     assert "cancelReactClipGesture(event,reason);" in end_body
 
-def test_self_hosted_workflows_share_runner_checkout_concurrency_lock():
+def test_studio_hosted_workflow_isolated_from_ai_director_self_hosted_runner():
     root = Path(__file__).resolve().parents[1]
     ai_workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
     studio_workflow = (root / ".github" / "workflows" / "studio-ui-build.yml").read_text(encoding="utf-8")
     expected_group = "group: video-director-self-hosted-${{ github.repository }}"
     assert expected_group in ai_workflow
-    assert expected_group in studio_workflow
+    assert expected_group not in studio_workflow
+    assert "runs-on: ubuntu-24.04" in studio_workflow
+    assert "group: studio-ui-hosted-" in studio_workflow
+    assert "runs-on: [self-hosted, linux, x64]" not in studio_workflow
     assert "cancel-in-progress: false" in studio_workflow
     trigger_block = studio_workflow.split("permissions:", 1)[0]
     assert "\n  workflow_dispatch:\n" in trigger_block
