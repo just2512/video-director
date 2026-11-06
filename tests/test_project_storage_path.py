@@ -74,3 +74,21 @@ def test_project_lock_rejects_lock_file_symlink_without_touching_target(tmp_path
         with project_lock.project_lock("linked-lock"):
             pass
     assert outside.read_bytes() == b"keep"
+
+
+def test_project_dir_creates_missing_storage_root_without_following_root_symlink(tmp_path, monkeypatch):
+    storage = tmp_path / "not-created" / "composer"
+    monkeypatch.setattr(config, "composer_storage_root", lambda: storage)
+
+    project = config.project_dir("fresh-project")
+    assert project.is_dir()
+    assert project.parent == storage
+
+    outside = tmp_path / "outside-storage"
+    outside.mkdir()
+    linked_root = tmp_path / "linked-composer"
+    linked_root.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(config, "composer_storage_root", lambda: linked_root)
+    with pytest.raises(ValueError, match="存储根目录不能是符号链接|存储根目录不是可信的普通目录"):
+        config.project_dir("must-not-escape")
+    assert list(outside.iterdir()) == []

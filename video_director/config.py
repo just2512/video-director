@@ -87,13 +87,27 @@ def composer_storage_root() -> Path:
 
 
 def project_dir(project_id: str) -> Path:
-    """单个 composer 项目目录；拒绝路径穿越和项目目录符号链接。"""
+    """单个 composer 项目目录；拒绝路径穿越和不可信的存储/项目目录。"""
     import re
 
     pid = str(project_id or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", pid):
         raise ValueError("项目编号格式无效")
-    d = composer_storage_root() / pid
+
+    # composer_storage_root() normally creates this directory, but callers and
+    # tests may inject a not-yet-created root. Create it explicitly while
+    # rejecting a pre-existing root symlink before creating project children.
+    storage = composer_storage_root()
+    if storage.is_symlink():
+        raise ValueError("项目存储根目录不能是符号链接")
+    try:
+        storage.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ValueError(f"项目存储根目录无法安全创建：{exc}") from exc
+    if storage.is_symlink() or not storage.is_dir():
+        raise ValueError("项目存储根目录不是可信的普通目录")
+
+    d = storage / pid
     # Atomic mkdir avoids following a pre-existing symlink. If another process
     # creates one after the first check, mkdir raises FileExistsError and the
     # post-check rejects it before any child directory is created.
