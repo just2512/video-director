@@ -30,6 +30,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install system media dependencies
+        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/lifecycle-e2e')
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
@@ -38,6 +39,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest playwright
       - name: Install Chromium
+        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/lifecycle-e2e')
         run: python -m playwright install --with-deps chromium
       - name: Generation state and crash recovery
         if: startsWith(github.ref_name, 'work/generation-state')
