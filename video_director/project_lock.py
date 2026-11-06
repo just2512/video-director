@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import time
 from contextlib import contextmanager
 from typing import Iterator
@@ -28,9 +29,43 @@ def project_lock(project_id: str) -> Iterator[None]:
     """Hold an exclusive process lock for one project's persisted state."""
     pid = validate_project_id(project_id)
     plans = config.project_dir(pid) / "plans"
-    plans.mkdir(parents=True, exist_ok=True)
+    if plans.is_symlink():
+        raise ValueError("项目 plans 目录不能是符号链接")
+    try:
+        plans.mkdir()
+    except FileExistsError:
+        if plans.is_symlink() or not plans.is_dir():
+            raise ValueError("项目 plans 路径不是可信的普通目录")
+    if plans.is_symlink() or not plans.is_dir():
+        raise ValueError("项目 plans 路径不是可信的普通目录")
+
     lock_path = plans / "project.lock"
-    with lock_path.open("a+b") as handle:
+    if lock_path.is_symlink():
+        raise ValueError("项目锁文件不能是符号链接")
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    if (os.open in getattr(os, "supports_dir_fd", set())
+            and hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW")):
+        # Pin the directory inode and open the lock relative to it. This prevents
+        # a concurrent replacement of plans/ from redirecting the lock outside.
+        directory_fd = os.open(
+            str(plans), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        )
+        try:
+            descriptor = os.open("project.lock", flags, 0o600, dir_fd=directory_fd)
+        finally:
+            os.close(directory_fd)
+    else:
+        descriptor = os.open(str(lock_path), flags, 0o600)
+    try:
+        if lock_path.is_symlink() or not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("项目锁文件不是可信的普通文件")
+        handle_context = os.fdopen(descriptor, "r+b")
+    except Exception:
+        os.close(descriptor)
+        raise
+    with handle_context as handle:
         if os.name == "nt":
             import msvcrt
 

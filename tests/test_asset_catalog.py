@@ -596,3 +596,35 @@ def test_load_catalog_rejects_symlink_without_reading_target(monkeypatch, tmp_pa
 
     assert exc.value.code == "CATALOG_UNSAFE"
     assert target.read_text(encoding="utf-8") == '{"external": true}'
+
+def test_library_root_rejects_symlink_without_creating_catalog_outside(monkeypatch, tmp_path):
+    from video_director import asset_catalog as ac
+
+    storage = tmp_path / "composer"
+    storage.mkdir()
+    outside = tmp_path / "outside-library"
+    outside.mkdir()
+    (storage / "assets").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(ac.config, "composer_storage_root", lambda: storage)
+
+    with pytest.raises(ac.AssetLibraryError) as exc:
+        ac._catalog_path()
+    assert exc.value.code == "ASSET_PATH_INVALID"
+    assert not (outside / "catalog.json").exists()
+
+
+def test_library_subdirectories_reject_symlinks_before_following_them(monkeypatch, tmp_path):
+    from video_director import asset_catalog as ac
+
+    storage = tmp_path / "composer"
+    root = storage / "assets"
+    root.mkdir(parents=True)
+    outside = tmp_path / "outside-local"
+    outside.mkdir()
+    (root / "local").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(ac.config, "composer_storage_root", lambda: storage)
+
+    with pytest.raises(ac.AssetLibraryError) as exc:
+        ac._ensure_dirs()
+    assert exc.value.code == "ASSET_PATH_INVALID"
+    assert list(outside.iterdir()) == []

@@ -84,10 +84,36 @@ class AssetLibraryError(Exception):
 # ---------------------------------------------------------------------------
 
 def library_root() -> Path:
-    """storage/assets/（Library 根；与 composer 项目目录平级）。"""
+    """storage/assets/（Library 根）；拒绝根目录被符号链接替换。"""
     p = config.composer_storage_root() / "assets"
-    p.mkdir(parents=True, exist_ok=True)
+    if p.is_symlink():
+        raise AssetLibraryError("ASSET_PATH_INVALID", "素材库根目录是符号链接，已拒绝访问")
+    try:
+        p.mkdir()
+    except FileExistsError:
+        if p.is_symlink() or not p.is_dir():
+            raise AssetLibraryError("ASSET_PATH_INVALID", "素材库根目录不是可信的普通目录")
+    except OSError as exc:
+        raise AssetLibraryError("ASSET_PATH_INVALID", f"素材库根目录无法安全创建：{exc}") from exc
+    if p.is_symlink() or not p.is_dir():
+        raise AssetLibraryError("ASSET_PATH_INVALID", "素材库根目录不是可信的普通目录")
     return p
+
+
+def _ensure_library_subdir(root: Path, name: str) -> Path:
+    path = root / name
+    if path.is_symlink():
+        raise AssetLibraryError("ASSET_PATH_INVALID", f"素材库 {name} 分区是符号链接")
+    try:
+        path.mkdir()
+    except FileExistsError:
+        if path.is_symlink() or not path.is_dir():
+            raise AssetLibraryError("ASSET_PATH_INVALID", f"素材库 {name} 分区不是可信的普通目录")
+    except OSError as exc:
+        raise AssetLibraryError("ASSET_PATH_INVALID", f"素材库 {name} 分区无法安全创建：{exc}") from exc
+    if path.is_symlink() or not path.is_dir():
+        raise AssetLibraryError("ASSET_PATH_INVALID", f"素材库 {name} 分区不是可信的普通目录")
+    return path
 
 
 def _catalog_path() -> Path:
@@ -95,8 +121,9 @@ def _catalog_path() -> Path:
 
 
 def _ensure_dirs() -> None:
+    root = library_root()
     for sub in ("local", "generated", "stock", "thumbnails"):
-        (library_root() / sub).mkdir(parents=True, exist_ok=True)
+        _ensure_library_subdir(root, sub)
 
 
 _ASSET_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,127}$")
