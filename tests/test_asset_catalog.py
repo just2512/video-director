@@ -354,6 +354,50 @@ class TestAssetLibrary:
         assert ac.get_asset(entry["asset_id"]) is not None
         assert Path(entry["file"]).is_file()
 
+
+
+    def test_delete_fails_closed_for_symlinked_project_directory(self, _iso, fixtures):
+        """项目目录本身是符号链接时，不能把外部 manifest 当成不存在。"""
+        from video_director import asset_catalog as ac
+
+        entry = ac.import_asset(fixtures["img"])
+        outside = config.composer_storage_root().parent / "outside-project"
+        (outside / "assets").mkdir(parents=True)
+        (outside / "assets" / "manifest.json").write_text("[]", encoding="utf-8")
+        project_link = config.composer_storage_root() / "linked-project"
+        try:
+            project_link.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("当前运行环境不支持创建符号链接")
+
+        result = ac.delete_asset(entry["asset_id"])
+        assert result["ok"] is False
+        assert result["code"] == "ASSET_USAGE_UNKNOWN"
+        assert ac.get_asset(entry["asset_id"]) is not None
+        assert Path(entry["file"]).is_file()
+
+    def test_delete_fails_closed_for_symlinked_composer_root(self, _iso, fixtures, monkeypatch, tmp_path):
+        """素材根目录被替换成符号链接时，不得把引用扫描当成可信结果。"""
+        from video_director import asset_catalog as ac
+
+        entry = ac.import_asset(fixtures["img"])
+        original_root = config.composer_storage_root()
+        external_root = tmp_path / "external-composer"
+        original_root.rename(external_root)
+        root_link = tmp_path / "composer-link"
+        try:
+            root_link.symlink_to(external_root, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            pytest.skip("当前运行环境不支持创建符号链接")
+        monkeypatch.setattr(config, "composer_storage_root", lambda: root_link)
+
+        result = ac.delete_asset(entry["asset_id"])
+        assert result["ok"] is False
+        assert result["code"] == "ASSET_USAGE_UNKNOWN"
+        assert ac.get_asset(entry["asset_id"]) is not None
+        assert Path(entry["file"]).is_file()
+
+
     def test_list_filters(self, _iso, fixtures):
         from video_director import asset_catalog as ac
         ac.import_asset(fixtures["clip"], tags=["咖啡"])

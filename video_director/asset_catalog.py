@@ -25,6 +25,7 @@ import hashlib
 import json
 import os
 import subprocess
+import stat
 import tempfile
 import threading
 import time
@@ -485,8 +486,18 @@ def asset_usage(asset_id: str) -> List[str]:
     """扫描项目 manifest；任何引用状态不明时都拒绝给出「未使用」结论。"""
     used = []
     root = config.composer_storage_root()
-    if not root.is_dir():
+    try:
+        root_metadata = root.lstat()
+    except FileNotFoundError:
         return used
+    except OSError as exc:
+        raise AssetLibraryError(
+            "ASSET_USAGE_UNKNOWN", f"无法检查项目素材根目录：{exc}"
+        ) from exc
+    if stat.S_ISLNK(root_metadata.st_mode) or not stat.S_ISDIR(root_metadata.st_mode):
+        raise AssetLibraryError(
+            "ASSET_USAGE_UNKNOWN", "项目素材根目录不是可信的普通目录，已拒绝删除"
+        )
     from video_director import project_manifest
 
     try:
@@ -496,7 +507,17 @@ def asset_usage(asset_id: str) -> List[str]:
             "ASSET_USAGE_UNKNOWN", f"无法枚举项目素材清单：{exc}"
         ) from exc
     for project_dir_path in projects:
-        if not project_dir_path.is_dir():
+        try:
+            project_metadata = project_dir_path.lstat()
+        except OSError as exc:
+            raise AssetLibraryError(
+                "ASSET_USAGE_UNKNOWN", f"无法检查项目目录 {project_dir_path.name}：{exc}"
+            ) from exc
+        if stat.S_ISLNK(project_metadata.st_mode):
+            raise AssetLibraryError(
+                "ASSET_USAGE_UNKNOWN", f"项目目录 {project_dir_path.name} 是符号链接，引用状态无法核验"
+            )
+        if not stat.S_ISDIR(project_metadata.st_mode):
             continue
         manifest = project_dir_path / "assets" / "manifest.json"
         if not manifest.exists() and not manifest.is_symlink():
