@@ -148,7 +148,10 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
         "steps.live_stream_config.conclusion == 'skipped' || "
         "steps.live_stream_config.conclusion == 'failure'"
     )
-    assert ai_workflow.count(require_live_or_not_requested) >= 2
+    publish_step = ai_workflow.split(
+        "      - name: Publish verified React Studio bundle and Tailwind CSS to main", 1
+    )[1]
+    assert require_live_or_not_requested in publish_step
     live_config_step = ai_workflow.split(
         "      - name: Configure opt-in live model token-stream smoke", 1
     )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
