@@ -704,7 +704,7 @@ candidate_roots+=("/mnt/d/autocut/video-director/storage/composer" "$workspace/s
           "$PY311_BIN/python3.11" -m video_director.live_stream_acceptance --junit live-stream-junit.xml
 
       - name: Summarize retained regression diagnostics
-        if: always() && steps.ensure_checkout.outcome == 'success'
+        if: always()
         shell: bash
         run: |
           "$PY311_BIN/python3.11" - <<'PY'
