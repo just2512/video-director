@@ -3422,8 +3422,7 @@ class Handler(BaseHTTPRequestHandler):
                         "model": m.get("model") or old.get("model", ""),
                     }
                 if configs:
-                    configs = vd_model_config.merge_role_updates(configs)
-                    vd_model_config.save_all(configs)
+                    vd_model_config.save_role_updates(configs)
                     vd_model_config.sync_llm_provider()
                 self._send_json({"ok": True,
                                  "imported_roles": sorted(configs.keys()),
@@ -3452,8 +3451,7 @@ class Handler(BaseHTTPRequestHandler):
                         c["api_key"] = old.get("api_key", "")
                 # Partial UI updates must retain roles omitted from the request;
                 # save_all remains a whole-file writer for backwards compatibility.
-                configs = vd_model_config.merge_role_updates(configs)
-                vd_model_config.save_all(configs)
+                vd_model_config.save_role_updates(configs)
                 vd_model_config.sync_llm_provider()  # llm 角色立即生效
                 self._send_json({
                     "ok": True,
