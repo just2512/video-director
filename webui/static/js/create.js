@@ -59,7 +59,7 @@ function openCreate(projectId){
   closeCreate();
   const mask = document.createElement('div');
   mask.id = 'cf-mask';
-  mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:12000;display:flex;align-items:center;justify-content:center;pointer-events:auto';
+  mask.style.cssText = 'position:fixed;inset:0;background:var(--bg,#111);z-index:12000;display:flex;align-items:stretch;justify-content:stretch;pointer-events:auto';
   mask.setAttribute('aria-hidden','false');
   // The backdrop is deliberately inert. Only the explicit header action may
   // dismiss the dialog; pointer sequences outside the panel must never reach
@@ -82,11 +82,11 @@ function openCreate(projectId){
   },true);
   const panel = document.createElement('div');
   panel.id = 'cf-panel';
-  panel.className = 'card';
+  panel.className = 'card cf-create-workspace';
   panel.setAttribute('role','dialog');
   panel.setAttribute('aria-modal','true');
-  panel.setAttribute('aria-label','新建项目');
-  panel.style.cssText = 'max-width:900px;width:94%;max-height:92vh;overflow:auto;padding:22px';
+  panel.setAttribute('aria-label','创建视频项目工作区');
+  panel.style.cssText = 'width:100%;max-width:none;height:100vh;max-height:100vh;min-height:100vh;overflow:auto;padding:clamp(18px,3vw,36px);border-radius:0;box-sizing:border-box';
   panel.innerHTML = _createPanelHtml();
   mask.appendChild(panel);
   document.body.appendChild(mask);
@@ -349,7 +349,7 @@ function _createPanelHtml(){
   return `
   <div id="cf-form">
   <div style="display:flex;align-items:center;gap:10px">
-    <h3 style="font-size:17px;margin:0">新建项目</h3>
+    <div><h1 style="font-size:26px;margin:0">创建视频项目</h1><div class="hint" style="margin-top:4px">设置本次创作目标与素材输入；模型和 API 配置沿用系统设置，不会在这里修改。</div></div>
     <span style="flex:1"></span>
     <button class="btn-secondary btn-sm" onclick="closeCreate()">收起</button>
   </div>
