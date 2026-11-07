@@ -1,10 +1,14 @@
 """Regression tests for partial model-role updates and local credential retention."""
 
 import json
+import importlib
+import threading
+from http.server import ThreadingHTTPServer
+from urllib.request import Request, urlopen
 
 import pytest
 
-from video_director import model_config
+from video_director import config, model_config
 
 
 @pytest.fixture
@@ -117,3 +121,80 @@ def test_concurrent_partial_updates_keep_both_roles(isolated_model_config):
     assert saved["image"]["api_key"] == "local-image-secret"
     assert saved["llm"]["model"] == "llm-v2"
     assert saved["image"]["model"] == "image-v2"
+
+
+
+def _post_settings_json(storage, monkeypatch, path, payload):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    monkeypatch.setattr(config, "composer_storage_root", lambda: storage)
+    model_config._cache = None
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    monkeypatch.setattr(web_server, "COMPOSER_ROOT", storage)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        request = Request(
+            f"http://127.0.0.1:{server.server_port}{path}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=10) as response:
+            return json.loads(response.read().decode("utf-8"))
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        model_config._cache = None
+
+
+def test_model_config_endpoint_partial_save_preserves_unsubmitted_roles(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    path = storage / "model_config.json"
+    path.write_text(json.dumps({
+        "llm": {"api_key": "local-llm-secret", "base_url": "https://llm.example/v1", "model": "llm"},
+        "image": {"api_key": "local-image-secret", "base_url": "https://image.example/v1", "model": "image"},
+        "video": {"api_key": "local-video-secret", "base_url": "https://video.example/v1", "model": "video"},
+    }), encoding="utf-8")
+
+    result = _post_settings_json(storage, monkeypatch, "/api/model_config", {
+        "configs": {
+            "llm": {"api_key": "__KEEP__", "base_url": "https://llm.example/v2", "model": "llm-v2"},
+        },
+    })
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert result["ok"] is True
+    assert saved["llm"]["api_key"] == "local-llm-secret"
+    assert saved["image"]["api_key"] == "local-image-secret"
+    assert saved["video"]["api_key"] == "local-video-secret"
+    assert "local-llm-secret" not in json.dumps(result)
+
+
+def test_settings_import_endpoint_preserves_unlisted_local_roles(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    path = storage / "model_config.json"
+    path.write_text(json.dumps({
+        "llm": {"api_key": "local-llm-secret", "base_url": "https://llm.example/v1", "model": "llm"},
+        "image": {"api_key": "local-image-secret", "base_url": "https://image.example/v1", "model": "image"},
+        "tts_azure": {"api_key": "local-azure-secret", "base_url": "", "model": "eastasia"},
+    }), encoding="utf-8")
+
+    result = _post_settings_json(storage, monkeypatch, "/api/settings/import", {
+        "models": [
+            {"role": "image", "base_url": "https://imported-image.example/v1", "model": "image-imported"},
+        ],
+    })
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert result["ok"] is True
+    assert result["imported_roles"] == ["image"]
+    assert saved["llm"]["api_key"] == "local-llm-secret"
+    assert saved["image"]["api_key"] == "local-image-secret"
+    assert saved["tts_azure"]["api_key"] == "local-azure-secret"
+    assert saved["image"]["base_url"] == "https://imported-image.example/v1"
+    assert "local-llm-secret" not in json.dumps(result)
