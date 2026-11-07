@@ -495,7 +495,9 @@ jobs:
       # that optional action happen before any job step can run.
       - name: Configure opt-in live model token-stream smoke
         id: live_stream_config
-        # Live-provider acceptance is opt-in. Keep credentials out of GITHUB_ENV:
+        # Live-provider acceptance is opt-in. A push can request one isolated
+        # NVIDIA run with [live-stream-smoke] [live-provider=nvidia]
+        # [live-model=z-ai/glm-5.3-flash]. Keep credentials out of GITHUB_ENV:
         # the real provider test runs in a dedicated child process, not in broad pytest.
         if: steps.full_regression.outcome == 'success' && steps.timeline_regression_gate.outcome == 'success' && ((github.event_name == 'workflow_dispatch' && inputs.run_live_llm) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-stream-smoke]')))
         shell: bash
