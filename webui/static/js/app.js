@@ -224,43 +224,36 @@ function renderRenderRoles(){
     </div>`).join('');
 }
 
-async function saveModelConfig(){
-  const status = document.getElementById('llm-save-status');
-  status.textContent = '保存中……';
+async function saveModelConfig(scope = 'all'){
+  const roleSets = { models: MODEL_ROLES, voice: TTS_ROLES, stock: STOCK_ROLES, render: RENDER_ROLES };
+  const targetRoles = scope === 'all' ? [...MODEL_ROLES, ...RENDER_ROLES, ...STOCK_ROLES, ...TTS_ROLES] : (roleSets[scope] || []);
+  const statusIds = { all: 'llm-save-status', models: 'llm-save-status', voice: 'tts-save-status', stock: 'stock-save-status', render: 'render-save-status' };
+  const status = document.getElementById(statusIds[scope] || statusIds.all);
+  if (status) status.textContent = '保存中……';
   const configs = {};
-  for (const r of [...MODEL_ROLES, ...RENDER_ROLES, ...STOCK_ROLES, ...TTS_ROLES]) {
+  for (const r of targetRoles) {
     const keyEl = document.getElementById(`mc-${r.role}-key`);
     const urlEl = document.getElementById(`mc-${r.role}-url`);
     const modelEl = document.getElementById(`mc-${r.role}-model`);
     if (!keyEl) continue;
     const keyVal = keyEl.value;
-    // 「（已保存）」占位 = 保持原有 key 不变；空值 = 清除该角色
     configs[r.role] = {
       api_key: keyVal === '（已保存）' ? '__KEEP__' : keyVal,
-      base_url: urlEl ? urlEl.value : '',
-      model: modelEl ? modelEl.value : '',
+      ...(urlEl ? {base_url:urlEl.value} : {}),
+      ...(modelEl ? {model:modelEl.value} : {})
     };
   }
-  const r2 = await apiPost('/api/model_config', {configs});
-  if (!r2.ok) { status.textContent = '保存失败：' + (r2.error || '未知'); return; }
-  const allRoles = Array.isArray(r2.roles) ? r2.roles : [...MODEL_ROLES, ...STOCK_ROLES, ...TTS_ROLES];
+  if (!Object.keys(configs).length) { if (status) status.textContent = '没有可保存的配置项'; return; }
+  const response = await apiPost('/api/model_config', {configs});
+  if (!response.ok) { if (status) status.textContent = '保存失败：' + (response.error || '未知'); return; }
+  const allRoles = Array.isArray(response.roles) ? response.roles : [...MODEL_ROLES, ...RENDER_ROLES, ...STOCK_ROLES, ...TTS_ROLES];
   STOCK_ROLES = allRoles.filter(r => r.kind === 'stock' || String(r.role || '').startsWith('stock_'));
   TTS_ROLES = allRoles.filter(r => r.kind === 'tts' || String(r.role || '').startsWith('tts_'));
   RENDER_ROLES = allRoles.filter(r => r.role === 'hyperframes');
-  MODEL_ROLES = allRoles.filter(r => r.kind !== 'stock' && !String(r.role || '').startsWith('stock_')
-                                  && r.kind !== 'tts' && !String(r.role || '').startsWith('tts_')
-                                  && r.role !== 'hyperframes');
-  window.MODEL_ROLES = MODEL_ROLES;
-  window.STOCK_ROLES = STOCK_ROLES;
-  window.TTS_ROLES = TTS_ROLES;
-  window.RENDER_ROLES = RENDER_ROLES;
-  renderModelRoles();
-  renderRenderRoles();
-  renderStockRoles();
-  renderTtsRoles();
-  status.textContent = '已保存并立即生效';
-  const stockStatus = document.getElementById('stock-save-status');
-  if (stockStatus) stockStatus.textContent = '已保存并立即生效';
+  MODEL_ROLES = allRoles.filter(r => r.kind !== 'stock' && !String(r.role || '').startsWith('stock_') && r.kind !== 'tts' && !String(r.role || '').startsWith('tts_') && r.role !== 'hyperframes');
+  window.MODEL_ROLES = MODEL_ROLES; window.STOCK_ROLES = STOCK_ROLES; window.TTS_ROLES = TTS_ROLES; window.RENDER_ROLES = RENDER_ROLES;
+  renderModelRoles(); renderRenderRoles(); renderStockRoles(); renderTtsRoles();
+  if (status) status.textContent = '已保存并立即生效';
   refreshLLMBadge();
 }
 
