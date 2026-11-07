@@ -63,6 +63,8 @@ def test_studio_build_uses_isolated_hosted_runner_and_lockfile():
     assert live_config_step.index('("runner_saved_config",') < live_config_step.index('("NVIDIA_API_KEY_SECRET",')
     assert "preserved runner config is the authoritative credential" in live_config_step
     assert "never silently replace" in live_config_step
+    assert live_config_step.index("saved.get(\"base_url\")") < live_config_step.index('os.environ.get("VD_LLM_BASE_URL_CONFIG")')
+    assert live_config_step.index("saved.get(\"model\")") < live_config_step.index('os.environ.get("VD_LLM_MODEL_CONFIG")')
     assert "value is redacted" in live_config_step
     assert "id: live_stream_smoke" in ai_workflow
     live_smoke = ai_workflow.split(
