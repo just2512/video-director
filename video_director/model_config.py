@@ -208,6 +208,30 @@ def load_all() -> Dict[str, dict]:
         return _cache
 
 
+def merge_role_updates(configs: Dict[str, dict]) -> Dict[str, dict]:
+    """Merge partial role updates while retaining every omitted persisted role.
+
+    save_all remains a whole-file writer for backwards compatibility. Callers
+    accepting category-level updates must merge first. api_key='__KEEP__' keeps
+    the persisted key; an empty key is an explicit request to clear that role.
+    """
+    if not isinstance(configs, dict):
+        raise TypeError("configs 必须是对象")
+    merged: Dict[str, dict] = {
+        role: dict(data)
+        for role, data in load_all().items()
+        if role in ROLE_DEFS and isinstance(data, dict)
+    }
+    for role, data in configs.items():
+        if role not in ROLE_DEFS or not isinstance(data, dict):
+            continue
+        incoming = dict(data)
+        if incoming.get("api_key") == "__KEEP__":
+            incoming["api_key"] = (merged.get(role) or {}).get("api_key", "")
+        merged[role] = incoming
+    return merged
+
+
 def get_role_config(role: str) -> dict:
     """单角色配置：环境变量 > 文件配置 > 未启用。
 
