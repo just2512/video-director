@@ -86,3 +86,7 @@ if ($LASTEXITCODE -ne 0) {
 
 workflow 的真实模型验收入口仍然是 opt-in；未带标记的普通 push 应报告 MISSING，而不是把 mock 测试当作真实模型通过。
 
+### CI 执行顺序与发布门禁
+
+带有上述一次性 commit message 标记的 push，仍必须先完成同一提交 SHA 的全量 pytest、React Studio 构建/集成检查和 Timeline / migration / export 浏览器回归。只有全量测试与 Timeline / Studio 发布门禁均为 success，workflow 才允许配置 NVIDIA 凭据并启动真实模型探测与 token-stream pytest；任一门禁失败时，真实模型步骤不得运行。真实模型验收的 PASS 还要求唯一匹配的 JUnit 用例完整通过，不能用最小探测成功代替。
+
