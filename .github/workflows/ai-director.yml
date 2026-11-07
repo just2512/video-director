@@ -733,21 +733,30 @@ jobs:
             original_dir="$(dirname "$ORIGINAL_MODEL_CONFIG_FILE")"
             mkdir -p "$original_dir"
             current_sha256=""
+            current_mode=""
             if [[ -f "$ORIGINAL_MODEL_CONFIG_FILE" ]]; then
               current_sha256="$(sha256sum "$ORIGINAL_MODEL_CONFIG_FILE" | awk '{print $1}')"
+              current_mode="$(stat -c '%a' "$ORIGINAL_MODEL_CONFIG_FILE")"
             fi
-            if [[ -n "$ORIGINAL_MODEL_CONFIG_SHA256" && "$current_sha256" == "$ORIGINAL_MODEL_CONFIG_SHA256" ]]; then
-              echo "LOCAL_MODEL_CONFIG_PRESERVATION=PASS sha256 unchanged; no rewrite required."
+            if [[ -n "$ORIGINAL_MODEL_CONFIG_SHA256" \
+                  && "$current_sha256" == "$ORIGINAL_MODEL_CONFIG_SHA256" \
+                  && "$current_mode" == "$ORIGINAL_MODEL_CONFIG_MODE" ]]; then
+              echo "LOCAL_MODEL_CONFIG_PRESERVATION=PASS sha256 and mode unchanged; no rewrite required."
             else
               restore_tmp="${ORIGINAL_MODEL_CONFIG_FILE}.restore.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}.tmp"
               install -m "$ORIGINAL_MODEL_CONFIG_MODE" "$PRESERVED_MODEL_CONFIG_FILE" "$restore_tmp"
               mv -f "$restore_tmp" "$ORIGINAL_MODEL_CONFIG_FILE"
               restored_sha256="$(sha256sum "$ORIGINAL_MODEL_CONFIG_FILE" | awk '{print $1}')"
+              restored_mode="$(stat -c '%a' "$ORIGINAL_MODEL_CONFIG_FILE")"
               if [[ -n "$ORIGINAL_MODEL_CONFIG_SHA256" && "$restored_sha256" != "$ORIGINAL_MODEL_CONFIG_SHA256" ]]; then
                 echo "::error::LOCAL_MODEL_CONFIG_PRESERVATION=FAIL restored file hash mismatch."
                 exit 1
               fi
-              echo "LOCAL_MODEL_CONFIG_PRESERVATION=RESTORED original bytes and path verified; contents remain redacted."
+              if [[ "$restored_mode" != "$ORIGINAL_MODEL_CONFIG_MODE" ]]; then
+                echo "::error::LOCAL_MODEL_CONFIG_PRESERVATION=FAIL restored file mode mismatch."
+                exit 1
+              fi
+              echo "LOCAL_MODEL_CONFIG_PRESERVATION=RESTORED original bytes, mode, and path verified; contents remain redacted."
             fi
           else
             echo "No runner-local model config backup was created; nothing to restore."
