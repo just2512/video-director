@@ -370,7 +370,15 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 ) and time.monotonic() < history_deadline:
                     time.sleep(0.02)
                     history = fd._history_read(project_id)
-                assert history["past"] and history["past"][-1]["source"] == "external_file", {
+                external_entry = next(
+                    (
+                        entry for entry in history["past"]
+                        if entry.get("source") == "external_file"
+                        and entry.get("after_rev") == external_revision
+                    ),
+                    None,
+                )
+                assert external_entry is not None, {
                     "history": history,
                     "watcher_state": web_server._FILM_REVISION_WATCHER._projects.get(project_id),
                     "external_revision": external_revision,
