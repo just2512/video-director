@@ -317,6 +317,10 @@ def test_live_model_stream_smoke_is_explicit_ci_opt_in_and_default_ci_reports_mi
     assert "VD_LLM_API_KEY_SECRET" in config_step
     assert "VD_LLM_BASE_URL_CONFIG" in config_step
     assert "VD_LLM_MODEL_CONFIG" in config_step
+    assert "NVIDIA_API_KEY_SECRET" in config_step
+    assert "NVIDIA_API_KEY" in config_step
+    assert "credential_host != \"integrate.api.nvidia.com\"" in config_step
+    assert "NVIDIA live override requires NVIDIA_API_KEY" in config_step
     assert "Opt-in live-model smoke is missing a complete key/base URL/model configuration." in config_step
     assert "raise SystemExit(1)" in config_step
     assert "steps.live_stream_config.outcome == 'success'" in live_step
