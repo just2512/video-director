@@ -707,6 +707,21 @@ jobs:
         if: always()
         shell: bash
         run: |
+          set -euo pipefail
+          # Restore before diagnostics so even a malformed JUnit report cannot skip recovery.
+          PRESERVED_MODEL_CONFIG_FILE="${VD_PRESERVED_MODEL_CONFIG_FILE:-}"
+          ORIGINAL_MODEL_CONFIG_FILE="${VD_ORIGINAL_MODEL_CONFIG_FILE:-}"
+          ORIGINAL_MODEL_CONFIG_MODE="${VD_ORIGINAL_MODEL_CONFIG_MODE:-600}"
+          if [[ -n "$PRESERVED_MODEL_CONFIG_FILE" && -n "$ORIGINAL_MODEL_CONFIG_FILE" && -f "$PRESERVED_MODEL_CONFIG_FILE" ]]; then
+            original_dir="$(dirname "$ORIGINAL_MODEL_CONFIG_FILE")"
+            mkdir -p "$original_dir"
+            restore_tmp="${ORIGINAL_MODEL_CONFIG_FILE}.restore.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}.tmp"
+            install -m "$ORIGINAL_MODEL_CONFIG_MODE" "$PRESERVED_MODEL_CONFIG_FILE" "$restore_tmp"
+            mv -f "$restore_tmp" "$ORIGINAL_MODEL_CONFIG_FILE"
+            echo "Restored runner-local model configuration to its original path; contents remain redacted."
+          else
+            echo "No runner-local model config backup was created; nothing to restore."
+          fi
           "$PY311_BIN/python3.11" - <<'PY'
           import os
           import xml.etree.ElementTree as ET
@@ -747,22 +762,6 @@ jobs:
               with open(summary, "a", encoding="utf-8") as stream:
                   stream.write(rendered)
           PY
-          # Restore the runner-local config after tests. The checkout recovery above
-          # uses git clean -ffdx, which can remove ignored storage/composer data.
-          PRESERVED_MODEL_CONFIG_FILE="${VD_PRESERVED_MODEL_CONFIG_FILE:-}"
-          ORIGINAL_MODEL_CONFIG_FILE="${VD_ORIGINAL_MODEL_CONFIG_FILE:-}"
-          ORIGINAL_MODEL_CONFIG_MODE="${VD_ORIGINAL_MODEL_CONFIG_MODE:-600}"
-          if [[ -n "$PRESERVED_MODEL_CONFIG_FILE" && -n "$ORIGINAL_MODEL_CONFIG_FILE" && -f "$PRESERVED_MODEL_CONFIG_FILE" ]]; then
-            original_dir="$(dirname "$ORIGINAL_MODEL_CONFIG_FILE")"
-            mkdir -p "$original_dir"
-            restore_tmp="${ORIGINAL_MODEL_CONFIG_FILE}.restore.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}.tmp"
-            install -m "$ORIGINAL_MODEL_CONFIG_MODE" "$PRESERVED_MODEL_CONFIG_FILE" "$restore_tmp"
-            mv -f "$restore_tmp" "$ORIGINAL_MODEL_CONFIG_FILE"
-            echo "Restored runner-local model configuration to its original path; contents remain redacted."
-          else
-            echo "No runner-local model config backup was created; nothing to restore."
-          fi
-
       - name: Publish verified React Studio bundle and Tailwind CSS to main
         if: always() && steps.ensure_checkout.outcome == 'success' && steps.full_regression.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && (steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped') && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped' || steps.live_stream_config.conclusion == 'failure') && steps.timeline_regression_gate.outcome == 'success'
         shell: bash
