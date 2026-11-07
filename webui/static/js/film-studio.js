@@ -2330,12 +2330,16 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
   function hasUncommittedClipInspectorEdits(){
     if(!S.data||!S.data.exists)return false;
     var reactInspector=document.querySelector('[data-react-clip-inspector="true"]');
-    // A selected clip can change before React's effect has reset the controlled
-    // form. Its old values belong to the previous clip, not to the new selection.
-    // Treat that transition as clean; the effect updates form + identity together.
-    if(reactInspector&&reactInspector.getAttribute('data-clip-form-id')!==S.selectedId)return false;
-    var clip=findClip(S.selectedId);
-    if(!clip)return false;
+    // During a React selection transition, the controlled form may still belong
+    // to the previous clip. Compare it with that clip's own persisted baseline;
+    // comparing it with the newly selected clip creates false dirty-state blocks,
+    // while treating every identity mismatch as clean can discard a real draft.
+    var formClipId=reactInspector?String(reactInspector.getAttribute('data-clip-form-id')||''):S.selectedId;
+    var clipId=formClipId||S.selectedId;
+    var clip=findClip(clipId);
+    if(!clip){
+      return !!(reactInspector&&formClipId&&formClipId!==S.selectedId);
+    }
     var attrs=clip.attrs||{};
     if(inspectorFieldDiffersNumber('fs-field-at',attrs.at==null?(clip.at||0):attrs.at))return true;
     if(inspectorFieldDiffersNumber('fs-field-speed',attrs.speed||1))return true;
