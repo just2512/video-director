@@ -247,8 +247,12 @@ def merge_role_updates(configs: Dict[str, dict]) -> Dict[str, dict]:
 
 
 def save_role_updates(configs: Dict[str, dict]) -> Dict[str, dict]:
-    """Atomically serialize partial role updates within this process."""
+    """Serialize partial role updates and merge against the latest on-disk values."""
+    global _cache
     with _lock:
+        # Another process or a manual edit may have changed the file since the last read.
+        # Refresh under the same lock before merging so omitted roles are not stale.
+        _cache = None
         merged = merge_role_updates(configs)
         return save_all(merged)
 
