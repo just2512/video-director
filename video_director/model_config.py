@@ -234,9 +234,13 @@ def merge_role_updates(configs: Dict[str, dict]) -> Dict[str, dict]:
     for role, data in configs.items():
         if role not in ROLE_DEFS or not isinstance(data, dict):
             continue
+        current = merged.get(role) or {}
         incoming = dict(data)
-        if incoming.get("api_key") == "__KEEP__":
-            incoming["api_key"] = (merged.get(role) or {}).get("api_key", "")
+        if incoming.get("api_key") == "__KEEP__" or "api_key" not in incoming:
+            incoming["api_key"] = current.get("api_key", "")
+        for field in ("base_url", "model"):
+            if field not in incoming:
+                incoming[field] = current.get(field, "")
         merged[role] = incoming
     return merged
 
