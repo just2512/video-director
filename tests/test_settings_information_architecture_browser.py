@@ -50,6 +50,17 @@ def test_settings_categories_keep_local_credentials_read_only_until_explicit_sav
                 assert page.locator("#mc-llm-key").input_value() == "（已保存）"
                 assert "fixture-local-llm-secret" not in page.locator("#pane-settings").inner_text()
                 assert config_path.read_bytes() == before
+
+                page.locator("#mc-llm-model").fill("fixture-model-updated")
+                page.locator("#pane-settings button[onclick="saveModelConfig('models')"]").click()
+                page.wait_for_function("document.getElementById('llm-save-status')?.textContent === '已保存并立即生效'")
+                saved = json.loads(config_path.read_text(encoding="utf-8"))
+                assert saved["llm"]["model"] == "fixture-model-updated"
+                assert saved["llm"]["api_key"] == "fixture-local-llm-secret"
+                assert saved["hyperframes"]["api_key"] == "fixture-local-render-secret"
+                assert saved["stock_pexels"]["api_key"] == "fixture-local-stock-secret"
+                assert saved["hyperframes"]["model"] == "render-model"
+                assert saved["stock_pexels"]["model"] == "videos/search"
                 assert not errors, errors
             finally:
                 browser.close()
