@@ -45,6 +45,10 @@ def test_studio_build_uses_isolated_hosted_runner_and_lockfile():
     # The real-provider credential must exist only in the isolated live-test child
     # process; broad regressions must not inherit the runner's paid model config.
     assert "VD_PRESERVED_MODEL_CONFIG_FILE" in ai_workflow
+    assert 'current_mode="$(stat -c \'%a\' "$ORIGINAL_MODEL_CONFIG_FILE")"' in ai_workflow
+    assert '"$current_mode" == "$ORIGINAL_MODEL_CONFIG_MODE"' in ai_workflow
+    assert 'restored_mode="$(stat -c \'%a\' "$ORIGINAL_MODEL_CONFIG_FILE")"' in ai_workflow
+    assert 'LOCAL_MODEL_CONFIG_PRESERVATION=FAIL restored file mode mismatch.' in ai_workflow
     assert "VD_LLM_LIVE_CONFIG_FILE" in ai_workflow
     live_config_step = ai_workflow.split(
         "      - name: Configure opt-in live model token-stream smoke", 1
