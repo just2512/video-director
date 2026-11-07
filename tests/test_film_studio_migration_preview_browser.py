@@ -378,10 +378,26 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                     ),
                     None,
                 )
+                watcher_state = web_server._FILM_REVISION_WATCHER._projects.get(project_id)
                 assert external_entry is not None, {
-                    "history": history,
-                    "watcher_state": web_server._FILM_REVISION_WATCHER._projects.get(project_id),
+                    "history_entries": [
+                        {
+                            "source": entry.get("source"),
+                            "before_rev": entry.get("before_rev"),
+                            "after_rev": entry.get("after_rev"),
+                        }
+                        for entry in history["past"]
+                    ],
+                    "watcher": {
+                        "watched_path": (watcher_state or {}).get("watched_path"),
+                        "last_revision": (watcher_state or {}).get("last_revision"),
+                        "last_text_revision": fd.revision_of((watcher_state or {}).get("last_text") or ""),
+                        "last_phase": (watcher_state or {}).get("last_phase"),
+                        "last_history_result": (watcher_state or {}).get("last_history_result"),
+                        "last_error": (watcher_state or {}).get("last_error"),
+                    },
                     "external_revision": external_revision,
+                    "authoritative_revision": fd.read_project_film(project_id)["rev"],
                 }
 
                 page.reload(wait_until="domcontentloaded")
