@@ -232,7 +232,27 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
                 page.evaluate("() => window.filmStudioLoadLibrary()")
                 add_button = page.locator(f'[data-add-asset="{asset_id}"]')
                 add_button.wait_for(state="visible")
-                add_button.click()
+                with page.expect_response(
+                    lambda response: (
+                        response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/insert-asset")
+                    ),
+                    timeout=15000,
+                ) as adoption_response_info:
+                    add_button.click()
+                adoption_response = adoption_response_info.value
+                adoption_payload = adoption_response.json()
+                assert adoption_response.status == 200, {
+                    "status": adoption_response.status,
+                    "body": adoption_payload,
+                }
+                assert adoption_payload.get("rev") != edited_revision, {
+                    "expected_revision_change": edited_revision,
+                    "response_revision": adoption_payload.get("rev"),
+                    "inserted_clip_id": adoption_payload.get("inserted_clip_id"),
+                    "tracks": adoption_payload.get("tracks"),
+                    "ops": adoption_payload.get("ops"),
+                }
 
                 page.wait_for_function(
                     """async ({projectId, assetId}) => {
