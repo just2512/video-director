@@ -118,7 +118,7 @@ ROLE_DEFS = {
     },
 }
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 _cache: Optional[Dict[str, dict]] = None
 
 
@@ -217,6 +217,15 @@ def merge_role_updates(configs: Dict[str, dict]) -> Dict[str, dict]:
     """
     if not isinstance(configs, dict):
         raise TypeError("configs 必须是对象")
+    # A malformed existing file must never be silently replaced by a partial save.
+    path = _config_path()
+    if path.is_file():
+        try:
+            stored = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("现有本地模型配置无法安全读取；已拒绝覆盖，请先备份并修复文件") from exc
+        if not isinstance(stored, dict):
+            raise ValueError("现有本地模型配置格式无效；已拒绝覆盖")
     merged: Dict[str, dict] = {
         role: dict(data)
         for role, data in load_all().items()
@@ -230,6 +239,14 @@ def merge_role_updates(configs: Dict[str, dict]) -> Dict[str, dict]:
             incoming["api_key"] = (merged.get(role) or {}).get("api_key", "")
         merged[role] = incoming
     return merged
+
+
+
+def save_role_updates(configs: Dict[str, dict]) -> Dict[str, dict]:
+    """Atomically serialize partial role updates within this process."""
+    with _lock:
+        merged = merge_role_updates(configs)
+        return save_all(merged)
 
 
 def get_role_config(role: str) -> dict:
