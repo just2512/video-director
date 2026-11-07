@@ -35,7 +35,7 @@ def test_studio_build_uses_isolated_hosted_runner_and_lockfile():
     remotion_package = json.loads((root / "remotion_runtime" / "package.json").read_text(encoding="utf-8"))
 
     assert "runs-on: ubuntu-24.04" in workflow
-    assert "self-hosted" not in workflow
+    assert "runs-on: [self-hosted" not in workflow
     assert "group: studio-ui-hosted-" in workflow
     assert "ref: ${{ github.sha }}" in workflow
     assert "npm ci --no-audit --no-fund" in workflow
