@@ -881,13 +881,12 @@ candidate_roots+=("/mnt/d/autocut/video-director/storage/composer" "$workspace/s
       - name: Restore runner-local model configuration
         if: always()
         shell: bash
-        env:
-          PRESERVED_MODEL_CONFIG_FILE: ${{ env.VD_PRESERVED_MODEL_CONFIG_FILE }}
-          ORIGINAL_MODEL_CONFIG_FILE: ${{ env.VD_ORIGINAL_MODEL_CONFIG_FILE }}
-          ORIGINAL_MODEL_CONFIG_MODE: ${{ env.VD_ORIGINAL_MODEL_CONFIG_MODE }}
         run: |
           set -euo pipefail
-          if [[ -z "${PRESERVED_MODEL_CONFIG_FILE:-}" || -z "${ORIGINAL_MODEL_CONFIG_FILE:-}" || ! -f "$PRESERVED_MODEL_CONFIG_FILE" ]]; then
+          PRESERVED_MODEL_CONFIG_FILE="${VD_PRESERVED_MODEL_CONFIG_FILE:-}"
+          ORIGINAL_MODEL_CONFIG_FILE="${VD_ORIGINAL_MODEL_CONFIG_FILE:-}"
+          ORIGINAL_MODEL_CONFIG_MODE="${VD_ORIGINAL_MODEL_CONFIG_MODE:-600}"
+          if [[ -z "$PRESERVED_MODEL_CONFIG_FILE" || -z "$ORIGINAL_MODEL_CONFIG_FILE" || ! -f "$PRESERVED_MODEL_CONFIG_FILE" ]]; then
             echo "No runner-local model config backup was created; nothing to restore."
             exit 0
           fi
