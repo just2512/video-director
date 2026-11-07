@@ -198,3 +198,34 @@ def test_settings_import_endpoint_preserves_unlisted_local_roles(tmp_path, monke
     assert saved["tts_azure"]["api_key"] == "local-azure-secret"
     assert saved["image"]["base_url"] == "https://imported-image.example/v1"
     assert "local-llm-secret" not in json.dumps(result)
+
+
+
+def test_legacy_llm_config_migration_preserves_other_local_roles(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    storage.mkdir()
+    config_path = storage / "model_config.json"
+    config_path.write_text(json.dumps({
+        "image": {"api_key": "local-image-secret", "base_url": "https://image.example/v1", "model": "image"},
+        "tts_azure": {"api_key": "local-azure-secret", "base_url": "", "model": "eastasia"},
+    }), encoding="utf-8")
+    legacy_path = tmp_path / "llm_config.json"
+    legacy_path.write_text(json.dumps({
+        "api_key": "legacy-llm-secret",
+        "base_url": "https://legacy-llm.example/v1",
+        "model": "legacy-llm",
+    }), encoding="utf-8")
+    monkeypatch.setattr(config, "composer_storage_root", lambda: storage)
+    model_config._cache = None
+
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    monkeypatch.setattr(web_server, "LLM_CONFIG_FILE", legacy_path)
+    web_server._load_llm_config()
+
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["llm"]["api_key"] == "legacy-llm-secret"
+    assert saved["image"]["api_key"] == "local-image-secret"
+    assert saved["tts_azure"]["api_key"] == "local-azure-secret"
+    assert model_config.get_role_config("llm")["api_key"] == "legacy-llm-secret"
+    model_config._cache = None
