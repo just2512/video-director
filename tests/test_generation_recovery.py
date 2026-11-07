@@ -497,6 +497,65 @@ class TestFingerprintReuse:
         assert fake.post_calls == 1
         assert fake.get_calls == 1
 
+    def test_registry_commit_before_job_marker_crash_recovers_without_duplicate_asset(
+        self, tmp_path, monkeypatch
+    ):
+        """Asset Registry 已提交但 generation_jobs 标记未写回时，重试必须按内容 hash 收敛。"""
+        from types import SimpleNamespace
+
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import asset_catalog, config, generation as gen, prober
+
+        project_id = "proj-registry-marker-crash"
+        config.init_project_dirs(config.project_dir(project_id))
+        fake = FakeVideoClient(statuses=["completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: fake)
+        payload = bytes.fromhex("000000186674797069736f6d") + b"registry-crash-video"
+        monkeypatch.setattr(gen, "_download_bytes", lambda _url: payload)
+        monkeypatch.setattr(
+            prober, "probe_media",
+            lambda _path: SimpleNamespace(
+                has_video_stream=True, duration=5.0, width=320, height=180,
+                fps=30.0, has_audio_stream=False, codec="h264",
+            ),
+        )
+
+        original_update = gen._update_job
+
+        def crash_after_registry_commit(pid, job_id, fields):
+            if fields.get("registry_status") == "registered":
+                raise SystemExit("simulated process crash after Asset Registry commit")
+            return original_update(pid, job_id, fields)
+
+        monkeypatch.setattr(gen, "_update_job", crash_after_registry_commit)
+        with pytest.raises(SystemExit, match="after Asset Registry commit"):
+            gen.generate(project_id, "registry crash recovery", "video", variant="A")
+
+        jobs = gen._load_jobs(project_id)
+        assert len(jobs) == 1
+        job_id, job = next(iter(jobs.items()))
+        assert job["status"] == "done"
+        assert job["manifest_registered"] is True
+        assert job["registry_status"] == "pending"
+        assert fake.post_calls == 1
+        assert len(asset_catalog.list_assets(source="generated")) == 1
+        assert len(gen._load_manifest(project_id)) == 1
+
+        monkeypatch.setattr(gen, "_update_job", original_update)
+        replayed = gen.generate(
+            project_id, "registry crash recovery", "video", variant="A"
+        )
+
+        assert len(replayed) == 1
+        assert replayed[0].asset_id == gen._load_manifest(project_id)[0]["id"]
+        assert fake.post_calls == 1, "registry repair must not submit another paid task"
+        assert fake.get_calls == 1, "durable Manifest replay must not poll the provider"
+        assert len(asset_catalog.list_assets(source="generated")) == 1
+        repaired = gen._load_jobs(project_id)[job_id]
+        assert repaired["registry_status"] == "registered"
+        assert repaired["registry_error"] is None
+
     def test_generate_reuses_recovered_completed_task_until_manifest_is_written(
         self, tmp_path, monkeypatch
     ):
