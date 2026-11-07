@@ -3539,6 +3539,12 @@ def undo_redo_project_film(project_id: str, base: str | None, action: str) -> di
         current = read_project_film(pid)
         if not current["exists"]:
             raise FilmError("FILM_NOT_INITIALIZED", "当前项目还没有 film.html", 409)
+        if base is not None and base != current["rev"]:
+            raise FilmError(
+                "REVISION_CONFLICT",
+                "影片 revision 已变化；本次撤销/重做未执行，请重新载入后重试。",
+                409,
+            )
         history = _history_read(pid)
         source, destination = (history["past"], history["future"]) if action == "undo" else (history["future"], history["past"])
         if not source:
