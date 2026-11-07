@@ -3502,6 +3502,18 @@ def edit_project_film(
         _validate_slip_source_bounds(pid, doc, normalized)
         _validate_trim_source_bounds(pid, original_doc, doc, normalized)
         updated = _preserve_film_text(current["text"], original_doc, doc)
+        if updated is not None:
+            # Source-span patching is an optimization, never the authority. A
+            # structurally changed document must round-trip to the exact edited
+            # model; otherwise a missed insertion span could return HTTP 200 while
+            # silently leaving film.html at the previous revision.
+            try:
+                preserved_doc = parse_film(updated)
+            except FilmError:
+                updated = None
+            else:
+                if preserved_doc != doc:
+                    updated = None
         if updated is None:
             updated = serialize_film(doc)
         # Fail closed: every write must still satisfy the full document contract.
