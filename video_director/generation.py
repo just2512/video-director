@@ -1172,7 +1172,7 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
 def _create_poll_and_persist_video(
     client, project_id, model, prompt, width, height,
     input_fp: str, variant: str, out_file: str, timeout: float = 600.0,
-) -> str:
+) -> Optional[str]:
     """提交 →（持久化）→ 轮询（每轮更新 jobs）→ 返回 mp4 url。
 
     提交前先查可复用的 running 任务（同 fingerprint+variant）；命中则跳过
@@ -1195,6 +1195,24 @@ def _create_poll_and_persist_video(
             )
 
         reusable = _find_reusable_job(project_id, input_fp, variant)
+        if reusable and reusable.get("status") == "done":
+            # A caller may have observed no reusable task just before another
+            # caller committed the MP4. Re-check under the submission lock so
+            # this late joiner never polls a terminal job or downgrades it.
+            if reusable.get("output_commit_protocol") != "atomic-v2":
+                raise GenerationError(
+                    "VIDEO_RECOVERED_OUTPUT_MISSING",
+                    "已完成的视频任务缺少原子输出协议标记；为避免重复付费，拒绝重新提交。",
+                )
+            committed = _validated_video_output_path(
+                project_id, str(reusable.get("output_file") or "")
+            )
+            if not committed.is_file() or committed.stat().st_size <= 0:
+                raise GenerationError(
+                    "VIDEO_RECOVERED_OUTPUT_MISSING",
+                    "已完成的视频任务本地文件缺失或为空；为避免重复付费，拒绝重新提交。",
+                )
+            return None
         if reusable:
             job_id = reusable["job_id"]
             task_id = reusable["provider_task_id"]
