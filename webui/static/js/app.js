@@ -172,7 +172,7 @@ function renderTtsRoles(){
 function renderModelRoles(){
   const box = document.getElementById('model-roles');
   if (!box || !Array.isArray(MODEL_ROLES)) return;
-  box.innerHTML = MODEL_ROLES.map(r => `
+  const roleCard = r => `
     <div class="role-block">
       <div class="role-head">
         <b>${esc(r.label)}</b>
@@ -190,9 +190,19 @@ function renderModelRoles(){
       <input type="text" id="mc-${r.role}-url" value="${esc(r.base_url || '')}" placeholder="${esc(r.default_base_url)}">
       <label>模型名</label>
       <input type="text" id="mc-${r.role}-model" value="${esc(r.model || '')}" placeholder="${esc(r.default_model)}">
-    </div>`).join('');
+    </div>`;
+  const groups = [
+    {title:'内容创作', roles:MODEL_ROLES.filter(r => r.role === 'llm')},
+    {title:'画面生成', roles:MODEL_ROLES.filter(r => ['image','video'].includes(r.role))},
+    {title:'画面理解', roles:MODEL_ROLES.filter(r => ['vision','semantic_rerank','visual_qa'].includes(r.role))},
+    {title:'其他模型角色', roles:MODEL_ROLES.filter(r => !['llm','image','video','vision','semantic_rerank','visual_qa'].includes(r.role))}
+  ];
+  box.innerHTML = groups.filter(group => group.roles.length).map(group => `
+    <section class="settings-role-group" style="margin-top:14px">
+      <h3 style="font-size:15px;margin:0 0 8px">${group.title}</h3>
+      ${group.roles.map(roleCard).join('')}
+    </section>`).join('');
 }
-
 
 function renderRenderRoles(){
   const box = document.getElementById('render-roles');
