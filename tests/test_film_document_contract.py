@@ -503,6 +503,39 @@ def test_atomic_edits_revision_rebase_and_undo_redo(tmp_path,monkeypatch):
     assert redone["rev"]==rebased["rev"]
 
 
+def test_film_edit_falls_back_when_source_patch_does_not_apply_new_track(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-source-patch-fallback"
+    root.mkdir(parents=True)
+    film_path = root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+
+    original = fd.read_project_film("film-source-patch-fallback")
+    # Simulate a source-span patcher that returns syntactically valid but stale
+    # HTML. The edit must use the canonical serializer and persist the full model.
+    monkeypatch.setattr(fd, "_preserve_film_text", lambda *_args: SAMPLE)
+
+    result = fd.edit_project_film(
+        "film-source-patch-fallback",
+        original["rev"],
+        [
+            {"op": "track_add", "track_id": "track-overlay", "label": "叠加画面", "index": 0},
+            {"op": "insert", "track_id": "track-overlay", "clip": {
+                "id": "new-image", "tag": "img",
+                "attrs": {"src": "../assets/still.png#t=0,4", "at": "1", "title": "插入图片"},
+            }},
+        ],
+        require_base=True,
+        source="test_source_patch_fallback",
+    )
+
+    persisted = fd.read_project_film("film-source-patch-fallback")
+    assert result["rev"] != original["rev"]
+    assert persisted["rev"] == result["rev"]
+    assert persisted["doc"]["tracks"][0]["id"] == "track-overlay"
+    assert persisted["doc"]["tracks"][0]["clips"][0]["id"] == "new-image"
+
+
 def test_film_edit_http_route_can_require_exact_revision_without_disabling_manual_rebase(tmp_path, monkeypatch):
     import importlib
     import json
