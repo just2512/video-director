@@ -229,3 +229,24 @@ def test_legacy_llm_config_migration_preserves_other_local_roles(tmp_path, monke
     assert saved["tts_azure"]["api_key"] == "local-azure-secret"
     assert model_config.get_role_config("llm")["api_key"] == "legacy-llm-secret"
     model_config._cache = None
+
+
+
+def test_partial_role_update_preserves_unsent_fields(isolated_model_config):
+    path = isolated_model_config
+    model_config.save_all({
+        "llm": {
+            "api_key": "local-llm-secret",
+            "base_url": "https://llm.example/v1",
+            "model": "existing-model",
+        },
+    })
+
+    model_config.save_role_updates({"llm": {"model": "updated-model"}})
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["llm"] == {
+        "api_key": "local-llm-secret",
+        "base_url": "https://llm.example/v1",
+        "model": "updated-model",
+    }
