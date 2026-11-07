@@ -879,7 +879,7 @@ candidate_roots+=("/mnt/d/autocut/video-director/storage/composer" "$workspace/s
       # configured root is inside the shared Actions checkout. Restore the exact
       # original bytes to the original path after every test/build/publish step.
       - name: Restore runner-local model configuration
-        if: always()
+        if: ${{ always() }}
         shell: bash
         run: |
           set -euo pipefail
