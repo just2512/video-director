@@ -52,7 +52,7 @@ def test_settings_categories_keep_local_credentials_read_only_until_explicit_sav
                 assert config_path.read_bytes() == before
 
                 page.locator("#mc-llm-model").fill("fixture-model-updated")
-                page.locator("#pane-settings button[onclick="saveModelConfig('models')"]").click()
+                page.locator("#pane-settings button").filter(has_text="保存模型配置").click()
                 page.wait_for_function("document.getElementById('llm-save-status')?.textContent === '已保存并立即生效'")
                 saved = json.loads(config_path.read_text(encoding="utf-8"))
                 assert saved["llm"]["model"] == "fixture-model-updated"
