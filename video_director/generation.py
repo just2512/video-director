@@ -855,7 +855,7 @@ def generate(
 
 def _register_result(
     manifest, results, asset_id, asset_type, out_file, width, height, dur,
-    model, provider_id, prompt, input_fp, variant,
+    model, provider_id, prompt, input_fp, variant, *, created_at=None,
 ) -> None:
     out_fp = _fingerprint(Path(out_file).read_bytes())
     results.append(GenerationResult(
@@ -874,7 +874,8 @@ def _register_result(
         "generation_request_id": f"genreq-{input_fp}",
         "provider_id": provider_id, "model": model,
         "input_fingerprint": input_fp, "output_fingerprint": out_fp,
-        "variant": variant, "created_at": time.time(),
+        "variant": variant,
+        "created_at": created_at if created_at is not None else time.time(),
     })
 
 
@@ -1036,30 +1037,50 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
     client = None
 
     for v in pending_variants:
-        asset_id = f"gen-{uuid.uuid4().hex[:8]}"
-        out_file = assets_dir / f"{asset_id}.mp4"
-        # A previous process may have atomically materialized the MP4 and marked
-        # the job done, then crashed before manifest registration. Reuse that
-        # verified atomic output directly; provider task records may expire and
-        # must not be required to retrieve bytes that are already local.
+        # A caller that joins an existing provider task must use that task's
+        # canonical output path. Otherwise two concurrent generate() calls can
+        # poll one paid task but race to persist different files; the first
+        # caller marks the job terminal and the second then fails its write.
+        asset_id = ""
+        out_file = assets_dir / f"pending-{uuid.uuid4().hex[:12]}.mp4"
         reusable = _find_reusable_job(project_id, input_fp, v)
         recovered_file = None
-        if (
-            reusable
-            and reusable.get("status") == "done"
-            and reusable.get("output_commit_protocol") == "atomic-v2"
-            and isinstance(reusable.get("output_file"), str)
-            and reusable.get("output_file")
-        ):
-            candidate = _validated_video_output_path(
-                project_id, reusable["output_file"]
-            )
-            if candidate.is_file() and candidate.stat().st_size > 0:
-                # Both recovery_needs_registration and manifest_registered are
-                # valid reasons to reuse the already committed bytes. In
-                # particular, a lost Manifest row must not force a provider poll.
-                recovered_file = candidate
-                out_file = candidate
+        if reusable:
+            stored_output = reusable.get("output_file")
+            if isinstance(stored_output, str) and stored_output:
+                out_file = _validated_video_output_path(project_id, stored_output)
+            elif reusable.get("status") == "done":
+                raise GenerationError(
+                    "VIDEO_RECOVERED_OUTPUT_MISSING",
+                    "已完成的视频任务没有可恢复的输出路径；为避免重复付费，不会重新提交。",
+                )
+            else:
+                # Legacy in-flight jobs without an output path still need one
+                # deterministic destination shared by every recovery caller.
+                suffix = hashlib.sha256(
+                    str(reusable.get("job_id") or "").encode("utf-8")
+                ).hexdigest()[:16]
+                out_file = assets_dir / f"recovered-{suffix}.mp4"
+                _update_job(project_id, reusable["job_id"], {
+                    "output_file": str(out_file),
+                })
+
+        # A completed atomic output is self-contained. Reuse its verified local
+        # bytes directly; provider task records may already have expired.
+        if reusable and reusable.get("status") == "done":
+            if reusable.get("output_commit_protocol") != "atomic-v2":
+                raise GenerationError(
+                    "VIDEO_RECOVERED_OUTPUT_MISSING",
+                    "已完成的视频任务没有原子提交协议标记；为避免重复付费，拒绝重新提交。",
+                )
+            candidate = _validated_video_output_path(project_id, str(out_file))
+            if not candidate.is_file() or candidate.stat().st_size <= 0:
+                raise GenerationError(
+                    "VIDEO_RECOVERED_OUTPUT_MISSING",
+                    "已完成的视频任务本地文件缺失或为空；为避免重复付费，拒绝重新提交。",
+                )
+            recovered_file = candidate
+            out_file = candidate
 
         try:
             if recovered_file is not None:
@@ -1115,6 +1136,12 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
                 "VIDEO_JOB_MISSING",
                 "供应商任务已返回视频地址，但未找到持久化任务记录；禁止静默登记成品",
             )
+        # The ledger is the authority for the output path after a task has been
+        # reserved. This also covers callers that raced before the reservation
+        # became visible and prevents divergent per-caller output destinations.
+        canonical_output = job.get("output_file")
+        if isinstance(canonical_output, str) and canonical_output:
+            out_file = _validated_video_output_path(project_id, canonical_output)
         if url:
             _persist_video_output(project_id, job["job_id"], str(out_file), url)
         elif not (out_file.is_file() and out_file.stat().st_size > 0):
@@ -1122,8 +1149,20 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
                 "VIDEO_RECOVERED_OUTPUT_MISSING",
                 "恢复任务没有可用的本地 MP4；为避免重复付费，不会自动重新提交",
             )
-        _register_result(manifest, results, asset_id, "video", out_file, width, height,
-                         5.0, model, "video-llm", prompt, input_fp, v)
+        # Asset identity and creation time must be stable across concurrent
+        # callers sharing one provider task. Otherwise Manifest's conflict
+        # detector sees two different rows for the same paid generation.
+        asset_id = "gen-" + hashlib.sha256(
+            str(job["job_id"]).encode("utf-8")
+        ).hexdigest()[:12]
+        created_at = job.get("created_at")
+        if isinstance(created_at, bool) or not isinstance(created_at, (int, float)):
+            created_at = out_file.stat().st_mtime
+        _register_result(
+            manifest, results, asset_id, "video", out_file, width, height,
+            5.0, model, "video-llm", prompt, input_fp, v,
+            created_at=created_at,
+        )
         # The outer generate() persists the manifest atomically before marking
         # this job registered. A crash between those operations is idempotent:
         # the next call finds the durable row above and repairs the marker.
@@ -1171,6 +1210,7 @@ def _create_poll_and_persist_video(
                 "variant": variant,
                 "status": "submitting",
                 "output_file": out_file,
+                "created_at": _time.time(),
                 "registry_status": "pending",
             }
             _update_job(project_id, job_id, reservation)
