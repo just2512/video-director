@@ -931,7 +931,19 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 tracks = {track["id"]: track for track in ripple_doc["doc"]["tracks"]}
                 video = {clip["id"]: clip for clip in tracks["video-main"]["clips"]}
                 audio_by_id = {clip["id"]: clip for clip in tracks["audio-bed"]["clips"]}
-                right_id = next(clip_id for clip_id in audio_by_id if clip_id.startswith("audio-long-ripple-"))
+                right_id = next(
+                    (clip_id for clip_id in audio_by_id if clip_id.startswith("audio-long-ripple-")),
+                    None,
+                )
+                assert right_id, {
+                    "revision": ripple_doc["rev"],
+                    "audio_clip_ids": list(audio_by_id),
+                    "all_track_clip_ids": {
+                        track_id: [clip["id"] for clip in track["clips"]]
+                        for track_id, track in tracks.items()
+                    },
+                    "last_edit_request": edit_requests[-1] if edit_requests else None,
+                }
                 assert "video-target" not in video
                 assert float(video["video-after"]["attrs"]["at"]) == 2
                 assert audio_by_id["audio-long"]["attrs"]["src"].endswith("#t=0,2")
