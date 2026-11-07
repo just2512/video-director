@@ -121,6 +121,7 @@ function esc(s){
 let MODEL_ROLES = [];
 let STOCK_ROLES = [];
 let TTS_ROLES = [];
+let RENDER_ROLES = [];
 async function refreshLLMBadge(){
   // 徽章内联进设置页（§28：不再漂浮在主工作区）
   const cfg = await apiGet('/api/llm_status');
@@ -135,14 +136,18 @@ async function refreshLLMBadge(){
     if (!Array.isArray(MODEL_ROLES)) MODEL_ROLES = [];
     STOCK_ROLES = MODEL_ROLES.filter(r => r.kind === 'stock' || String(r.role || '').startsWith('stock_'));
     TTS_ROLES = MODEL_ROLES.filter(r => r.kind === 'tts' || String(r.role || '').startsWith('tts_'));
+    RENDER_ROLES = MODEL_ROLES.filter(r => r.role === 'hyperframes');
     MODEL_ROLES = MODEL_ROLES.filter(r => r.kind !== 'stock' && !String(r.role || '').startsWith('stock_')
-                                    && r.kind !== 'tts' && !String(r.role || '').startsWith('tts_'));
+                                    && r.kind !== 'tts' && !String(r.role || '').startsWith('tts_')
+                                    && r.role !== 'hyperframes');
     window.MODEL_ROLES = MODEL_ROLES;
     window.STOCK_ROLES = STOCK_ROLES;
     window.TTS_ROLES = TTS_ROLES;
+    window.RENDER_ROLES = RENDER_ROLES;
     if (document.getElementById('llm-panel')?.style.display !== 'none') renderModelRoles();
     if (document.getElementById('stock-roles')) renderStockRoles();
     if (document.getElementById('tts-roles')) renderTtsRoles();
+    if (document.getElementById('render-roles')) renderRenderRoles();
   } catch (e) { /* 面板未开时静默 */ }
 }
 
@@ -188,11 +193,32 @@ function renderModelRoles(){
     </div>`).join('');
 }
 
+
+function renderRenderRoles(){
+  const box = document.getElementById('render-roles');
+  if (!box || !Array.isArray(RENDER_ROLES)) return;
+  box.innerHTML = RENDER_ROLES.map(r => `
+    <div class="role-block">
+      <div class="role-head">
+        <b>${esc(r.label)}</b>
+        <span class="${r.enabled ? 'cap-ok' : 'cap-warn'}">${r.enabled ? '已配置' : '未配置（使用 FFmpeg 兜底）'}</span>
+      </div>
+      <div class="hint">${esc(r.hint)}</div>
+      <label>API Key</label>
+      <input type="password" id="mc-${r.role}-key" placeholder="留空=使用内置 FFmpeg"
+        value="${r.enabled && r.source === 'file' ? '（已保存）' : ''}">
+      <label>服务地址</label>
+      <input type="text" id="mc-${r.role}-url" value="${esc(r.base_url || '')}" placeholder="${esc(r.default_base_url)}">
+      <label>模型名</label>
+      <input type="text" id="mc-${r.role}-model" value="${esc(r.model || '')}" placeholder="${esc(r.default_model)}">
+    </div>`).join('');
+}
+
 async function saveModelConfig(){
   const status = document.getElementById('llm-save-status');
   status.textContent = '保存中……';
   const configs = {};
-  for (const r of [...MODEL_ROLES, ...STOCK_ROLES, ...TTS_ROLES]) {
+  for (const r of [...MODEL_ROLES, ...RENDER_ROLES, ...STOCK_ROLES, ...TTS_ROLES]) {
     const keyEl = document.getElementById(`mc-${r.role}-key`);
     const urlEl = document.getElementById(`mc-${r.role}-url`);
     const modelEl = document.getElementById(`mc-${r.role}-model`);
@@ -210,12 +236,16 @@ async function saveModelConfig(){
   const allRoles = Array.isArray(r2.roles) ? r2.roles : [...MODEL_ROLES, ...STOCK_ROLES, ...TTS_ROLES];
   STOCK_ROLES = allRoles.filter(r => r.kind === 'stock' || String(r.role || '').startsWith('stock_'));
   TTS_ROLES = allRoles.filter(r => r.kind === 'tts' || String(r.role || '').startsWith('tts_'));
+  RENDER_ROLES = allRoles.filter(r => r.role === 'hyperframes');
   MODEL_ROLES = allRoles.filter(r => r.kind !== 'stock' && !String(r.role || '').startsWith('stock_')
-                                  && r.kind !== 'tts' && !String(r.role || '').startsWith('tts_'));
+                                  && r.kind !== 'tts' && !String(r.role || '').startsWith('tts_')
+                                  && r.role !== 'hyperframes');
   window.MODEL_ROLES = MODEL_ROLES;
   window.STOCK_ROLES = STOCK_ROLES;
   window.TTS_ROLES = TTS_ROLES;
+  window.RENDER_ROLES = RENDER_ROLES;
   renderModelRoles();
+  renderRenderRoles();
   renderStockRoles();
   renderTtsRoles();
   status.textContent = '已保存并立即生效';
