@@ -42,6 +42,6 @@ jobs:
         run: |
           python -m pytest -q             tests/test_project_creation_workspace_browser.py             tests/test_create_dialog_cancel_browser.py             tests/test_create_dialog_persistence_browser.py
       - name: Settings information architecture and credential safety
-        if: github.ref_name == 'work/product-settings-ia'
+        if: startsWith(github.ref_name, 'work/product-settings')
         run: |
           python -m pytest -q tests/test_settings_information_architecture_browser.py
