@@ -515,6 +515,7 @@ jobs:
           import os
           import stat
           import sys
+          from urllib.parse import urlparse
           from video_director.live_stream_acceptance import resolve_live_model, resolve_live_model_override, resolve_live_provider_override
 
           path = sys.argv[1]
@@ -545,11 +546,12 @@ jobs:
           )
           api_key = raw_api_key.strip()
           print(f"Live model credential source: {key_source}; value is redacted.")
-          base_url = (
+          credential_base_url = (
               os.environ.get("VD_LLM_BASE_URL_CONFIG")
               or saved.get("base_url")
-              or "https://api.openai.com/v1"
+              or ""
           ).strip()
+          base_url = credential_base_url or "https://api.openai.com/v1"
           configured_model = (
               os.environ.get("VD_LLM_MODEL_CONFIG")
               or saved.get("model")
@@ -570,6 +572,18 @@ jobs:
               print(f"::error::Invalid one-run live provider override: {error}")
               raise SystemExit(1)
           if provider_override == "nvidia":
+              # Do not send an unrelated provider's saved credential to NVIDIA.
+              # A generic runner key is accepted only when its configured endpoint
+              # was already the official NVIDIA host; named NVIDIA credentials
+              # can be used directly with the explicit one-run endpoint override.
+              if key_source not in ("NVIDIA_API_KEY_SECRET", "NVIDIA_API_KEY"):
+                  credential_endpoint = credential_base_url
+                  if credential_endpoint and "://" not in credential_endpoint:
+                      credential_endpoint = "https://" + credential_endpoint
+                  credential_host = (urlparse(credential_endpoint).hostname or "").lower().rstrip(".")
+                  if credential_host != "integrate.api.nvidia.com":
+                      print("::error::NVIDIA live override requires NVIDIA_API_KEY or a saved credential already pinned to integrate.api.nvidia.com; refusing to send an unrelated provider key.")
+                      raise SystemExit(1)
               base_url = "https://integrate.api.nvidia.com/v1"
               print("Using NVIDIA official OpenAI-compatible endpoint for this isolated run; stored provider settings remain unchanged.")
           try:
