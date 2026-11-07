@@ -81,3 +81,39 @@ def test_frontend_status_never_contains_saved_api_key(isolated_model_config):
     serialized = json.dumps(status, ensure_ascii=False)
     assert "must-never-leak-this-secret" not in serialized
     assert all("api_key" not in role for role in status)
+
+
+
+def test_malformed_existing_config_is_not_overwritten(isolated_model_config):
+    path = isolated_model_config
+    path.write_text('{"llm": ', encoding="utf-8")
+    original = path.read_bytes()
+
+    with pytest.raises(ValueError, match="拒绝覆盖"):
+        model_config.save_role_updates({
+            "image": {"api_key": "new-image-secret", "base_url": "https://image.example/v1", "model": "image"},
+        })
+
+    assert path.read_bytes() == original
+
+
+def test_concurrent_partial_updates_keep_both_roles(isolated_model_config):
+    from concurrent.futures import ThreadPoolExecutor
+
+    path = isolated_model_config
+    model_config.save_all({
+        "llm": {"api_key": "local-llm-secret", "base_url": "https://llm.example/v1", "model": "llm"},
+        "image": {"api_key": "local-image-secret", "base_url": "https://image.example/v1", "model": "image"},
+    })
+    updates = [
+        {"llm": {"api_key": "__KEEP__", "base_url": "https://llm.example/v2", "model": "llm-v2"}},
+        {"image": {"api_key": "__KEEP__", "base_url": "https://image.example/v2", "model": "image-v2"}},
+    ]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(model_config.save_role_updates, updates))
+
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["llm"]["api_key"] == "local-llm-secret"
+    assert saved["image"]["api_key"] == "local-image-secret"
+    assert saved["llm"]["model"] == "llm-v2"
+    assert saved["image"]["model"] == "image-v2"
