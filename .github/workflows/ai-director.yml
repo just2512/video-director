@@ -310,6 +310,183 @@ jobs:
       - name: Compile all test modules before pytest collection
         if: steps.ensure_checkout.outcome == 'success'
         run: '"$PY311_BIN/python3.11" -m compileall -q tests'
+      - name: Install Remotion rendering runtime dependencies
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        working-directory: remotion_runtime
+        run: npm install --no-package-lock --no-audit --no-fund --prefer-offline --fetch-retries=2
+
+      - name: Typecheck React 19 / TypeScript render and timeline contracts
+        id: react_typecheck
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        working-directory: studio_ui
+        run: |
+          if [ ! -f package-lock.json ]; then
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund --fetch-retries=2
+          fi
+          test -s package-lock.json
+          npm ci --no-audit --no-fund --prefer-offline --fetch-retries=2
+          npm run typecheck
+
+      - name: Build the React 19 Studio canvas inspector
+        id: react_build
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        working-directory: studio_ui
+        run: npm run build:studio
+
+      - name: Build scoped Tailwind 4 CSS for React Studio
+        id: tailwind_build
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        working-directory: studio_ui
+        run: npm run build:studio:css
+      - name: Run React Studio integration smoke tests
+        id: react_smoke
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success'
+        run: |
+          "$PY311_BIN/python3.11" -m pytest -q \
+            tests/test_film_studio_canvas_history_browser.py \
+            tests/test_film_studio_react_clip_inspector.py \
+            tests/test_film_studio_react_fallback.py \
+            tests/test_film_studio_inspector_renderer.py \
+            tests/test_film_runtime_mask_keyframes_browser.py \
+            tests/test_film_mask_overlay_migration.py \
+            tests/test_film_variant_transform_keyframes.py \
+            tests/test_film_registered_style_migration.py
+      - name: Run Create dialog lifecycle browser regressions
+        id: create_dialog_regression
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        shell: bash
+        run: |
+          set +e
+          env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
+            -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
+            -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+            timeout --signal=TERM --kill-after=15s 5m "$PY311_BIN/python3.11" -m pytest -vv --tb=long --maxfail=3 \
+              --maxfail=1 --junitxml=create-dialog-junit.xml tests/test_create_dialog_persistence_browser.py \
+              > create-dialog-output.log 2>&1
+          test_exit=$?
+          set -e
+          if [ -f create-dialog-output.log ]; then
+            echo "---- Create dialog focused browser regression output ----"
+            tail -n 260 create-dialog-output.log
+          fi
+          exit "$test_exit"
+
+      - name: Run test suite and retain JUnit report
+        id: full_regression
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.create_dialog_regression.outcome == 'success'
+        shell: bash
+        run: |
+          set +e
+          env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
+            -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
+            -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+            timeout --signal=TERM --kill-after=15s 22m "$PY311_BIN/python3.11" -m pytest -vv --tb=short -o faulthandler_timeout=45 --junitxml=junit.xml 2>&1 | tee pytest-output.log
+          test_exit=$?
+          set -e
+          if [ -f pytest-output.log ]; then
+            echo "---- pytest output (last 240 lines) ----"
+            tail -n 240 pytest-output.log
+          fi
+          if [ -f junit.xml ]; then
+            "$PY311_BIN/python3.11" - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          root = ET.parse("junit.xml").getroot()
+          suites = [root] if root.tag == "testsuite" else list(root.findall(".//testsuite"))
+          failures, errors = [], []
+          totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+          for suite in suites:
+              for key in totals:
+                  totals[key] += int(suite.attrib.get(key, "0") or 0)
+              for case in suite.findall("testcase"):
+                  for kind in ("failure", "error"):
+                      node = case.find(kind)
+                      if node is not None:
+                          message = (node.attrib.get("message") or "").strip().replace("\n", " ")
+                          trace = (node.text or "").strip().replace("\n", " ")
+                          record = f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}: {message[:350]} [trace: {trace[-1200:]}]"
+                          (failures if kind == "failure" else errors).append(record)
+          print("PYTEST_SUMMARY " + str(totals))
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as out:
+                  out.write("## Pytest regression summary\n\n")
+                  out.write(f"- Tests: {totals['tests']}\n- Failures: {totals['failures']}\n- Errors: {totals['errors']}\n- Skipped: {totals['skipped']}\n\n")
+                  for title, rows in (("Failures", failures), ("Errors", errors)):
+                      if rows:
+                          out.write(f"### {title}\n")
+                          for row in rows[:100]:
+                              out.write(f"- `{row}`\n")
+                          out.write("\n")
+          for title, rows in (("FAILURE", failures), ("ERROR", errors)):
+              for row in rows:
+                  print(f"PYTEST_{title}: {row}")
+          PY
+          fi
+          exit "$test_exit"
+      - name: Check JavaScript syntax (run even when tests fail)
+        id: js_syntax
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        run: |
+          for f in webui/static/js/*.js; do
+            node --check "$f"
+          done
+          for f in $(find third_party/huashu-art-motion/clip -name '*.js'); do
+            node --check "$f"
+          done
+          node --check third_party/huashu/huashu_motion_bundle.js
+
+
+      # The browser serves the checked-in bundle, not an ephemeral build directory.
+      # Publication requires real gesture/undo, insert/roll, stale-revision, watcher,
+      # CLI/MCP, scene-frame and render/export regressions as well as the React build.
+      # The broad suite remains visible separately; failures in this curated release gate block publication.
+      # A GitHub-token push intentionally does not fan out another workflow run.
+      - name: Gate Studio asset publication on timeline browser regressions
+        id: timeline_regression_gate
+        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success'
+        shell: bash
+        run: |
+          set +e
+          timeout --signal=TERM --kill-after=10s 12m "$PY311_BIN/python3.11" -m pytest -vv --tb=short -o faulthandler_timeout=45 \
+            --junitxml=timeline-junit.xml \
+            tests/test_film_document_contract.py \
+            tests/test_film_studio_external_watch_browser.py \
+            tests/test_film_studio_migration_preview_browser.py \
+            tests/test_film_studio_layout_persistence_browser.py \
+            tests/test_film_variant_migration_api.py \
+            tests/test_film_studio_ai_proposal_browser.py \
+            tests/test_film_studio_react_timeline_toolbar.py \
+            tests/test_film_studio_react_toolbar.py \
+            tests/test_film_agent_cli.py \
+            tests/test_film_mcp_server.py \
+            tests/test_film_full_pipeline_e2e.py \
+            tests/test_film_render_scene_e2e.py \
+            tests/test_film_runtime_video_frame_wait.py \
+            tests/test_film_scene_runtime.py \
+            tests/test_film_studio_canvas_history_browser.py \
+            tests/test_film_studio_timeline_history_browser.py \
+            tests/test_film_studio_pending_revision.py \
+            tests/test_film_studio_roll_browser.py \
+            tests/test_film_studio_insert_browser.py \
+            tests/test_film_external_watch_history.py \
+            tests/test_film_variant_transform_keyframes.py \
+            tests/test_film_volume_keyframe_migration.py \
+            tests/test_film_runtime_mask_keyframes_browser.py \
+            tests/test_studio_build_contract.py 2>&1 | tee timeline-regression-output.log
+          test_exit=$?
+          set -e
+          if [ -f timeline-regression-output.log ]; then
+            echo "---- focused timeline/export regression output (last 240 lines) ----"
+            tail -n 240 timeline-regression-output.log
+          fi
+          exit "$test_exit"
+
+      # Keep CI diagnostics in the built-in job log/summary. Do not depend on
+      # actions/upload-artifact: self-hosted SOCKS proxy failures while downloading
+      # that optional action happen before any job step can run.
       - name: Configure opt-in live model token-stream smoke
         id: live_stream_config
         # Live-provider acceptance is opt-in. Keep credentials out of GITHUB_ENV:
@@ -511,122 +688,6 @@ jobs:
           raise SystemExit(result.returncode)
           PY
 
-      - name: Install Remotion rendering runtime dependencies
-        if: always() && steps.ensure_checkout.outcome == 'success'
-        working-directory: remotion_runtime
-        run: npm install --no-package-lock --no-audit --no-fund --prefer-offline --fetch-retries=2
-
-      - name: Typecheck React 19 / TypeScript render and timeline contracts
-        id: react_typecheck
-        if: always() && steps.ensure_checkout.outcome == 'success'
-        working-directory: studio_ui
-        run: |
-          if [ ! -f package-lock.json ]; then
-            npm install --package-lock-only --ignore-scripts --no-audit --no-fund --fetch-retries=2
-          fi
-          test -s package-lock.json
-          npm ci --no-audit --no-fund --prefer-offline --fetch-retries=2
-          npm run typecheck
-
-      - name: Build the React 19 Studio canvas inspector
-        id: react_build
-        if: always() && steps.ensure_checkout.outcome == 'success'
-        working-directory: studio_ui
-        run: npm run build:studio
-
-      - name: Build scoped Tailwind 4 CSS for React Studio
-        id: tailwind_build
-        if: always() && steps.ensure_checkout.outcome == 'success'
-        working-directory: studio_ui
-        run: npm run build:studio:css
-      - name: Run React Studio integration smoke tests
-        id: react_smoke
-        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success'
-        run: |
-          "$PY311_BIN/python3.11" -m pytest -q \
-            tests/test_film_studio_canvas_history_browser.py \
-            tests/test_film_studio_react_clip_inspector.py \
-            tests/test_film_studio_react_fallback.py \
-            tests/test_film_studio_inspector_renderer.py \
-            tests/test_film_runtime_mask_keyframes_browser.py \
-            tests/test_film_mask_overlay_migration.py \
-            tests/test_film_variant_transform_keyframes.py \
-            tests/test_film_registered_style_migration.py
-      - name: Run Create dialog lifecycle browser regressions
-        id: create_dialog_regression
-        if: always() && steps.ensure_checkout.outcome == 'success'
-        shell: bash
-        run: |
-          set +e
-          env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
-            -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
-            -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
-            timeout --signal=TERM --kill-after=15s 5m "$PY311_BIN/python3.11" -m pytest -vv --tb=long --maxfail=3 \
-              --maxfail=1 --junitxml=create-dialog-junit.xml tests/test_create_dialog_persistence_browser.py \
-              > create-dialog-output.log 2>&1
-          test_exit=$?
-          set -e
-          if [ -f create-dialog-output.log ]; then
-            echo "---- Create dialog focused browser regression output ----"
-            tail -n 260 create-dialog-output.log
-          fi
-          exit "$test_exit"
-
-      - name: Run test suite and retain JUnit report
-        id: full_regression
-        if: always() && steps.ensure_checkout.outcome == 'success' && steps.create_dialog_regression.outcome == 'success'
-        shell: bash
-        run: |
-          set +e
-          env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
-            -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
-            -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
-            timeout --signal=TERM --kill-after=15s 22m "$PY311_BIN/python3.11" -m pytest -vv --tb=short -o faulthandler_timeout=45 --junitxml=junit.xml 2>&1 | tee pytest-output.log
-          test_exit=$?
-          set -e
-          if [ -f pytest-output.log ]; then
-            echo "---- pytest output (last 240 lines) ----"
-            tail -n 240 pytest-output.log
-          fi
-          if [ -f junit.xml ]; then
-            "$PY311_BIN/python3.11" - <<'PY'
-          import os
-          import xml.etree.ElementTree as ET
-          from pathlib import Path
-
-          root = ET.parse("junit.xml").getroot()
-          suites = [root] if root.tag == "testsuite" else list(root.findall(".//testsuite"))
-          failures, errors = [], []
-          totals = {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
-          for suite in suites:
-              for key in totals:
-                  totals[key] += int(suite.attrib.get(key, "0") or 0)
-              for case in suite.findall("testcase"):
-                  for kind in ("failure", "error"):
-                      node = case.find(kind)
-                      if node is not None:
-                          message = (node.attrib.get("message") or "").strip().replace("\n", " ")
-                          trace = (node.text or "").strip().replace("\n", " ")
-                          record = f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}: {message[:350]} [trace: {trace[-1200:]}]"
-                          (failures if kind == "failure" else errors).append(record)
-          print("PYTEST_SUMMARY " + str(totals))
-          summary = os.environ.get("GITHUB_STEP_SUMMARY")
-          if summary:
-              with open(summary, "a", encoding="utf-8") as out:
-                  out.write("## Pytest regression summary\n\n")
-                  out.write(f"- Tests: {totals['tests']}\n- Failures: {totals['failures']}\n- Errors: {totals['errors']}\n- Skipped: {totals['skipped']}\n\n")
-                  for title, rows in (("Failures", failures), ("Errors", errors)):
-                      if rows:
-                          out.write(f"### {title}\n")
-                          for row in rows[:100]:
-                              out.write(f"- `{row}`\n")
-                          out.write("\n")
-          for title, rows in (("FAILURE", failures), ("ERROR", errors)):
-              for row in rows:
-                  print(f"PYTEST_{title}: {row}")
-          PY
-          fi
-          exit "$test_exit"
       - name: Report real-model token-stream acceptance gate
         id: live_stream_acceptance
         if: always() && steps.ensure_checkout.outcome == 'success'
@@ -638,67 +699,6 @@ jobs:
           set -euo pipefail
           "$PY311_BIN/python3.11" -m video_director.live_stream_acceptance --junit live-stream-junit.xml
 
-      - name: Check JavaScript syntax (run even when tests fail)
-        id: js_syntax
-        if: always() && steps.ensure_checkout.outcome == 'success'
-        run: |
-          for f in webui/static/js/*.js; do
-            node --check "$f"
-          done
-          for f in $(find third_party/huashu-art-motion/clip -name '*.js'); do
-            node --check "$f"
-          done
-          node --check third_party/huashu/huashu_motion_bundle.js
-
-
-      # The browser serves the checked-in bundle, not an ephemeral build directory.
-      # Publication requires real gesture/undo, insert/roll, stale-revision, watcher,
-      # CLI/MCP, scene-frame and render/export regressions as well as the React build.
-      # The broad suite remains visible separately; failures in this curated release gate block publication.
-      # A GitHub-token push intentionally does not fan out another workflow run.
-      - name: Gate Studio asset publication on timeline browser regressions
-        id: timeline_regression_gate
-        if: always() && steps.ensure_checkout.outcome == 'success' && steps.react_typecheck.outcome == 'success' && steps.react_build.outcome == 'success' && steps.tailwind_build.outcome == 'success' && steps.react_smoke.outcome == 'success' && steps.js_syntax.outcome == 'success' && (steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped') && (steps.live_stream_config.conclusion == 'success' || steps.live_stream_config.conclusion == 'skipped' || steps.live_stream_config.conclusion == 'failure')
-        shell: bash
-        run: |
-          set +e
-          timeout --signal=TERM --kill-after=10s 12m "$PY311_BIN/python3.11" -m pytest -vv --tb=short -o faulthandler_timeout=45 \
-            --junitxml=timeline-junit.xml \
-            tests/test_film_document_contract.py \
-            tests/test_film_studio_external_watch_browser.py \
-            tests/test_film_studio_migration_preview_browser.py \
-            tests/test_film_studio_layout_persistence_browser.py \
-            tests/test_film_variant_migration_api.py \
-            tests/test_film_studio_ai_proposal_browser.py \
-            tests/test_film_studio_react_timeline_toolbar.py \
-            tests/test_film_studio_react_toolbar.py \
-            tests/test_film_agent_cli.py \
-            tests/test_film_mcp_server.py \
-            tests/test_film_full_pipeline_e2e.py \
-            tests/test_film_render_scene_e2e.py \
-            tests/test_film_runtime_video_frame_wait.py \
-            tests/test_film_scene_runtime.py \
-            tests/test_film_studio_canvas_history_browser.py \
-            tests/test_film_studio_timeline_history_browser.py \
-            tests/test_film_studio_pending_revision.py \
-            tests/test_film_studio_roll_browser.py \
-            tests/test_film_studio_insert_browser.py \
-            tests/test_film_external_watch_history.py \
-            tests/test_film_variant_transform_keyframes.py \
-            tests/test_film_volume_keyframe_migration.py \
-            tests/test_film_runtime_mask_keyframes_browser.py \
-            tests/test_studio_build_contract.py 2>&1 | tee timeline-regression-output.log
-          test_exit=$?
-          set -e
-          if [ -f timeline-regression-output.log ]; then
-            echo "---- focused timeline/export regression output (last 240 lines) ----"
-            tail -n 240 timeline-regression-output.log
-          fi
-          exit "$test_exit"
-
-      # Keep CI diagnostics in the built-in job log/summary. Do not depend on
-      # actions/upload-artifact: self-hosted SOCKS proxy failures while downloading
-      # that optional action happen before any job step can run.
       - name: Summarize retained regression diagnostics
         if: always() && steps.ensure_checkout.outcome == 'success'
         shell: bash
