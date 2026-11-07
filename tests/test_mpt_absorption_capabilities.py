@@ -142,10 +142,24 @@ class TestGenerationRequest:
         assert ei.value.code == "FIRST_FRAME_UNSUPPORTED"
 
     def test_input_fingerprint_includes_reference(self, tmp_path, monkeypatch):
-        """§39 CacheKey：reference/首末帧进入 input_fingerprint（指纹差异）。"""
+        """§39 CacheKey：reference/首末帧进入 input_fingerprint（指纹差异）。
+
+        Fingerprinting is the unit under test. Keep the real generation/compiler/
+        manifest path, but replace Chromium screenshot I/O with a deterministic
+        file write: launching a browser six times here adds no coverage and can
+        hang or crash the shared self-hosted runner during the full suite.
+        """
         from video_director import config, generation
+        from video_director.graphics import render as graphics_render
+
         monkeypatch.setattr(config, "composer_storage_root", lambda: tmp_path)
-        # graphic 类型确定性（不依赖 provider key）
+
+        def write_test_frame(html, out_path, width, height, frame=0):
+            Path(out_path).write_bytes(b"unit-test-rendered-frame")
+
+        monkeypatch.setattr(graphics_render, "render_still", write_test_frame)
+
+        # Keep the real graphic generation path deterministic and provider-free.
         r1 = generation.generate("p1", "同一提示词", gen_type="graphic")
         r2 = generation.generate("p2", "同一提示词", gen_type="graphic",
                                  reference="style:editorial")
