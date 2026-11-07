@@ -3443,14 +3443,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": "configs 必须是对象"}, 400)
                 return
             try:
-                # __KEEP__ 占位 = 前端未改动该角色的 key，保留已存值
-                existing = vd_model_config.load_all()
-                for role, c in configs.items():
-                    if isinstance(c, dict) and c.get("api_key") == "__KEEP__":
-                        old = existing.get(role) or {}
-                        c["api_key"] = old.get("api_key", "")
-                # Partial UI updates must retain roles omitted from the request;
-                # save_all remains a whole-file writer for backwards compatibility.
+                # Partial role/field updates retain all omitted local values.
                 vd_model_config.save_role_updates(configs)
                 vd_model_config.sync_llm_provider()  # llm 角色立即生效
                 self._send_json({
