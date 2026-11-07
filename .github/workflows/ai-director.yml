@@ -128,9 +128,11 @@ jobs:
             install -d -m 700 "$preserved_root"
             install -m 600 "$configured_root/model_config.json" "$preserved_root/model_config.json"
             original_mode="$(stat -c '%a' "$configured_root/model_config.json" 2>/dev/null || echo 600)"
+            original_sha256="$(sha256sum "$configured_root/model_config.json" | awk '{print $1}')"
             printf 'VD_PRESERVED_MODEL_CONFIG_FILE=%s\n' "$preserved_root/model_config.json" >> "$GITHUB_ENV"
             printf 'VD_ORIGINAL_MODEL_CONFIG_FILE=%s\n' "$configured_root/model_config.json" >> "$GITHUB_ENV"
             printf 'VD_ORIGINAL_MODEL_CONFIG_MODE=%s\n' "$original_mode" >> "$GITHUB_ENV"
+            printf 'VD_ORIGINAL_MODEL_CONFIG_SHA256=%s\n' "$original_sha256" >> "$GITHUB_ENV"
             echo "Preserved the runner's configured LLM role for the isolated live test only."
           else
             echo "No model_config.json with a non-empty llm key found in configured runner storage roots."
@@ -712,13 +714,27 @@ jobs:
           PRESERVED_MODEL_CONFIG_FILE="${VD_PRESERVED_MODEL_CONFIG_FILE:-}"
           ORIGINAL_MODEL_CONFIG_FILE="${VD_ORIGINAL_MODEL_CONFIG_FILE:-}"
           ORIGINAL_MODEL_CONFIG_MODE="${VD_ORIGINAL_MODEL_CONFIG_MODE:-600}"
+          ORIGINAL_MODEL_CONFIG_SHA256="${VD_ORIGINAL_MODEL_CONFIG_SHA256:-}"
           if [[ -n "$PRESERVED_MODEL_CONFIG_FILE" && -n "$ORIGINAL_MODEL_CONFIG_FILE" && -f "$PRESERVED_MODEL_CONFIG_FILE" ]]; then
             original_dir="$(dirname "$ORIGINAL_MODEL_CONFIG_FILE")"
             mkdir -p "$original_dir"
-            restore_tmp="${ORIGINAL_MODEL_CONFIG_FILE}.restore.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}.tmp"
-            install -m "$ORIGINAL_MODEL_CONFIG_MODE" "$PRESERVED_MODEL_CONFIG_FILE" "$restore_tmp"
-            mv -f "$restore_tmp" "$ORIGINAL_MODEL_CONFIG_FILE"
-            echo "Restored runner-local model configuration to its original path; contents remain redacted."
+            current_sha256=""
+            if [[ -f "$ORIGINAL_MODEL_CONFIG_FILE" ]]; then
+              current_sha256="$(sha256sum "$ORIGINAL_MODEL_CONFIG_FILE" | awk '{print $1}')"
+            fi
+            if [[ -n "$ORIGINAL_MODEL_CONFIG_SHA256" && "$current_sha256" == "$ORIGINAL_MODEL_CONFIG_SHA256" ]]; then
+              echo "LOCAL_MODEL_CONFIG_PRESERVATION=PASS sha256 unchanged; no rewrite required."
+            else
+              restore_tmp="${ORIGINAL_MODEL_CONFIG_FILE}.restore.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}.tmp"
+              install -m "$ORIGINAL_MODEL_CONFIG_MODE" "$PRESERVED_MODEL_CONFIG_FILE" "$restore_tmp"
+              mv -f "$restore_tmp" "$ORIGINAL_MODEL_CONFIG_FILE"
+              restored_sha256="$(sha256sum "$ORIGINAL_MODEL_CONFIG_FILE" | awk '{print $1}')"
+              if [[ -n "$ORIGINAL_MODEL_CONFIG_SHA256" && "$restored_sha256" != "$ORIGINAL_MODEL_CONFIG_SHA256" ]]; then
+                echo "::error::LOCAL_MODEL_CONFIG_PRESERVATION=FAIL restored file hash mismatch."
+                exit 1
+              fi
+              echo "LOCAL_MODEL_CONFIG_PRESERVATION=RESTORED original bytes and path verified; contents remain redacted."
+            fi
           else
             echo "No runner-local model config backup was created; nothing to restore."
           fi
