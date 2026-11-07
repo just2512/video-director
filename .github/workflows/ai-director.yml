@@ -126,7 +126,10 @@ jobs:
             preserved_root="$RUNNER_TEMP/video-director-preserved-model-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/composer"
             install -d -m 700 "$preserved_root"
             install -m 600 "$configured_root/model_config.json" "$preserved_root/model_config.json"
+            original_mode="$(stat -c '%a' "$configured_root/model_config.json" 2>/dev/null || echo 600)"
             printf 'VD_PRESERVED_MODEL_CONFIG_FILE=%s\n' "$preserved_root/model_config.json" >> "$GITHUB_ENV"
+            printf 'VD_ORIGINAL_MODEL_CONFIG_FILE=%s\n' "$configured_root/model_config.json" >> "$GITHUB_ENV"
+            printf 'VD_ORIGINAL_MODEL_CONFIG_MODE=%s\n' "$original_mode" >> "$GITHUB_ENV"
             echo "Preserved the runner's configured LLM role for the isolated live test only."
           else
             echo "No model_config.json with a non-empty llm key found in configured runner storage roots."
@@ -870,3 +873,26 @@ jobs:
           })
           print(f"Published verified React Studio bundle and Tailwind CSS: {updated['object']['sha']}")
           PY
+      
+      # git clean -ffdx above can remove ignored storage/composer data when the
+      # configured root is inside the shared Actions checkout. Restore the exact
+      # original bytes to the original path after every test/build/publish step.
+      - name: Restore runner-local model configuration
+        if: always() && steps.ensure_checkout.outcome == 'success'
+        shell: bash
+        env:
+          PRESERVED_MODEL_CONFIG_FILE: ${{ env.VD_PRESERVED_MODEL_CONFIG_FILE }}
+          ORIGINAL_MODEL_CONFIG_FILE: ${{ env.VD_ORIGINAL_MODEL_CONFIG_FILE }}
+          ORIGINAL_MODEL_CONFIG_MODE: ${{ env.VD_ORIGINAL_MODEL_CONFIG_MODE }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${PRESERVED_MODEL_CONFIG_FILE:-}" || -z "${ORIGINAL_MODEL_CONFIG_FILE:-}" || ! -f "$PRESERVED_MODEL_CONFIG_FILE" ]]; then
+            echo "No runner-local model config backup was created; nothing to restore."
+            exit 0
+          fi
+          original_dir="$(dirname "$ORIGINAL_MODEL_CONFIG_FILE")"
+          mkdir -p "$original_dir"
+          restore_tmp="${ORIGINAL_MODEL_CONFIG_FILE}.restore.${GITHUB_RUN_ID}.${GITHUB_RUN_ATTEMPT}.tmp"
+          install -m "${ORIGINAL_MODEL_CONFIG_MODE:-600}" "$PRESERVED_MODEL_CONFIG_FILE" "$restore_tmp"
+          mv -f "$restore_tmp" "$ORIGINAL_MODEL_CONFIG_FILE"
+          echo "Restored runner-local model configuration to its original path; contents remain redacted."
