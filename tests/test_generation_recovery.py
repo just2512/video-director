@@ -775,7 +775,7 @@ class TestConcurrentVideoSubmission:
 
         client = SharedTaskClient()
         monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
-        payload = b"\\x00\\x00\\x00\\x18ftypisom" + b"concurrent-video-payload"
+        payload = bytes.fromhex("000000186674797069736f6d") + b"concurrent-video-payload"
         monkeypatch.setattr(gen, "_download_bytes", lambda _url: payload)
         monkeypatch.setattr(
             prober, "probe_media",
