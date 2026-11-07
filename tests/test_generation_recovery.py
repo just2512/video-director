@@ -734,6 +734,112 @@ class TestConcurrentVideoSubmission:
         assert job["input_fingerprint"] == "a" * 64
         assert job["variant"] == "A"
 
+    def test_concurrent_generate_calls_share_one_durable_output_and_manifest(
+        self, tmp_path, monkeypatch
+    ):
+        """同一付费任务的并发 generate() 必须收敛到同一文件、Manifest ID 和 Registry 资产。"""
+        import threading
+        from types import SimpleNamespace
+
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import asset_catalog, config, generation as gen, prober
+
+        project_id = "proj-concurrent-generate-output"
+        config.init_project_dirs(config.project_dir(project_id))
+        monkeypatch.setattr(gen, "recover_pending_video_jobs", lambda _pid: [])
+        poll_lock = threading.Lock()
+
+        class SharedTaskClient:
+            def __init__(self):
+                self.post_calls = 0
+                self.get_calls = 0
+                self.both_polling = threading.Event()
+
+            def post(self, path, json=None):
+                self.post_calls += 1
+                return _FakeResp({"id": "one-paid-task", "status": "queued"})
+
+            def get(self, path):
+                with poll_lock:
+                    self.get_calls += 1
+                    if self.get_calls >= 2:
+                        self.both_polling.set()
+                if not self.both_polling.wait(timeout=8):
+                    raise TimeoutError("concurrent generate caller did not join the shared task")
+                return _FakeResp({
+                    "id": "one-paid-task",
+                    "status": "completed",
+                    "url": "https://cdn.example/one-paid-task.mp4",
+                })
+
+        client = SharedTaskClient()
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
+        payload = b"\\x00\\x00\\x00\\x18ftypisom" + b"concurrent-video-payload"
+        monkeypatch.setattr(gen, "_download_bytes", lambda _url: payload)
+        monkeypatch.setattr(
+            prober, "probe_media",
+            lambda _path: SimpleNamespace(
+                has_video_stream=True, duration=5.0, width=320, height=180,
+                fps=30.0, has_audio_stream=False, codec="h264",
+            ),
+        )
+
+        start = threading.Barrier(2)
+        results = []
+        errors = []
+        result_lock = threading.Lock()
+
+        def run_generation():
+            start.wait(timeout=5)
+            try:
+                value = gen.generate(
+                    project_id, "same concurrent prompt", "video", variant="A"
+                )
+                with result_lock:
+                    results.append(value)
+            except Exception as exc:
+                with result_lock:
+                    errors.append(exc)
+
+        workers = [threading.Thread(target=run_generation) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=15)
+
+        assert all(not worker.is_alive() for worker in workers), "generate workers did not finish"
+        assert not errors, errors
+        assert len(results) == 2
+        assert all(len(batch) == 1 for batch in results)
+        assert client.post_calls == 1, "concurrent callers must create only one paid provider task"
+        assert client.get_calls == 2
+        generated = [batch[0] for batch in results]
+        assert len({item.asset_id for item in generated}) == 1
+        assert len({item.file for item in generated}) == 1
+
+        manifest = gen._load_manifest(project_id)
+        rows = [
+            item for item in manifest
+            if item.get("input_fingerprint") == generated[0].input_fingerprint
+            and item.get("variant") == "A"
+            and item.get("type") == "video"
+        ]
+        assert len(rows) == 1
+        assert rows[0]["id"] == generated[0].asset_id
+        assert Path(rows[0]["file"]).read_bytes() == payload
+
+        jobs = gen._load_jobs(project_id)
+        assert len(jobs) == 1
+        job = next(iter(jobs.values()))
+        assert job["status"] == "done"
+        assert job["output_file"] == generated[0].file
+        assert job["manifest_registered"] is True
+        assert job["registry_status"] == "registered"
+        library_assets = asset_catalog.list_assets(source="generated")
+        assert len(library_assets) == 1
+        assert library_assets[0]["content_hash"] == asset_catalog.content_hash(generated[0].file)
+
     def test_output_download_ignores_predictable_part_symlink(
         self, tmp_path, monkeypatch
     ):
