@@ -48,7 +48,8 @@ jobs:
             tests/test_generation_recovery.py \
             tests/test_generation_gap1.py \
             tests/test_film_transaction_recovery.py \
-            tests/test_project_manifest.py
+            tests/test_project_manifest.py \
+            tests/test_bulk_management.py
       - name: Timeline editing and revision consistency
         if: startsWith(github.ref_name, 'work/timeline-state')
         run: |
