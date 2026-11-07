@@ -278,7 +278,7 @@ def _load_llm_config() -> None:
             except (OSError, json.JSONDecodeError):
                 old = {}
             if old.get("api_key") and not vd_model_config.get_role_config("llm").get("api_key"):
-                vd_model_config.save_all({"llm": {
+                vd_model_config.save_role_updates({"llm": {
                     "api_key": old.get("api_key", ""),
                     "base_url": old.get("base_url", ""),
                     "model": old.get("model", ""),
@@ -3422,7 +3422,7 @@ class Handler(BaseHTTPRequestHandler):
                         "model": m.get("model") or old.get("model", ""),
                     }
                 if configs:
-                    vd_model_config.save_all(configs)
+                    vd_model_config.save_role_updates(configs)
                     vd_model_config.sync_llm_provider()
                 self._send_json({"ok": True,
                                  "imported_roles": sorted(configs.keys()),
@@ -3443,13 +3443,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"error": "configs 必须是对象"}, 400)
                 return
             try:
-                # __KEEP__ 占位 = 前端未改动该角色的 key，保留已存值
-                existing = vd_model_config.load_all()
-                for role, c in configs.items():
-                    if isinstance(c, dict) and c.get("api_key") == "__KEEP__":
-                        old = existing.get(role) or {}
-                        c["api_key"] = old.get("api_key", "")
-                vd_model_config.save_all(configs)
+                # Partial role/field updates retain all omitted local values.
+                vd_model_config.save_role_updates(configs)
                 vd_model_config.sync_llm_provider()  # llm 角色立即生效
                 self._send_json({
                     "ok": True,

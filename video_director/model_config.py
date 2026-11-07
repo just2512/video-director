@@ -118,7 +118,7 @@ ROLE_DEFS = {
     },
 }
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 _cache: Optional[Dict[str, dict]] = None
 
 
@@ -206,6 +206,55 @@ def load_all() -> Dict[str, dict]:
             }
         _cache = merged
         return _cache
+
+
+def merge_role_updates(configs: Dict[str, dict]) -> Dict[str, dict]:
+    """Merge partial role updates while retaining every omitted persisted role.
+
+    save_all remains a whole-file writer for backwards compatibility. Callers
+    accepting category-level updates must merge first. api_key='__KEEP__' keeps
+    the persisted key; an empty key is an explicit request to clear that role.
+    """
+    if not isinstance(configs, dict):
+        raise TypeError("configs 必须是对象")
+    # A malformed existing file must never be silently replaced by a partial save.
+    path = _config_path()
+    if path.is_file():
+        try:
+            stored = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError("现有本地模型配置无法安全读取；已拒绝覆盖，请先备份并修复文件") from exc
+        if not isinstance(stored, dict):
+            raise ValueError("现有本地模型配置格式无效；已拒绝覆盖")
+    merged: Dict[str, dict] = {
+        role: dict(data)
+        for role, data in load_all().items()
+        if role in ROLE_DEFS and isinstance(data, dict)
+    }
+    for role, data in configs.items():
+        if role not in ROLE_DEFS or not isinstance(data, dict):
+            continue
+        current = merged.get(role) or {}
+        incoming = dict(data)
+        if incoming.get("api_key") == "__KEEP__" or "api_key" not in incoming:
+            incoming["api_key"] = current.get("api_key", "")
+        for field in ("base_url", "model"):
+            if field not in incoming:
+                incoming[field] = current.get(field, "")
+        merged[role] = incoming
+    return merged
+
+
+
+def save_role_updates(configs: Dict[str, dict]) -> Dict[str, dict]:
+    """Serialize partial role updates and merge against the latest on-disk values."""
+    global _cache
+    with _lock:
+        # Another process or a manual edit may have changed the file since the last read.
+        # Refresh under the same lock before merging so omitted roles are not stale.
+        _cache = None
+        merged = merge_role_updates(configs)
+        return save_all(merged)
 
 
 def get_role_config(role: str) -> dict:

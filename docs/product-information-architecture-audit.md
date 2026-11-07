@@ -270,3 +270,72 @@ No assumptions about these gaps should be converted into code changes until veri
 5. Integrate serially through the coordinator-owned shell and run full CI.
 
 **Non-negotiable:** this is an information-architecture and interaction redesign, not a credential-storage migration. Existing local API configuration must remain usable without re-entry.
+
+
+## 8. Call-chain audit closure (2026-11-07)
+
+### 8.1 New-project / Director submission chain
+
+Confirmed call chain:
+
+1. Top-bar `+ 新建项目` calls `openCreate()` in `webui/static/js/create.js`.
+2. `openCreate()` mounts the create form, awaits `createLoadDefaults()`, installs lifecycle handlers and calls `restoreDraft()`.
+3. If opening an existing project for a new creation, the project-prefill path calls `POST /api/director/brief`, captures a prefill baseline and guards stale responses / restores the previous draft on failure.
+4. `createProject()` validates the brief and source bundle, uploads selected assets to `/api/assets/upload` (and optional narration through the asset staging path), then creates a conversation through `POST /api/director/conversations`.
+5. It submits the normalized DirectorInputBundle and project-specific request options to `POST /api/director/create`.
+6. The server delegates to `video_director.director_service.create_director_run()`; the service validates source and render-engine availability, allocates a `web-<id>` project ID when one was not supplied, normalizes the output profile, then calls `workflow_run.run_director_create_async()`.
+7. The returned run is linked to the conversation. Only after successful task submission does the client clear the active draft, set the current project ID and switch the create surface to progress mode. The actual project/task lifecycle is owned by the workflow service, not by the visual dialog.
+
+**Design consequence:** the create surface can be promoted to a full-workspace experience without introducing a second project-creation backend or a duplicate project state machine. Preserve the existing DirectorInputBundle, conversation, WorkflowRun, asset-upload and prefill contracts.
+
+### 8.2 Draft persistence and recovery chain
+
+Confirmed behavior in `webui/static/js/create.js` and `video_director/director_history.py`:
+
+- Browser-local snapshot key: `video-director:create-draft:v1`.
+- Server snapshot endpoint: `/api/director/drafts/active`.
+- Server persistence: SQLite `director_history.db`, table `director_drafts`; conversation and messages use separate tables.
+- Snapshot includes form fields, explicit user-changed fields, asset/reference/article/software-project context, project ID, prefill baseline and disclosure state.
+- Changes are locally snapshotted immediately and server sync is debounced by 450 ms. Server writes are serialized through a promise chain.
+- Restore compares local saved time with server `updated_at`, chooses the newer snapshot, merges dirty fields and independent context sources, then syncs a local-newer snapshot to the server.
+- While a run is active, persistence is blocked for the hidden form; a successful submission clears the draft only after a run ID and conversation link exist.
+- Close/cancel, project switching, history restoration and failed project prefill have explicit guards and rollback behavior.
+
+**Design consequence:** the full-workspace conversion must retain the same form host IDs and lifecycle hooks until the tests prove a safe component migration. A page transition must not clear the local snapshot or replace the active context object while uploads are in flight.
+
+### 8.3 Settings save / export / import chain
+
+Confirmed behavior:
+
+- `GET /api/model_config` returns `status_for_frontend()`; this omits API key values and exposes role/provider/capability status.
+- `GET /api/settings/export` exports the role metadata/model/base URL structure; no secret value is returned.
+- `POST /api/settings/import` accepts a `models` list and uses `__KEEP__` for credentials of explicitly imported roles.
+- `POST /api/model_config` accepts a `configs` object. The front end uses `__KEEP__` for an unchanged saved key; an empty key is an explicit clear.
+- `model_config.save_all()` writes the whole file at `composer_storage_root()/model_config.json`.
+
+**Defect found and corrected in workstream C:** both POST routes previously passed only the submitted roles to the whole-file `save_all()` writer. A partial category save or partial import could therefore erase roles omitted from the request. The persistence branch introduces `save_role_updates()`, which merges the partial role/field update with freshly read persisted values under the config lock, retains omitted roles and fields, preserves `__KEEP__`, honors an explicit empty-key clear, and rejects malformed existing JSON rather than replacing it. The HTTP save/import handlers and the legacy `llm_config.json` startup migration now use this safe update path.
+
+Regression coverage includes:
+- partial role update preserves other saved role keys;
+- partial import preserves unlisted roles;
+- explicit empty key clears only the selected role;
+- malformed existing config is not overwritten;
+- concurrent partial role updates do not erase each other;
+- legacy LLM config migration does not erase other local roles;
+- omitted fields in a partial role update retain their persisted values;
+- frontend status omits key values;
+- HTTP save/import routes preserve unsubmitted local credentials.
+
+### 8.4 Confirmed audit disposition
+
+| Audit area | Result | Implementation implication |
+|---|---|---|
+| Project home | Existing default project pane and top-level action confirmed | Improve prominence; no shell rewrite |
+| Create flow | Existing Director workflow confirmed | Promote existing form; do not fork workflow backend |
+| Draft recovery | Browser + server durable snapshots confirmed | Preserve IDs, keys and transactional guards |
+| Settings save | Whole-file overwrite hazard confirmed | Fix backend update contract before category split |
+| Export/import | Secret redaction and import path confirmed | Preserve key-free export and local key retention |
+| Project context | Revision-pinned FilmDocument authority confirmed | Reuse current workspace context; no parallel timeline state |
+| URL routing | Only in-page `switchTab` confirmed in inspected shell | Do not add router dependency as part of the first UX pass |
+
+The local API configuration on the user's physical machine remains **not inspected**. All credential-preservation tests use isolated temporary storage with synthetic keys. The code change is designed to preserve existing values; it is not a claim that a machine-level backup or local-file byte comparison has been performed.

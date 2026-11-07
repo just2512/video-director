@@ -1,0 +1,47 @@
+name: Product IA workstream regression
+
+on:
+  push:
+    branches:
+      - "work/product-*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: product-ia-regression-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact pushed revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install browser and media dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest playwright
+          python -m playwright install --with-deps chromium
+      - name: Local API configuration preservation
+        if: github.ref_name == 'work/product-persistence-guards'
+        run: python -m pytest -q tests/test_model_config_persistence_contract.py
+      - name: Project creation and draft lifecycle
+        if: github.ref_name == 'work/product-project-entry'
+        run: |
+          python -m pytest -q             tests/test_project_creation_workspace_browser.py             tests/test_create_dialog_cancel_browser.py             tests/test_create_dialog_persistence_browser.py
+      - name: Settings information architecture and credential safety
+        if: github.ref_name == 'work/product-settings-ia'
+        run: |
+          python -m pytest -q tests/test_settings_information_architecture_browser.py
