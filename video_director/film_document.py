@@ -2559,7 +2559,9 @@ def apply_ops(
             attrs = {"id": track_id, "data-label": label or "新轨道"}
             if str(op.get("kind") or ""):
                 attrs["data-kind"] = str(op.get("kind"))[:24]
-            out["tracks"].insert(index, {"id": track_id, "attrs": attrs, "clips": []})
+            out["tracks"].insert(index, {
+                "id": track_id, "attrs": attrs, "clips": [], "comments": [],
+            })
             track_operation = {"op": "track_add", "track_id": track_id, "label": attrs["data-label"], "index": index}
             if attrs.get("data-kind"):
                 track_operation["kind"] = attrs["data-kind"]
