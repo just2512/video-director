@@ -334,6 +334,26 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 )
                 assert saved_clip["id"] == selected_clip_before_external
 
+                # Ensure the watcher has advanced its baseline to the exact Studio
+                # commit before introducing the next external write. Without this
+                # synchronization, the test can accidentally combine initialization,
+                # Studio save and Agent edit into one filesystem observation.
+                watcher_deadline = time.monotonic() + 5.0
+                watcher_state = web_server._FILM_REVISION_WATCHER._projects.get(project_id)
+                while (
+                    (not watcher_state
+                     or watcher_state.get("last_revision") != manual_state["rev"]
+                     or watcher_state.get("last_text") != manual_state["text"])
+                    and time.monotonic() < watcher_deadline
+                ):
+                    time.sleep(0.02)
+                    watcher_state = web_server._FILM_REVISION_WATCHER._projects.get(project_id)
+                assert watcher_state and watcher_state.get("last_revision") == manual_state["rev"], {
+                    "expected_revision": manual_state["rev"],
+                    "watcher_revision": (watcher_state or {}).get("last_revision"),
+                    "watcher_history_result": (watcher_state or {}).get("last_history_result"),
+                }
+
                 # Continue the same project through a real external Agent write.
                 # The watcher must journal it, Studio must reload that revision,
                 # and a fresh browser session must reopen the same FilmDocument
