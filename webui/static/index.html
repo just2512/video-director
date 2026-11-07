@@ -511,75 +511,69 @@
 
   <!-- ============ Tab 设置（只做系统配置）============ -->
   <main id="pane-settings" class="pane" style="display:none">
-    <div class="page-head"><h2>设置</h2></div>
-    <div class="panel">
-      <b>模型</b> <span class="hint">文本 / 生图 / 生视频 / 视觉 / HyperFrames 分角色配置</span>
-      <div class="btn-row">
-        <button class="btn-secondary btn-sm" onclick="toggleLLMPanel()">大模型配置</button>
-        <span class="hint" id="llm-badge-inline"></span>
-      </div>
-      <div id="llm-panel" style="display:none;margin-top:10px">
-        <div id="model-roles"></div>
-        <div class="btn-row"><button class="btn-secondary" onclick="saveModelConfig()">保存全部配置</button></div>
-        <div class="hint" id="llm-save-status"></div>
-      </div>
+    <div class="page-head">
+      <div><h2>设置</h2><div class="hint">管理系统服务与创作默认值；项目创作参数在新建项目时单独确定。</div></div>
     </div>
-    <div class="panel" style="margin-top:12px">
-      <b>配音</b> <span class="hint">引擎：Edge TTS（免费）默认可用；Azure / ElevenLabs 在下方配置 Key 后音色库即出现其音色并可试听。</span>
-      <div id="tts-roles" style="margin-top:8px"></div>
-      <div class="btn-row" style="margin-top:6px">
+
+    <details class="panel settings-section" open>
+      <summary><b>AI 模型</b><span class="hint">文本创作、生图、生视频与视觉理解</span><span class="hint" id="llm-badge-inline"></span></summary>
+      <div id="llm-panel" style="display:block;margin-top:12px">
+        <div id="model-roles"></div>
+        <div class="btn-row"><button class="btn-secondary" onclick="saveModelConfig()">保存模型配置</button><span class="hint" id="llm-save-status"></span></div>
+      </div>
+    </details>
+
+    <details class="panel settings-section">
+      <summary><b>语音与配音</b><span class="hint">Edge TTS 默认可用；Azure / ElevenLabs 为可选扩展</span></summary>
+      <div id="tts-roles" style="margin-top:10px"></div>
+      <div class="btn-row" style="margin-top:8px">
         <button class="btn-secondary btn-sm" onclick="saveModelConfig()">保存配音配置</button>
         <button class="btn-secondary btn-sm" onclick="switchTab('editor'); edLibDomain('sound','voice')">去音色库试听</button>
         <span class="hint" id="tts-save-status"></span>
       </div>
-    </div>
-    <div class="panel" style="margin-top:12px">
-      <b>素材（图库）</b>
-      <div id="settings-stock-line" class="hint">检测中……</div>
+    </details>
+
+    <details class="panel settings-section">
+      <summary><b>素材来源</b><span class="hint" id="settings-stock-line">图库状态检测中……</span></summary>
       <div id="stock-roles" style="margin-top:10px"></div>
       <div class="btn-row">
-        <button class="btn-secondary btn-sm" onclick="saveModelConfig()">保存图库配置</button>
+        <button class="btn-secondary btn-sm" onclick="saveModelConfig()">保存素材来源配置</button>
         <span class="hint" id="stock-save-status"></span>
       </div>
-      <div class="hint">配置只保存在本机；Pexels / Pixabay 用于自动搜索网络画面，Coverr 当前仅保留检索配置。</div>
-    </div>
-    <div class="panel" style="margin-top:12px">
-      <b>输出</b>
-      <div class="hint">默认在「新建项目」里按次选择：画幅（9:16 / 16:9 / 1:1）· 分辨率（1080p / 4K）· 帧率（24 / 30 / 60）。</div>
-    </div>
-    <div class="panel" style="margin-top:12px">
-      <b>配置管理</b>
-      <div class="hint">导出模型/图库等配置到文件，或从文件导入。<b>密钥不会写入导出文件</b>（只导出角色/模型/地址结构；密钥留在本机）。</div>
+      <div class="hint">Pexels / Pixabay 可用于自动检索；Coverr 当前仅手动检索，商业使用限制在素材使用环节继续执行。</div>
+    </details>
+
+    <details class="panel settings-section">
+      <summary><b>渲染与输出服务</b><span class="hint">FFmpeg 默认可用；HyperFrames 为可选云端渲染</span></summary>
+      <div id="render-roles" style="margin-top:10px"></div>
+      <div class="btn-row"><button class="btn-secondary btn-sm" onclick="saveModelConfig()">保存渲染配置</button></div>
+    </details>
+
+    <details class="panel settings-section">
+      <summary><b>创作默认值</b><span class="hint">仅作为新项目默认值，不覆盖已有项目参数</span></summary>
+      <div class="hint" style="margin-top:10px">画幅、分辨率和帧率在「新建项目」中按项目选择。此处仅保留系统默认策略；具体项目的输出规格保存在项目自身。</div>
+    </details>
+
+    <details class="panel settings-section">
+      <summary><b>配置管理</b><span class="hint">导入、导出与密钥保护</span></summary>
+      <div class="hint" style="margin-top:10px">导出文件只包含角色、模型和服务地址结构，不包含 API Key。导入只更新文件中明确包含的角色，未包含的本机配置保持不变。</div>
       <div class="btn-row">
         <button class="btn-secondary btn-sm" onclick="settingsExport()">导出设置</button>
         <label class="btn-secondary btn-sm" style="cursor:pointer">导入设置
-          <input type="file" id="settings-import-file" accept=".json" style="display:none"
-                 onchange="settingsImport(this)"></label>
+          <input type="file" id="settings-import-file" accept=".json" style="display:none" onchange="settingsImport(this)"></label>
         <span class="hint" id="settings-config-status"></span>
       </div>
-    </div>
-    <div class="panel" style="margin-top:12px">
-      <b>环境自检</b>
-      <div class="btn-row"><button class="btn-secondary btn-sm" onclick="loadSettings()">开始自检</button></div>
+    </details>
+
+    <details class="panel settings-section">
+      <summary><b>系统维护</b><span class="hint">环境自检、诊断与开发者信息</span></summary>
+      <div class="btn-row" style="margin-top:10px"><button class="btn-secondary btn-sm" onclick="loadSettings()">开始环境自检</button></div>
       <div id="settings-env" class="hint" style="margin-top:8px">检查视频引擎 / 字体 / 存储 / 渲染器状态。</div>
-    </div>
-    <div class="panel" style="margin-top:12px">
-      <b>开发者模式</b>
-      <div class="btn-row">
-        <button class="btn-secondary btn-sm" onclick="devToggleMode()">开启/关闭（显示内部技术信息）</button>
-      </div>
-      <div class="hint">默认关闭。开启后界面会显示动效/镜头的技术编号、生成来源指纹等内部信息，供调试用。</div>
-    </div>
-    <div class="panel dev-only" style="margin-top:12px">
-      <b>功能就绪状态</b>
-      <div class="btn-row"><button class="btn-secondary btn-sm" onclick="toggleCapPanel()">展开能力面板</button></div>
-      <div id="cap-table"></div>
-    </div>
-    <div class="panel dev-only" style="margin-top:12px">
-      <b>构建标识</b>
-      <div class="hint" id="dev-build-id">—</div>
-      <div class="hint">源码契约与运行态一致性（动作注册表 build_id；「代码里明明有，浏览器里没有」的防线）。</div>
-    </div>
+      <div class="btn-row"><button class="btn-secondary btn-sm" onclick="devToggleMode()">开启/关闭开发者模式</button></div>
+      <div class="hint">默认关闭。开启后显示内部技术编号、生成来源指纹等调试信息。</div>
+      <div class="panel dev-only" style="margin-top:12px"><b>功能就绪状态</b><div class="btn-row"><button class="btn-secondary btn-sm" onclick="toggleCapPanel()">展开能力面板</button></div><div id="cap-table"></div></div>
+      <div class="panel dev-only" style="margin-top:12px"><b>构建标识</b><div class="hint" id="dev-build-id">—</div><div class="hint">源码契约与运行态一致性。</div></div>
+    </details>
   </main>
 
   <!-- §27 收集箱抽屉 -->
