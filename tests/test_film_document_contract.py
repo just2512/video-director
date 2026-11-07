@@ -1589,9 +1589,9 @@ def test_media_endpoint_cannot_read_another_project_but_can_read_shared_librarie
 def test_project_symlink_cannot_escape_composer_root(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     external = tmp_path / "external"
-    external.mkdir()
+    external.mkdir(exist_ok=True)
     composer = tmp_path / "composer"
-    composer.mkdir()
+    composer.mkdir(exist_ok=True)
     link = composer / "film-escape"
     try:
         link.symlink_to(external, target_is_directory=True)
