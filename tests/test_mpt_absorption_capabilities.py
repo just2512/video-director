@@ -155,7 +155,8 @@ class TestGenerationRequest:
         monkeypatch.setattr(config, "composer_storage_root", lambda: tmp_path)
 
         def write_test_frame(html, out_path, width, height, frame=0):
-            Path(out_path).write_bytes(b"unit-test-rendered-frame")
+            with open(out_path, "wb") as rendered_frame:
+                rendered_frame.write(b"unit-test-rendered-frame")
 
         monkeypatch.setattr(graphics_render, "render_still", write_test_frame)
 
