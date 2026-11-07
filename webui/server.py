@@ -278,7 +278,7 @@ def _load_llm_config() -> None:
             except (OSError, json.JSONDecodeError):
                 old = {}
             if old.get("api_key") and not vd_model_config.get_role_config("llm").get("api_key"):
-                vd_model_config.save_all({"llm": {
+                vd_model_config.save_role_updates({"llm": {
                     "api_key": old.get("api_key", ""),
                     "base_url": old.get("base_url", ""),
                     "model": old.get("model", ""),
