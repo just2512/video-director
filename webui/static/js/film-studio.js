@@ -2329,6 +2329,11 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
   }
   function hasUncommittedClipInspectorEdits(){
     if(!S.data||!S.data.exists)return false;
+    var reactInspector=document.querySelector('[data-react-clip-inspector="true"]');
+    // A selected clip can change before React's effect has reset the controlled
+    // form. Its old values belong to the previous clip, not to the new selection.
+    // Treat that transition as clean; the effect updates form + identity together.
+    if(reactInspector&&reactInspector.getAttribute('data-clip-form-id')!==S.selectedId)return false;
     var clip=findClip(S.selectedId);
     if(!clip)return false;
     var attrs=clip.attrs||{};

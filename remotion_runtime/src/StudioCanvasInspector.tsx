@@ -1096,6 +1096,10 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
   const [draggingBezier,setDraggingBezier] = useState<{index:number;handle:"p1"|"p2"}|null>(null);
   const [keyframeFeedback,setKeyframeFeedback] = useState("");
   const [form, setForm] = useState<FilmClipInspectorValues>(() => ({...clipFormDefaults}));
+  // Keep the DOM form's baseline identity explicit. React effects reset form
+  // drafts after a selected-clip change; until that effect commits, legacy
+  // guards must not interpret the previous clip's inputs as edits to this clip.
+  const [formClipId, setFormClipId] = useState(clip?.id || "");
   const update = <K extends keyof FilmClipInspectorValues>(field: K, value: FilmClipInspectorValues[K]) => {
     setForm((current) => ({...current, [field]: value}));
   };
@@ -1104,6 +1108,7 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
     // scalar and keyframe drafts from the new revision instead of leaking values
     // from the previously selected clip.
     setForm({...clipFormDefaults});
+    setFormClipId(clip?.id || "");
     setFeedback("");
     setKeyframeChannels(parseFilmKeyframes(keyframesAttribute));
     setKeyframeDirty(false);setDraggingKeyframe(null);setKeyframeFeedback("");
@@ -1229,7 +1234,7 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
     event.preventDefault();
   };
   return (
-    <div data-react-clip-inspector="true">
+    <div data-react-clip-inspector="true" data-clip-form-id={formClipId}>
       <div className="fs-inspector-description">
         <strong>{clip.id}</strong><br />{clip.tag}<br />{attrs.src || ""}
       </div>
