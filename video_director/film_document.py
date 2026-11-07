@@ -3516,8 +3516,20 @@ def edit_project_film(
                     updated = None
         if updated is None:
             updated = serialize_film(doc)
-        # Fail closed: every write must still satisfy the full document contract.
-        parse_film(updated)
+        # Both the source-preserving patch and the canonical serializer are
+        # untrusted until they round-trip to the exact operation result. A
+        # syntactically valid but semantically incomplete write must never be
+        # committed as HTTP 200 with an unchanged or partial FilmDocument.
+        try:
+            round_tripped_doc = parse_film(updated)
+        except FilmError:
+            raise
+        if round_tripped_doc != doc:
+            raise FilmError(
+                "FILM_SERIALIZATION_MISMATCH",
+                "影片文档序列化后与编辑结果不一致；拒绝提交不完整的 revision。",
+                500,
+            )
         history = _history_read(pid)
         history["past"].append({"before": current["text"], "after": updated,
                                 "before_rev": current["rev"], "after_rev": revision_of(updated),
