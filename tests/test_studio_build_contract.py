@@ -53,7 +53,11 @@ def test_studio_build_uses_isolated_hosted_runner_and_lockfile():
     assert '"https://integrate.api.nvidia.com/v1"' in live_config_step
     assert "resolve_live_provider_override" in live_config_step
     assert "resolve_live_model_override" in live_config_step
+    assert '("NVIDIA_API_KEY_SECRET", os.environ.get("NVIDIA_API_KEY_SECRET"))' in live_config_step
+    assert '("VD_LLM_API_KEY_SECRET", os.environ.get("VD_LLM_API_KEY_SECRET"))' in live_config_step
     assert '("runner_saved_config", saved.get("api_key"))' in live_config_step
+    assert live_config_step.index('("NVIDIA_API_KEY_SECRET",') < live_config_step.index('("runner_saved_config",')
+    assert "Explicit GitHub credentials take precedence" in live_config_step
     assert "value is redacted" in live_config_step
     assert "id: live_stream_smoke" in ai_workflow
     live_smoke = ai_workflow.split(
