@@ -91,8 +91,8 @@ jobs:
           if [ -n "${VIDEO_DIRECTOR_STORAGE_ROOT:-}" ]; then
             candidate_roots+=("$VIDEO_DIRECTOR_STORAGE_ROOT")
           fi
-          # Prefer the persistent developer checkout over the disposable Actions workspace.
-candidate_roots+=("/mnt/d/autocut/video-director/storage/composer" "$workspace/storage/composer")
+                    # Prefer the persistent developer checkout over the disposable Actions workspace.
+          candidate_roots+=("/mnt/d/autocut/video-director/storage/composer" "$workspace/storage/composer")
           shopt -s nullglob
           worktree_roots=(/mnt/d/autocut/video-director/.claude/worktrees/*/storage/composer)
           shopt -u nullglob
