@@ -503,6 +503,44 @@ def test_atomic_edits_revision_rebase_and_undo_redo(tmp_path,monkeypatch):
     assert redone["rev"]==rebased["rev"]
 
 
+def test_undo_redo_rejects_stale_client_revision(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-history-stale-base"
+    root.mkdir(parents=True)
+    (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+
+    initial = fd.read_project_film("film-history-stale-base")
+    first = fd.edit_project_film(
+        "film-history-stale-base",
+        initial["rev"],
+        [{"op": "set", "clip": "clip-b", "field": "at", "value": 7}],
+    )
+    second = fd.edit_project_film(
+        "film-history-stale-base",
+        first["rev"],
+        [{"op": "set", "clip": "clip-b", "field": "at", "value": 8}],
+    )
+
+    # A stale client must not undo a newer edit merely because the server's
+    # history stack is internally consistent with the newer revision.
+    with pytest.raises(fd.FilmError) as stale_undo:
+        fd.undo_redo_project_film("film-history-stale-base", first["rev"], "undo")
+    assert stale_undo.value.code == "REVISION_CONFLICT"
+    assert fd.read_project_film("film-history-stale-base")["rev"] == second["rev"]
+
+    undone = fd.undo_redo_project_film("film-history-stale-base", second["rev"], "undo")
+    assert undone["rev"] == first["rev"]
+
+    # The same optimistic concurrency guard applies to redo after an undo.
+    with pytest.raises(fd.FilmError) as stale_redo:
+        fd.undo_redo_project_film("film-history-stale-base", second["rev"], "redo")
+    assert stale_redo.value.code == "REVISION_CONFLICT"
+    assert fd.read_project_film("film-history-stale-base")["rev"] == first["rev"]
+
+    redone = fd.undo_redo_project_film("film-history-stale-base", first["rev"], "redo")
+    assert redone["rev"] == second["rev"]
+
+
 def test_film_edit_http_route_can_require_exact_revision_without_disabling_manual_rebase(tmp_path, monkeypatch):
     import importlib
     import json
