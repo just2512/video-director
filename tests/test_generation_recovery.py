@@ -840,6 +840,48 @@ class TestConcurrentVideoSubmission:
         assert len(library_assets) == 1
         assert library_assets[0]["content_hash"] == asset_catalog.content_hash(generated[0].file)
 
+    def test_late_joiner_reuses_committed_output_without_polling_terminal_job(
+        self, tmp_path, monkeypatch
+    ):
+        """并发请求若在另一调用者落盘后才进入提交锁，不得轮询或降级 done。"""
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+
+        project_id = "proj-late-video-joiner"
+        config.init_project_dirs(config.project_dir(project_id))
+        output = config.project_dir(project_id) / "assets" / "generated" / "committed.mp4"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"already-committed-video")
+        gen._update_job(project_id, "genjob-late-joiner", {
+            "provider_task_id": "already-finished-task",
+            "gen_type": "video",
+            "input_fingerprint": "d" * 16,
+            "variant": "A",
+            "status": "done",
+            "output_file": str(output),
+            "output_commit_protocol": "atomic-v2",
+            "recovery_needs_registration": True,
+        })
+
+        class NoProviderCalls:
+            def post(self, *_args, **_kwargs):
+                raise AssertionError("completed paid task must not be resubmitted")
+
+            def get(self, *_args, **_kwargs):
+                raise AssertionError("committed local output must not be polled again")
+
+        result = gen._create_poll_and_persist_video(
+            NoProviderCalls(), project_id, "fake-model", "prompt", 320, 180,
+            "d" * 16, "A", str(config.project_dir(project_id) / "assets" / "other.mp4"),
+            timeout=1,
+        )
+
+        assert result is None
+        job = gen._load_jobs(project_id)["genjob-late-joiner"]
+        assert job["status"] == "done"
+        assert job["output_file"] == str(output)
+        assert output.read_bytes() == b"already-committed-video"
+
     def test_output_download_ignores_predictable_part_symlink(
         self, tmp_path, monkeypatch
     ):
