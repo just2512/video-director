@@ -78,6 +78,9 @@ SUPPORTED_TYPES = ("image", "graphic", "video", "motion")
 #: 3 个确定性变体名（§31 结果 A/B/C）
 VARIANTS = ("A", "B", "C")
 
+# A terminal provider outcome must never be reopened by a stale poll/recovery worker.
+_TERMINAL_JOB_STATUSES = frozenset({"done", "failed", "submission_rejected", "cancelled"})
+
 
 def _fingerprint(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()[:16]
@@ -212,10 +215,17 @@ def _video_submission_lock(project_id: str, input_fp: str, variant: str):
 
 
 def _update_job(project_id: str, job_id: str, fields: dict) -> dict:
-    """增量更新一条 job 记录并落盘（全程持锁：webui 线程池 + 后台恢复并发安全）。"""
+    """增量更新一条 job 记录；终态不可逆，拒绝迟到的轮询/恢复结果覆盖。"""
     with _jobs_lock(project_id):
         jobs = _load_jobs(project_id)
         job = jobs.get(job_id) or {}
+        current_status = job.get("status")
+        requested_status = fields.get("status", current_status)
+        if current_status in _TERMINAL_JOB_STATUSES and requested_status != current_status:
+            raise GenerationError(
+                "VIDEO_JOB_TERMINAL",
+                f"视频任务 {job_id} 已进入终态 {current_status!r}，拒绝改写为 {requested_status!r}",
+            )
         job.update(fields)
         job["job_id"] = job_id
         job["updated_at"] = fields.get("updated_at", time.time())
@@ -452,11 +462,22 @@ def recover_pending_video_jobs(project_id: str) -> List[dict]:
                 f"generation: 任务 {job_id} 外部查询失败（保持 running）: {exc}")
             continue
         if status == "failed":
-            _update_job(project_id, job_id, {"status": "failed"})
-            recovered.append({**job, "status": "failed"})
+            try:
+                updated = _update_job(project_id, job_id, {"status": "failed"})
+            except GenerationError as exc:
+                if exc.code != "VIDEO_JOB_TERMINAL":
+                    raise
+                logger.info(f"generation: 任务 {job_id} 已由其他 worker 进入终态，忽略迟到的失败观察")
+                continue
+            recovered.append(updated)
             continue
         if status != "done":
-            _update_job(project_id, job_id, {"status": "running"})
+            try:
+                _update_job(project_id, job_id, {"status": "running"})
+            except GenerationError as exc:
+                if exc.code != "VIDEO_JOB_TERMINAL":
+                    raise
+                logger.info(f"generation: 任务 {job_id} 已由其他 worker 进入终态，忽略迟到的运行观察")
             continue
         out_file = job.get("output_file") or ""
         try:

@@ -123,6 +123,47 @@ class TestVideoJobPersistence:
         assert fake.get_calls >= 2  # 至少轮询过一次非终态
 
 
+
+    def test_terminal_job_status_cannot_be_reopened(self, tmp_path, monkeypatch):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+
+        pid = "proj-terminal-immutable"
+        config.init_project_dirs(config.project_dir(pid))
+        for terminal in ("done", "failed", "submission_rejected", "cancelled"):
+            job_id = f"job-{terminal}"
+            gen._update_job(pid, job_id, {"status": terminal})
+            with pytest.raises(gen.GenerationError) as exc:
+                gen._update_job(pid, job_id, {"status": "running"})
+            assert exc.value.code == "VIDEO_JOB_TERMINAL"
+            assert gen._load_jobs(pid)[job_id]["status"] == terminal
+
+    def test_late_running_poll_cannot_downgrade_job_completed_by_another_worker(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import config, generation as gen
+
+        pid = "proj-terminal-race"
+        config.init_project_dirs(config.project_dir(pid))
+        gen._update_job(pid, "job-race", {
+            "provider_task_id": "provider-race",
+            "gen_type": "video",
+            "status": "running",
+        })
+
+        def complete_during_poll(_client, _task_id):
+            gen._update_job(pid, "job-race", {"status": "done", "manifest_registered": True})
+            return "running", None, {"status": "running"}
+
+        monkeypatch.setattr(gen, "_query_video_status", complete_during_poll)
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: FakeVideoClient(["queued"]))
+
+        assert gen.recover_pending_video_jobs(pid) == []
+        assert gen._load_jobs(pid)["job-race"]["status"] == "done"
+        assert gen._load_jobs(pid)["job-race"]["manifest_registered"] is True
+
 class TestRecoverPendingVideoJobs:
     """任务 A：模拟重启——读 jobs 文件接续外部任务。"""
 
@@ -290,20 +331,14 @@ class TestFingerprintReuse:
 
         gen.generate(pid, "同一段提示词", "video", variant="A", model="m1")
         assert fake.post_calls == 1
-        # 把任务置回 running（模拟外部任务仍在跑、进程重启前的残留状态）
-        jobs = gen._load_jobs(pid)
-        job_id = next(iter(jobs))
-        gen._update_job(pid, job_id, {"status": "running"})
-
-        # 模拟重启：新 client。入口 recover 先查询一次；由于此前成品和
-        # Manifest 已持久化，后续 _generate_video 应直接复用 Manifest 行，
-        # 不再依赖供应商查询，也不重复 POST。
+        # done 是不可逆终态。重启后的相同请求应直接命中已持久化
+        # Manifest，不得把终态伪造为 running，也不应再访问供应商。
         fake2 = FakeVideoClient(statuses=["running", "completed"])
         monkeypatch.setattr(gen, "_video_client", lambda cfg: fake2)
         monkeypatch.setattr(gen, "_download_bytes", lambda url: b"x2")
         gen.generate(pid, "同一段提示词", "video", variant="A", model="m1")
         assert fake2.post_calls == 0, "复用任务不得二次提交（防重复付费）"
-        assert fake2.get_calls == 1  # 仅入口恢复器查询；Manifest 命中后不再轮询
+        assert fake2.get_calls == 0  # 终态与 Manifest 命中后不再轮询
 
 
     def test_manifest_write_failure_keeps_recovery_marker_and_retry_does_not_resubmit(
