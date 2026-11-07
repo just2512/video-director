@@ -94,7 +94,7 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                     && result?.draft?.data?.explicit_fields?.includes('platform');
                 }""", timeout=10000)
 
-                assert page.evaluate("document.elementFromPoint(8,8)?.id === 'cf-mask'")
+                assert page.evaluate("document.elementFromPoint(8,8)?.closest('#cf-panel')?.id === 'cf-panel'")
                 page.mouse.move(8, 8)
                 page.mouse.down()
                 page.mouse.up()
