@@ -131,7 +131,26 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
                 # The synced insert is one FilmDocument history transaction:
                 # one undo must restore both video/audio tracks and the exact
                 # source bytes, not only move the visible clips back.
-                page.evaluate("() => window.filmStudioUndo()")
+                # Wait until the React Inspector has completed the selection transition.
+                # The history guard intentionally rejects edits while a stale form could
+                # be mistaken for a draft belonging to the newly selected clip.
+                page.wait_for_function("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  const inspector = document.querySelector('[data-react-clip-inspector="true"]');
+                  const formClipId = inspector?.getAttribute('data-clip-form-id') || '';
+                  return !!state && !state.busy && state.pendingTransaction === null &&
+                    !!state.selectedId && formClipId === state.selectedId;
+                }""", timeout=10000)
+
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/undo"),
+                    timeout=10000,
+                ) as undo_response:
+                    page.evaluate("() => window.filmStudioUndo()")
+                assert undo_response.value.status == 200
+                undo_payload = undo_response.value.json()
+                assert undo_payload.get("action") == "undo", undo_payload
                 page.wait_for_function("""async pid => {
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid), {cache:'no-store'});
                   if (!response.ok) return false;
