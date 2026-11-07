@@ -108,6 +108,26 @@ def test_asset_bulk_delete_rejects_used_asset_then_deletes_unused(isolated_stora
     assert not unused_file.exists()
 
 
+def test_asset_usage_ignores_storage_sidecar_removed_during_scan(
+        isolated_storage, monkeypatch):
+    """SQLite WAL/SHM sidecars may vanish between directory listing and lstat."""
+    import errno
+
+    isolated_storage.mkdir(parents=True, exist_ok=True)
+    wal_path = isolated_storage / "composer.db-wal"
+    wal_path.write_bytes(b"transient sidecar")
+    original_lstat = Path.lstat
+
+    def lstat_with_vanishing_wal(path):
+        if path == wal_path:
+            raise FileNotFoundError(errno.ENOENT, "No such file or directory", str(path))
+        return original_lstat(path)
+
+    monkeypatch.setattr(Path, "lstat", lstat_with_vanishing_wal)
+
+    assert asset_catalog.asset_usage("asset-not-present") == []
+
+
 def test_enqueue_series_batch_accepts_shared_images_and_videos(isolated_storage):
     """PR #5 系列：共享素材含图片时不能在入队层 NameError（CI 漏跑点）。"""
     from video_director import studio as vd_studio

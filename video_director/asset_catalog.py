@@ -625,6 +625,12 @@ def asset_usage(asset_id: str) -> List[str]:
     for project_dir_path in projects:
         try:
             project_metadata = project_dir_path.lstat()
+        except FileNotFoundError:
+            # SQLite WAL/SHM sidecars and other transient storage entries can
+            # disappear after root.iterdir() snapshots them. A vanished entry
+            # cannot be a live project directory; do not turn normal SQLite
+            # cleanup into an indeterminate asset-reference scan.
+            continue
         except OSError as exc:
             raise AssetLibraryError(
                 "ASSET_USAGE_UNKNOWN", f"无法检查项目目录 {project_dir_path.name}：{exc}"
