@@ -43,7 +43,7 @@ def test_settings_categories_keep_local_credentials_read_only_until_explicit_sav
                 page.wait_for_function("Array.isArray(window.MODEL_ROLES) && Array.isArray(window.RENDER_ROLES)")
                 assert page.locator("#pane-settings").get_by_text("AI 模型").is_visible()
                 assert page.locator("#pane-settings").get_by_text("语音与配音").is_visible()
-                assert page.locator("#pane-settings").get_by_text("素材来源").is_visible()
+                assert page.locator("#pane-settings").get_by_text("素材来源", exact=True).is_visible()
                 assert page.locator("#pane-settings").get_by_text("渲染与输出服务").is_visible()
                 assert page.locator("#render-roles #mc-hyperframes-key").count() == 1
                 assert page.locator("#model-roles #mc-hyperframes-key").count() == 0
