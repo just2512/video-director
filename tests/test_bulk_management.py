@@ -98,7 +98,7 @@ def test_asset_bulk_delete_rejects_used_asset_then_deletes_unused(isolated_stora
 
     blocked = asset_catalog.delete_assets(["local-unused", "local-used"])
     assert blocked["ok"] is False
-    assert blocked["code"] == "ASSET_IN_USE"
+    assert blocked["code"] == "ASSET_IN_USE", blocked
     assert asset_catalog.get_asset("local-unused") is not None
     assert asset_catalog.get_asset("local-used") is not None
 
