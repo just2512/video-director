@@ -433,6 +433,30 @@ def _persist_video_output(project_id: str, job_id: str, out_file: str, url: str)
     return target
 
 
+def _completed_video_output(project_id: str, job: dict) -> Path:
+    """Return a verified atomic output for a terminal job; never re-poll a done task."""
+    if job.get("status") != "done":
+        raise GenerationError("VIDEO_JOB_NOT_DONE", "视频任务尚未完成")
+    if job.get("output_commit_protocol") != "atomic-v2":
+        raise GenerationError(
+            "VIDEO_RECOVERED_OUTPUT_MISSING",
+            "已完成的视频任务缺少原子输出协议标记；为避免重复付费，拒绝重新提交。",
+        )
+    raw_output = job.get("output_file")
+    if not isinstance(raw_output, str) or not raw_output:
+        raise GenerationError(
+            "VIDEO_RECOVERED_OUTPUT_MISSING",
+            "已完成的视频任务没有可恢复的输出路径；为避免重复付费，拒绝重新提交。",
+        )
+    output = _validated_video_output_path(project_id, raw_output)
+    if not output.is_file() or output.stat().st_size <= 0:
+        raise GenerationError(
+            "VIDEO_RECOVERED_OUTPUT_MISSING",
+            "已完成的视频任务本地文件缺失或为空；为避免重复付费，拒绝重新提交。",
+        )
+    return output
+
+
 def recover_pending_video_jobs(project_id: str) -> List[dict]:
     """进程中断后的视频任务恢复（审计差距 2）。
 
@@ -1068,17 +1092,7 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
         # A completed atomic output is self-contained. Reuse its verified local
         # bytes directly; provider task records may already have expired.
         if reusable and reusable.get("status") == "done":
-            if reusable.get("output_commit_protocol") != "atomic-v2":
-                raise GenerationError(
-                    "VIDEO_RECOVERED_OUTPUT_MISSING",
-                    "已完成的视频任务没有原子提交协议标记；为避免重复付费，拒绝重新提交。",
-                )
-            candidate = _validated_video_output_path(project_id, str(out_file))
-            if not candidate.is_file() or candidate.stat().st_size <= 0:
-                raise GenerationError(
-                    "VIDEO_RECOVERED_OUTPUT_MISSING",
-                    "已完成的视频任务本地文件缺失或为空；为避免重复付费，拒绝重新提交。",
-                )
+            candidate = _completed_video_output(project_id, reusable)
             recovered_file = candidate
             out_file = candidate
 
@@ -1199,19 +1213,7 @@ def _create_poll_and_persist_video(
             # A caller may have observed no reusable task just before another
             # caller committed the MP4. Re-check under the submission lock so
             # this late joiner never polls a terminal job or downgrades it.
-            if reusable.get("output_commit_protocol") != "atomic-v2":
-                raise GenerationError(
-                    "VIDEO_RECOVERED_OUTPUT_MISSING",
-                    "已完成的视频任务缺少原子输出协议标记；为避免重复付费，拒绝重新提交。",
-                )
-            committed = _validated_video_output_path(
-                project_id, str(reusable.get("output_file") or "")
-            )
-            if not committed.is_file() or committed.stat().st_size <= 0:
-                raise GenerationError(
-                    "VIDEO_RECOVERED_OUTPUT_MISSING",
-                    "已完成的视频任务本地文件缺失或为空；为避免重复付费，拒绝重新提交。",
-                )
+            _completed_video_output(project_id, reusable)
             return None
         if reusable:
             job_id = reusable["job_id"]
@@ -1290,8 +1292,27 @@ def _create_poll_and_persist_video(
             if not url:
                 raise GenerationError(
                     "VIDEO_GENERATION_FAILED", "生视频任务完成但无 url")
-            _update_job(project_id, job_id,
-                        {"status": "downloading", "output_file": out_file})
+            current = _load_jobs(project_id).get(job_id, {})
+            if current.get("status") == "done":
+                # Another caller may have completed and atomically published
+                # this same task while our provider poll was in flight.
+                _completed_video_output(project_id, current)
+                return None
+            try:
+                _update_job(project_id, job_id, {
+                    "status": "downloading", "output_file": out_file,
+                })
+            except GenerationError as exc:
+                if exc.code != "VIDEO_JOB_TERMINAL":
+                    raise
+                # Close the read/update race: if another worker won the final
+                # transition, reuse its committed bytes rather than failing or
+                # trying to move done back to downloading.
+                current = _load_jobs(project_id).get(job_id, {})
+                if current.get("status") == "done":
+                    _completed_video_output(project_id, current)
+                    return None
+                raise
             return url
         if status == "failed":
             _update_job(project_id, job_id, {"status": "failed"})
