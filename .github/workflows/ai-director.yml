@@ -878,7 +878,7 @@ jobs:
       # configured root is inside the shared Actions checkout. Restore the exact
       # original bytes to the original path after every test/build/publish step.
       - name: Restore runner-local model configuration
-        if: always() && steps.ensure_checkout.outcome == 'success'
+        if: always()
         shell: bash
         env:
           PRESERVED_MODEL_CONFIG_FILE: ${{ env.VD_PRESERVED_MODEL_CONFIG_FILE }}
