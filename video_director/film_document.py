@@ -1406,15 +1406,14 @@ def _film_document_roundtrip_matches(expected: dict, actual: dict) -> bool:
         head = str(result.get("head_html") or "")
         for name in ("viewport", "film-fps", "film-markers"):
             pattern = (
-                rf"""<meta\\b(?=[^>]*\\bname\\s*=\\s*"""
-                rf"""(?:"{re.escape(name)}"|'{re.escape(name)}'|{re.escape(name)}(?=\\s|/?>)))[^>]*>"""
+                rf"""<meta\b(?=[^>]*\bname\s*=\s*"""
+                rf"""(?:"{re.escape(name)}"|'{re.escape(name)}'|{re.escape(name)}(?=\s|/?>)))[^>]*>"""
             )
             head = re.sub(pattern, "", head, flags=re.I)
         result["head_html"] = head
         return result
 
     return comparable(expected) == comparable(actual)
-
 
 def serialize_film(doc: dict) -> str:
     stage = doc.get("stage") or {"width": 1920, "height": 1080}
