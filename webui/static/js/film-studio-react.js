@@ -26091,11 +26091,13 @@
     const [draggingBezier, setDraggingBezier] = (0, import_react.useState)(null);
     const [keyframeFeedback, setKeyframeFeedback] = (0, import_react.useState)("");
     const [form, setForm] = (0, import_react.useState)(() => ({ ...clipFormDefaults }));
+    const [formClipId, setFormClipId] = (0, import_react.useState)(clip?.id || "");
     const update = (field, value) => {
       setForm((current) => ({ ...current, [field]: value }));
     };
     (0, import_react.useEffect)(() => {
       setForm({ ...clipFormDefaults });
+      setFormClipId(clip?.id || "");
       setFeedback("");
       setKeyframeChannels(parseFilmKeyframes(keyframesAttribute));
       setKeyframeDirty(false);
@@ -26234,7 +26236,7 @@
       updateBezierControl(draggingBezier.index, draggingBezier.handle, "y", controlY);
       event.preventDefault();
     };
-    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { "data-react-clip-inspector": "true", children: [
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { "data-react-clip-inspector": "true", "data-clip-form-id": formClipId, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fs-inspector-description", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: clip.id }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("br", {}),
