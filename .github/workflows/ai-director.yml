@@ -548,14 +548,14 @@ jobs:
           api_key = raw_api_key.strip()
           print(f"Live model credential source: {key_source}; value is redacted.")
           credential_base_url = (
-              os.environ.get("VD_LLM_BASE_URL_CONFIG")
-              or saved.get("base_url")
+              saved.get("base_url")
+              or os.environ.get("VD_LLM_BASE_URL_CONFIG")
               or ""
           ).strip()
           base_url = credential_base_url or "https://api.openai.com/v1"
           configured_model = (
-              os.environ.get("VD_LLM_MODEL_CONFIG")
-              or saved.get("model")
+              saved.get("model")
+              or os.environ.get("VD_LLM_MODEL_CONFIG")
               or "gpt-4o-mini"
           ).strip()
           event_payload = {}
