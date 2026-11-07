@@ -313,7 +313,7 @@ Confirmed behavior:
 - `POST /api/model_config` accepts a `configs` object. The front end uses `__KEEP__` for an unchanged saved key; an empty key is an explicit clear.
 - `model_config.save_all()` writes the whole file at `composer_storage_root()/model_config.json`.
 
-**Defect found and corrected in workstream C:** both POST routes previously passed only the submitted roles to the whole-file `save_all()` writer. A partial category save or partial import could therefore erase roles omitted from the request. The persistence branch introduces `save_role_updates()`, which merges the partial role/field update with persisted values under the config lock, retains omitted roles and fields, preserves `__KEEP__`, honors an explicit empty-key clear, and rejects malformed existing JSON rather than replacing it. The HTTP handlers now use this safe update path.
+**Defect found and corrected in workstream C:** both POST routes previously passed only the submitted roles to the whole-file `save_all()` writer. A partial category save or partial import could therefore erase roles omitted from the request. The persistence branch introduces `save_role_updates()`, which merges the partial role/field update with freshly read persisted values under the config lock, retains omitted roles and fields, preserves `__KEEP__`, honors an explicit empty-key clear, and rejects malformed existing JSON rather than replacing it. The HTTP save/import handlers and the legacy `llm_config.json` startup migration now use this safe update path.
 
 Regression coverage includes:
 - partial role update preserves other saved role keys;
@@ -321,6 +321,8 @@ Regression coverage includes:
 - explicit empty key clears only the selected role;
 - malformed existing config is not overwritten;
 - concurrent partial role updates do not erase each other;
+- legacy LLM config migration does not erase other local roles;
+- omitted fields in a partial role update retain their persisted values;
 - frontend status omits key values;
 - HTTP save/import routes preserve unsubmitted local credentials.
 
