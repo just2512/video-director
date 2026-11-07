@@ -808,12 +808,13 @@ class TestConcurrentVideoSubmission:
         config.init_project_dirs(config.project_dir(project_id))
         monkeypatch.setattr(gen, "recover_pending_video_jobs", lambda _pid: [])
         poll_lock = threading.Lock()
+        second_poll_started = threading.Event()
+        output_committed = threading.Event()
 
         class SharedTaskClient:
             def __init__(self):
                 self.post_calls = 0
                 self.get_calls = 0
-                self.both_polling = threading.Event()
 
             def post(self, path, json=None):
                 self.post_calls += 1
@@ -822,10 +823,16 @@ class TestConcurrentVideoSubmission:
             def get(self, path):
                 with poll_lock:
                     self.get_calls += 1
-                    if self.get_calls >= 2:
-                        self.both_polling.set()
-                if not self.both_polling.wait(timeout=8):
-                    raise TimeoutError("concurrent generate caller did not join the shared task")
+                    call_number = self.get_calls
+                if call_number == 1:
+                    return _FakeResp({
+                        "id": "one-paid-task",
+                        "status": "completed",
+                        "url": "https://cdn.example/one-paid-task.mp4",
+                    })
+                second_poll_started.set()
+                if not output_committed.wait(timeout=8):
+                    raise TimeoutError("first caller did not commit the shared output")
                 return _FakeResp({
                     "id": "one-paid-task",
                     "status": "completed",
@@ -834,6 +841,16 @@ class TestConcurrentVideoSubmission:
 
         client = SharedTaskClient()
         monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
+        original_persist = gen._persist_video_output
+
+        def persist_after_second_poll(pid, job_id, out_file, url):
+            if not second_poll_started.wait(timeout=8):
+                raise TimeoutError("second caller did not enter its provider poll")
+            result = original_persist(pid, job_id, out_file, url)
+            output_committed.set()
+            return result
+
+        monkeypatch.setattr(gen, "_persist_video_output", persist_after_second_poll)
         payload = bytes.fromhex("000000186674797069736f6d") + b"concurrent-video-payload"
         monkeypatch.setattr(gen, "_download_bytes", lambda _url: payload)
         monkeypatch.setattr(
@@ -873,6 +890,8 @@ class TestConcurrentVideoSubmission:
         assert all(len(batch) == 1 for batch in results)
         assert client.post_calls == 1, "concurrent callers must create only one paid provider task"
         assert client.get_calls == 2
+        assert second_poll_started.is_set()
+        assert output_committed.is_set()
         generated = [batch[0] for batch in results]
         assert len({item.asset_id for item in generated}) == 1
         assert len({item.file for item in generated}) == 1
