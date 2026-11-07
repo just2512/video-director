@@ -524,14 +524,14 @@ jobs:
               except (OSError, json.JSONDecodeError):
                   saved = {}
 
-          # Prefer the explicitly preserved local runner config: it is the
-          # same credential the developer has configured for this workstation.
-          # GitHub secrets/environment variables are fallback sources only.
+          # Explicit GitHub credentials take precedence over the preserved
+          # runner config, which may contain an expired or unrelated API key.
+          # The local runner config remains a fallback for self-hosted workflows.
           key_candidates = (
-              ("runner_saved_config", saved.get("api_key")),
               ("NVIDIA_API_KEY_SECRET", os.environ.get("NVIDIA_API_KEY_SECRET")),
               ("NVIDIA_API_KEY", os.environ.get("NVIDIA_API_KEY")),
               ("VD_LLM_API_KEY_SECRET", os.environ.get("VD_LLM_API_KEY_SECRET")),
+              ("runner_saved_config", saved.get("api_key")),
           )
           key_source, raw_api_key = next(
               ((source, value) for source, value in key_candidates if isinstance(value, str) and value.strip()),
