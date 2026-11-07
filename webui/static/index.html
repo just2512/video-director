@@ -513,13 +513,14 @@
   <main id="pane-settings" class="pane" style="display:none">
     <div class="page-head">
       <div><h2>设置</h2><div class="hint">管理系统服务与创作默认值；项目创作参数在新建项目时单独确定。</div></div>
+      <button class="btn-primary" onclick="saveModelConfig('all')">保存全部配置</button>
     </div>
 
     <details class="panel settings-section" open>
       <summary><b>AI 模型</b><span class="hint">文本创作、生图、生视频与视觉理解</span><span class="hint" id="llm-badge-inline"></span></summary>
       <div id="llm-panel" style="display:block;margin-top:12px">
         <div id="model-roles"></div>
-        <div class="btn-row"><button class="btn-secondary" onclick="saveModelConfig()">保存模型配置</button><span class="hint" id="llm-save-status"></span></div>
+        <div class="btn-row"><button class="btn-secondary" onclick="saveModelConfig('models')">保存模型配置</button><span class="hint" id="llm-save-status"></span></div>
       </div>
     </details>
 
@@ -527,7 +528,7 @@
       <summary><b>语音与配音</b><span class="hint">Edge TTS 默认可用；Azure / ElevenLabs 为可选扩展</span></summary>
       <div id="tts-roles" style="margin-top:10px"></div>
       <div class="btn-row" style="margin-top:8px">
-        <button class="btn-secondary btn-sm" onclick="saveModelConfig()">保存配音配置</button>
+        <button class="btn-secondary btn-sm" onclick="saveModelConfig('voice')">保存配音配置</button>
         <button class="btn-secondary btn-sm" onclick="switchTab('editor'); edLibDomain('sound','voice')">去音色库试听</button>
         <span class="hint" id="tts-save-status"></span>
       </div>
@@ -537,7 +538,7 @@
       <summary><b>素材来源</b><span class="hint" id="settings-stock-line">图库状态检测中……</span></summary>
       <div id="stock-roles" style="margin-top:10px"></div>
       <div class="btn-row">
-        <button class="btn-secondary btn-sm" onclick="saveModelConfig()">保存素材来源配置</button>
+        <button class="btn-secondary btn-sm" onclick="saveModelConfig('stock')">保存素材来源配置</button>
         <span class="hint" id="stock-save-status"></span>
       </div>
       <div class="hint">Pexels / Pixabay 可用于自动检索；Coverr 当前仅手动检索，商业使用限制在素材使用环节继续执行。</div>
@@ -546,7 +547,7 @@
     <details class="panel settings-section">
       <summary><b>渲染与输出服务</b><span class="hint">FFmpeg 默认可用；HyperFrames 为可选云端渲染</span></summary>
       <div id="render-roles" style="margin-top:10px"></div>
-      <div class="btn-row"><button class="btn-secondary btn-sm" onclick="saveModelConfig()">保存渲染配置</button></div>
+      <div class="btn-row"><button class="btn-secondary btn-sm" onclick="saveModelConfig('render')">保存渲染配置</button><span class="hint" id="render-save-status"></span></div>
     </details>
 
     <details class="panel settings-section">
