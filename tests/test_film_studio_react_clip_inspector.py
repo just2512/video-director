@@ -70,7 +70,8 @@ def test_react_clip_inspector_is_wired_through_film_studio_bridge():
     assert "const update = <K extends keyof FilmClipInspectorValues>" in component
     assert 'data-clip-form-id={formClipId}' in component
     assert 'setFormClipId(clip?.id || "")' in component
-    assert "data-clip-form-id')!==S.selectedId" in studio
+    assert "var formClipId=reactInspector?String(reactInspector.getAttribute('data-clip-form-id')||''):S.selectedId;" in studio
+    assert "var clipId=formClipId||S.selectedId;" in studio
     assert 'value={form.at}' in component
     assert 'onChange={(event) => update("at", event.currentTarget.value)}' in component
     assert 'id="fs-apply-clip-inspector"' in component
