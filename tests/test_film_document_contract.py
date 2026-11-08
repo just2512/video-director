@@ -631,7 +631,7 @@ def test_generated_asset_insert_falls_back_when_source_patch_is_valid_but_stale(
                 "tag": "img",
                 "attrs": {
                     "src": "../assets/generated/generated-still.png#t=0,4",
-                    "at": "1",
+                    "at": "10",
                     "data-asset-id": "generated-asset",
                 },
             },
