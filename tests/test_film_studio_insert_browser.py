@@ -413,7 +413,41 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
 
                 ripple = fd.read_project_film(project_id)
                 ripple_clips = clips_by_id(ripple["doc"])
-                assert "video-later" not in ripple_clips
+                if "video-later" in ripple_clips:
+                    page_snapshot = page.evaluate(
+                        """async pid => {
+                          const response = await fetch(
+                            '/api/editor/film?project_id=' + encodeURIComponent(pid),
+                            {cache:'no-store'}
+                          );
+                          const doc = await response.json();
+                          const store = window.filmStudioStore?.getSnapshot();
+                          return {
+                            httpStatus: response.status,
+                            revision: doc.rev,
+                            clipIds: (doc.tracks || []).flatMap(track => track.clips || []).map(clip => clip.id),
+                            afterAt: (doc.tracks || []).flatMap(track => track.clips || []).find(clip => clip.id === 'video-after')?.attrs?.at,
+                            storeRevision: store?.revision,
+                            storeBusy: store?.busy,
+                            pendingTransaction: store?.pendingTransaction
+                          };
+                        }""",
+                        project_id,
+                    )
+                    watcher_state = web_server._FILM_REVISION_WATCHER._projects.get(project_id)
+                    raise AssertionError({
+                        "disk_revision": ripple["rev"],
+                        "disk_clip_ids": sorted(ripple_clips),
+                        "disk_after_at": ripple_clips.get("video-after", {}).get("attrs", {}).get("at"),
+                        "browser_snapshot": page_snapshot,
+                        "edit_audit": edit_audit,
+                        "watcher": {
+                            "last_revision": (watcher_state or {}).get("last_revision"),
+                            "last_phase": (watcher_state or {}).get("last_phase"),
+                            "last_history_result": (watcher_state or {}).get("last_history_result"),
+                            "last_error": (watcher_state or {}).get("last_error"),
+                        },
+                    })
                 assert float(ripple_clips["video-after"]["attrs"]["at"]) == 4
                 assert ripple_clips["audio-later"]["attrs"]["src"].endswith("#t=0,1")
                 assert float(ripple_clips["audio-later"]["attrs"]["at"]) == 3
