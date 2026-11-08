@@ -52,7 +52,14 @@ class GenerationError(Exception):
         self.code = code
         self.message = message
         low = f"{message}".lower()
-        self.is_quota_err = any(m in low for m in self.QUOTA_MARKERS)
+        # Only generic provider-failure codes are eligible for text-based quota
+        # normalization. Explicit safety/state codes (for example
+        # VIDEO_SUBMISSION_UNKNOWN) must never be rewritten because an opaque
+        # identifier in their diagnostic message happens to contain "429".
+        quota_classifiable = code in {"VIDEO_GENERATION_FAILED", "IMAGE_GENERATION_FAILED"}
+        self.is_quota_err = quota_classifiable and any(
+            marker in low for marker in self.QUOTA_MARKERS
+        )
         self.is_transient = any(m in low for m in self.TRANSIENT_MARKERS)
         if self.is_quota_err:
             # 配额耗尽不可自恢复：code 归一为 QUOTA_EXCEEDED，message 原样保留
