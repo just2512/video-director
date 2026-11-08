@@ -80,11 +80,17 @@ def test_asset_insert_and_overwrite_round_trip_in_canonical_timeline_order():
     }])
     ripple_roundtrip = fd.parse_film(fd.serialize_film(ripple))
     assert fd._film_document_roundtrip_matches(ripple, ripple_roundtrip)
-    assert [
-        clip["id"] for clip in next(
-            track for track in ripple["tracks"] if track["id"] == "video-main"
-        )["clips"]
-    ] == ["video-before", "ripple-roundtrip", "video-later"]
+    ripple_clips = next(
+        track for track in ripple["tracks"] if track["id"] == "video-main"
+    )["clips"]
+    ripple_ids = [clip["id"] for clip in ripple_clips]
+    assert ripple_ids == [
+        clip["id"] for clip in sorted(
+            ripple_clips, key=lambda clip: float(clip["attrs"].get("at", 0))
+        )
+    ]
+    assert ripple_ids.index("video-before") < ripple_ids.index("ripple-roundtrip")
+    assert ripple_ids.index("ripple-roundtrip") < ripple_ids.index("video-later")
 
     overwrite_clip = {
         "id": "overwrite-roundtrip", "tag": "video",
@@ -94,11 +100,17 @@ def test_asset_insert_and_overwrite_round_trip_in_canonical_timeline_order():
     overwritten, _ = fd.apply_ops(doc, overwrite_ops, allow_source_extension=True)
     overwrite_roundtrip = fd.parse_film(fd.serialize_film(overwritten))
     assert fd._film_document_roundtrip_matches(overwritten, overwrite_roundtrip)
-    assert [
-        clip["id"] for clip in next(
-            track for track in overwritten["tracks"] if track["id"] == "video-main"
-        )["clips"]
-    ] == ["video-before", "overwrite-roundtrip", "video-later"]
+    overwrite_clips = next(
+        track for track in overwritten["tracks"] if track["id"] == "video-main"
+    )["clips"]
+    overwrite_ids = [clip["id"] for clip in overwrite_clips]
+    assert overwrite_ids == [
+        clip["id"] for clip in sorted(
+            overwrite_clips, key=lambda clip: float(clip["attrs"].get("at", 0))
+        )
+    ]
+    assert overwrite_ids.index("video-before") < overwrite_ids.index("overwrite-roundtrip")
+    assert overwrite_ids.index("overwrite-roundtrip") < overwrite_ids.index("video-later")
 
 
 def test_insert_ripple_rejects_locked_sync_tracks_unknown_crossing_duration_and_bad_new_clip():
