@@ -332,8 +332,13 @@ def test_live_model_stream_smoke_is_explicit_ci_opt_in_and_default_ci_reports_mi
     assert "VD_LLM_MODEL_CONFIG" in config_step
     assert "NVIDIA_API_KEY_SECRET" in config_step
     assert "NVIDIA_API_KEY" in config_step
-    assert "credential_host != \"integrate.api.nvidia.com\"" in config_step
-    assert "NVIDIA live override requires NVIDIA_API_KEY" in config_step
+    assert "resolve_live_api_key" in config_step
+    assert 'saved_base_url=saved.get("base_url", "")' in config_step
+    assert 'generic_api_key=os.environ.get("VD_LLM_API_KEY_SECRET", "")' in config_step
+    helper = (root / "video_director" / "live_stream_acceptance.py").read_text(encoding="utf-8")
+    assert 'saved_host == "integrate.api.nvidia.com"' in helper
+    assert "NVIDIA live override requires NVIDIA_API_KEY" in helper
+    assert "refusing to send an unrelated provider key" in helper
     assert "Opt-in live-model smoke is missing a complete key/base URL/model configuration." in config_step
     assert "raise SystemExit(1)" in config_step
     assert "steps.live_stream_config.outcome == 'success'" in live_step
