@@ -497,7 +497,11 @@ jobs:
         id: live_stream_config
         # Live-provider acceptance is opt-in. A push can request one isolated
         # NVIDIA run with [live-stream-smoke] [live-provider=nvidia]
-        # [live-model=z-ai/glm-5.3-flash]. Keep credentials out of GITHUB_ENV:
+        # [live-model=z-ai/glm-5.3-flash]. The live request still waits for the
+        # full regression and timeline publication gates above.
+        # [unblock-runner] is reserved for an explicitly tagged recovery push
+        # when a previous self-hosted main run has stopped making progress.
+        # Keep credentials out of GITHUB_ENV:
         # the real provider test runs in a dedicated child process, not in broad pytest.
         if: steps.full_regression.outcome == 'success' && steps.timeline_regression_gate.outcome == 'success' && ((github.event_name == 'workflow_dispatch' && inputs.run_live_llm) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-stream-smoke]')))
         shell: bash
