@@ -52,6 +52,56 @@ def resolve_live_provider_override(explicit_override: str, commit_message: str) 
     return candidate
 
 
+
+
+def resolve_live_api_key(
+    provider_override: str,
+    saved_api_key: str,
+    saved_base_url: str,
+    nvidia_api_key_secret: str,
+    nvidia_api_key: str,
+    generic_api_key: str,
+) -> tuple[str, str]:
+    """Select a credential without sending another provider's key to NVIDIA.
+
+    An explicit NVIDIA run prefers a named NVIDIA credential unless the saved
+    runner credential is already pinned to NVIDIA's official endpoint. For all
+    other runs, preserve the existing saved-config-first precedence.
+    """
+    saved_key = str(saved_api_key or "").strip()
+    endpoint = str(saved_base_url or "").strip()
+    if endpoint and "://" not in endpoint:
+        endpoint = "https://" + endpoint
+    saved_host = (urlparse(endpoint).hostname or "").lower().rstrip(".")
+    provider = str(provider_override or "").strip().lower()
+
+    if provider == "nvidia":
+        if saved_key and saved_host == "integrate.api.nvidia.com":
+            return "runner_saved_config", saved_key
+        for source, value in (
+            ("NVIDIA_API_KEY_SECRET", nvidia_api_key_secret),
+            ("NVIDIA_API_KEY", nvidia_api_key),
+        ):
+            candidate = str(value or "").strip()
+            if candidate:
+                return source, candidate
+        raise ValueError(
+            "NVIDIA live override requires NVIDIA_API_KEY or a saved credential "
+            "already pinned to integrate.api.nvidia.com; refusing to send an "
+            "unrelated provider key."
+        )
+
+    for source, value in (
+        ("runner_saved_config", saved_key),
+        ("NVIDIA_API_KEY_SECRET", nvidia_api_key_secret),
+        ("NVIDIA_API_KEY", nvidia_api_key),
+        ("VD_LLM_API_KEY_SECRET", generic_api_key),
+    ):
+        candidate = str(value or "").strip()
+        if candidate:
+            return source, candidate
+    return "missing", ""
+
 def resolve_live_model(model: str, base_url: str) -> str:
     """Resolve a retired OpenRouter model only for the official OpenRouter endpoint.
 

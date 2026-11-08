@@ -46,6 +46,13 @@ jobs:
         run: |
           python -m pytest -q tests/test_generation_recovery.py \
             -k "explicit_submission_unknown or ambiguous_transport_failure"
+      - name: NVIDIA credential and submission safety
+        if: startsWith(github.ref_name, 'work/nvidia-live-credential-selection')
+        run: |
+          python -m pytest -q \
+            tests/test_live_stream_acceptance.py \
+            tests/test_generation_recovery.py \
+            -k "nvidia_override or default_live_run or live_workflow or ambiguous_transport_failure or explicit_submission_unknown"
       - name: Generation state and crash recovery
         if: startsWith(github.ref_name, 'work/generation-state')
         run: |

@@ -9,6 +9,7 @@ from video_director.live_stream_acceptance import (
     REPORTS,
     classify_live_stream_acceptance,
     resolve_live_model,
+    resolve_live_api_key,
     resolve_live_model_override,
     resolve_live_provider_override,
 )
@@ -148,3 +149,63 @@ def test_explicit_nvidia_provider_override_has_priority_over_commit_marker():
 def test_unsupported_live_provider_override_fails_closed():
     with pytest.raises(ValueError):
         resolve_live_provider_override("unknown-provider", "")
+
+
+
+def test_nvidia_override_prefers_named_nvidia_key_over_saved_other_provider_key():
+    assert resolve_live_api_key(
+        "nvidia",
+        "saved-openai-key",
+        "https://api.openai.com/v1",
+        "nvidia-secret",
+        "",
+        "generic-secret",
+    ) == ("NVIDIA_API_KEY_SECRET", "nvidia-secret")
+
+
+def test_nvidia_override_keeps_saved_key_when_saved_endpoint_is_official_nvidia():
+    assert resolve_live_api_key(
+        "nvidia",
+        "saved-nvidia-key",
+        "https://integrate.api.nvidia.com/v1",
+        "different-nvidia-secret",
+        "",
+        "generic-secret",
+    ) == ("runner_saved_config", "saved-nvidia-key")
+
+
+def test_nvidia_override_never_falls_back_to_unrelated_generic_key():
+    with pytest.raises(ValueError, match="refusing to send an unrelated provider key"):
+        resolve_live_api_key(
+            "nvidia",
+            "saved-openai-key",
+            "https://api.openai.com/v1",
+            "",
+            "",
+            "generic-secret",
+        )
+
+
+def test_default_live_run_preserves_saved_config_first_precedence():
+    assert resolve_live_api_key(
+        "",
+        "saved-key",
+        "https://api.openai.com/v1",
+        "nvidia-secret",
+        "",
+        "generic-secret",
+    ) == ("runner_saved_config", "saved-key")
+
+
+def test_nvidia_live_workflow_uses_provider_aware_key_resolver():
+    from pathlib import Path
+
+    workflow = (
+        Path(__file__).resolve().parents[1]
+        / ".github"
+        / "workflows"
+        / "ai-director.yml"
+    ).read_text(encoding="utf-8")
+    assert "import resolve_live_api_key," in workflow
+    assert "resolve_live_api_key(" in workflow
+    assert "key_candidates = (" not in workflow
