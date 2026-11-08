@@ -7,6 +7,7 @@ import os
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import threading
+import time
 
 from playwright.sync_api import sync_playwright
 
@@ -331,6 +332,30 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                         },
                         timeout=10000,
                     )
+                    # The browser/API view and the Python caller must converge on the
+                    # same persisted file snapshot; do not assume Store idle alone proves
+                    # the atomic file replacement has become visible to another reader.
+                    disk_deadline = time.monotonic() + 5.0
+                    disk_snapshot = None
+                    while time.monotonic() < disk_deadline:
+                        disk_snapshot = fd.read_project_film(project_id)
+                        disk_clips = clips_by_id(disk_snapshot["doc"])
+                        disk_later = "video-later" in disk_clips
+                        disk_after = disk_clips.get("video-after", {}).get("attrs", {}).get("at")
+                        if disk_later == later_present and disk_after is not None and abs(
+                            float(disk_after) - after_at
+                        ) < 0.001:
+                            break
+                        time.sleep(0.02)
+                    else:
+                        raise AssertionError({
+                            "expected_later_present": later_present,
+                            "expected_after_at": after_at,
+                            "disk_revision": (disk_snapshot or {}).get("rev"),
+                            "disk_clip_ids": sorted(clips_by_id(disk_snapshot["doc"])) if disk_snapshot else [],
+                            "disk_after_at": disk_after if disk_snapshot else None,
+                            "edit_audit": edit_audit,
+                        })
 
                 # Lift delete: remove only the selected clip; preserve the two-second
                 # hole before video-after and leave every audio clip byte-for-byte equivalent.
