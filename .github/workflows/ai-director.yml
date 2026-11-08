@@ -697,7 +697,7 @@ jobs:
           command = [
               sys.executable, "-m", "pytest",
               "tests/test_film_studio_live_ai_streaming.py::test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film",
-              "-q", "--junitxml=live-stream-junit.xml",
+              "-q", "-s", "--junitxml=live-stream-junit.xml",
           ]
           result = subprocess.run(command, env=child_env, check=False)
           raise SystemExit(result.returncode)
