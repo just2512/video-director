@@ -607,6 +607,56 @@ def test_film_edit_falls_back_when_source_patch_does_not_apply_new_track(tmp_pat
     assert persisted["doc"]["tracks"][0]["clips"][0]["id"] == "new-image"
 
 
+def test_generated_asset_insert_falls_back_when_source_patch_is_valid_but_stale(tmp_path, monkeypatch):
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    root = tmp_path / "composer" / "film-generated-asset-source-patch-fallback"
+    root.mkdir(parents=True)
+    film_path = root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+
+    original = fd.read_project_film("film-generated-asset-source-patch-fallback")
+    # Reproduce the dangerous source-patch outcome: valid HTML that omits the
+    # generated asset even though the in-memory edit contains it. Syntax-only
+    # validation used to accept this and could return HTTP 200 with the old rev.
+    monkeypatch.setattr(fd, "_preserve_film_text", lambda *_args: SAMPLE)
+
+    result = fd.edit_project_film(
+        "film-generated-asset-source-patch-fallback",
+        original["rev"],
+        [{
+            "op": "insert",
+            "track_id": "video-main",
+            "clip": {
+                "id": "generated-still",
+                "tag": "img",
+                "attrs": {
+                    "src": "../assets/generated/generated-still.png#t=0,4",
+                    "at": "10",
+                    "data-asset-id": "generated-asset",
+                },
+            },
+        }],
+        require_base=True,
+        source="studio_generated_asset_adoption",
+    )
+
+    persisted = fd.read_project_film("film-generated-asset-source-patch-fallback")
+    assert result["rev"] != original["rev"]
+    assert persisted["rev"] == result["rev"]
+    assert persisted["text"] != SAMPLE
+    adopted = next(
+        clip
+        for track in persisted["doc"]["tracks"]
+        for clip in track["clips"]
+        if clip["id"] == "generated-still"
+    )
+    assert adopted["attrs"]["data-asset-id"] == "generated-asset"
+    assert adopted["attrs"]["src"] == "../assets/generated/generated-still.png#t=0,4"
+    assert fd._film_document_roundtrip_matches(
+        result["document"], fd.parse_film(persisted["text"])
+    )
+
+
 def test_undo_redo_rejects_stale_client_revision(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     root = tmp_path / "composer" / "film-history-stale-base"
