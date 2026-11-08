@@ -35,7 +35,7 @@ def _clip_positions(project_id: str) -> dict[str, float]:
 
 
 def _capture_film_edit_response(response, captured: list[dict]) -> None:
-    if response.request.method != "POST" or not response.url.endswith("/api/editor/film/edit"):
+    if not response.url.endswith("/api/editor/film/edit"):
         return
     try:
         captured.append({"status": response.status, "body": response.text()})
@@ -48,6 +48,30 @@ def _wait_for_timeline_commit(page, expression: str, expected_revision: str, pro
                              page_errors: list[str], label: str) -> None:
     try:
         page.wait_for_function(expression, arg=expected_revision, timeout=10000)
+        assert edit_requests, f"{label}: no edit request was captured"
+        request = edit_requests[-1]
+        assert request.get("project_id") == project_id, request
+        assert request.get("base") == expected_revision, request
+        assert isinstance(request.get("ops"), list) and request["ops"], request
+        assert edit_responses, f"{label}: no edit response was captured"
+        response = edit_responses[-1]
+        response_body = json.loads(response["body"])
+        assert response["status"] == 200, response
+        assert isinstance(response_body.get("rev"), str) and response_body["rev"] != expected_revision, {
+            "request": request, "response": response, "base_revision": expected_revision
+        }
+        store = page.evaluate("""() => {
+          const state = window.filmStudioStore?.getSnapshot();
+          return state ? {projectId:state.projectId,revision:state.revision,
+            busy:state.busy,pendingTransaction:state.pendingTransaction} : null;
+        }""")
+        persisted = fd.read_project_film(project_id)
+        assert store and store["projectId"] == project_id, store
+        assert store["revision"] == response_body["rev"] == persisted["rev"], {
+            "request": request, "response": response_body, "store": store,
+            "disk_revision": persisted["rev"]
+        }
+        assert store["busy"] is False and store["pendingTransaction"] is None, store
     except PlaywrightTimeoutError as exc:
         snapshot = page.evaluate("""() => {
           const state = window.filmStudioStore?.getSnapshot();
@@ -73,6 +97,53 @@ def _wait_for_timeline_commit(page, expression: str, expected_revision: str, pro
             "edit_responses": edit_responses,
             "page_errors": page_errors,
         }) from exc
+
+
+def _capture_film_history_request(request, captured: list[dict]) -> None:
+    if request.method != "POST" or not request.url.endswith(("/api/editor/film/undo", "/api/editor/film/redo")):
+        return
+    try:
+        payload = request.post_data_json
+    except Exception as exc:
+        payload = {"parse_error": str(exc)}
+    captured.append({"action": request.url.rsplit("/", 1)[-1], "payload": payload})
+
+
+def _capture_film_history_response(response, captured: list[dict]) -> None:
+    if not response.url.endswith(("/api/editor/film/undo", "/api/editor/film/redo")):
+        return
+    try:
+        body = response.text()
+    except Exception as exc:
+        body = ""
+    captured.append({"action": response.url.rsplit("/", 1)[-1], "status": response.status, "body": body})
+
+
+def _assert_history_four_way(page, project_id: str, action: str, base_revision: str,
+                             expected_revision: str, requests: list[dict], responses: list[dict]) -> None:
+    assert len(requests) == 1, requests
+    request = requests[0]
+    payload = request.get("payload") or {}
+    assert request.get("action") == action, request
+    assert payload.get("project_id") == project_id, request
+    assert payload.get("base") == base_revision, request
+    assert len(responses) == 1, responses
+    response = responses[0]
+    body = json.loads(response["body"])
+    assert response["action"] == action and response["status"] == 200, response
+    assert body.get("action") == action and body.get("rev") == expected_revision, response
+    store = page.evaluate("""() => {
+      const state = window.filmStudioStore?.getSnapshot();
+      return state ? {projectId:state.projectId,revision:state.revision,
+        busy:state.busy,pendingTransaction:state.pendingTransaction} : null;
+    }""")
+    persisted = fd.read_project_film(project_id)
+    assert store and store["projectId"] == project_id, store
+    assert store["revision"] == body["rev"] == persisted["rev"] == expected_revision, {
+        "request": request, "response": response, "store": store,
+        "disk_revision": persisted["rev"]
+    }
+    assert store["busy"] is False and store["pendingTransaction"] is None, store
 
 
 def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sync(
@@ -105,6 +176,8 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
             page_errors: list[str] = []
             film_edit_requests: list[dict] = []
             film_edit_responses: list[dict] = []
+            history_requests: list[dict] = []
+            history_responses: list[dict] = []
 
             def capture_edit(request):
                 if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
@@ -115,7 +188,6 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
 
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", capture_edit)
-            page.on("response", lambda response: _capture_film_edit_response(response, film_edit_responses))
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
@@ -342,7 +414,15 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
                 )
                 assert during == before_revision, (during, before_revision)
 
-                page.mouse.up()
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/edit"),
+                    timeout=10000,
+                ) as edit_response:
+                    page.mouse.up()
+                film_edit_responses.append({
+                    "status": edit_response.value.status, "body": edit_response.value.text()
+                })
                 _wait_for_timeline_commit(
                     page,
                     """revision => {
@@ -395,7 +475,26 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
 
                 # A single undo must restore every selected clip, the exact source bytes,
                 # the revision shown in FilmStore, and the React-rendered geometry.
-                page.evaluate("() => window.filmStudioUndo()")
+                undo_request_count = len(history_requests)
+                undo_response_count = len(history_responses)
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/undo"),
+                    timeout=10000,
+                ) as undo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/undo"),
+                        timeout=10000,
+                    ) as undo_response:
+                        page.evaluate("() => window.filmStudioUndo()")
+                history_requests.append({
+                    "action": "undo", "payload": undo_request.value.post_data_json
+                })
+                history_responses.append({
+                    "action": "undo", "status": undo_response.value.status,
+                    "body": undo_response.value.text()
+                })
                 page.wait_for_function(
                     """revision => {
                       const state=window.filmStudioStore?.getSnapshot();
@@ -406,6 +505,10 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
                     }""",
                     arg=before_revision,
                     timeout=10000,
+                )
+                _assert_history_four_way(
+                    page, project_id, "undo", after_drag_revision, before_revision,
+                    history_requests[undo_request_count:], history_responses[undo_response_count:],
                 )
                 assert film_path.read_text(encoding="utf-8") == original_text
                 assert _clip_positions(project_id) == {
@@ -423,7 +526,26 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
                 ) == fd.read_project_film(project_id)["rev"]
 
                 # Redo restores the entire multi-operation gesture as one history entry.
-                page.evaluate("() => window.filmStudioRedo()")
+                redo_request_count = len(history_requests)
+                redo_response_count = len(history_responses)
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/redo"),
+                    timeout=10000,
+                ) as redo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/redo"),
+                        timeout=10000,
+                    ) as redo_response:
+                        page.evaluate("() => window.filmStudioRedo()")
+                history_requests.append({
+                    "action": "redo", "payload": redo_request.value.post_data_json
+                })
+                history_responses.append({
+                    "action": "redo", "status": redo_response.value.status,
+                    "body": redo_response.value.text()
+                })
                 page.wait_for_function(
                     """revision => {
                       const state=window.filmStudioStore?.getSnapshot();
@@ -439,6 +561,10 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
                     }""",
                     arg=after_drag_revision,
                     timeout=10000,
+                )
+                _assert_history_four_way(
+                    page, project_id, "redo", before_revision, after_drag_revision,
+                    history_requests[redo_request_count:], history_responses[redo_response_count:],
                 )
                 assert film_path.read_text(encoding="utf-8") == after_drag_text
                 assert _clip_positions(project_id) == {
@@ -503,6 +629,8 @@ def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_p
             page_errors: list[str] = []
             edit_requests: list[dict] = []
             edit_responses: list[dict] = []
+            history_requests: list[dict] = []
+            history_responses: list[dict] = []
 
             def capture_edit(request):
                 if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
@@ -781,6 +909,8 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
             page_errors: list[str] = []
             edit_requests: list[dict] = []
             edit_responses: list[dict] = []
+            history_requests: list[dict] = []
+            history_responses: list[dict] = []
 
             def capture_edit(request):
                 if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
@@ -791,7 +921,6 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
 
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", capture_edit)
-            page.on("response", lambda response: _capture_film_edit_response(response, edit_responses))
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
@@ -1031,7 +1160,15 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 assert preview_state["revision"] == before_revision
                 assert preview_state["targetTrackId"] == "video-secondary"
 
-                page.mouse.up()
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/edit"),
+                    timeout=10000,
+                ) as edit_response:
+                    page.mouse.up()
+                edit_responses.append({
+                    "status": edit_response.value.status, "body": edit_response.value.text()
+                })
                 _wait_for_timeline_commit(
                     page,
                     """revision => {
@@ -1078,7 +1215,26 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 ) == {"revision": after_revision, "busy": False, "pending": None}
 
                 # One undo restores the original ownership and exact bytes.
-                page.evaluate("() => window.filmStudioUndo()")
+                undo_request_count = len(history_requests)
+                undo_response_count = len(history_responses)
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/undo"),
+                    timeout=10000,
+                ) as undo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/undo"),
+                        timeout=10000,
+                    ) as undo_response:
+                        page.evaluate("() => window.filmStudioUndo()")
+                history_requests.append({
+                    "action": "undo", "payload": undo_request.value.post_data_json
+                })
+                history_responses.append({
+                    "action": "undo", "status": undo_response.value.status,
+                    "body": undo_response.value.text()
+                })
                 page.wait_for_function(
                     """revision => {
                       const state=window.filmStudioStore?.getSnapshot();
@@ -1088,6 +1244,10 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                     arg=before_revision,
                     timeout=10000,
                 )
+                _assert_history_four_way(
+                    page, project_id, "undo", after_revision, before_revision,
+                    history_requests[undo_request_count:], history_responses[undo_response_count:],
+                )
                 assert film_path.read_bytes() == original_bytes
                 assert _clip_positions(project_id) == {
                     "clip-a": 0.0, "clip-b": 6.0, "clip-target": 8.0
@@ -1095,7 +1255,26 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 assert page.evaluate("window.filmStudioStore.getSnapshot().revision") == before_revision
 
                 # Redo is the same single history entry, including cross-track ownership.
-                page.evaluate("() => window.filmStudioRedo()")
+                redo_request_count = len(history_requests)
+                redo_response_count = len(history_responses)
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/redo"),
+                    timeout=10000,
+                ) as redo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/redo"),
+                        timeout=10000,
+                    ) as redo_response:
+                        page.evaluate("() => window.filmStudioRedo()")
+                history_requests.append({
+                    "action": "redo", "payload": redo_request.value.post_data_json
+                })
+                history_responses.append({
+                    "action": "redo", "status": redo_response.value.status,
+                    "body": redo_response.value.text()
+                })
                 page.wait_for_function(
                     """revision => {
                       const state=window.filmStudioStore?.getSnapshot();
@@ -1106,6 +1285,10 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                     }""",
                     arg=after_revision,
                     timeout=10000,
+                )
+                _assert_history_four_way(
+                    page, project_id, "redo", before_revision, after_revision,
+                    history_requests[redo_request_count:], history_responses[redo_response_count:],
                 )
                 assert film_path.read_bytes() == after_bytes
                 assert _clip_positions(project_id) == {
@@ -1729,7 +1912,15 @@ def test_react_zoom_stays_anchored_and_drag_autoscroll_keeps_preview_synced(
                 assert edit_requests == [], edit_requests
                 assert film_path.read_bytes() == original_bytes
 
-                page.mouse.up()
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/edit"),
+                    timeout=10000,
+                ) as edit_response:
+                    page.mouse.up()
+                edit_responses.append({
+                    "status": edit_response.value.status, "body": edit_response.value.text()
+                })
                 _wait_for_timeline_commit(
                     page,
                     "revision => {const s=window.filmStudioStore?.getSnapshot();"
