@@ -8,7 +8,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 import threading
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 
 from video_director import film_document as fd
 
@@ -32,6 +32,47 @@ def _clip_positions(project_id: str) -> dict[str, float]:
         for track in state["doc"]["tracks"]
         for clip in track["clips"]
     }
+
+
+def _capture_film_edit_response(response, captured: list[dict]) -> None:
+    if response.request.method != "POST" or not response.url.endswith("/api/editor/film/edit"):
+        return
+    try:
+        captured.append({"status": response.status, "body": response.text()})
+    except Exception as exc:
+        captured.append({"status": response.status, "body_error": str(exc)})
+
+
+def _wait_for_timeline_commit(page, expression: str, expected_revision: str, project_id: str,
+                             edit_requests: list[dict], edit_responses: list[dict],
+                             page_errors: list[str], label: str) -> None:
+    try:
+        page.wait_for_function(expression, arg=expected_revision, timeout=10000)
+    except PlaywrightTimeoutError as exc:
+        snapshot = page.evaluate("""() => {
+          const state = window.filmStudioStore?.getSnapshot();
+          const owner = window.filmStudioOwnsClipGesturePointer;
+          return {
+            revision: state?.revision,
+            busy: state?.busy,
+            pendingTransaction: state?.pendingTransaction,
+            gesture: state?.timelineGestureContext,
+            preview: state?.timelineGesturePreview,
+            dropTarget: state?.timelineDropTarget,
+            activePointerOwned: typeof owner === "function"
+              ? owner(state?.timelineGestureContext?.pointerId ?? -1) : null,
+            status: document.querySelector("#fs-status")?.textContent || "",
+          };
+        }""")
+        persisted = fd.read_project_film(project_id)
+        raise AssertionError({
+            "failed_gate": label,
+            "store": snapshot,
+            "disk_revision": persisted.get("rev"),
+            "edit_requests": edit_requests,
+            "edit_responses": edit_responses,
+            "page_errors": page_errors,
+        }) from exc
 
 
 def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sync(
@@ -63,6 +104,7 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
             film_edit_requests: list[dict] = []
+            film_edit_responses: list[dict] = []
 
             def capture_edit(request):
                 if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
@@ -73,6 +115,7 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
 
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", capture_edit)
+            page.on("response", lambda response: _capture_film_edit_response(response, film_edit_responses))
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
@@ -300,21 +343,21 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
                 assert during == before_revision, (during, before_revision)
 
                 page.mouse.up()
-                page.wait_for_function(
-                    """args => {
+                _wait_for_timeline_commit(
+                    page,
+                    """revision => {
                       const state=window.filmStudioStore?.getSnapshot();
                       const clips=(state?.film?.tracks||[]).flatMap(track=>track.clips||[]);
                       const a=clips.find(clip=>clip.id==='clip-a');
                       const b=clips.find(clip=>clip.id==='clip-b');
                       return !!state && !state.busy && state.pendingTransaction===null &&
-                        state.revision!==args.revision &&
+                        state.revision!==revision &&
                         Math.abs(Number(a?.at)-1)<0.001 &&
                         Math.abs(Number(b?.at)-7)<0.001 &&
                         state.timelineGestureContext===null &&
                         state.timelineGesturePreview===null;
                     }""",
-                    arg={"revision": before_revision},
-                    timeout=10000,
+                    before_revision, project_id, film_edit_requests, film_edit_responses, page_errors, "multi-select drag commit",
                 )
                 after_drag = fd.read_project_film(project_id)
                 after_drag_text = film_path.read_text(encoding="utf-8")
@@ -459,6 +502,7 @@ def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_p
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
             edit_requests: list[dict] = []
+            edit_responses: list[dict] = []
 
             def capture_edit(request):
                 if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
@@ -736,6 +780,7 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
             edit_requests: list[dict] = []
+            edit_responses: list[dict] = []
 
             def capture_edit(request):
                 if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
@@ -746,6 +791,7 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
 
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", capture_edit)
+            page.on("response", lambda response: _capture_film_edit_response(response, edit_responses))
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
@@ -986,8 +1032,9 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 assert preview_state["targetTrackId"] == "video-secondary"
 
                 page.mouse.up()
-                page.wait_for_function(
-                    """args => {
+                _wait_for_timeline_commit(
+                    page,
+                    """revision => {
                       const state=window.filmStudioStore?.getSnapshot();
                       const tracks=state?.film?.tracks||[];
                       const source=tracks.find(track=>track.id==='video-main');
@@ -995,12 +1042,11 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                       const moved=target?.clips?.find(clip=>clip.id==='clip-a');
                       return !!state && !state.busy && state.pendingTransaction===null &&
                         state.timelineGestureContext===null && state.timelineGesturePreview===null &&
-                        state.revision!==args.revision &&
+                        state.revision!==revision &&
                         !source?.clips?.some(clip=>clip.id==='clip-a') &&
                         !!moved && Math.abs(Number(moved.at)-1)<0.001;
                     }""",
-                    arg={"revision": before_revision},
-                    timeout=10000,
+                    before_revision, project_id, edit_requests, edit_responses, page_errors, "cross-track drag commit",
                 )
                 after = fd.read_project_film(project_id)
                 after_bytes = film_path.read_bytes()
@@ -1507,6 +1553,7 @@ def test_react_zoom_stays_anchored_and_drag_autoscroll_keeps_preview_synced(
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
             edit_requests: list[dict] = []
+            edit_responses: list[dict] = []
 
             def capture_edit(request):
                 if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
@@ -1517,6 +1564,7 @@ def test_react_zoom_stays_anchored_and_drag_autoscroll_keeps_preview_synced(
 
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", capture_edit)
+            page.on("response", lambda response: _capture_film_edit_response(response, edit_responses))
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
@@ -1682,11 +1730,11 @@ def test_react_zoom_stays_anchored_and_drag_autoscroll_keeps_preview_synced(
                 assert film_path.read_bytes() == original_bytes
 
                 page.mouse.up()
-                page.wait_for_function(
+                _wait_for_timeline_commit(
+                    page,
                     "revision => {const s=window.filmStudioStore?.getSnapshot();"
                     "return !!s && !s.busy && s.pendingTransaction === null && s.revision !== revision;}",
-                    arg=initial["rev"],
-                    timeout=10_000,
+                    initial["rev"], project_id, edit_requests, edit_responses, page_errors, "zoom/autoscroll drag commit",
                 )
                 assert len(edit_requests) == 1, edit_requests
                 operations = edit_requests[0].get("ops") or []
