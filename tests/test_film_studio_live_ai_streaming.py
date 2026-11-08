@@ -168,12 +168,34 @@ def test_configured_film_ai_stream_delivers_tokens_before_result_without_writing
         assert token_events[0][0] < result_index and token_events[-1][0] < result_index
         # A fully buffered response delivers all token fragments back-to-back only after
         # model completion. Require a visible interval between the first fragment and result.
+        first_token_seconds = token_events[0][1]["received_at"] - started_at
         first_to_result_seconds = result_event["received_at"] - token_events[0][1]["received_at"]
         assert first_to_result_seconds >= 0.1, {
             "first_token_to_result_seconds": round(first_to_result_seconds, 4),
             "token_event_count": len(token_events),
             "hint": "The configured proxy may be buffering the upstream SSE stream.",
         }
+
+        # Retain auditable metadata from the actual text/event-stream response.
+        # Never print generated token contents or credentials.
+        print(
+            "LIVE_SSE_EVIDENCE=PASS "
+            f"http_status={response.status} "
+            f"content_type={response.headers.get_content_type()} "
+            f"sse_event_count={len(events)} "
+            f"token_chunk_count={len(token_events)} "
+            f"first_token_seconds={first_token_seconds:.4f} "
+            f"first_token_to_result_seconds={first_to_result_seconds:.4f} "
+            f"event_sequence={','.join(item['event'] for item in events)}"
+        )
+        for chunk_index, (_, token_event) in enumerate(token_events, start=1):
+            fragment = token_event["data"]["fragment"]
+            elapsed = token_event["received_at"] - started_at
+            print(
+                f"LIVE_SSE_CHUNK index={chunk_index} "
+                f"elapsed_seconds={elapsed:.4f} "
+                f"fragment_chars={len(fragment)}"
+            )
 
         proposal = result.get("proposal")
         assert isinstance(proposal, dict), {
