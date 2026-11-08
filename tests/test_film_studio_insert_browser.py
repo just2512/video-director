@@ -248,23 +248,32 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
             page.on("pageerror", lambda error: page_errors.append(str(error)))
 
             def capture_edit_request(request):
-                if request.method != "POST" or not request.url.endswith("/api/editor/film/edit"):
+                if request.method != "POST" or not (
+                    request.url.endswith("/api/editor/film/edit")
+                    or request.url.endswith("/api/editor/film/undo")
+                ):
                     return
                 try:
                     payload = request.post_data_json
                 except Exception as exc:
                     payload = {"parse_error": str(exc)}
-                edit_audit.append({"request": payload, "response": None})
+                edit_audit.append({
+                    "route": request.url.rsplit("/", 1)[-1],
+                    "request": payload, "response": None,
+                })
 
             def capture_edit_response(response):
-                if response.request.method != "POST" or not response.url.endswith("/api/editor/film/edit"):
+                if response.request.method != "POST" or not (
+                    response.url.endswith("/api/editor/film/edit")
+                    or response.url.endswith("/api/editor/film/undo")
+                ):
                     return
                 try:
                     body = response.json()
                 except Exception as exc:
                     body = {"parse_error": str(exc)}
                 for item in reversed(edit_audit):
-                    if item["response"] is None:
+                    if item["response"] is None and item["route"] == response.url.rsplit("/", 1)[-1]:
                         item["response"] = {"status": response.status, "body": body}
                         break
 
@@ -326,7 +335,10 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                   };
                 }""")
 
-                def wait_for_consistent_state(*, later_present: bool, after_at: float):
+                def wait_for_consistent_state(
+                    *, later_present: bool, after_at: float, expected_base_revision: str,
+                    expected_operation: str | None = None, response_evidence=None
+                ):
                     page.wait_for_function(
                         """async ({projectId, laterPresent, afterAt}) => {
                           const response=await fetch(
@@ -376,6 +388,57 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                             "edit_audit": edit_audit,
                         })
 
+                    # Four independent views must describe one committed operation:
+                    # exact request base/ops, HTTP response revision, browser Store,
+                    # and the persisted film.html read by the Python process.
+                    assert edit_audit, "timeline mutation produced no captured HTTP edit request"
+                    audit = edit_audit[-1]
+                    request_payload = audit.get("request") or {}
+                    if response_evidence is not None:
+                        try:
+                            response_body = response_evidence.json()
+                        except Exception as exc:
+                            response_body = {"parse_error": str(exc)}
+                        audit["response"] = {
+                            "status": response_evidence.status, "body": response_body,
+                        }
+                    response_payload = audit.get("response") or {}
+                    assert request_payload.get("base") == expected_base_revision, audit
+                    if audit["route"] == "edit":
+                        assert isinstance(request_payload.get("ops"), list) and request_payload["ops"], audit
+                        if expected_operation is not None:
+                            assert any(
+                                operation.get("op") == expected_operation
+                                for operation in request_payload["ops"]
+                                if isinstance(operation, dict)
+                            ), audit
+                    else:
+                        assert audit["route"] == "undo", audit
+                    assert response_payload.get("status") == 200, audit
+                    response_body = response_payload.get("body") or {}
+                    assert response_body.get("rev") == disk_snapshot["rev"], {
+                        "request": request_payload, "response": response_payload,
+                        "disk_revision": disk_snapshot["rev"],
+                    }
+                    browser_snapshot = page.evaluate("""() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return state ? {
+                        revision: state.revision, busy: state.busy,
+                        pendingTransaction: state.pendingTransaction,
+                        pendingExternalRevision: state.pendingExternalRevision,
+                        broken: state.broken
+                      } : null;
+                    }""")
+                    assert browser_snapshot is not None, "FilmStore snapshot is unavailable"
+                    assert browser_snapshot["revision"] == disk_snapshot["rev"], {
+                        "request": request_payload, "response": response_payload,
+                        "browser_store": browser_snapshot,
+                        "disk_revision": disk_snapshot["rev"],
+                    }
+                    assert browser_snapshot["busy"] is False, browser_snapshot
+                    assert browser_snapshot["pendingTransaction"] is None, browser_snapshot
+                    assert browser_snapshot["broken"] is False, browser_snapshot
+
                 # Lift delete: remove only the selected clip; preserve the two-second
                 # hole before video-after and leave every audio clip byte-for-byte equivalent.
                 page.locator('#fs-timeline .fs-clip[data-clip="video-later"]').click(
@@ -383,8 +446,16 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                 )
                 menu = page.locator('.fs-context-menu[data-react-context-menu="true"]')
                 menu.wait_for(state="visible", timeout=5000)
-                menu.locator('[data-context-action="delete"]').click()
-                wait_for_consistent_state(later_present=False, after_at=6)
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/edit"),
+                    timeout=10000,
+                ) as lift_response:
+                    menu.locator('[data-context-action="delete"]').click()
+                wait_for_consistent_state(
+                    later_present=False, after_at=6, expected_base_revision=initial['rev'],
+                    expected_operation="remove", response_evidence=lift_response.value,
+                )
                 lifted = fd.read_project_film(project_id)
                 lifted_clips = clips_by_id(lifted["doc"])
                 if "video-later" in lifted_clips:
@@ -452,7 +523,10 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                 assert undo_response.value.status == 200
                 undo_payload = undo_response.value.json()
                 assert undo_payload.get("action") == "undo", undo_payload
-                wait_for_consistent_state(later_present=True, after_at=6)
+                wait_for_consistent_state(
+                    later_present=True, after_at=6, expected_base_revision=lifted['rev'],
+                    response_evidence=undo_response.value,
+                )
                 assert film_path.read_bytes() == initial_bytes
                 restored = fd.read_project_film(project_id)
                 assert restored["rev"] != lifted["rev"]
@@ -468,8 +542,16 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                 assert menu_bounds["x"] >= 0 and menu_bounds["y"] >= 0, menu_bounds
                 assert menu_bounds["x"] + menu_bounds["width"] <= 1441, menu_bounds
                 assert menu_bounds["y"] + menu_bounds["height"] <= 1001, menu_bounds
-                menu.locator('[data-context-action="ripple"]').click()
-                wait_for_consistent_state(later_present=False, after_at=4)
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/edit"),
+                    timeout=10000,
+                ) as ripple_response:
+                    menu.locator('[data-context-action="ripple"]').click()
+                wait_for_consistent_state(
+                    later_present=False, after_at=4, expected_base_revision=restored['rev'],
+                    expected_operation="ripple_delete", response_evidence=ripple_response.value,
+                )
 
                 ripple = fd.read_project_film(project_id)
                 ripple_clips = clips_by_id(ripple["doc"])
@@ -534,7 +616,7 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                 assert undo_response.value.status == 200
                 undo_payload = undo_response.value.json()
                 assert undo_payload.get("action") == "undo", undo_payload
-                wait_for_consistent_state(later_present=True, after_at=6)
+                wait_for_consistent_state(later_present=True, after_at=6, expected_base_revision=ripple['rev'])
                 assert film_path.read_bytes() == initial_bytes
                 assert not page_errors, page_errors
             finally:
@@ -1215,8 +1297,17 @@ def test_overwrite_rejects_external_revision_change_while_asset_resolution_is_pe
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
+            insert_requests: list[dict] = []
             insert_responses: list[dict] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
+
+            def capture_insert_request(request):
+                if request.method == "POST" and request.url.endswith("/api/editor/film/insert-asset"):
+                    try:
+                        payload = request.post_data_json
+                    except Exception as exc:
+                        payload = {"parse_error": str(exc)}
+                    insert_requests.append(payload)
 
             def capture_insert_response(response):
                 if response.url.endswith("/api/editor/film/insert-asset"):
@@ -1226,6 +1317,7 @@ def test_overwrite_rejects_external_revision_change_while_asset_resolution_is_pe
                         body = {}
                     insert_responses.append({"status": response.status, "body": body})
 
+            page.on("request", capture_insert_request)
             page.on("response", capture_insert_response)
             page.route(
                 "**/api/assets_library*",
@@ -1327,6 +1419,9 @@ def test_overwrite_rejects_external_revision_change_while_asset_resolution_is_pe
                     timeout=15_000,
                 )
 
+                assert len(insert_requests) == 1, insert_requests
+                assert insert_requests[0].get("project_id") == project_id, insert_requests
+                assert insert_requests[0].get("base") == initial["rev"], insert_requests
                 assert insert_responses, "overwrite API response was not observed"
                 assert insert_responses[-1]["status"] == 409, insert_responses
                 assert insert_responses[-1]["body"].get("code") == "REVISION_CONFLICT", insert_responses
@@ -1336,7 +1431,25 @@ def test_overwrite_rejects_external_revision_change_while_asset_resolution_is_pe
                 # write its generated asset over the external editor's revision.
                 assert film_path.read_text(encoding="utf-8") == external_text
                 persisted = fd.read_project_film(project_id)
+                store_after_conflict = page.evaluate("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state ? {
+                    projectId:state.projectId, revision:state.revision,
+                    busy:state.busy, pendingTransaction:state.pendingTransaction,
+                    pendingExternalRevision:state.pendingExternalRevision,
+                    broken:state.broken
+                  } : null;
+                }""")
                 assert persisted["rev"] == external["rev"]
+                assert store_after_conflict and store_after_conflict["projectId"] == project_id, store_after_conflict
+                assert store_after_conflict["revision"] == persisted["rev"] == external["rev"], {
+                    "request": insert_requests[0], "response": insert_responses[-1],
+                    "store": store_after_conflict, "disk_revision": persisted["rev"]
+                }
+                assert store_after_conflict["busy"] is False
+                assert store_after_conflict["pendingTransaction"] is None
+                assert store_after_conflict["pendingExternalRevision"] == ""
+                assert store_after_conflict["broken"] is False
                 assert persisted["doc"]["tracks"] == external["doc"]["tracks"]
                 clips = [
                     clip
