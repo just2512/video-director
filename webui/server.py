@@ -2659,6 +2659,33 @@ class Handler(BaseHTTPRequestHandler):
                 else:self._send_json({"ok":True,"conversation":item})
             except Exception as exc:
                 self._send_json({"ok":False,"error":str(exc)[:240]},500)
+        elif route == "/api/editor/generation/jobs":
+            # Operator view for durable video submissions. Never expose local output paths
+            # or provider response payloads to the browser.
+            try:
+                from video_director import generation_job_admin as vd_generation_admin
+                qs = parse_qs(parsed.query)
+                pid = str((qs.get("project_id") or [""])[0] or "").strip()
+                if not pid:
+                    self._send_json({"ok": False, "error": "缺少 project_id"}, 400)
+                    return
+                status_filter = str((qs.get("status") or [""])[0] or "").strip()
+                allowed_fields = (
+                    "job_id", "status", "gen_type", "variant", "provider_id",
+                    "provider_task_id", "input_fingerprint", "created_at",
+                    "updated_at", "submission_resolution", "error", "model",
+                )
+                jobs = vd_generation_admin.list_video_jobs(pid, status_filter or None)
+                self._send_json({
+                    "ok": True, "project_id": pid,
+                    "jobs": [{key: job[key] for key in allowed_fields if key in job}
+                             for job in jobs[-100:]],
+                })
+            except Exception as exc:
+                from video_director import generation as vd_generation
+                status = 400 if isinstance(exc, vd_generation.GenerationError) else 500
+                self._send_json({"ok": False, "error": str(exc)[:240],
+                                 "code": getattr(exc, "code", "GENERATION_JOB_LIST_FAILED")}, status)
         elif route == "/api/workflows":
             # §52 GET /api/workflows：run 列表（可选 project_id 过滤和 limit）。
             # The task drawer requests 50; honor it while bounding untrusted callers.
@@ -5037,6 +5064,61 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True})
             except Exception as exc:
                 self._send_json({"ok": False, "error": str(exc)}, 500)
+            return
+
+        if parsed.path == "/api/editor/generation/jobs/resolve":
+            # Reconcile an ambiguous provider submission only after checking the provider
+            # dashboard. This endpoint never calls the provider or submits a new task.
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                payload = json.loads(self.rfile.read(length).decode("utf-8", errors="replace") or "{}")
+            except json.JSONDecodeError:
+                self._send_json({"ok": False, "error": "请求体不是合法 JSON"}, 400)
+                return
+            pid = str(payload.get("project_id") or "").strip()
+            job_id = str(payload.get("job_id") or "").strip()
+            if not pid or not job_id:
+                self._send_json({"ok": False, "error": "缺少 project_id/job_id"}, 400)
+                return
+            provider_task_id = payload.get("provider_task_id")
+            confirm_absent = payload.get("confirm_no_provider_task") is True
+            if provider_task_id is not None and not isinstance(provider_task_id, str):
+                self._send_json({"ok": False, "code": "INVALID_PROVIDER_TASK_ID",
+                                 "error": "provider_task_id 必须是字符串"}, 400)
+                return
+            if bool(provider_task_id) == confirm_absent:
+                self._send_json({
+                    "ok": False, "code": "INVALID_SUBMISSION_RESOLUTION",
+                    "error": "必须且只能提供 provider_task_id 或 confirm_no_provider_task:true",
+                }, 400)
+                return
+            try:
+                from video_director import generation_job_admin as vd_generation_admin
+                job = vd_generation_admin.resolve_video_submission(
+                    pid, job_id, provider_task_id=provider_task_id,
+                    confirm_no_provider_task=confirm_absent,
+                )
+                allowed_fields = (
+                    "job_id", "status", "gen_type", "variant", "provider_id",
+                    "provider_task_id", "input_fingerprint", "updated_at",
+                    "submission_resolution",
+                )
+                self._send_json({"ok": True, "job": {
+                    key: job[key] for key in allowed_fields if key in job
+                }})
+            except Exception as exc:
+                from video_director import generation as vd_generation
+                status = 400
+                if getattr(exc, "code", "") == "VIDEO_JOB_NOT_FOUND":
+                    status = 404
+                elif getattr(exc, "code", "") in (
+                    "VIDEO_JOB_NOT_UNRESOLVED", "PROVIDER_TASK_ALREADY_LINKED",
+                ):
+                    status = 409
+                elif not isinstance(exc, vd_generation.GenerationError):
+                    status = 500
+                self._send_json({"ok": False, "error": str(exc)[:240],
+                                 "code": getattr(exc, "code", "GENERATION_JOB_RESOLUTION_FAILED")}, status)
             return
 
         if parsed.path == "/api/editor/generate":
