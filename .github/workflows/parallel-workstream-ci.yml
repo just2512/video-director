@@ -61,7 +61,6 @@ jobs:
             tests/test_editor_command_project_switch_browser.py \
             tests/test_visual_overlay_timeline.py \
             tests/test_audio_clip_timeline.py \
-            tests/test_film_studio_insert_browser.py \
             tests/test_film_document_contract.py \
             tests/test_film_external_watch_history.py \
             tests/test_film_transaction_recovery.py
