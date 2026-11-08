@@ -51,14 +51,14 @@ def _wait_for_timeline_commit(page, expression: str, expected_revision: str, pro
         assert edit_requests, f"{label}: no edit request was captured"
         request = edit_requests[-1]
         assert request.get("project_id") == project_id, request
-        assert isinstance(request.get("base"), str) and request["base"], request
+        assert request.get("base") == expected_revision, request
         assert isinstance(request.get("ops"), list) and request["ops"], request
         assert edit_responses, f"{label}: no edit response was captured"
         response = edit_responses[-1]
         response_body = json.loads(response["body"])
         assert response["status"] == 200, response
-        assert response_body.get("rev") == expected_revision, {
-            "request": request, "response": response, "expected_revision": expected_revision
+        assert isinstance(response_body.get("rev"), str) and response_body["rev"] != expected_revision, {
+            "request": request, "response": response, "base_revision": expected_revision
         }
         store = page.evaluate("""() => {
           const state = window.filmStudioStore?.getSnapshot();
@@ -67,7 +67,7 @@ def _wait_for_timeline_commit(page, expression: str, expected_revision: str, pro
         }""")
         persisted = fd.read_project_film(project_id)
         assert store and store["projectId"] == project_id, store
-        assert store["revision"] == response_body["rev"] == persisted["rev"] == expected_revision, {
+        assert store["revision"] == response_body["rev"] == persisted["rev"], {
             "request": request, "response": response_body, "store": store,
             "disk_revision": persisted["rev"]
         }
