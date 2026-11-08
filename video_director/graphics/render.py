@@ -154,6 +154,56 @@ def _is_on_path(exe: str) -> bool:
     return shutil.which(exe) is not None
 
 
+def render_stills(
+    items: List[tuple[str, str, int, int, int]],
+) -> List[str]:
+    """在同一个 Chromium 实例中渲染多张确定性静帧，避免逐张启动浏览器。
+
+    每项为 (html, out_path, width, height, frame)。每张图使用独立
+    BrowserContext，隔离 viewport 与页面状态；共享浏览器进程以降低
+    A/B/C 变体生成时的启动开销和 Chromium 资源抖动。
+    """
+    if not items:
+        return []
+    if not _playwright_chromium_available():
+        raise GraphicsRenderError("RENDERER_UNAVAILABLE", "playwright 未安装")
+
+    for html, _out_path, _width, _height, _frame in items:
+        report = deterministic_preflight(html)
+        if report.status == "REJECT":
+            raise GraphicsRenderError(
+                "NONDETERMINISTIC_HTML",
+                "HTML 未通过确定性预检：" + "; ".join(report.issues),
+            )
+
+    from playwright.sync_api import sync_playwright
+
+    outputs: List[str] = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=list(sandbox_mod.chromium_args()))
+        try:
+            for html, out_path, width, height, frame in items:
+                ctx = browser.new_context(
+                    viewport={"width": width, "height": height}
+                )
+                try:
+                    page = ctx.new_page()
+                    page.route("**/*", lambda route: route.abort())
+                    page.set_content(html, wait_until="load")
+                    _wait_for_graphics_ready(page)
+                    page.evaluate(f"window.__gf && window.__gf.seek({frame})")
+                    page.wait_for_timeout(33)
+                    page.screenshot(path=out_path)
+                finally:
+                    ctx.close()
+                if not Path(out_path).is_file() or Path(out_path).stat().st_size == 0:
+                    raise GraphicsRenderError("RENDER_EMPTY", "截图未产出 PNG")
+                outputs.append(out_path)
+        finally:
+            browser.close()
+    return outputs
+
+
 def render_still(
     html: str,
     out_path: str,
@@ -165,31 +215,7 @@ def render_still(
 
     frame 是唯一时间事实：seek 到目标帧后截一帧，产出确定性 PNG。
     """
-    if not _playwright_chromium_available():
-        raise GraphicsRenderError("RENDERER_UNAVAILABLE", "playwright 未安装")
-
-    report = deterministic_preflight(html)
-    if report.status == "REJECT":
-        raise GraphicsRenderError(
-            "NONDETERMINISTIC_HTML",
-            "HTML 未通过确定性预检：" + "; ".join(report.issues),
-        )
-
-    from playwright.sync_api import sync_playwright
-    with sync_playwright() as p:
-        browser = p.chromium.launch(args=list(sandbox_mod.chromium_args()))
-        ctx = browser.new_context(viewport={"width": width, "height": height})
-        page = ctx.new_page()
-        page.route("**/*", lambda route: route.abort())
-        page.set_content(html, wait_until="load")
-        _wait_for_graphics_ready(page)
-        page.evaluate(f"window.__gf && window.__gf.seek({frame})")
-        page.wait_for_timeout(33)
-        page.screenshot(path=out_path)
-        browser.close()
-    if not Path(out_path).is_file() or Path(out_path).stat().st_size == 0:
-        raise GraphicsRenderError("RENDER_EMPTY", "截图未产出 PNG")
-    return out_path
+    return render_stills([(html, out_path, width, height, frame)])[0]
 
 
 def render_graphic_program(
