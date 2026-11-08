@@ -116,6 +116,12 @@ def test_generation_job_resolve_api_rejects_ambiguous_or_conflicting_outcomes(
         })
         assert status == 400
         assert body["code"] == "INVALID_SUBMISSION_RESOLUTION"
+
+        status, body = _request(server, "POST", "/api/editor/generation/jobs/resolve", {
+            "project_id": pid, "job_id": "job-ambiguous", "provider_task_id": 123,
+        })
+        assert status == 400
+        assert body["code"] == "INVALID_PROVIDER_TASK_ID"
         assert gen._load_jobs(pid)["job-ambiguous"]["status"] == "submission_unknown"
     finally:
         server.shutdown()
