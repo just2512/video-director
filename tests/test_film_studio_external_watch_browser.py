@@ -1647,6 +1647,8 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                         }""")
                     except Exception as snapshot_error:
                         state = {"snapshotError": str(snapshot_error)}
+                    state["filmEditRequests"] = film_edit_requests[-8:]
+                    state["filmEditResponses"] = film_edit_responses[-8:]
                     print("EXTERNAL_WATCH_WAIT_FAILURE=" + json.dumps({
                         "predicate": str(expression)[:1200],
                         "timeout": kwargs.get("timeout"),
@@ -2525,6 +2527,34 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 page.mouse.up()
                 page.wait_for_function(
                     """() => document.querySelector('#fs-timeline .fs-clip[data-clip=\\"clip-a\\"]')?.dataset.reactGesturePreview === 'false' """,
+                    timeout=10000,
+                )
+                # Gesture-preview cleanup is synchronous, but the FilmStore transaction
+                # commits asynchronously after pointerup. Do not read the disk snapshot
+                # until the API revision and Store revision agree on the committed trim.
+                page.wait_for_function(
+                    """async ({projectId, beforeRevision, beforeAt}) => {
+                      const response = await fetch(
+                        '/api/editor/film?project_id=' + encodeURIComponent(projectId),
+                        {cache:'no-store'}
+                      );
+                      if (!response.ok) return false;
+                      const doc = await response.json();
+                      const state = window.filmStudioStore?.getSnapshot();
+                      if (!state || state.busy || state.pendingTransaction !== null ||
+                          state.revision !== doc.rev || doc.rev === beforeRevision) return false;
+                      const clip = (doc.tracks || []).flatMap(track => track.clips || [])
+                        .find(item => item.id === 'clip-a');
+                      return !!clip && Number(clip.attrs.at) > beforeAt + 0.1;
+                    }""",
+                    arg={
+                        "projectId": project_id,
+                        "beforeRevision": trim_document_before["rev"],
+                        "beforeAt": float(next(
+                            item for track in trim_document_before["doc"]["tracks"]
+                            for item in track["clips"] if item["id"] == "clip-a"
+                        )["attrs"]["at"]),
+                    },
                     timeout=10000,
                 )
                 cleared_transient_state = page.evaluate("""() => {
