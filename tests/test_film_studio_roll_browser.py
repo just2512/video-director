@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import subprocess
 import shutil
@@ -26,6 +27,53 @@ SAMPLE = '''<!doctype html>
 <audio id="audio-1" src="../assets/music.wav#t=0,20" at="0" volume="0.2"></audio>
 </section>
 </body></html>'''
+
+
+def _capture_history_request(request, captured: list[dict]) -> None:
+    if request.method != "POST" or not request.url.endswith(("/api/editor/film/undo", "/api/editor/film/redo")):
+        return
+    try:
+        payload = request.post_data_json
+    except Exception as exc:
+        payload = {"parse_error": str(exc)}
+    captured.append({"action": request.url.rsplit("/", 1)[-1], "payload": payload})
+
+
+def _capture_history_response(response, captured: list[dict]) -> None:
+    if response.request.method != "POST" or not response.url.endswith(("/api/editor/film/undo", "/api/editor/film/redo")):
+        return
+    try:
+        body = response.text()
+    except Exception as exc:
+        body = ""
+    captured.append({"action": response.url.rsplit("/", 1)[-1], "status": response.status, "body": body})
+
+
+def _assert_history_four_way(page, project_id: str, action: str, base_revision: str,
+                             expected_revision: str, requests: list[dict], responses: list[dict]) -> None:
+    assert len(requests) == 1, requests
+    request = requests[0]
+    payload = request.get("payload") or {}
+    assert request.get("action") == action, request
+    assert payload.get("project_id") == project_id, request
+    assert payload.get("base") == base_revision, request
+    assert len(responses) == 1, responses
+    response = responses[0]
+    body = json.loads(response["body"])
+    assert response["action"] == action and response["status"] == 200, response
+    assert body.get("action") == action and body.get("rev") == expected_revision, response
+    store = page.evaluate("""() => {
+      const state = window.filmStudioStore?.getSnapshot();
+      return state ? {projectId:state.projectId,revision:state.revision,
+        busy:state.busy,pendingTransaction:state.pendingTransaction} : null;
+    }""")
+    persisted = fd.read_project_film(project_id)
+    assert store and store["projectId"] == project_id, store
+    assert store["revision"] == body["rev"] == persisted["rev"] == expected_revision, {
+        "request": request, "response": response, "store": store,
+        "disk_revision": persisted["rev"]
+    }
+    assert store["busy"] is False and store["pendingTransaction"] is None, store
 
 
 def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, monkeypatch):
@@ -75,6 +123,9 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 page = context.new_page()
                 page_errors: list[str] = []
                 film_edit_requests: list[dict] = []
+                film_edit_responses: list[dict] = []
+                history_requests: list[dict] = []
+                history_responses: list[dict] = []
                 page.on("pageerror", lambda error: page_errors.append(str(error)))
                 def capture_film_edit_request(request):
                     if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
@@ -83,6 +134,13 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                         except Exception:
                             film_edit_requests.append({"raw": request.post_data})
                 page.on("request", capture_film_edit_request)
+                def capture_film_edit_response(response):
+                    if response.request.method == "POST" and response.url.endswith("/api/editor/film/edit"):
+                        try:
+                            body = response.text()
+                        except Exception as exc:
+                            body = ""
+                        film_edit_responses.append({"status": response.status, "body": body})
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
                 )
@@ -335,7 +393,24 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
 
                 # Roll is one history unit: undo restores the exact post-split document,
                 # then redo restores the same source boundary and right-clip position.
-                page.evaluate("() => window.filmStudioUndo()")
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/undo"),
+                    timeout=10000,
+                ) as undo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/undo"),
+                        timeout=10000,
+                    ) as undo_response:
+                        page.evaluate("() => window.filmStudioUndo()")
+                history_requests.append({
+                    "action": "undo", "payload": undo_request.value.post_data_json
+                })
+                history_responses.append({
+                    "action": "undo", "status": undo_response.value.status,
+                    "body": undo_response.value.text(),
+                })
                 page.wait_for_function(
                     "revision => { const s=window.filmStudioStore?.getSnapshot(); "
                     "return !!s && !s.busy && s.pendingTransaction===null && s.revision===revision; }",
@@ -343,7 +418,24 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 )
                 assert film_path.read_bytes() == roll_bytes_before
                 assert fd.read_project_film(project_id)["rev"] == roll_document_before["rev"]
-                page.evaluate("() => window.filmStudioRedo()")
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/redo"),
+                    timeout=10000,
+                ) as redo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/redo"),
+                        timeout=10000,
+                    ) as redo_response:
+                        page.evaluate("() => window.filmStudioRedo()")
+                history_requests.append({
+                    "action": "redo", "payload": redo_request.value.post_data_json
+                })
+                history_responses.append({
+                    "action": "redo", "status": redo_response.value.status,
+                    "body": redo_response.value.text(),
+                })
                 page.wait_for_function(
                     "revision => { const s=window.filmStudioStore?.getSnapshot(); "
                     "return !!s && !s.busy && s.pendingTransaction===null && s.revision===revision; }",
@@ -643,7 +735,16 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 }""", arg={"id":"clip-b","widthBefore":trim_geometry_before}, timeout=5000)
                 assert fd.read_project_film(project_id)["rev"] == trim_before["rev"], "drag preview must not write film.html"
                 assert len(film_edit_requests) == trim_request_count, film_edit_requests[trim_request_count:]
-                page.mouse.up()
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/edit"),
+                    timeout=10000,
+                ) as trim_http_response:
+                    page.mouse.up()
+                film_edit_responses.append({
+                    "status": trim_http_response.value.status,
+                    "body": trim_http_response.value.text(),
+                })
                 expected_timeline_end = float(trim_end_before) + 0.5
                 expected_source_out = float(trim_src_before.rsplit("#t=", 1)[1].split(",", 1)[1]) + 0.5
                 page.wait_for_function("""args => {
@@ -670,6 +771,96 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 )
                 assert clip_after["attrs"]["src"].endswith(f"#t=0,{expected_source_out:g}"), clip_after
                 assert abs(fd.clip_end(clip_after) - expected_timeline_end) < 0.001, clip_after
+                trim_request = trim_requests[0]
+                assert trim_request.get("project_id") == project_id, trim_request
+                assert trim_request.get("base") == trim_before["rev"], trim_request
+                assert trim_request.get("require_base") is True, trim_request
+                assert film_edit_responses, "Trim HTTP response was not captured"
+                trim_response = film_edit_responses[-1]
+                trim_response_body = __import__("json").loads(trim_response["body"])
+                assert trim_response["status"] == 200, trim_response
+                assert trim_response_body.get("rev") == trim_after["rev"], {
+                    "request": trim_request, "response": trim_response,
+                    "disk_revision": trim_after["rev"]
+                }
+                trim_store = page.evaluate("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return state ? {projectId:state.projectId,revision:state.revision,
+                    busy:state.busy,pendingTransaction:state.pendingTransaction} : null;
+                }""")
+                assert trim_store and trim_store["projectId"] == project_id, trim_store
+                assert trim_store["revision"] == trim_response_body["rev"] == fd.read_project_film(project_id)["rev"]
+                assert trim_store["busy"] is False and trim_store["pendingTransaction"] is None
+
+                # Undo and redo the committed Trim as one exact history transaction.
+                trim_after_text = film_path.read_text(encoding="utf-8")
+                undo_request_count = len(history_requests)
+                undo_response_count = len(history_responses)
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/undo"),
+                    timeout=10000,
+                ) as undo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/undo"),
+                        timeout=10000,
+                    ) as undo_response:
+                        page.evaluate("() => window.filmStudioUndo()")
+                history_requests.append({
+                    "action": "undo", "payload": undo_request.value.post_data_json
+                })
+                history_responses.append({
+                    "action": "undo", "status": undo_response.value.status,
+                    "body": undo_response.value.text(),
+                })
+                page.wait_for_function(
+                    """revision => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return !!state && !state.busy && state.pendingTransaction === null
+                        && state.revision === revision;
+                    }""",
+                    arg=trim_before["rev"], timeout=10000,
+                )
+                _assert_history_four_way(
+                    page, project_id, "undo", trim_after["rev"], trim_before["rev"],
+                    history_requests[undo_request_count:], history_responses[undo_response_count:],
+                )
+                assert film_path.read_text(encoding="utf-8") == trim_before["text"]
+
+                redo_request_count = len(history_requests)
+                redo_response_count = len(history_responses)
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/redo"),
+                    timeout=10000,
+                ) as redo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/redo"),
+                        timeout=10000,
+                    ) as redo_response:
+                        page.evaluate("() => window.filmStudioRedo()")
+                history_requests.append({
+                    "action": "redo", "payload": redo_request.value.post_data_json
+                })
+                history_responses.append({
+                    "action": "redo", "status": redo_response.value.status,
+                    "body": redo_response.value.text(),
+                })
+                page.wait_for_function(
+                    """revision => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return !!state && !state.busy && state.pendingTransaction === null
+                        && state.revision === revision;
+                    }""",
+                    arg=trim_after["rev"], timeout=10000,
+                )
+                _assert_history_four_way(
+                    page, project_id, "redo", trim_before["rev"], trim_after["rev"],
+                    history_requests[redo_request_count:], history_responses[redo_response_count:],
+                )
+                assert film_path.read_text(encoding="utf-8") == trim_after_text
 
                 # Trimming back in must remain supported after extending the same source window.
                 second_trim_box = trim_handle.bounding_box()
