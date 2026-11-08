@@ -115,7 +115,6 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
 
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", capture_edit)
-            page.on("response", lambda response: _capture_film_edit_response(response, edit_responses))
             page.on("response", lambda response: _capture_film_edit_response(response, film_edit_responses))
             try:
                 response = page.goto(
@@ -781,6 +780,7 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
             edit_requests: list[dict] = []
+            edit_responses: list[dict] = []
 
             def capture_edit(request):
                 if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
@@ -791,6 +791,7 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
 
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", capture_edit)
+            page.on("response", lambda response: _capture_film_edit_response(response, edit_responses))
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
@@ -1552,6 +1553,7 @@ def test_react_zoom_stays_anchored_and_drag_autoscroll_keeps_preview_synced(
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
             edit_requests: list[dict] = []
+            edit_responses: list[dict] = []
 
             def capture_edit(request):
                 if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
@@ -1562,6 +1564,7 @@ def test_react_zoom_stays_anchored_and_drag_autoscroll_keeps_preview_synced(
 
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", capture_edit)
+            page.on("response", lambda response: _capture_film_edit_response(response, edit_responses))
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
