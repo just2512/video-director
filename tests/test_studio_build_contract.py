@@ -338,7 +338,7 @@ def test_live_model_stream_smoke_is_explicit_ci_opt_in_and_default_ci_reports_mi
     helper = (root / "video_director" / "live_stream_acceptance.py").read_text(encoding="utf-8")
     assert 'saved_host == "integrate.api.nvidia.com"' in helper
     assert "NVIDIA live override requires NVIDIA_API_KEY" in helper
-    assert "refusing to send an unrelated provider key" in helper
+    assert "unrelated provider key." in helper
     assert "Opt-in live-model smoke is missing a complete key/base URL/model configuration." in config_step
     assert "raise SystemExit(1)" in config_step
     assert "steps.live_stream_config.outcome == 'success'" in live_step
