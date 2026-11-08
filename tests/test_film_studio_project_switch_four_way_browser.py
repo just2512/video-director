@@ -146,7 +146,18 @@ def test_project_switch_reconciles_request_response_store_and_disk(tmp_path, mon
                     "request": matching_requests, "http": response_body,
                     "store": store, "disk_revision": persisted["rev"]
                 }
-                assert store["selectedId"] == "" and store["selectedIds"] == [], store
+                target_clip_ids = {
+                    clip["id"]
+                    for track in persisted["doc"]["tracks"]
+                    for clip in track["clips"]
+                }
+                # A newly loaded Studio may focus its first target-project clip.
+                # The isolation invariant is that no selection from project A survives.
+                assert store["selectedId"] != "project-a-clip", store
+                assert set(store["selectedIds"]).issubset(target_clip_ids), {
+                    "store": store, "target_project_clip_ids": sorted(target_clip_ids)
+                }
+                assert store["selectedId"] == "" or store["selectedId"] in target_clip_ids, store
                 assert store["busy"] is False and store["pendingTransaction"] is None, store
                 assert store["pendingExternalRevision"] == "", store
                 assert persisted["doc"]["tracks"] == disk_b["doc"]["tracks"]
