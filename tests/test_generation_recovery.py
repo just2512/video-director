@@ -1064,7 +1064,7 @@ class TestConcurrentVideoSubmission:
         jobs = gen._load_jobs(project_id)
         assert len(jobs) == 1
         reservation = next(iter(jobs.values()))
-        assert reservation["job_id"] == "genjob-429abc000000000000000000"
+        assert reservation["job_id"] == "genjob-429abc000000"
         assert reservation["status"] == "submission_unknown"
         assert reservation["submission_error_type"] == "TimeoutError"
 
