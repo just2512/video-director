@@ -1934,6 +1934,7 @@ def _insert_ripple(doc: dict, track_id: str, raw_clip: Any, at_value: Any) -> di
 
     affected = [track for track in doc["tracks"]
                 if track["id"] == target["id"] or "sync-lock" in (track.get("attrs") or {})]
+    eps = 1e-7
     # Reject the whole transaction before touching any of the candidate tracks.
     for track in affected:
         _ensure_unlocked(track)
@@ -1957,7 +1958,6 @@ def _insert_ripple(doc: dict, track_id: str, raw_clip: Any, at_value: Any) -> di
     used_ids.add(clip_id)
     split_ids: dict[str, str] = {}
     shifted_ids: list[str] = []
-    eps = 1e-7
     for track in affected:
         rewritten = []
         for clip in list(track.get("clips") or []):
