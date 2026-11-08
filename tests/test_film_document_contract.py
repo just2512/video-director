@@ -68,6 +68,39 @@ def test_insert_ripple_splits_crossing_clips_and_shifts_sync_locked_tracks():
     assert normalized[0]["affected_tracks"] == ["video-main", "audio-bed"]
 
 
+def test_asset_insert_and_overwrite_round_trip_in_canonical_timeline_order():
+    doc = fd.parse_film(INSERT_SAMPLE)
+
+    ripple, _ = fd.apply_ops(doc, [{
+        "op": "insert_ripple", "track_id": "video-main", "at": 2,
+        "clip": {
+            "id": "ripple-roundtrip", "tag": "video",
+            "attrs": {"src": "../assets/new.mp4#t=0,1", "at": "2"},
+        },
+    }])
+    ripple_roundtrip = fd.parse_film(fd.serialize_film(ripple))
+    assert fd._film_document_roundtrip_matches(ripple, ripple_roundtrip)
+    assert [
+        clip["id"] for clip in next(
+            track for track in ripple["tracks"] if track["id"] == "video-main"
+        )["clips"]
+    ] == ["video-before", "ripple-roundtrip", "video-later"]
+
+    overwrite_clip = {
+        "id": "overwrite-roundtrip", "tag": "video",
+        "attrs": {"src": "../assets/new.mp4#t=0,1", "at": "2"},
+    }
+    overwrite_ops = fd.build_overwrite_operations(doc, "video-main", overwrite_clip, 2)
+    overwritten, _ = fd.apply_ops(doc, overwrite_ops, allow_source_extension=True)
+    overwrite_roundtrip = fd.parse_film(fd.serialize_film(overwritten))
+    assert fd._film_document_roundtrip_matches(overwritten, overwrite_roundtrip)
+    assert [
+        clip["id"] for clip in next(
+            track for track in overwritten["tracks"] if track["id"] == "video-main"
+        )["clips"]
+    ] == ["video-before", "overwrite-roundtrip", "video-later"]
+
+
 def test_insert_ripple_rejects_locked_sync_tracks_unknown_crossing_duration_and_bad_new_clip():
     doc = fd.parse_film(INSERT_SAMPLE)
     locked = fd.copy.deepcopy(doc)
