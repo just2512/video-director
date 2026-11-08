@@ -2604,13 +2604,13 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 # The history response is authoritative; wait for FilmStore to publish
                 # that revision before asserting the React DOM has rendered its geometry.
                 page.wait_for_function(
-                    """revision => {
+                    """expected => {
                       const state = window.filmStudioStore?.getSnapshot();
-                      return !!state && state.projectId === arguments[0]
+                      return !!state && state.projectId === expected.projectId
                         && !state.busy && state.pendingTransaction === null
-                        && state.revision === revision;
+                        && state.revision === expected.revision;
                     }""",
-                    arg=trim_document_before["rev"],
+                    arg={"projectId": project_id, "revision": trim_document_before["rev"]},
                     timeout=10000,
                 )
                 page.wait_for_function(
