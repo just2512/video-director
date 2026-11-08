@@ -243,7 +243,32 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
+            edit_audit: list[dict] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
+
+            def capture_edit_request(request):
+                if request.method != "POST" or not request.url.endswith("/api/editor/film/edit"):
+                    return
+                try:
+                    payload = request.post_data_json
+                except Exception as exc:
+                    payload = {"parse_error": str(exc)}
+                edit_audit.append({"request": payload, "response": None})
+
+            def capture_edit_response(response):
+                if response.request.method != "POST" or not response.url.endswith("/api/editor/film/edit"):
+                    return
+                try:
+                    body = response.json()
+                except Exception as exc:
+                    body = {"parse_error": str(exc)}
+                for item in reversed(edit_audit):
+                    if item["response"] is None:
+                        item["response"] = {"status": response.status, "body": body}
+                        break
+
+            page.on("request", capture_edit_request)
+            page.on("response", capture_edit_response)
             # Lift/Delete and Ripple Delete ask for confirmation; accept the dialog
             # explicitly so the browser test exercises the actual edit transaction.
             page.add_init_script("window.confirm = () => true;")
@@ -318,7 +343,41 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                 wait_for_consistent_state(later_present=False, after_at=6)
                 lifted = fd.read_project_film(project_id)
                 lifted_clips = clips_by_id(lifted["doc"])
-                assert "video-later" not in lifted_clips
+                if "video-later" in lifted_clips:
+                    page_snapshot = page.evaluate(
+                        """async pid => {
+                          const response = await fetch(
+                            '/api/editor/film?project_id=' + encodeURIComponent(pid),
+                            {cache:'no-store'}
+                          );
+                          const doc = await response.json();
+                          const store = window.filmStudioStore?.getSnapshot();
+                          return {
+                            httpStatus: response.status,
+                            revision: doc.rev,
+                            clipIds: (doc.tracks || []).flatMap(track => track.clips || []).map(clip => clip.id),
+                            storeRevision: store?.revision,
+                            storeBusy: store?.busy,
+                            pendingTransaction: store?.pendingTransaction
+                          };
+                        }""",
+                        project_id,
+                    )
+                    watcher_state = web_server._FILM_REVISION_WATCHER._projects.get(project_id)
+                    raise AssertionError({
+                        "disk_revision": lifted["rev"],
+                        "initial_revision": initial["rev"],
+                        "disk_clip_ids": sorted(lifted_clips),
+                        "browser_snapshot": page_snapshot,
+                        "edit_audit": edit_audit,
+                        "watcher": {
+                            "last_revision": (watcher_state or {}).get("last_revision"),
+                            "last_phase": (watcher_state or {}).get("last_phase"),
+                            "last_history_result": (watcher_state or {}).get("last_history_result"),
+                            "last_error": (watcher_state or {}).get("last_error"),
+                        },
+                        "film_path": str(film_path.resolve()),
+                    })
                 assert float(lifted_clips["video-after"]["attrs"]["at"]) == 6
                 assert audio_track_signature(lifted["doc"]) == initial_audio
                 assert film_path.read_bytes() != initial_bytes
