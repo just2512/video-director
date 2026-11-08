@@ -2578,6 +2578,14 @@ def apply_ops(
             normalized.append({"op": "track", "track_id": track["id"], "field": field, "value": value})
         else:
             raise FilmError("UNKNOWN_OPERATION", f"不支持的操作：{kind}")
+    # FilmDocument order is canonical timeline order. serialize_film() emits
+    # clips sorted by their timeline start; keep the in-memory result in that same
+    # order so insert/overwrite operations round-trip without a false revision
+    # serialization mismatch.
+    for track in out["tracks"]:
+        track["clips"].sort(
+            key=lambda clip: _number(clip["attrs"].get("at", 0), "at", 0)
+        )
     _validate_doc(out)
     return out, normalized
 
