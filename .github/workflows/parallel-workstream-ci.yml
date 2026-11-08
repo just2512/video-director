@@ -30,7 +30,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install system media dependencies
-        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/timeline-gesture-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/lifecycle-e2e') || startsWith(github.ref_name, 'work/film-four-way-consistency')
+        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/timeline-gesture-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/lifecycle-e2e') || startsWith(github.ref_name, 'work/film-four-way-consistency') || startsWith(github.ref_name, 'work/film-four-way-consistency-main-sync')
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
@@ -39,7 +39,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest playwright
       - name: Install Chromium
-        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/timeline-gesture-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/lifecycle-e2e') || startsWith(github.ref_name, 'work/film-four-way-consistency')
+        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/timeline-gesture-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/lifecycle-e2e') || startsWith(github.ref_name, 'work/film-four-way-consistency') || startsWith(github.ref_name, 'work/film-four-way-consistency-main-sync')
         run: python -m playwright install --with-deps chromium
       - name: Generation error classification safety
         if: startsWith(github.ref_name, 'work/generation-error-classification')
@@ -70,7 +70,7 @@ jobs:
             tests/test_film_external_watch_history.py \
             tests/test_film_transaction_recovery.py
       - name: Film Studio four-way browser acceptance
-        if: startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/film-four-way-consistency')
+        if: startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/film-four-way-consistency') || startsWith(github.ref_name, 'work/film-four-way-consistency-main-sync')
         run: |
           python -m pytest -q \
             tests/test_film_studio_insert_browser.py \
