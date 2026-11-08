@@ -113,6 +113,32 @@ def test_asset_insert_and_overwrite_round_trip_in_canonical_timeline_order():
     assert overwrite_ids.index("overwrite-roundtrip") < overwrite_ids.index("video-later")
 
 
+def test_cross_track_move_round_trips_in_canonical_timeline_order():
+    source = """<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"></head>
+<body>
+<section id="video-main">
+  <video id="clip-move" src="../assets/move.mp4#t=0,2" at="0"></video>
+  <video id="clip-stay" src="../assets/stay.mp4#t=0,2" at="6"></video>
+</section>
+<section id="video-secondary">
+  <video id="clip-target" src="../assets/target.mp4#t=0,2" at="8"></video>
+</section>
+</body></html>"""
+    doc = fd.parse_film(source)
+    moved, _ = fd.apply_ops(doc, [{
+        "op": "move", "clip": "clip-move", "track_id": "video-secondary", "at": 1,
+    }])
+
+    source_track = next(track for track in moved["tracks"] if track["id"] == "video-main")
+    target_track = next(track for track in moved["tracks"] if track["id"] == "video-secondary")
+    assert [clip["id"] for clip in source_track["clips"]] == ["clip-stay"]
+    target_ids = [clip["id"] for clip in target_track["clips"]]
+    assert target_ids == ["clip-move", "clip-target"]
+    roundtrip = fd.parse_film(fd.serialize_film(moved))
+    assert fd._film_document_roundtrip_matches(moved, roundtrip)
+
+
 def test_insert_ripple_rejects_locked_sync_tracks_unknown_crossing_duration_and_bad_new_clip():
     doc = fd.parse_film(INSERT_SAMPLE)
     locked = fd.copy.deepcopy(doc)
