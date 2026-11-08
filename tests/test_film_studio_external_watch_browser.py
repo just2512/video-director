@@ -2583,7 +2583,36 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert len(trim_requests[0].get("ops") or []) == 1, trim_requests
                 assert trim_requests[0]["ops"][0].get("op") == "trim", trim_requests
                 assert trim_requests[0]["ops"][0].get("edge") == "start", trim_requests
-                page.evaluate("window.filmStudioUndo()")
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/undo"),
+                    timeout=10000,
+                ) as trim_undo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/undo"),
+                        timeout=10000,
+                    ) as trim_undo_response:
+                        page.evaluate("window.filmStudioUndo()")
+                trim_undo_payload = trim_undo_request.value.post_data_json
+                trim_undo_result = trim_undo_response.value.json()
+                assert trim_undo_response.value.status == 200, trim_undo_result
+                assert trim_undo_payload.get("project_id") == project_id, trim_undo_payload
+                assert trim_undo_payload.get("base") == trim_document_after["rev"], trim_undo_payload
+                assert trim_undo_result.get("action") == "undo", trim_undo_result
+                assert trim_undo_result.get("rev") == trim_document_before["rev"], trim_undo_result
+                # The history response is authoritative; wait for FilmStore to publish
+                # that revision before asserting the React DOM has rendered its geometry.
+                page.wait_for_function(
+                    """expected => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return !!state && state.projectId === expected.projectId
+                        && !state.busy && state.pendingTransaction === null
+                        && state.revision === expected.revision;
+                    }""",
+                    arg={"projectId": project_id, "revision": trim_document_before["rev"]},
+                    timeout=10000,
+                )
                 page.wait_for_function(
                     """({left,width}) => {
                       const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]');
