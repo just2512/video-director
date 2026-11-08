@@ -91,7 +91,18 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
                 assert page.locator('[data-film-action="insert-mode"]:visible').get_attribute("aria-pressed") == "true"
                 page.evaluate("window.filmStudioLoadLibrary()")
                 page.locator('[data-add-asset="fixture-asset"]').wait_for(state="visible")
-                page.locator('[data-add-asset="fixture-asset"]').click()
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/insert-asset"),
+                    timeout=10000,
+                ) as insert_response:
+                    page.locator('[data-add-asset="fixture-asset"]').click()
+                response = insert_response.value
+                response_body = response.text()
+                assert response.status == 200, {
+                    "status": response.status, "body": response_body,
+                    "project_revision": fd.read_project_film(project_id)["rev"],
+                }
 
                 page.wait_for_function("""async (pid) => {
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
@@ -599,7 +610,18 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
                     assert concurrent_attempt["busy"] is True, concurrent_attempt
                     assert concurrent_attempt["pendingKind"] == "asset-overwrite", concurrent_attempt
                 finally:
-                    release_asset_insert.set()
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/insert-asset"),
+                        timeout=10000,
+                    ) as insert_response:
+                        release_asset_insert.set()
+                response = insert_response.value
+                response_body = response.text()
+                assert response.status == 200, {
+                    "status": response.status, "body": response_body,
+                    "project_revision": fd.read_project_film(project_id)["rev"],
+                }
 
                 page.wait_for_function("""async (pid) => {
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
