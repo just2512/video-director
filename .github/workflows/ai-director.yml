@@ -522,7 +522,7 @@ jobs:
           import stat
           import sys
           from urllib.parse import urlparse
-          from video_director.live_stream_acceptance import resolve_live_model, resolve_live_model_override, resolve_live_provider_override
+          from video_director.live_stream_acceptance import resolve_live_api_key, resolve_live_model, resolve_live_model_override, resolve_live_provider_override
 
           path = sys.argv[1]
           saved = {}
@@ -537,22 +537,6 @@ jobs:
               except (OSError, json.JSONDecodeError):
                   saved = {}
 
-          # The user's preserved runner config is the authoritative credential
-          # source for this opt-in acceptance run. Environment secrets are only
-          # fallbacks when the saved config has no API key; never silently replace
-          # the user's existing NVIDIA credential with a different secret.
-          key_candidates = (
-              ("runner_saved_config", saved.get("api_key")),
-              ("NVIDIA_API_KEY_SECRET", os.environ.get("NVIDIA_API_KEY_SECRET")),
-              ("NVIDIA_API_KEY", os.environ.get("NVIDIA_API_KEY")),
-              ("VD_LLM_API_KEY_SECRET", os.environ.get("VD_LLM_API_KEY_SECRET")),
-          )
-          key_source, raw_api_key = next(
-              ((source, value) for source, value in key_candidates if isinstance(value, str) and value.strip()),
-              ("missing", ""),
-          )
-          api_key = raw_api_key.strip()
-          print(f"Live model credential source: {key_source}; value is redacted.")
           credential_base_url = (
               saved.get("base_url")
               or os.environ.get("VD_LLM_BASE_URL_CONFIG")
@@ -578,19 +562,23 @@ jobs:
           except ValueError as error:
               print(f"::error::Invalid one-run live provider override: {error}")
               raise SystemExit(1)
+
+          # Resolve credentials only after the explicit provider override is known.
+          # NVIDIA must never receive a generic key belonging to another provider.
+          try:
+              key_source, api_key = resolve_live_api_key(
+                  provider_override=provider_override,
+                  saved_api_key=saved.get("api_key", ""),
+                  saved_base_url=saved.get("base_url", ""),
+                  nvidia_api_key_secret=os.environ.get("NVIDIA_API_KEY_SECRET", ""),
+                  nvidia_api_key=os.environ.get("NVIDIA_API_KEY", ""),
+                  generic_api_key=os.environ.get("VD_LLM_API_KEY_SECRET", ""),
+              )
+          except ValueError as error:
+              print(f"::error::{error}")
+              raise SystemExit(1)
+          print(f"Live model credential source: {key_source}; value is redacted.")
           if provider_override == "nvidia":
-              # Do not send an unrelated provider's saved credential to NVIDIA.
-              # A generic runner key is accepted only when its configured endpoint
-              # was already the official NVIDIA host; named NVIDIA credentials
-              # can be used directly with the explicit one-run endpoint override.
-              if key_source not in ("NVIDIA_API_KEY_SECRET", "NVIDIA_API_KEY"):
-                  credential_endpoint = credential_base_url
-                  if credential_endpoint and "://" not in credential_endpoint:
-                      credential_endpoint = "https://" + credential_endpoint
-                  credential_host = (urlparse(credential_endpoint).hostname or "").lower().rstrip(".")
-                  if credential_host != "integrate.api.nvidia.com":
-                      print("::error::NVIDIA live override requires NVIDIA_API_KEY or a saved credential already pinned to integrate.api.nvidia.com; refusing to send an unrelated provider key.")
-                      raise SystemExit(1)
               base_url = "https://integrate.api.nvidia.com/v1"
               print("Using NVIDIA official OpenAI-compatible endpoint for this isolated run; stored provider settings remain unchanged.")
           try:
@@ -709,7 +697,7 @@ jobs:
           command = [
               sys.executable, "-m", "pytest",
               "tests/test_film_studio_live_ai_streaming.py::test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film",
-              "-q", "--junitxml=live-stream-junit.xml",
+              "-q", "-s", "--junitxml=live-stream-junit.xml",
           ]
           result = subprocess.run(command, env=child_env, check=False)
           raise SystemExit(result.returncode)

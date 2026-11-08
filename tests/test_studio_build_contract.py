@@ -53,16 +53,22 @@ def test_studio_build_uses_isolated_hosted_runner_and_lockfile():
     live_config_step = ai_workflow.split(
         "      - name: Configure opt-in live model token-stream smoke", 1
     )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
-    assert 'os.environ.get("NVIDIA_API_KEY")' in live_config_step
-    assert '"https://integrate.api.nvidia.com/v1"' in live_config_step
+    assert "resolve_live_api_key" in live_config_step
     assert "resolve_live_provider_override" in live_config_step
     assert "resolve_live_model_override" in live_config_step
-    assert '("NVIDIA_API_KEY_SECRET", os.environ.get("NVIDIA_API_KEY_SECRET"))' in live_config_step
-    assert '("VD_LLM_API_KEY_SECRET", os.environ.get("VD_LLM_API_KEY_SECRET"))' in live_config_step
-    assert '("runner_saved_config", saved.get("api_key"))' in live_config_step
-    assert live_config_step.index('("runner_saved_config",') < live_config_step.index('("NVIDIA_API_KEY_SECRET",')
-    assert "preserved runner config is the authoritative credential" in live_config_step
-    assert "never silently replace" in live_config_step
+    assert 'nvidia_api_key_secret=os.environ.get("NVIDIA_API_KEY_SECRET", "")' in live_config_step
+    assert 'nvidia_api_key=os.environ.get("NVIDIA_API_KEY", "")' in live_config_step
+    assert 'generic_api_key=os.environ.get("VD_LLM_API_KEY_SECRET", "")' in live_config_step
+    assert 'saved_base_url=saved.get("base_url", "")' in live_config_step
+    assert '"https://integrate.api.nvidia.com/v1"' in live_config_step
+    # Provider-aware selection is implemented and unit-tested in the shared helper:
+    # NVIDIA overrides may reuse a saved key only when its saved endpoint is NVIDIA;
+    # otherwise a named NVIDIA key is required and generic credentials fail closed.
+    helper = (root / "video_director" / "live_stream_acceptance.py").read_text(encoding="utf-8")
+    nvidia_branch = helper.split('if provider == "nvidia":', 1)[1].split('    for source, value in (', 1)[0]
+    assert 'saved_host == "integrate.api.nvidia.com"' in nvidia_branch
+    assert '"NVIDIA_API_KEY_SECRET"' in helper and '"NVIDIA_API_KEY"' in helper
+    assert "refusing to send an" in helper
     assert live_config_step.index("saved.get(\"base_url\")") < live_config_step.index('os.environ.get("VD_LLM_BASE_URL_CONFIG")')
     assert live_config_step.index("saved.get(\"model\")") < live_config_step.index('os.environ.get("VD_LLM_MODEL_CONFIG")')
     assert "value is redacted" in live_config_step
@@ -326,8 +332,13 @@ def test_live_model_stream_smoke_is_explicit_ci_opt_in_and_default_ci_reports_mi
     assert "VD_LLM_MODEL_CONFIG" in config_step
     assert "NVIDIA_API_KEY_SECRET" in config_step
     assert "NVIDIA_API_KEY" in config_step
-    assert "credential_host != \"integrate.api.nvidia.com\"" in config_step
-    assert "NVIDIA live override requires NVIDIA_API_KEY" in config_step
+    assert "resolve_live_api_key" in config_step
+    assert 'saved_base_url=saved.get("base_url", "")' in config_step
+    assert 'generic_api_key=os.environ.get("VD_LLM_API_KEY_SECRET", "")' in config_step
+    helper = (root / "video_director" / "live_stream_acceptance.py").read_text(encoding="utf-8")
+    assert 'saved_host == "integrate.api.nvidia.com"' in helper
+    assert "NVIDIA live override requires NVIDIA_API_KEY" in helper
+    assert "unrelated provider key." in helper
     assert "Opt-in live-model smoke is missing a complete key/base URL/model configuration." in config_step
     assert "raise SystemExit(1)" in config_step
     assert "steps.live_stream_config.outcome == 'success'" in live_step
