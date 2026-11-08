@@ -1041,6 +1041,10 @@ class TestConcurrentVideoSubmission:
 
         project_id = "proj-video-submit-timeout"
         config.init_project_dirs(config.project_dir(project_id))
+        from types import SimpleNamespace
+        monkeypatch.setattr(
+            gen.uuid, "uuid4", lambda: SimpleNamespace(hex="429abc000000000000000000")
+        )
 
         class TimeoutClient:
             def __init__(self):
@@ -1060,6 +1064,7 @@ class TestConcurrentVideoSubmission:
         jobs = gen._load_jobs(project_id)
         assert len(jobs) == 1
         reservation = next(iter(jobs.values()))
+        assert reservation["job_id"] == "genjob-429abc000000000000000000"
         assert reservation["status"] == "submission_unknown"
         assert reservation["submission_error_type"] == "TimeoutError"
 
