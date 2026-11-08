@@ -1934,6 +1934,7 @@ def _insert_ripple(doc: dict, track_id: str, raw_clip: Any, at_value: Any) -> di
 
     affected = [track for track in doc["tracks"]
                 if track["id"] == target["id"] or "sync-lock" in (track.get("attrs") or {})]
+    eps = 1e-7
     # Reject the whole transaction before touching any of the candidate tracks.
     for track in affected:
         _ensure_unlocked(track)
@@ -1957,7 +1958,6 @@ def _insert_ripple(doc: dict, track_id: str, raw_clip: Any, at_value: Any) -> di
     used_ids.add(clip_id)
     split_ids: dict[str, str] = {}
     shifted_ids: list[str] = []
-    eps = 1e-7
     for track in affected:
         rewritten = []
         for clip in list(track.get("clips") or []):
@@ -2578,6 +2578,14 @@ def apply_ops(
             normalized.append({"op": "track", "track_id": track["id"], "field": field, "value": value})
         else:
             raise FilmError("UNKNOWN_OPERATION", f"不支持的操作：{kind}")
+    # FilmDocument order is canonical timeline order. serialize_film() emits
+    # clips sorted by their timeline start; keep the in-memory result in that same
+    # order so insert/overwrite operations round-trip without a false revision
+    # serialization mismatch.
+    for track in out["tracks"]:
+        track["clips"].sort(
+            key=lambda clip: _number(clip["attrs"].get("at", 0), "at", 0)
+        )
     _validate_doc(out)
     return out, normalized
 
