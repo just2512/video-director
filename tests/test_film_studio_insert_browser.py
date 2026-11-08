@@ -7,6 +7,7 @@ import os
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 import threading
+import time
 
 from playwright.sync_api import sync_playwright
 
@@ -243,7 +244,32 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
+            edit_audit: list[dict] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
+
+            def capture_edit_request(request):
+                if request.method != "POST" or not request.url.endswith("/api/editor/film/edit"):
+                    return
+                try:
+                    payload = request.post_data_json
+                except Exception as exc:
+                    payload = {"parse_error": str(exc)}
+                edit_audit.append({"request": payload, "response": None})
+
+            def capture_edit_response(response):
+                if response.request.method != "POST" or not response.url.endswith("/api/editor/film/edit"):
+                    return
+                try:
+                    body = response.json()
+                except Exception as exc:
+                    body = {"parse_error": str(exc)}
+                for item in reversed(edit_audit):
+                    if item["response"] is None:
+                        item["response"] = {"status": response.status, "body": body}
+                        break
+
+            page.on("request", capture_edit_request)
+            page.on("response", capture_edit_response)
             # Lift/Delete and Ripple Delete ask for confirmation; accept the dialog
             # explicitly so the browser test exercises the actual edit transaction.
             page.add_init_script("window.confirm = () => true;")
@@ -276,10 +302,29 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                     "&& !!document.querySelector('.fs-react-timeline-surface')",
                     timeout=10000,
                 )
-                for clip_id in ("video-before", "video-later", "video-after"):
-                    page.locator(f'#fs-timeline .fs-clip[data-clip="{clip_id}"]').wait_for(
-                        state="visible"
-                    )
+                page.evaluate("""() => {
+                  const original = window.filmStudioUndo;
+                  window.__undoProbe = {called: false, before: null, after: null};
+                  window.filmStudioUndo = function(...args) {
+                    const snapshot = window.filmStudioStore?.getSnapshot();
+                    window.__undoProbe.called = true;
+                    window.__undoProbe.before = snapshot ? {
+                      projectId: snapshot.projectId, revision: snapshot.revision,
+                      busy: snapshot.busy, pendingTransaction: snapshot.pendingTransaction,
+                      pendingExternalRevision: snapshot.pendingExternalRevision, broken: snapshot.broken
+                    } : null;
+                    const result = original.apply(this, args);
+                    return Promise.resolve(result).then(value => {
+                      const after = window.filmStudioStore?.getSnapshot();
+                      window.__undoProbe.after = after ? {
+                        projectId: after.projectId, revision: after.revision,
+                        busy: after.busy, pendingTransaction: after.pendingTransaction,
+                        pendingExternalRevision: after.pendingExternalRevision, broken: after.broken
+                      } : null;
+                      return value;
+                    }, error => { window.__undoProbe.error = String(error); throw error; });
+                  };
+                }""")
 
                 def wait_for_consistent_state(*, later_present: bool, after_at: float):
                     page.wait_for_function(
@@ -306,6 +351,30 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                         },
                         timeout=10000,
                     )
+                    # The browser/API view and the Python caller must converge on the
+                    # same persisted file snapshot; do not assume Store idle alone proves
+                    # the atomic file replacement has become visible to another reader.
+                    disk_deadline = time.monotonic() + 5.0
+                    disk_snapshot = None
+                    while time.monotonic() < disk_deadline:
+                        disk_snapshot = fd.read_project_film(project_id)
+                        disk_clips = clips_by_id(disk_snapshot["doc"])
+                        disk_later = "video-later" in disk_clips
+                        disk_after = disk_clips.get("video-after", {}).get("attrs", {}).get("at")
+                        if disk_later == later_present and disk_after is not None and abs(
+                            float(disk_after) - after_at
+                        ) < 0.001:
+                            break
+                        time.sleep(0.02)
+                    else:
+                        raise AssertionError({
+                            "expected_later_present": later_present,
+                            "expected_after_at": after_at,
+                            "disk_revision": (disk_snapshot or {}).get("rev"),
+                            "disk_clip_ids": sorted(clips_by_id(disk_snapshot["doc"])) if disk_snapshot else [],
+                            "disk_after_at": disk_after if disk_snapshot else None,
+                            "edit_audit": edit_audit,
+                        })
 
                 # Lift delete: remove only the selected clip; preserve the two-second
                 # hole before video-after and leave every audio clip byte-for-byte equivalent.
@@ -318,18 +387,68 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                 wait_for_consistent_state(later_present=False, after_at=6)
                 lifted = fd.read_project_film(project_id)
                 lifted_clips = clips_by_id(lifted["doc"])
-                assert "video-later" not in lifted_clips
+                if "video-later" in lifted_clips:
+                    page_snapshot = page.evaluate(
+                        """async pid => {
+                          const response = await fetch(
+                            '/api/editor/film?project_id=' + encodeURIComponent(pid),
+                            {cache:'no-store'}
+                          );
+                          const doc = await response.json();
+                          const store = window.filmStudioStore?.getSnapshot();
+                          return {
+                            httpStatus: response.status,
+                            revision: doc.rev,
+                            clipIds: (doc.tracks || []).flatMap(track => track.clips || []).map(clip => clip.id),
+                            storeRevision: store?.revision,
+                            storeBusy: store?.busy,
+                            pendingTransaction: store?.pendingTransaction
+                          };
+                        }""",
+                        project_id,
+                    )
+                    watcher_state = web_server._FILM_REVISION_WATCHER._projects.get(project_id)
+                    raise AssertionError({
+                        "disk_revision": lifted["rev"],
+                        "initial_revision": initial["rev"],
+                        "disk_clip_ids": sorted(lifted_clips),
+                        "browser_snapshot": page_snapshot,
+                        "edit_audit": edit_audit,
+                        "watcher": {
+                            "last_revision": (watcher_state or {}).get("last_revision"),
+                            "last_phase": (watcher_state or {}).get("last_phase"),
+                            "last_history_result": (watcher_state or {}).get("last_history_result"),
+                            "last_error": (watcher_state or {}).get("last_error"),
+                        },
+                        "film_path": str(film_path.resolve()),
+                    })
                 assert float(lifted_clips["video-after"]["attrs"]["at"]) == 6
                 assert audio_track_signature(lifted["doc"]) == initial_audio
                 assert film_path.read_bytes() != initial_bytes
 
                 # One undo restores the complete source document, including exact HTML bytes.
-                with page.expect_response(
-                    lambda response: response.request.method == "POST"
-                    and response.url.endswith("/api/editor/film/undo"),
-                    timeout=10000,
-                ) as undo_response:
-                    page.locator('[data-film-action="undo"]:visible').click()
+                try:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/undo"),
+                        timeout=10000,
+                    ) as undo_response:
+                        page.locator('[data-film-action="undo"]:visible').click()
+                except Exception as exc:
+                    diagnostics = page.evaluate("""() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const button = [...document.querySelectorAll('[data-film-action="undo"]')].find(item => item.getClientRects().length > 0);
+                      return {
+                        probe: window.__undoProbe || null,
+                        state: state ? {projectId:state.projectId,revision:state.revision,busy:state.busy,
+                          pendingTransaction:state.pendingTransaction,pendingExternalRevision:state.pendingExternalRevision,
+                          broken:state.broken,selectedId:state.selectedId} : null,
+                        button: button ? {disabled:button.disabled,ariaDisabled:button.getAttribute("aria-disabled"),text:button.textContent} : null,
+                        status: document.querySelector("#film-studio-alert")?.textContent || ""
+                      };
+                    }""")
+                    raise AssertionError({"undo_response_timeout":str(exc),"undo_diagnostics":diagnostics,
+                                          "edit_audit":edit_audit}) from exc
                 assert undo_response.value.status == 200
                 undo_payload = undo_response.value.json()
                 assert undo_payload.get("action") == "undo", undo_payload
@@ -354,7 +473,41 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
 
                 ripple = fd.read_project_film(project_id)
                 ripple_clips = clips_by_id(ripple["doc"])
-                assert "video-later" not in ripple_clips
+                if "video-later" in ripple_clips:
+                    page_snapshot = page.evaluate(
+                        """async pid => {
+                          const response = await fetch(
+                            '/api/editor/film?project_id=' + encodeURIComponent(pid),
+                            {cache:'no-store'}
+                          );
+                          const doc = await response.json();
+                          const store = window.filmStudioStore?.getSnapshot();
+                          return {
+                            httpStatus: response.status,
+                            revision: doc.rev,
+                            clipIds: (doc.tracks || []).flatMap(track => track.clips || []).map(clip => clip.id),
+                            afterAt: (doc.tracks || []).flatMap(track => track.clips || []).find(clip => clip.id === 'video-after')?.attrs?.at,
+                            storeRevision: store?.revision,
+                            storeBusy: store?.busy,
+                            pendingTransaction: store?.pendingTransaction
+                          };
+                        }""",
+                        project_id,
+                    )
+                    watcher_state = web_server._FILM_REVISION_WATCHER._projects.get(project_id)
+                    raise AssertionError({
+                        "disk_revision": ripple["rev"],
+                        "disk_clip_ids": sorted(ripple_clips),
+                        "disk_after_at": ripple_clips.get("video-after", {}).get("attrs", {}).get("at"),
+                        "browser_snapshot": page_snapshot,
+                        "edit_audit": edit_audit,
+                        "watcher": {
+                            "last_revision": (watcher_state or {}).get("last_revision"),
+                            "last_phase": (watcher_state or {}).get("last_phase"),
+                            "last_history_result": (watcher_state or {}).get("last_history_result"),
+                            "last_error": (watcher_state or {}).get("last_error"),
+                        },
+                    })
                 assert float(ripple_clips["video-after"]["attrs"]["at"]) == 4
                 assert ripple_clips["audio-later"]["attrs"]["src"].endswith("#t=0,1")
                 assert float(ripple_clips["audio-later"]["attrs"]["at"]) == 3
