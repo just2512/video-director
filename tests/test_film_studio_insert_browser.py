@@ -302,10 +302,29 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                     "&& !!document.querySelector('.fs-react-timeline-surface')",
                     timeout=10000,
                 )
-                for clip_id in ("video-before", "video-later", "video-after"):
-                    page.locator(f'#fs-timeline .fs-clip[data-clip="{clip_id}"]').wait_for(
-                        state="visible"
-                    )
+                page.evaluate("""() => {
+                  const original = window.filmStudioUndo;
+                  window.__undoProbe = {called: false, before: null, after: null};
+                  window.filmStudioUndo = function(...args) {
+                    const snapshot = window.filmStudioStore?.getSnapshot();
+                    window.__undoProbe.called = true;
+                    window.__undoProbe.before = snapshot ? {
+                      projectId: snapshot.projectId, revision: snapshot.revision,
+                      busy: snapshot.busy, pendingTransaction: snapshot.pendingTransaction,
+                      pendingExternalRevision: snapshot.pendingExternalRevision, broken: snapshot.broken
+                    } : null;
+                    const result = original.apply(this, args);
+                    return Promise.resolve(result).then(value => {
+                      const after = window.filmStudioStore?.getSnapshot();
+                      window.__undoProbe.after = after ? {
+                        projectId: after.projectId, revision: after.revision,
+                        busy: after.busy, pendingTransaction: after.pendingTransaction,
+                        pendingExternalRevision: after.pendingExternalRevision, broken: after.broken
+                      } : null;
+                      return value;
+                    }, error => { window.__undoProbe.error = String(error); throw error; });
+                  };
+                }""")
 
                 def wait_for_consistent_state(*, later_present: bool, after_at: float):
                     page.wait_for_function(
@@ -408,12 +427,28 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
                 assert film_path.read_bytes() != initial_bytes
 
                 # One undo restores the complete source document, including exact HTML bytes.
-                with page.expect_response(
-                    lambda response: response.request.method == "POST"
-                    and response.url.endswith("/api/editor/film/undo"),
-                    timeout=10000,
-                ) as undo_response:
-                    page.locator('[data-film-action="undo"]:visible').click()
+                try:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/undo"),
+                        timeout=10000,
+                    ) as undo_response:
+                        page.locator('[data-film-action="undo"]:visible').click()
+                except Exception as exc:
+                    diagnostics = page.evaluate("""() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const button = [...document.querySelectorAll('[data-film-action="undo"]')].find(item => item.getClientRects().length > 0);
+                      return {
+                        probe: window.__undoProbe || null,
+                        state: state ? {projectId:state.projectId,revision:state.revision,busy:state.busy,
+                          pendingTransaction:state.pendingTransaction,pendingExternalRevision:state.pendingExternalRevision,
+                          broken:state.broken,selectedId:state.selectedId} : null,
+                        button: button ? {disabled:button.disabled,ariaDisabled:button.getAttribute("aria-disabled"),text:button.textContent} : null,
+                        status: document.querySelector("#film-studio-alert")?.textContent || ""
+                      };
+                    }""")
+                    raise AssertionError({"undo_response_timeout":str(exc),"undo_diagnostics":diagnostics,
+                                          "edit_audit":edit_audit}) from exc
                 assert undo_response.value.status == 200
                 undo_payload = undo_response.value.json()
                 assert undo_payload.get("action") == "undo", undo_payload
