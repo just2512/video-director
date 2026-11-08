@@ -5082,6 +5082,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             provider_task_id = payload.get("provider_task_id")
             confirm_absent = payload.get("confirm_no_provider_task") is True
+            if provider_task_id is not None and not isinstance(provider_task_id, str):
+                self._send_json({"ok": False, "code": "INVALID_PROVIDER_TASK_ID",
+                                 "error": "provider_task_id 必须是字符串"}, 400)
+                return
             if bool(provider_task_id) == confirm_absent:
                 self._send_json({
                     "ok": False, "code": "INVALID_SUBMISSION_RESOLUTION",
