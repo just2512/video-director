@@ -60,7 +60,13 @@ class GenerationError(Exception):
         self.is_quota_err = quota_classifiable and any(
             marker in low for marker in self.QUOTA_MARKERS
         )
-        self.is_transient = any(m in low for m in self.TRANSIENT_MARKERS)
+        # Only provider-failure codes may be classified from free-form text.
+        # Explicit safety/state errors can contain provider diagnostics (including
+        # words such as 'timeout' or 'connection') without becoming safe to retry.
+        transient_classifiable = code in {"VIDEO_GENERATION_FAILED", "IMAGE_GENERATION_FAILED"}
+        self.is_transient = transient_classifiable and any(
+            marker in low for marker in self.TRANSIENT_MARKERS
+        )
         if self.is_quota_err:
             # 配额耗尽不可自恢复：code 归一为 QUOTA_EXCEEDED，message 原样保留
             # （供应商原文（含「余额不足」等中文提示）用户要能看懂）
