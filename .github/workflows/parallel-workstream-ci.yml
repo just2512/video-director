@@ -30,7 +30,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install system media dependencies
-        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/lifecycle-e2e')
+        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/timeline-gesture-state') || startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/lifecycle-e2e')
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
@@ -39,7 +39,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest playwright
       - name: Install Chromium
-        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/lifecycle-e2e')
+        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/timeline-gesture-state') || startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/lifecycle-e2e')
         run: python -m playwright install --with-deps chromium
       - name: Generation state and crash recovery
         if: startsWith(github.ref_name, 'work/generation-state')
@@ -51,7 +51,7 @@ jobs:
             tests/test_project_manifest.py \
             tests/test_bulk_management.py
       - name: Timeline editing and revision consistency
-        if: startsWith(github.ref_name, 'work/timeline-state')
+        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/timeline-gesture-state')
         run: |
           python -m pytest -q \
             tests/test_editor_undo_redo.py \
