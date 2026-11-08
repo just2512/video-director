@@ -2578,6 +2578,13 @@ def apply_ops(
             normalized.append({"op": "track", "track_id": track["id"], "field": field, "value": value})
         else:
             raise FilmError("UNKNOWN_OPERATION", f"不支持的操作：{kind}")
+    # Keep the in-memory FilmDocument in the same canonical order emitted by
+    # serialize_film(); cross-track moves and inserted clips otherwise append to
+    # a track and fail the strict serialization round-trip guard.
+    for track in out["tracks"]:
+        track["clips"].sort(
+            key=lambda clip: _number(clip["attrs"].get("at", 0), "at", 0)
+        )
     _validate_doc(out)
     return out, normalized
 
