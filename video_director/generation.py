@@ -985,12 +985,17 @@ def _generate_graphic(prompt, width, height, variants, assets_dir, input_fp, man
     from video_director.graphics import render as vd_gfx_render
 
     results: List[GenerationResult] = []
+    render_items = []
+    pending = []
     for v in variants:
         program = _build_single_scene_program(prompt, v, width, height)
         html = vd_compiler.compile_to_html(program)
         asset_id = f"gen-{uuid.uuid4().hex[:8]}"
         out_file = assets_dir / f"{asset_id}.png"
-        vd_gfx_render.render_still(html, str(out_file), width, height, frame=0)
+        render_items.append((html, str(out_file), width, height, 0))
+        pending.append((v, asset_id, out_file))
+    vd_gfx_render.render_stills(render_items)
+    for v, asset_id, out_file in pending:
         _register_result(manifest, results, asset_id, "image", out_file, width, height,
                          None, None, "graphics-runtime", prompt, input_fp, v)
     return results
