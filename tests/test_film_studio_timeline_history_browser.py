@@ -35,7 +35,7 @@ def _clip_positions(project_id: str) -> dict[str, float]:
 
 
 def _capture_film_edit_response(response, captured: list[dict]) -> None:
-    if response.request.method != "POST" or not response.url.endswith("/api/editor/film/edit"):
+    if not response.url.endswith("/api/editor/film/edit"):
         return
     try:
         captured.append({"status": response.status, "body": response.text()})
@@ -110,7 +110,7 @@ def _capture_film_history_request(request, captured: list[dict]) -> None:
 
 
 def _capture_film_history_response(response, captured: list[dict]) -> None:
-    if response.request.method != "POST" or not response.url.endswith(("/api/editor/film/undo", "/api/editor/film/redo")):
+    if not response.url.endswith(("/api/editor/film/undo", "/api/editor/film/redo")):
         return
     try:
         body = response.text()
@@ -870,6 +870,8 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
             page_errors: list[str] = []
             edit_requests: list[dict] = []
             edit_responses: list[dict] = []
+            history_requests: list[dict] = []
+            history_responses: list[dict] = []
 
             def capture_edit(request):
                 if request.method == "POST" and request.url.endswith("/api/editor/film/edit"):
