@@ -921,7 +921,6 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
 
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", capture_edit)
-            page.on("request", lambda request: _capture_film_history_request(request, history_requests))
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",

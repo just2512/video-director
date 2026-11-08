@@ -796,7 +796,24 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 trim_after_text = film_path.read_text(encoding="utf-8")
                 undo_request_count = len(history_requests)
                 undo_response_count = len(history_responses)
-                page.evaluate("() => window.filmStudioUndo()")
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/undo"),
+                    timeout=10000,
+                ) as undo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/undo"),
+                        timeout=10000,
+                    ) as undo_response:
+                        page.evaluate("() => window.filmStudioUndo()")
+                history_requests.append({
+                    "action": "undo", "payload": undo_request.value.post_data_json
+                })
+                history_responses.append({
+                    "action": "undo", "status": undo_response.value.status,
+                    "body": undo_response.value.text(),
+                })
                 page.wait_for_function(
                     """revision => {
                       const state = window.filmStudioStore?.getSnapshot();
@@ -813,7 +830,24 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
 
                 redo_request_count = len(history_requests)
                 redo_response_count = len(history_responses)
-                page.evaluate("() => window.filmStudioRedo()")
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/redo"),
+                    timeout=10000,
+                ) as redo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/redo"),
+                        timeout=10000,
+                    ) as redo_response:
+                        page.evaluate("() => window.filmStudioRedo()")
+                history_requests.append({
+                    "action": "redo", "payload": redo_request.value.post_data_json
+                })
+                history_responses.append({
+                    "action": "redo", "status": redo_response.value.status,
+                    "body": redo_response.value.text(),
+                })
                 page.wait_for_function(
                     """revision => {
                       const state = window.filmStudioStore?.getSnapshot();
