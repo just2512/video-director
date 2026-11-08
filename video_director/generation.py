@@ -221,6 +221,15 @@ def _update_job(project_id: str, job_id: str, fields: dict) -> dict:
         job = jobs.get(job_id) or {}
         current_status = job.get("status")
         requested_status = fields.get("status", current_status)
+        # A recovery worker can observe a stale provider "running" response after
+        # another poller has already persisted "downloading". Downloading means
+        # the provider task is complete and local output finalization has begun;
+        # it must never be downgraded to running by that stale observation.
+        if current_status == "downloading" and requested_status == "running":
+            logger.info(
+                f"generation: 任务 {job_id} 已进入 downloading，忽略迟到的 running 状态观察"
+            )
+            return job
         if current_status in _TERMINAL_JOB_STATUSES and requested_status != current_status:
             raise GenerationError(
                 "VIDEO_JOB_TERMINAL",

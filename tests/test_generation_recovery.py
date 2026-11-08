@@ -192,6 +192,32 @@ class TestRecoverPendingVideoJobs:
         assert jobs["genjob-abc"]["status"] == "done"
         assert jobs["genjob-abc"]["provider_task_id"] == "ext-task-9"
 
+    def test_stale_running_recovery_observation_cannot_downgrade_downloading_job(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import config, generation as gen
+
+        pid = "proj-recover-stale-running"
+        config.init_project_dirs(config.project_dir(pid))
+        gen._update_job(pid, "genjob-downloading", {
+            "provider": "fake",
+            "provider_task_id": "ext-task-downloading",
+            "gen_type": "video",
+            "status": "downloading",
+            "output_file": "pending-output.mp4",
+        })
+        monkeypatch.setattr(
+            gen, "_video_client", lambda _cfg: FakeVideoClient(statuses=["running"])
+        )
+
+        assert gen.recover_pending_video_jobs(pid) == []
+        job = gen._load_jobs(pid)["genjob-downloading"]
+        assert job["status"] == "downloading"
+        assert job["output_file"] == "pending-output.mp4"
+
+
     def test_recover_finishes_downloading_job_after_process_interruption(
         self, tmp_path, monkeypatch
     ):
