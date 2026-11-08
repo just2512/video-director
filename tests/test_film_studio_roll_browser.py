@@ -134,7 +134,6 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                         except Exception:
                             film_edit_requests.append({"raw": request.post_data})
                 page.on("request", capture_film_edit_request)
-                page.on("request", lambda request: _capture_history_request(request, history_requests))
                 def capture_film_edit_response(response):
                     if response.request.method == "POST" and response.url.endswith("/api/editor/film/edit"):
                         try:
@@ -394,12 +393,20 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
 
                 # Roll is one history unit: undo restores the exact post-split document,
                 # then redo restores the same source boundary and right-clip position.
-                with page.expect_response(
-                    lambda response: response.request.method == "POST"
-                    and response.url.endswith("/api/editor/film/undo"),
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/undo"),
                     timeout=10000,
-                ) as undo_response:
-                    page.evaluate("() => window.filmStudioUndo()")
+                ) as undo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/undo"),
+                        timeout=10000,
+                    ) as undo_response:
+                        page.evaluate("() => window.filmStudioUndo()")
+                history_requests.append({
+                    "action": "undo", "payload": undo_request.value.post_data_json
+                })
                 history_responses.append({
                     "action": "undo", "status": undo_response.value.status,
                     "body": undo_response.value.text(),
@@ -411,12 +418,20 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 )
                 assert film_path.read_bytes() == roll_bytes_before
                 assert fd.read_project_film(project_id)["rev"] == roll_document_before["rev"]
-                with page.expect_response(
-                    lambda response: response.request.method == "POST"
-                    and response.url.endswith("/api/editor/film/redo"),
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/redo"),
                     timeout=10000,
-                ) as redo_response:
-                    page.evaluate("() => window.filmStudioRedo()")
+                ) as redo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/redo"),
+                        timeout=10000,
+                    ) as redo_response:
+                        page.evaluate("() => window.filmStudioRedo()")
+                history_requests.append({
+                    "action": "redo", "payload": redo_request.value.post_data_json
+                })
                 history_responses.append({
                     "action": "redo", "status": redo_response.value.status,
                     "body": redo_response.value.text(),

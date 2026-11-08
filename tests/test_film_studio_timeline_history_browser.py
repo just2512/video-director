@@ -188,7 +188,6 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
 
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on("request", capture_edit)
-            page.on("request", lambda request: _capture_film_history_request(request, history_requests))
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
@@ -478,12 +477,20 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
                 # the revision shown in FilmStore, and the React-rendered geometry.
                 undo_request_count = len(history_requests)
                 undo_response_count = len(history_responses)
-                with page.expect_response(
-                    lambda response: response.request.method == "POST"
-                    and response.url.endswith("/api/editor/film/undo"),
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/undo"),
                     timeout=10000,
-                ) as undo_response:
-                    page.evaluate("() => window.filmStudioUndo()")
+                ) as undo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/undo"),
+                        timeout=10000,
+                    ) as undo_response:
+                        page.evaluate("() => window.filmStudioUndo()")
+                history_requests.append({
+                    "action": "undo", "payload": undo_request.value.post_data_json
+                })
                 history_responses.append({
                     "action": "undo", "status": undo_response.value.status,
                     "body": undo_response.value.text()
@@ -521,12 +528,20 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
                 # Redo restores the entire multi-operation gesture as one history entry.
                 redo_request_count = len(history_requests)
                 redo_response_count = len(history_responses)
-                with page.expect_response(
-                    lambda response: response.request.method == "POST"
-                    and response.url.endswith("/api/editor/film/redo"),
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/redo"),
                     timeout=10000,
-                ) as redo_response:
-                    page.evaluate("() => window.filmStudioRedo()")
+                ) as redo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/redo"),
+                        timeout=10000,
+                    ) as redo_response:
+                        page.evaluate("() => window.filmStudioRedo()")
+                history_requests.append({
+                    "action": "redo", "payload": redo_request.value.post_data_json
+                })
                 history_responses.append({
                     "action": "redo", "status": redo_response.value.status,
                     "body": redo_response.value.text()
@@ -1203,12 +1218,20 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 # One undo restores the original ownership and exact bytes.
                 undo_request_count = len(history_requests)
                 undo_response_count = len(history_responses)
-                with page.expect_response(
-                    lambda response: response.request.method == "POST"
-                    and response.url.endswith("/api/editor/film/undo"),
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/undo"),
                     timeout=10000,
-                ) as undo_response:
-                    page.evaluate("() => window.filmStudioUndo()")
+                ) as undo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/undo"),
+                        timeout=10000,
+                    ) as undo_response:
+                        page.evaluate("() => window.filmStudioUndo()")
+                history_requests.append({
+                    "action": "undo", "payload": undo_request.value.post_data_json
+                })
                 history_responses.append({
                     "action": "undo", "status": undo_response.value.status,
                     "body": undo_response.value.text()
@@ -1235,12 +1258,20 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
                 # Redo is the same single history entry, including cross-track ownership.
                 redo_request_count = len(history_requests)
                 redo_response_count = len(history_responses)
-                with page.expect_response(
-                    lambda response: response.request.method == "POST"
-                    and response.url.endswith("/api/editor/film/redo"),
+                with page.expect_request(
+                    lambda request: request.method == "POST"
+                    and request.url.endswith("/api/editor/film/redo"),
                     timeout=10000,
-                ) as redo_response:
-                    page.evaluate("() => window.filmStudioRedo()")
+                ) as redo_request:
+                    with page.expect_response(
+                        lambda response: response.request.method == "POST"
+                        and response.url.endswith("/api/editor/film/redo"),
+                        timeout=10000,
+                    ) as redo_response:
+                        page.evaluate("() => window.filmStudioRedo()")
+                history_requests.append({
+                    "action": "redo", "payload": redo_request.value.post_data_json
+                })
                 history_responses.append({
                     "action": "redo", "status": redo_response.value.status,
                     "body": redo_response.value.text()
