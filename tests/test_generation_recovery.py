@@ -75,6 +75,19 @@ def _video_cfg(monkeypatch):
         if role == "video" else {"api_key": "", "base_url": "", "model": ""})
 
 
+def test_explicit_submission_unknown_code_is_not_reclassified_from_job_id_429():
+    from video_director.generation import GenerationError
+
+    error = GenerationError(
+        "VIDEO_SUBMISSION_UNKNOWN",
+        "相同素材请求存在结果不确定的供应商提交记录 (genjob-429abc)；"
+        "为避免重复付费，系统不会自动重提。",
+    )
+
+    assert error.code == "VIDEO_SUBMISSION_UNKNOWN"
+    assert error.is_quota() is False
+
+
 class TestVideoJobPersistence:
     """任务 A：提交落盘 → 轮询更新 → done 写 output_file。"""
 
@@ -1028,6 +1041,10 @@ class TestConcurrentVideoSubmission:
 
         project_id = "proj-video-submit-timeout"
         config.init_project_dirs(config.project_dir(project_id))
+        from types import SimpleNamespace
+        monkeypatch.setattr(
+            gen.uuid, "uuid4", lambda: SimpleNamespace(hex="429abc000000000000000000")
+        )
 
         class TimeoutClient:
             def __init__(self):
@@ -1047,6 +1064,7 @@ class TestConcurrentVideoSubmission:
         jobs = gen._load_jobs(project_id)
         assert len(jobs) == 1
         reservation = next(iter(jobs.values()))
+        assert reservation["job_id"] == "genjob-429abc000000"
         assert reservation["status"] == "submission_unknown"
         assert reservation["submission_error_type"] == "TimeoutError"
 

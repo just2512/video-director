@@ -41,6 +41,11 @@ jobs:
       - name: Install Chromium
         if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/timeline-gesture-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/lifecycle-e2e')
         run: python -m playwright install --with-deps chromium
+      - name: Generation error classification safety
+        if: startsWith(github.ref_name, 'work/generation-error-classification')
+        run: |
+          python -m pytest -q tests/test_generation_recovery.py \
+            -k "explicit_submission_unknown or ambiguous_transport_failure"
       - name: Generation state and crash recovery
         if: startsWith(github.ref_name, 'work/generation-state')
         run: |
