@@ -592,15 +592,14 @@ def recover_pending_video_jobs(
     """
     jobs = _load_jobs(project_id)
     cfg = provider_cfg if provider_cfg is not None else _role_cfg("video")
-    if provider_identity is not None:
-        pending = [j for j in jobs.values()
-                   if j.get("status") in ("running", "downloading")
-                   and j.get("provider_task_id") and j.get("gen_type") == "video"
-                   and j.get("provider_identity") == provider_identity]
-    else:
-        pending = [j for j in jobs.values()
-                   if j.get("status") in ("running", "downloading")
-                   and j.get("provider_task_id") and j.get("gen_type") == "video"]
+    if provider_identity is None:
+        provider_identity = _video_provider_identity(cfg)
+    # Never poll a task unless its durable non-secret identity matches the
+    # effective endpoint/model. Legacy jobs without identity remain UNKNOWN.
+    pending = [j for j in jobs.values()
+               if j.get("status") in ("running", "downloading")
+               and j.get("provider_task_id") and j.get("gen_type") == "video"
+               and j.get("provider_identity") == provider_identity]
     if not pending:
         return []
     try:
