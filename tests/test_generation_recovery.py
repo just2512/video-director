@@ -143,6 +143,15 @@ class TestVideoJobPersistence:
         assert job["output_file"] and Path(job["output_file"]).is_file()
         assert Path(job["output_file"]).read_bytes() == b"fake-mp4"
         assert len(job["prompt_fingerprint"]) == 64  # sha256 hex
+        identity = job["provider_identity"]
+        assert identity["provider_id"] == "video-openai-compatible"
+        assert identity["endpoint"] == "https://fake/v1"
+        assert identity["model"] == "fake-video-model"
+        assert "api_key" not in identity
+        manifest = json.loads(
+            (config.project_dir(pid) / "assets" / "manifest.json").read_text(encoding="utf-8")
+        )
+        assert manifest[0]["provider_identity"] == identity
         assert fake.post_calls == 1
 
     def test_polling_updates_status_each_round(self, tmp_path, monkeypatch):
