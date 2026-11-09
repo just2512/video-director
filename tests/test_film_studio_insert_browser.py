@@ -1157,6 +1157,7 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 box = target.bounding_box()
                 assert box, "restored target clip bounds missing"
                 before_ripple_text = film_path.read_text(encoding="utf-8")
+                revision_before_ripple = fd.revision_of(before_ripple_text)
                 ripple_count = len(edit_requests)
                 page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, button="right")
                 menu.wait_for(state="visible", timeout=5000)
@@ -1196,7 +1197,7 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 ripple_response = edit_responses[-1] if edit_responses else {}
                 assert ripple_response.get("status") == 200, ripple_response
                 assert ripple_response.get("body", {}).get("ok") is True, ripple_response
-                assert ripple_response["body"].get("rev") != revision_after_lift, {
+                assert ripple_response["body"].get("rev") != revision_before_ripple, {
                     "response": ripple_response,
                     "request": edit_requests[-1],
                 }
