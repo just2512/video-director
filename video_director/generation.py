@@ -117,6 +117,11 @@ def _video_provider_identity(cfg: dict, model_override: Optional[str] = None) ->
     from video_director import provider_matrix
 
     raw_url = str((cfg or {}).get("base_url") or "").strip()
+    if not raw_url:
+        raise GenerationError(
+            "VIDEO_PROVIDER_UNAVAILABLE",
+            "视频 Provider endpoint 未配置；请先配置服务地址和模型。",
+        )
     try:
         parsed = urlsplit(raw_url)
         scheme = parsed.scheme.lower()
@@ -135,8 +140,10 @@ def _video_provider_identity(cfg: dict, model_override: Optional[str] = None) ->
     model_name = str(model_override or (cfg or {}).get("model") or "").strip()
     provider_id = provider_matrix.infer_provider("video", cfg)
     if not model_name:
-        raise GenerationError("VIDEO_PROVIDER_IDENTITY_INVALID",
-                              "视频 Provider 的有效模型名为空；已停止生成")
+        raise GenerationError(
+            "VIDEO_PROVIDER_UNAVAILABLE",
+            "视频 Provider 模型未配置；请先配置有效模型名。",
+        )
     identity = {
         "provider_id": provider_id,
         "endpoint": endpoint,
@@ -899,6 +906,20 @@ def generate(
         if gen_type == "video" else None
     )
     if gen_type == "video":
+        # Capability rejection must precede provider identity resolution. In
+        # particular, image-to-video is explicitly unsupported even when the
+        # caller has not configured a video endpoint; do not mask that contract
+        # with a secondary "missing endpoint" error.
+        if first_frame or last_frame:
+            try:
+                from video_director import provider_matrix
+                provider_matrix.require("video", "video.image_to_video", video_cfg)
+            except provider_matrix.ProviderCapabilityError as exc:
+                raise GenerationError(
+                    "FIRST_FRAME_UNSUPPORTED" if exc.state.status == provider_matrix.UNSUPPORTED
+                    else "VIDEO_PROVIDER_UNAVAILABLE",
+                    str(exc),
+                ) from exc
         effective_model = model or (video_cfg or {}).get("model") or ""
         provider_identity = _video_provider_identity(video_cfg or {}, effective_model)
         fp_src += "|provider_identity:" + provider_identity["fingerprint"]
@@ -955,18 +976,6 @@ def generate(
                     f"{[(j['job_id'][:16], j['status']) for j in recovered]}")
         except Exception as exc:  # noqa: BLE001 恢复失败不阻塞新生成
             logger.warning(f"generation: 视频任务恢复失败（不阻塞）: {exc}")
-        # §29：首末帧先问 Provider Capability Matrix，不再由生成器自己猜协议。
-        if first_frame or last_frame:
-            try:
-                from video_director import provider_matrix
-                provider_matrix.require("video", "video.image_to_video",
-                                       _role_cfg("video"))
-            except provider_matrix.ProviderCapabilityError as exc:
-                raise GenerationError(
-                    "FIRST_FRAME_UNSUPPORTED" if exc.state.status == provider_matrix.UNSUPPORTED
-                    else "VIDEO_PROVIDER_UNAVAILABLE",
-                    str(exc),
-                ) from exc
         results = _generate_video(
             project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
             model=effective_model, legacy_input_fp=legacy_input_fp,
