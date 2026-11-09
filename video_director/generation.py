@@ -1399,6 +1399,15 @@ def _create_poll_and_persist_video(
     一致，仅叠加持久化。
     """
     import time as _time
+    if (
+        not isinstance(provider_identity, dict)
+        or not isinstance(provider_identity.get("fingerprint"), str)
+        or not provider_identity.get("fingerprint")
+    ):
+        raise GenerationError(
+            "VIDEO_PROVIDER_IDENTITY_REQUIRED",
+            "视频任务提交缺少已解析的 Provider endpoint 身份；为避免错误复用或重复付费，已拒绝提交。",
+        )
     # Serialize the lookup/reservation/submit/persist boundary. A durable
     # "submitting" reservation is written before the non-idempotent provider
     # POST. If the process dies or the response times out after provider
