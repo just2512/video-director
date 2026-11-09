@@ -322,3 +322,13 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - The hosted workflow now requires all three markers, waits for both full pytest and Studio release gates, uses only `secrets.NVIDIA_API_KEY`, pins `https://integrate.api.nvidia.com/v1` and `z-ai/glm-5.3-flash`, and has no environment approval gate.
 - Documentation-only pushes no longer bypass the full hosted regression workflow. This preserves exact-main evidence when the execution ledger is updated.
 - Final closure still requires the real response to contain model token fragments before result, a revision-bound proposal, unchanged FilmDocument bytes/revision before approval, and single-use approval/replay rejection. If the secret is absent, report MISSING and keep the final gate open.
+
+
+## 15. NVIDIA endpoint timeout classification and bounded retry — 2026-11-09
+
+- Run `42630961883` proves the explicit NVIDIA live job ran with the masked NVIDIA secret present and runtime config accepted; it does not prove token delivery.
+- The actual app request to `https://integrate.api.nvidia.com/v1` / `z-ai/glm-5.3-flash` produced zero reasoning and visible fragments, then hit the SDK's configured 120-second read timeout. The previous classifier reported REJECT because it did not map a `ReadTimeout` inside the live JUnit failure to the existing `BLOCKED_ENDPOINT` category.
+- This commit adds a separate minimal real NVIDIA streaming probe before the full app test, raises only this isolated live run's SDK read timeout to 210 seconds, disables SDK retries, and classifies transport timeouts from both probe diagnostics and JUnit as BLOCKED_ENDPOINT. A successful minimal probe is connectivity evidence only; the full Film AI token-stream and FilmDocument immutability test remains mandatory for PASS.
+- NVIDIA's current model card says GLM-5.3-Flash supports reasoning/tool use, defaults `reasoning_effort` to `max`, and defaults `clear_thinking` to false. The official API reference documents OpenAI-compatible `/v1/chat/completions` streaming as SSE deltas. The provider already sends `reasoning_effort=low`, `clear_thinking=true`, and an 8192-token budget for this exact model.
+- Community reports dated 2026-10-14 describe GLM-5.3 chat-completions timeouts with zero response bytes while `/v1/models` remained HTTP 200. This is diagnostic context, not proof of a provider outage.
+- If the minimal probe or full app stream again times out, record BLOCKED_ENDPOINT and keep final acceptance OPEN. Do not substitute a mock or claim model availability from a catalog response.

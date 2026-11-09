@@ -92,6 +92,33 @@ def test_missing_or_ambiguous_junit_evidence_is_unknown(tmp_path):
 def test_explicit_failed_test_without_junit_is_rejected(tmp_path):
     assert classify_live_stream_acceptance("success", "failure", tmp_path / "missing.xml") == "REJECT"
 
+def test_explicit_missing_nvidia_secret_is_reported_missing(tmp_path):
+    assert classify_live_stream_acceptance("missing", "skipped", tmp_path / "missing.xml") == "MISSING"
+
+
+def test_main_fails_closed_when_explicit_nvidia_secret_is_missing(tmp_path, monkeypatch, capsys):
+    import sys
+
+    from video_director import live_stream_acceptance
+
+    monkeypatch.setenv("LIVE_STREAM_CONFIG_OUTCOME", "missing")
+    monkeypatch.setenv("LIVE_STREAM_TEST_OUTCOME", "skipped")
+    monkeypatch.setattr(sys, "argv", ["live_stream_acceptance", "--junit", str(tmp_path / "missing.xml")])
+
+    assert live_stream_acceptance.main() == 1
+    assert "LIVE_STREAM_ACCEPTANCE=MISSING" in capsys.readouterr().out
+
+
+def test_real_model_junit_read_timeout_is_blocked_endpoint(tmp_path):
+    path = tmp_path / "live.xml"
+    message = (
+        "RuntimeError: LLM stream failed "
+        "(exception_chain=APITimeoutError->ReadTimeout->TimeoutError, "
+        "reasoning_chunks=0, visible_chunks=0)"
+    )
+    write_junit(path, '<error message="' + message.replace("&", "&amp;").replace('"', "&quot;") + '">' + message + "</error>")
+    assert classify_live_stream_acceptance("success", "failure", path) == "BLOCKED_ENDPOINT"
+
 
 def test_malformed_junit_does_not_become_pass(tmp_path):
     path = tmp_path / "live.xml"

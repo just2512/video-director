@@ -262,18 +262,97 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
-      - name: Call NVIDIA official endpoint and verify actual model token stream
-        id: live_test
+      - name: Probe NVIDIA streaming endpoint with a minimal prompt
+        id: live_provider_probe
         shell: bash
+        continue-on-error: true
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          VD_LLM_REQUEST_TIMEOUT_SECONDS: "210"
+          VD_LLM_MAX_RETRIES: "0"
         run: |
           set -euo pipefail
           if [[ -z "${NVIDIA_API_KEY:-}" ]]; then
             echo "config_outcome=missing" >> "$GITHUB_OUTPUT"
-            echo "::error::LIVE_STREAM_ACCEPTANCE=MISSING; NVIDIA_API_KEY secret is not configured."
+            echo "error_type=MissingSecret" >> "$GITHUB_OUTPUT"
+            echo "LIVE_PROVIDER_PROBE=MISSING secret=NVIDIA_API_KEY"
             exit 1
           fi
+          echo "config_outcome=success" >> "$GITHUB_OUTPUT"
+          set +e
+          timeout --signal=TERM --kill-after=5s 240s python - <<'PY'
+          import os
+          import time
+          import httpx
+          from openai import OpenAI
+
+          started = time.monotonic()
+          try:
+              client = OpenAI(
+                  api_key=os.environ["NVIDIA_API_KEY"],
+                  base_url="https://integrate.api.nvidia.com/v1",
+                  timeout=httpx.Timeout(connect=15.0, read=210.0, write=30.0, pool=15.0),
+                  max_retries=0,
+              )
+              stream = client.chat.completions.create(
+                  model="z-ai/glm-5.3-flash",
+                  messages=[{"role": "user", "content": "Reply with exactly OK."}],
+                  stream=True,
+                  max_tokens=512,
+                  reasoning_effort="low",
+                  extra_body={"chat_template_kwargs": {"clear_thinking": True}},
+              )
+              first_token_seconds = None
+              for event in stream:
+                  choices = getattr(event, "choices", None) or []
+                  if not choices:
+                      continue
+                  fragment = getattr(getattr(choices[0], "delta", None), "content", None)
+                  if isinstance(fragment, str) and fragment.strip():
+                      first_token_seconds = time.monotonic() - started
+                      break
+              close = getattr(stream, "close", None)
+              if callable(close):
+                  close()
+              if first_token_seconds is None:
+                  print("LIVE_PROVIDER_PROBE=REJECT reason=no_nonempty_token")
+                  raise SystemExit(1)
+              print(f"LIVE_PROVIDER_PROBE=PASS first_token_seconds={first_token_seconds:.2f}")
+          except SystemExit:
+              raise
+          except Exception as exc:
+              cause = exc.__cause__ or exc.__context__
+              error_type = type(exc).__name__
+              cause_type = type(cause).__name__ if cause is not None else ""
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+                  handle.write(f"error_type={error_type}\n")
+                  handle.write(f"cause_type={cause_type}\n")
+              print(
+                  f"LIVE_PROVIDER_PROBE=REJECT error_type={error_type} "
+                  f"cause_type={cause_type or 'none'} "
+                  f"elapsed_seconds={time.monotonic()-started:.2f}"
+              )
+              raise SystemExit(1)
+          PY
+          probe_status=$?
+          set -e
+          if [[ "$probe_status" -eq 124 ]]; then
+            echo "error_type=TimeoutError" >> "$GITHUB_OUTPUT"
+            echo "cause_type=TimeoutError" >> "$GITHUB_OUTPUT"
+            echo "LIVE_PROVIDER_PROBE=BLOCKED_ENDPOINT outer_timeout"
+            exit 1
+          fi
+          exit "$probe_status"
+      - name: Call NVIDIA official endpoint and verify actual model token stream
+        id: live_test
+        if: steps.live_provider_probe.outcome == 'success'
+        shell: bash
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          VD_LLM_REQUEST_TIMEOUT_SECONDS: "210"
+          VD_LLM_MAX_RETRIES: "0"
+        run: |
+          set -euo pipefail
           echo "config_outcome=success" >> "$GITHUB_OUTPUT"
           export VD_LLM_API_KEY="$NVIDIA_API_KEY"
           export VD_LLM_BASE_URL="https://integrate.api.nvidia.com/v1"
@@ -286,16 +365,22 @@ jobs:
         if: always()
         shell: bash
         env:
-          LIVE_CONFIG_OUTCOME: ${{ steps.live_test.outputs.config_outcome || 'unknown' }}
-          LIVE_TEST_OUTCOME: ${{ steps.live_test.outcome }}
+          LIVE_CONFIG_OUTCOME: ${{ steps.live_provider_probe.outputs.config_outcome || 'unknown' }}
+          LIVE_TEST_OUTCOME: ${{ steps.live_test.outcome || 'skipped' }}
+          LIVE_PROVIDER_PROBE_OUTCOME: ${{ steps.live_provider_probe.outcome == 'success' && 'success' || 'failure' }}
+          LIVE_PROVIDER_PROBE_ERROR_TYPE: ${{ steps.live_provider_probe.outputs.error_type || '' }}
+          LIVE_PROVIDER_PROBE_CAUSE_TYPE: ${{ steps.live_provider_probe.outputs.cause_type || '' }}
         run: |
           set -euo pipefail
           if [[ "$LIVE_CONFIG_OUTCOME" == "missing" ]]; then
             echo "LIVE_STREAM_ACCEPTANCE=MISSING"
             exit 1
           fi
-          LIVE_STREAM_CONFIG_OUTCOME="success" \
+          LIVE_STREAM_CONFIG_OUTCOME="$LIVE_CONFIG_OUTCOME" \
           LIVE_STREAM_TEST_OUTCOME="$LIVE_TEST_OUTCOME" \
+          LIVE_PROVIDER_PROBE_OUTCOME="$LIVE_PROVIDER_PROBE_OUTCOME" \
+          LIVE_PROVIDER_PROBE_ERROR_TYPE="$LIVE_PROVIDER_PROBE_ERROR_TYPE" \
+          LIVE_PROVIDER_PROBE_CAUSE_TYPE="$LIVE_PROVIDER_PROBE_CAUSE_TYPE" \
           python -m video_director.live_stream_acceptance --junit live-stream-junit.xml
       - name: Retain real NVIDIA JUnit evidence
         if: always()

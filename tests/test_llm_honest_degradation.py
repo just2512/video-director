@@ -164,7 +164,8 @@ def test_openai_compatible_provider_closes_upstream_stream_on_cancel():
         provider.generate_stream("prompt", on_delta=receive, cancel_event=cancel_event)
     assert stream.closed is True
 
-def test_openai_compatible_provider_applies_explicit_request_bounds(monkeypatch):
+@pytest.mark.parametrize("timeout_seconds", ["120", "210"])
+def test_openai_compatible_provider_applies_explicit_request_bounds(monkeypatch, timeout_seconds):
     """Live CI can bound a slow upstream without changing the application's default SDK behavior."""
     import sys
     import types
@@ -180,13 +181,13 @@ def test_openai_compatible_provider_applies_explicit_request_bounds(monkeypatch)
     fake_openai = types.ModuleType("openai")
     fake_openai.OpenAI = FakeOpenAI
     monkeypatch.setitem(sys.modules, "openai", fake_openai)
-    monkeypatch.setenv("VD_LLM_REQUEST_TIMEOUT_SECONDS", "120")
+    monkeypatch.setenv("VD_LLM_REQUEST_TIMEOUT_SECONDS", timeout_seconds)
     monkeypatch.setenv("VD_LLM_MAX_RETRIES", "0")
 
     provider = OpenAICompatibleProvider(api_key="test-key", base_url="https://example.invalid/v1", model="test-model")
     provider._ensure_client()
 
-    assert captured["timeout"] == 120.0
+    assert captured["timeout"] == float(timeout_seconds)
     assert captured["max_retries"] == 0
     assert captured["api_key"] == "test-key"
     assert captured["base_url"] == "https://example.invalid/v1"

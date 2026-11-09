@@ -174,7 +174,7 @@ def classify_live_stream_acceptance(
     config_outcome = str(config_outcome or "unknown")
     test_outcome = str(test_outcome or "unknown")
     probe_outcome = str(probe_outcome or "skipped")
-    if config_outcome == "skipped":
+    if config_outcome in {"skipped", "missing"}:
         return "MISSING"
     if config_outcome != "success":
         return "REJECT"
@@ -218,6 +218,12 @@ def classify_live_stream_acceptance(
     evidence = _case_evidence(case)
     if "insufficient balance" in evidence or ("429" in evidence and "balance" in evidence):
         return "BLOCKED_PROVIDER"
+    transport_timeout_markers = (
+        "apitimeouterror", "readtimeout", "connecttimeout",
+        "pooltimeout", "writetimeout", "timed out",
+    )
+    if any(marker in evidence for marker in transport_timeout_markers):
+        return "BLOCKED_ENDPOINT"
     model_retirement_markers = (
         "has reached its end of life",
         "no longer available",
