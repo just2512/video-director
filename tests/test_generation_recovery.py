@@ -277,6 +277,60 @@ class TestRecoverPendingVideoJobs:
         assert jobs["genjob-abc"]["status"] == "done"
         assert jobs["genjob-abc"]["provider_task_id"] == "ext-task-9"
 
+    def test_completed_legacy_job_without_output_path_stays_recoverable_and_reuses_provider_task(
+        self, tmp_path, monkeypatch
+    ):
+        """缺少旧 output_file 时不能把供应商已完成任务错误终结；后续入口必须复用原任务。"""
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+
+        pid = "proj-recover-legacy-no-output"
+        config.init_project_dirs(config.project_dir(pid))
+        identity = _video_identity(monkeypatch, gen, "fake-video-model")
+        cfg = gen._role_cfg("video")
+        assets_dir = config.project_dir(pid) / "assets" / "generated"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        job_id = "genjob-legacy-no-output"
+        gen._update_job(pid, job_id, {
+            "provider": "fake",
+            "provider_task_id": "ext-task-legacy-no-output",
+            "provider_identity": identity,
+            "gen_type": "video",
+            "input_fingerprint": "a" * 16,
+            "variant": "A",
+            "status": "running",
+            "output_file": "",
+        })
+        fake = FakeVideoClient(statuses=["completed", "completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: fake)
+        monkeypatch.setattr(gen, "_download_bytes", lambda _url: b"recovered-legacy-output")
+
+        # The recovery scan sees provider completion but must not write a false done state.
+        assert gen.recover_pending_video_jobs(
+            pid, provider_identity=identity, provider_cfg=cfg
+        ) == []
+        pending = gen._load_jobs(pid)[job_id]
+        assert pending["status"] == "running"
+        assert pending["provider_task_id"] == "ext-task-legacy-no-output"
+        assert not pending.get("output_commit_protocol")
+
+        # The normal generation entry assigns a deterministic local path and resumes
+        # the same provider task; it must never create a second paid submission.
+        manifest = []
+        results = gen._generate_video(
+            pid, "prompt", 320, 180, ["A"], assets_dir, "a" * 16, manifest,
+            model="fake-video-model", provider_cfg=cfg, provider_identity=identity,
+        )
+        assert len(results) == 1
+        completed = gen._load_jobs(pid)[job_id]
+        assert completed["status"] == "done"
+        assert completed["output_commit_protocol"] == "atomic-v2"
+        output = Path(completed["output_file"])
+        assert output.is_file() and output.read_bytes() == b"recovered-legacy-output"
+        assert fake.post_calls == 0
+        assert fake.get_calls == 2
+        assert len(manifest) == 1 and manifest[0]["id"] == results[0].asset_id
+
     def test_stale_running_recovery_observation_cannot_downgrade_downloading_job(
         self, tmp_path, monkeypatch
     ):

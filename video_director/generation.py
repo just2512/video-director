@@ -653,11 +653,24 @@ def recover_pending_video_jobs(
                 logger.info(f"generation: 任务 {job_id} 已由其他 worker 进入终态，忽略迟到的运行观察")
             continue
         out_file = job.get("output_file") or ""
+        if not out_file:
+            # Legacy in-flight reservations can predate durable output paths.
+            # Keep the provider task non-terminal so _generate_video can assign
+            # its deterministic recovered-<job-hash>.mp4 path and resume polling.
+            # Marking this job done here would make _generate_video fail closed
+            # before it can repair the missing path, leaving a paid task stranded.
+            logger.warning(
+                f"generation: 任务 {job_id} 已在供应商侧完成，但任务台账缺少 output_file；"
+                "保持非终态，等待生成入口分配确定性恢复路径"
+            )
+            continue
+        if not url:
+            logger.warning(
+                f"generation: 任务 {job_id} 已完成但没有可下载 URL；保持非终态等待恢复"
+            )
+            continue
         try:
-            if out_file and url:
-                _persist_video_output(project_id, job_id, out_file, url)
-            else:
-                _update_job(project_id, job_id, {"status": "done", "output_file": out_file})
+            _persist_video_output(project_id, job_id, out_file, url)
         except Exception as exc:
             logger.warning(
                 f"generation: 任务 {job_id} 产物下载/落盘失败（保持 downloading，下次恢复）: {exc}")
