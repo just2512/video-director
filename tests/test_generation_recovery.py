@@ -482,7 +482,9 @@ class TestFingerprintReuse:
         pid = "proj-manifest-row-rebuild"
         config.init_project_dirs(config.project_dir(pid))
         prompt = "rebuild a lost manifest row"
-        input_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
+        input_fp = hashlib.sha256(
+            (prompt + "|video|dimensions:1080x1920").encode("utf-8")
+        ).hexdigest()[:16]
         output = config.project_dir(pid) / "assets" / "generated" / "registered.mp4"
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(b"durable-registered-video")
@@ -494,6 +496,7 @@ class TestFingerprintReuse:
             "variant": "A",
             "status": "done",
             "output_file": str(output),
+            "width": 1080, "height": 1920,
             "output_commit_protocol": "atomic-v2",
             "manifest_registered": True,
             "registry_status": "registered",
@@ -633,11 +636,14 @@ class TestFingerprintReuse:
         pid = "proj-recover-before-manifest"
         config.init_project_dirs(config.project_dir(pid))
         prompt = "recover me"
-        input_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
+        input_fp = hashlib.sha256(
+            (prompt + "|video|dimensions:1080x1920").encode("utf-8")
+        ).hexdigest()[:16]
         prior_output = config.project_dir(pid) / "assets" / "generated" / "prior.mp4"
         gen._update_job(pid, "genjob-recovered", {
             "provider": "fake", "provider_task_id": "ext-task-recovered",
             "gen_type": "video", "input_fingerprint": input_fp,
+            "width": 1080, "height": 1920,
             "variant": "A", "status": "running", "output_file": str(prior_output),
         })
         fake = FakeVideoClient(statuses=["completed", "completed"])
@@ -663,7 +669,9 @@ class TestFingerprintReuse:
         pid = "proj-manifest-already-durable"
         config.init_project_dirs(config.project_dir(pid))
         prompt = "durable manifest"
-        input_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
+        input_fp = hashlib.sha256(
+            (prompt + "|video|dimensions:320x180").encode("utf-8")
+        ).hexdigest()[:16]
         out_file = config.project_dir(pid) / "assets" / "generated" / "existing.mp4"
         out_file.parent.mkdir(parents=True, exist_ok=True)
         out_file.write_bytes(b"durable-video")
@@ -676,6 +684,7 @@ class TestFingerprintReuse:
         gen._update_job(pid, "genjob-manifest-existing", {
             "provider_task_id": "provider-task-expired",
             "gen_type": "video", "input_fingerprint": input_fp,
+            "width": 320, "height": 180,
             "variant": "A", "status": "done", "output_file": str(out_file),
             "output_commit_protocol": "atomic-v2",
             "recovery_needs_registration": True,
@@ -684,7 +693,9 @@ class TestFingerprintReuse:
         def forbidden_provider_client(cfg):
             raise AssertionError("durable manifest replay must not require provider access")
         monkeypatch.setattr(gen, "_video_client", forbidden_provider_client)
-        results = gen.generate(pid, prompt, "video", variant="A")
+        results = gen.generate(
+            pid, prompt, "video", width=320, height=180, variant="A"
+        )
         assert len(results) == 1 and results[0].asset_id == "gen-existing"
         job = gen._load_jobs(pid)["genjob-manifest-existing"]
         assert job["manifest_registered"] is True
@@ -700,7 +711,9 @@ class TestFingerprintReuse:
         pid = "proj-missing-registered-video"
         config.init_project_dirs(config.project_dir(pid))
         prompt = "missing registered output"
-        input_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
+        input_fp = hashlib.sha256(
+            (prompt + "|video|dimensions:320x180").encode("utf-8")
+        ).hexdigest()[:16]
         missing = config.project_dir(pid) / "assets" / "generated" / "missing.mp4"
         gen._save_manifest(pid, [{
             "id": "gen-missing", "type": "video", "file": str(missing),
@@ -712,6 +725,7 @@ class TestFingerprintReuse:
             "provider_task_id": "provider-task-existing",
             "gen_type": "video", "input_fingerprint": input_fp,
             "variant": "A", "status": "done", "output_file": str(missing),
+            "width": 320, "height": 180,
             "manifest_registered": True,
         })
         monkeypatch.setattr(
@@ -721,7 +735,7 @@ class TestFingerprintReuse:
             ),
         )
         with pytest.raises(gen.GenerationError) as exc:
-            gen.generate(pid, prompt, "video", variant="A")
+            gen.generate(pid, prompt, "video", width=320, height=180, variant="A")
         assert exc.value.code == "VIDEO_MANIFEST_OUTPUT_MISSING"
 
 class TestConcurrentVideoSubmission:
