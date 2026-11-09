@@ -650,6 +650,9 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
 
     spec = {
         "project_id": project_id,
+        # 当前项目元数据以 DB 为准；spec 仅在旧项目缺少 DB 字段时作为后续回填兜底。
+        "project_name": str(params.get("name") or "").strip(),
+        "project_type": str(params.get("project_type") or "").strip(),
         # 重试沿用初次参数；script 覆盖：bundle 里可能有 director 生成稿
         "script": (bundle.get("script") or {}).get("text")
                  or proj.get("script") or "",

@@ -281,3 +281,5 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - The unified Director service validates and forwards both values. Director Agent stores them in the existing `projects.params_json` row; no SQLite schema migration or second create state machine is introduced.
 - Project index now returns `project_type`, and the project list displays it. Project prefill reads the current DB name/type (so a later rename wins over the original spec), falling back to the persisted `director_spec.json` for compatibility.
 - Added service-boundary validation, Director Agent persistence, project-index, draft persistence, and browser prefill/create-payload regressions. Exact-main W4 and full-regression evidence remains PENDING until the resulting commit's hosted jobs finish.
+
+- Retry recovery now seeds `project_name` and `project_type` from current `params_json` before historical `director_spec.json` backfill, so a post-creation rename is not reverted by retry.

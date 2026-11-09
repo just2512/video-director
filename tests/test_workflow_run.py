@@ -133,3 +133,46 @@ class TestWorkflowRun:
         r = wf.get_run(rid)
         assert r["labels"]["script"] == "理解文案"
         assert r["labels"]["material_match"] == "匹配画面"
+
+
+def test_director_retry_prefers_current_project_metadata_over_original_spec(monkeypatch):
+    import json
+
+    from video_director import director_inputs, director_intent, store, workflow_run as wf
+
+    project_id = "web-retry-metadata"
+    bundle = {
+        "brief": "继续制作知识科普视频",
+        "script": {"text": "当前文案"},
+        "assets": {"asset_refs": []},
+    }
+    monkeypatch.setattr(store, "get_project", lambda _pid: {
+        "project_id": project_id,
+        "script": "当前文案",
+        "params_json": json.dumps({
+            "name": "已重命名项目",
+            "project_type": "知识科普",
+            "creative_brief": "继续制作知识科普视频",
+        }),
+    })
+    monkeypatch.setattr(wf, "list_runs", lambda **_kwargs: [])
+    monkeypatch.setattr(director_inputs, "load_bundle", lambda _pid: bundle)
+    monkeypatch.setattr(director_intent, "resolve_rule_intents", lambda _brief: {})
+    monkeypatch.setattr(
+        wf, "_load_persisted_director_spec",
+        lambda _pid: {"project_name": "最初的项目名称", "project_type": "最初的类型"},
+    )
+    monkeypatch.setattr(store, "set_stage", lambda *_args, **_kwargs: None)
+    captured = {}
+
+    def capture_retry_spec(spec):
+        captured["spec"] = spec
+        return "run-retry-metadata"
+
+    monkeypatch.setattr(wf, "run_director_create_async", capture_retry_spec)
+
+    run_id = wf.run_director_retry_async(project_id)
+
+    assert run_id == "run-retry-metadata"
+    assert captured["spec"]["project_name"] == "已重命名项目"
+    assert captured["spec"]["project_type"] == "知识科普"
