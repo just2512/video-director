@@ -32,14 +32,14 @@ Source changes are integrated directly into `main`, serially, after review again
 - W3 can prepare lifecycle fixtures and acceptance assertions concurrently, but final integrated lifecycle execution waits for W1 and W2 contracts.
 - W4 and W5 can develop isolated JS/CSS modules concurrently. They must not edit `index.html` or `app.js`; W7 integrates those shared files in a reserved serial window.
 - W6 can migrate and validate hosted CI concurrently with read-only audits and isolated test preparation.
-- W7 is serial: one writer owns shared shell files and integrates only after W4/W5 contracts are stable.
+- W7 is serial: one writer owns shared shell files and integrates only after W4/W5 contracts are stable. Its browser suite includes the integrated home → create/cancel/resume → settings save/import/export journey, not just isolated route checks.
 - Shared contracts (FilmDocument revision, project context, create lifecycle, model-config persistence and provider identity) are never modified by two lanes simultaneously.
 
 ## Runner policy
 
-**GitHub-hosted runners only.** Use `ubuntu-24.04` for Linux/browser/media suites and `windows-latest` for Windows-native publication tests. Do not use `self-hosted`, local WSL, developer workspaces, or local model configuration. Live provider tests are opt-in only and may use GitHub Actions Secrets on a hosted runner; mocked CI must report live-provider acceptance as MISSING.
+**GitHub-hosted runners only.** Use `ubuntu-24.04` for Linux/browser/media suites and `windows-latest` for Windows-native publication tests. No workflow may target `self-hosted`, local WSL, developer workspaces, or local model configuration. The obsolete self-hosted AI Director workflow has been removed; `full-hosted-regression.yml` is the canonical release gate. Live NVIDIA acceptance is a separately gated, explicit opt-in using only the dedicated GitHub Actions secret on a hosted runner.
 
-The previous AI Director workflow targeted a self-hosted WSL runner. It is disabled pending hosted migration. The branch-gated workflows are not yet sufficient for this main-only model; see the execution ledger's W6 blocker.
+Documentation-only commits do not rerun the expensive full test suite. Every code/workflow change does; the ledger records the exact tested code SHA. Per-branch concurrency cancels superseded main runs so CI capacity is spent on the latest source revision.
 
 ## Acceptance rule
 

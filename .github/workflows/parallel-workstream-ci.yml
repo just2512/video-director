@@ -14,8 +14,8 @@ permissions:
 
 # Independent GitHub-hosted jobs; every job checks out the same immutable SHA.
 concurrency:
-  group: parallel-workstreams-${{ github.sha }}
-  cancel-in-progress: false
+  group: parallel-workstreams-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   generation-durability:

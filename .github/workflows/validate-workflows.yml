@@ -3,6 +3,8 @@ name: Validate GitHub Actions workflow syntax
 on:
   push:
     branches: [main]
+    paths:
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:

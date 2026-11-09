@@ -6,8 +6,8 @@ on:
 permissions:
   contents: read
 
-# This manual validation runs on an isolated hosted runner. It must never
-# occupy or mutate the shared self-hosted WSL workspace used by ai-director.
+# This manual validation runs only on an isolated GitHub-hosted runner.
+# The full-hosted-regression workflow remains the canonical release gate.
 concurrency:
   group: studio-ui-hosted-${{ github.ref }}
   cancel-in-progress: false

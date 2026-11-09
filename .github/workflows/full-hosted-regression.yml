@@ -3,6 +3,10 @@ name: Full hosted regression
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'README*'
   workflow_dispatch:
     inputs:
       run_live_nvidia:
@@ -15,8 +19,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: full-hosted-regression-${{ github.sha }}
-  cancel-in-progress: false
+  group: full-hosted-regression-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   full_regression:

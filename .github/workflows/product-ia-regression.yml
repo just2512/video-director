@@ -14,8 +14,8 @@ permissions:
 
 # Isolated GitHub-hosted jobs; never read developer-local API credentials/config.
 concurrency:
-  group: product-ia-${{ github.sha }}
-  cancel-in-progress: false
+  group: product-ia-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   project-home-create:
