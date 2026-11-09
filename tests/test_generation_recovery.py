@@ -334,7 +334,8 @@ class TestRecoverPendingVideoJobs:
         monkeypatch.setattr(gen, "_query_video_status", stale_failed_after_download_started)
         monkeypatch.setattr(gen, "_video_client", lambda _cfg: FakeVideoClient([]))
 
-        assert gen.recover_pending_video_jobs(pid) == []
+        recovered = gen.recover_pending_video_jobs(pid)
+        assert len(recovered) == 1 and recovered[0]["status"] == "downloading"
         job = gen._load_jobs(pid)["genjob-downloading"]
         assert job["status"] == "downloading"
         assert job["output_file"] == "pending-output.mp4"
