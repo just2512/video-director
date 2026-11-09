@@ -272,7 +272,7 @@ class TestAIProviderDispatch:
         assert vd_generation._image_size(1080, 1920) == "1024x1792"
         assert vd_generation._image_size(1080, 1080) == "1024x1024"
 
-    def test_image_provider_unconfigured_raises(self):
+    def test_image_provider_unconfigured_raises(self, monkeypatch):
         """§五十一 Capability G：roles.image 无 key → IMAGE_PROVIDER_UNAVAILABLE。"""
         from video_director import generation as vd_generation
         import video_director.generation as gmod
