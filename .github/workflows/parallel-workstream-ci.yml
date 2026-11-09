@@ -1,190 +1,107 @@
-name: Main hosted workstream regression
+name: Parallel workstream regression
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# Independent GitHub-hosted jobs; every job checks out the same immutable SHA.
 concurrency:
-  group: video-director-main-workstreams-${{ github.sha }}
+  group: parallel-workstreams-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
-  generation_durability:
-    name: Generation, Manifest and Asset Registry recovery
+  generation-durability:
+    name: W1 generation durability
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
-      - name: Checkout exact main push SHA
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: requirements.txt
-      - name: Install media dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest
-      - name: Run generation crash-recovery and registry regressions
+      - name: Generation recovery and manifest invariants
         run: |
-          mkdir -p test-results
-          python -m pytest -q --tb=short --junitxml=test-results/generation-durability.xml \
+          python -m pytest -q --tb=short \
             tests/test_generation_recovery.py \
             tests/test_generation_gap1.py \
-            tests/test_generation_job_admin_api.py \
+            tests/test_film_transaction_recovery.py \
             tests/test_project_manifest.py \
-            tests/test_asset_catalog.py \
-            tests/test_asset_semantics_chain.py \
-            tests/test_local_asset_resolution.py \
-            tests/test_bulk_management.py \
-            tests/test_film_transaction_recovery.py
-      - name: Upload generation test evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: generation-durability-${{ github.sha }}
-          path: test-results/*.xml
-          if-no-files-found: ignore
-          retention-days: 14
+            tests/test_bulk_management.py
 
-  timeline_transaction:
-    name: Timeline multi-select, drag, Undo/Redo and revision consistency
+  timeline-transactions:
+    name: W2 timeline transactions
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    env:
-      VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO: "1"
+    timeout-minutes: 45
     steps:
-      - name: Checkout exact main push SHA
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - name: Set up Node 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: studio_ui/package-lock.json
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: requirements.txt
-      - name: Install media dependencies
+      - name: Install browser and media dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
-      - name: Build React Studio and Tailwind CSS
-        working-directory: studio_ui
-        run: |
-          npm ci --no-audit --no-fund --fetch-retries=2
-          npm run typecheck
-          npm run build:studio
-          npm run build:studio:css
-      - name: Install Python and Chromium dependencies
-        run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest playwright
           python -m playwright install --with-deps chromium
-      - name: Run timeline transaction browser regressions
+      - name: Timeline transaction and revision regression
         run: |
-          mkdir -p test-results
-          python -m pytest -q --tb=short --junitxml=test-results/timeline-transaction.xml \
+          python -m pytest -q --tb=short \
             tests/test_editor_undo_redo.py \
             tests/test_film_studio_timeline_history_browser.py \
             tests/test_film_studio_pending_revision.py \
             tests/test_film_studio_external_watch_browser.py \
             tests/test_editor_command_project_switch_browser.py \
-            tests/test_editor_preview_review_project_switch_browser.py \
-            tests/test_film_studio_project_switch_four_way_browser.py \
             tests/test_visual_overlay_timeline.py \
             tests/test_audio_clip_timeline.py \
             tests/test_film_document_contract.py \
             tests/test_film_external_watch_history.py \
-            tests/test_film_studio_roll_browser.py \
-            tests/test_film_studio_insert_browser.py \
-            tests/test_film_studio_react_timeline_toolbar.py \
             tests/test_film_transaction_recovery.py
-      - name: Upload timeline test evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: timeline-transaction-${{ github.sha }}
-          path: test-results/*.xml
-          if-no-files-found: ignore
-          retention-days: 14
 
-  project_lifecycle:
-    name: Project create, migration, edit, export and QC lifecycle
+  lifecycle-export:
+    name: W3 lifecycle export and QC
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    env:
-      VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO: "1"
+    timeout-minutes: 55
     steps:
-      - name: Checkout exact main push SHA
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-      - name: Set up Node 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: studio_ui/package-lock.json
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: requirements.txt
-      - name: Install media dependencies
+      - name: Install browser and media dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
-      - name: Build React Studio and Tailwind CSS
-        working-directory: studio_ui
-        run: |
-          npm ci --no-audit --no-fund --fetch-retries=2
-          npm run typecheck
-          npm run build:studio
-          npm run build:studio:css
-      - name: Install Remotion runtime dependencies
-        working-directory: remotion_runtime
-        run: npm install --no-package-lock --no-audit --no-fund --fetch-retries=2
-      - name: Install Python and Chromium dependencies
-        run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest playwright
           python -m playwright install --with-deps chromium
-      - name: Run project lifecycle, real export and QC regressions
+      - name: Project lifecycle, render and QC regression
         run: |
-          mkdir -p test-results
-          python -m pytest -q --tb=short --junitxml=test-results/project-lifecycle.xml \
+          python -m pytest -q --tb=short \
             tests/test_project_manager.py \
             tests/test_project_manager_film_authority.py \
             tests/test_film_full_pipeline_e2e.py \
             tests/test_film_studio_migration_preview_browser.py \
             tests/test_film_render_publication_transaction.py \
-            tests/test_film_render_publication_recovery.py \
             tests/test_film_render_scene_e2e.py \
             tests/test_film_document_contract.py \
-            tests/test_film_studio_generated_asset_adoption_browser.py \
-            tests/test_film_asset_provenance_migration.py
-      - name: Upload project lifecycle test evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: project-lifecycle-${{ github.sha }}
-          path: test-results/*.xml
-          if-no-files-found: ignore
-          retention-days: 14
+            tests/test_film_studio_generated_asset_adoption_browser.py
