@@ -33,7 +33,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install system media dependencies
-        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/timeline-gesture-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/lifecycle-e2e') || startsWith(github.ref_name, 'work/film-four-way-consistency') || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/film-four-way-consistency')) || startsWith(github.ref_name, 'work/film-four-way-consistency-main-sync')
+        if: startsWith(github.ref_name, 'fix/batch-graphics-still-render') || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'fix/batch-graphics-still-render')) || startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/timeline-gesture-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/lifecycle-e2e') || startsWith(github.ref_name, 'work/film-four-way-consistency') || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/film-four-way-consistency')) || startsWith(github.ref_name, 'work/film-four-way-consistency-main-sync')
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
@@ -42,8 +42,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest playwright
       - name: Install Chromium
-        if: startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/timeline-gesture-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/lifecycle-e2e') || startsWith(github.ref_name, 'work/film-four-way-consistency') || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/film-four-way-consistency')) || startsWith(github.ref_name, 'work/film-four-way-consistency-main-sync')
+        if: startsWith(github.ref_name, 'fix/batch-graphics-still-render') || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'fix/batch-graphics-still-render')) || startsWith(github.ref_name, 'work/timeline-state') || startsWith(github.ref_name, 'work/timeline-gesture-state') || startsWith(github.ref_name, 'work/timeline-gesture-integration') || startsWith(github.ref_name, 'work/asset-insert-revision') || startsWith(github.ref_name, 'work/lifecycle-e2e') || startsWith(github.ref_name, 'work/film-four-way-consistency') || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'work/film-four-way-consistency')) || startsWith(github.ref_name, 'work/film-four-way-consistency-main-sync')
         run: python -m playwright install --with-deps chromium
+      - name: Graphics batch still rendering regression
+        if: startsWith(github.ref_name, 'fix/batch-graphics-still-render') || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'fix/batch-graphics-still-render'))
+        run: |
+          python -m pytest -q -s \
+            tests/test_graphics_runtime.py \
+            tests/test_shotcraft_regression_pack.py::TestGenerationLineage::test_generate_image_variants_and_manifest
+
       - name: Generation error classification safety
         if: startsWith(github.ref_name, 'work/generation-error-classification')
         run: |
