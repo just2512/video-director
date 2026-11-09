@@ -603,7 +603,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 page.mouse.move(x, y)
                 page.mouse.down()
                 page.mouse.move(x + 9, y, steps=3)  # +0.25 timeline s × 2× speed = +0.5 source s
-                page.wait_for_function("""() => {
+                page.wait_for_function("""(isMultiSelect) => {
                   const state = window.filmStudioStore?.getSnapshot();
                   const preview = state?.timelineGesturePreview?.['clip-a'];
                   const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]');
@@ -1163,7 +1163,7 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                   const row = document.querySelector('#fs-timeline .fs-track[data-track="video-alt"]');
                   return preview?.targetTrackId === 'video-alt'
                     && Math.abs(Number(preview.left) - 180) < 1
-                    && (!arguments[0] || (secondPreview?.targetTrackId === 'video-third' && !!secondGhost))
+                    && (!isMultiSelect || (secondPreview?.targetTrackId === 'video-third' && !!secondGhost))
                     && drop?.trackId === 'video-alt' && drop.invalid === false
                     && !!ghost && row?.classList.contains('fs-track-drop-target');
                 }""", arg=multi_select, timeout=8000)
@@ -1181,7 +1181,7 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                 assert len(film_edit_requests) == request_count, film_edit_requests[request_count:]
 
                 page.mouse.up()
-                page.wait_for_function("""async (pid) => {
+                page.wait_for_function("""async ([pid, isMultiSelect]) => {
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
                   if (!response.ok) return false;
                   const doc = await response.json();
@@ -1197,7 +1197,7 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                     && !!third && (third.clips || []).some(clip =>
                       clip.id === 'clip-c' && Math.abs(Number(clip.attrs.at) - 5) < 0.001
                     );
-                  return sourceMoved && targetMoved && (!arguments[1] || secondMoved);
+                  return sourceMoved && targetMoved && (!isMultiSelect || secondMoved);
                 }""", arg=[project_id, multi_select], timeout=15000)
 
                 committed_requests = film_edit_requests[request_count:]
