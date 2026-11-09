@@ -179,21 +179,25 @@ jobs:
 
           def get_json(url):
               last_error = None
-              for attempt in range(4):
+              # The self-hosted runner uses a SOCKS-backed route; transient API
+              # stalls must not turn an otherwise valid immutable checkout into
+              # a false source-integrity failure. Keep retries bounded by this
+              # step's eight-minute timeout.
+              for attempt in range(5):
                   command = ["curl", "--fail", "--silent", "--show-error",
-                             "--connect-timeout", "15", "--max-time", "60",
+                             "--connect-timeout", "20", "--max-time", "70",
                              "-H", f"Accept: {headers['Accept']}",
                              "-H", f"Authorization: {headers['Authorization']}",
                              "-H", f"X-GitHub-Api-Version: {headers['X-GitHub-Api-Version']}",
                              "-H", f"User-Agent: {headers['User-Agent']}", url]
                   try:
-                      response = subprocess.run(command, check=True, capture_output=True, timeout=70)
+                      response = subprocess.run(command, check=True, capture_output=True, timeout=80)
                       return json.loads(response.stdout)
                   except (subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
                       last_error = error
-                      if attempt < 3:
-                          time.sleep(attempt + 1)
-              raise RuntimeError(f"GitHub API request failed after retries: {url}: {last_error}")
+                      if attempt < 4:
+                          time.sleep(2 ** (attempt + 1))
+              raise RuntimeError(f"GitHub API request failed after bounded retries: {url}: {last_error}")
 
           commit = get_json(f"{api}/repos/{repository}/git/commits/{revision}")
           tree_sha = commit.get("tree", {}).get("sha")
