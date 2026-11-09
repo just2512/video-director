@@ -3,6 +3,10 @@ name: Product IA workstream regression
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'README*'
   workflow_dispatch:
 
 permissions:
