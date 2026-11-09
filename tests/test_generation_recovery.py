@@ -384,7 +384,7 @@ class TestRecoverPendingVideoJobs:
         monkeypatch.setattr(
             gen, "recover_pending_video_jobs",
             lambda project_id, **kwargs: called.__setitem__("recover", called["recover"] + 1)
-            or real_recover(project_id))
+            or real_recover(project_id, **kwargs))
         # 提交失败（fake 返回 failed）→ 诚实报错，但 recover 已先跑
         with pytest.raises(gen.GenerationError):
             gen.generate(pid, "p", "video", variant="A")
@@ -491,8 +491,11 @@ class TestFingerprintReuse:
         pid = "proj-manifest-row-rebuild"
         config.init_project_dirs(config.project_dir(pid))
         prompt = "rebuild a lost manifest row"
+        _video_cfg(monkeypatch)
+        identity = gen._video_provider_identity(gen._role_cfg("video"))
         input_fp = hashlib.sha256(
-            (prompt + "|video|dimensions:1080x1920").encode("utf-8")
+            (prompt + "|video|provider_identity:" + identity["fingerprint"]
+             + "|dimensions:1080x1920").encode("utf-8")
         ).hexdigest()[:16]
         output = config.project_dir(pid) / "assets" / "generated" / "registered.mp4"
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -502,6 +505,7 @@ class TestFingerprintReuse:
             "provider_task_id": "provider-task-expired",
             "gen_type": "video",
             "input_fingerprint": input_fp,
+            "provider_identity": identity,
             "variant": "A",
             "status": "done",
             "output_file": str(output),
@@ -645,13 +649,16 @@ class TestFingerprintReuse:
         pid = "proj-recover-before-manifest"
         config.init_project_dirs(config.project_dir(pid))
         prompt = "recover me"
+        identity = gen._video_provider_identity(gen._role_cfg("video"))
         input_fp = hashlib.sha256(
-            (prompt + "|video|dimensions:1080x1920").encode("utf-8")
+            (prompt + "|video|provider_identity:" + identity["fingerprint"]
+             + "|dimensions:1080x1920").encode("utf-8")
         ).hexdigest()[:16]
         prior_output = config.project_dir(pid) / "assets" / "generated" / "prior.mp4"
         gen._update_job(pid, "genjob-recovered", {
             "provider": "fake", "provider_task_id": "ext-task-recovered",
             "gen_type": "video", "input_fingerprint": input_fp,
+            "provider_identity": identity,
             "width": 1080, "height": 1920,
             "variant": "A", "status": "running", "output_file": str(prior_output),
         })
@@ -672,14 +679,17 @@ class TestFingerprintReuse:
         self, tmp_path, monkeypatch
     ):
         _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
         from video_director import config, generation as gen
         import hashlib
 
         pid = "proj-manifest-already-durable"
         config.init_project_dirs(config.project_dir(pid))
         prompt = "durable manifest"
+        identity = gen._video_provider_identity(gen._role_cfg("video"))
         input_fp = hashlib.sha256(
-            (prompt + "|video|dimensions:320x180").encode("utf-8")
+            (prompt + "|video|provider_identity:" + identity["fingerprint"]
+             + "|dimensions:320x180").encode("utf-8")
         ).hexdigest()[:16]
         out_file = config.project_dir(pid) / "assets" / "generated" / "existing.mp4"
         out_file.parent.mkdir(parents=True, exist_ok=True)
@@ -687,12 +697,14 @@ class TestFingerprintReuse:
         manifest = []
         gen._register_result(
             manifest, [], "gen-existing", "video", out_file, 320, 180,
-            5.0, "fake-model", "video-llm", prompt, input_fp, "A",
+            5.0, "fake-video-model", "video-llm", prompt, input_fp, "A",
+            provider_identity=identity,
         )
         gen._save_manifest(pid, manifest)
         gen._update_job(pid, "genjob-manifest-existing", {
             "provider_task_id": "provider-task-expired",
             "gen_type": "video", "input_fingerprint": input_fp,
+            "provider_identity": identity,
             "width": 320, "height": 180,
             "variant": "A", "status": "done", "output_file": str(out_file),
             "output_commit_protocol": "atomic-v2",
@@ -714,14 +726,17 @@ class TestFingerprintReuse:
         self, tmp_path, monkeypatch
     ):
         _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
         from video_director import config, generation as gen
         import hashlib
 
         pid = "proj-missing-registered-video"
         config.init_project_dirs(config.project_dir(pid))
         prompt = "missing registered output"
+        identity = gen._video_provider_identity(gen._role_cfg("video"))
         input_fp = hashlib.sha256(
-            (prompt + "|video|dimensions:320x180").encode("utf-8")
+            (prompt + "|video|provider_identity:" + identity["fingerprint"]
+             + "|dimensions:320x180").encode("utf-8")
         ).hexdigest()[:16]
         missing = config.project_dir(pid) / "assets" / "generated" / "missing.mp4"
         gen._save_manifest(pid, [{
@@ -729,10 +744,12 @@ class TestFingerprintReuse:
             "source": "generated", "variant": "A",
             "input_fingerprint": input_fp, "output_fingerprint": "0" * 64,
             "width": 320, "height": 180, "provider_id": "video-llm",
+            "provider_identity": identity,
         }])
         gen._update_job(pid, "genjob-missing", {
             "provider_task_id": "provider-task-existing",
             "gen_type": "video", "input_fingerprint": input_fp,
+            "provider_identity": identity,
             "variant": "A", "status": "done", "output_file": str(missing),
             "width": 320, "height": 180,
             "manifest_registered": True,
