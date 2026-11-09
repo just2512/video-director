@@ -921,11 +921,8 @@ def generate(
         legacy_provider_jobs = [
             job for job in _load_jobs(project_id).values()
             if job.get("gen_type") == "video"
-            and job.get("input_fingerprint") == legacy_input_fp
-            and job.get("variant") in variants
             and job.get("status") in {
-                "pending", "submitting", "submission_unknown", "running",
-                "downloading", "done",
+                "pending", "submitting", "submission_unknown", "running", "downloading",
             }
             and job.get("provider_identity") is None
         ]
