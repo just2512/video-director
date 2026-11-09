@@ -16,6 +16,9 @@ on:
       - "tests/test_asset_catalog.py"
       - "tests/test_asset_semantics_chain.py"
       - "tests/test_generation_recovery.py"
+      - "tests/test_mpt_absorption_capabilities.py"
+      - "tests/test_provider_matrix.py"
+      - "tests/test_shotcraft_regression_pack.py"
       - "tests/test_project_manifest.py"
       - "tests/test_storage_durability.py"
       - "tests/test_film_render_publication_transaction.py"
@@ -61,6 +64,9 @@ jobs:
             tests/test_asset_catalog.py \
             tests/test_asset_semantics_chain.py \
             tests/test_generation_recovery.py \
+            tests/test_mpt_absorption_capabilities.py::TestGenerationRequest::test_first_frame_unavailable_honest \
+            tests/test_provider_matrix.py::test_generation_video_missing_provider_is_honest \
+            tests/test_shotcraft_regression_pack.py::TestAIProviderDispatch::test_video_generation_unconfigured_honest \
             tests/test_project_manifest.py \
             tests/test_storage_durability.py \
             tests/test_film_external_watch_history.py \
