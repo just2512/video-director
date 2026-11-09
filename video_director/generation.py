@@ -409,7 +409,8 @@ def _find_unresolved_submission(
         if (job.get("input_fingerprint") == input_fp
                 and job.get("variant") == variant
                 and job.get("status") in ("submitting", "submission_unknown")
-                and (provider_identity is None or job.get("provider_identity") == provider_identity)
+                and provider_identity is not None
+                and job.get("provider_identity") == provider_identity
                 and not job.get("provider_task_id")):
             return job
     return None
