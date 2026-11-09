@@ -64,23 +64,48 @@ def test_project_switch_reconciles_request_response_store_and_disk(tmp_path, mon
                     wait_until="domcontentloaded",
                 )
                 assert response and response.status == 200
-                page.wait_for_function("typeof window.filmStudioToggle === 'function'")
+                try:
+                    page.wait_for_function(
+                        "typeof window.filmStudioToggle === 'function' && "
+                        "window.__filmStudioEditorAuthorityWrapperInstalled === true"
+                    )
+                except Exception as exc:
+                    diagnostic = page.evaluate("""() => ({
+                      wrapperInstalled:window.__filmStudioEditorAuthorityWrapperInstalled,
+                      wrapperError:window.__filmStudioEditorAuthorityWrapperError||'',
+                      editorLoadType:typeof window.editorLoad,
+                      editorLoadWrapped:!!window.editorLoad?.__filmStudioAuthorityWrapped
+                    })""")
+                    raise AssertionError({"diagnostic":diagnostic,"page_errors":page_errors}) from exc
                 page.locator("#tab-editor").click()
                 page.locator("#pane-editor").wait_for(state="visible")
                 page.wait_for_function(
                     "() => !!document.querySelector('#editor-project')"
                 )
-                page.evaluate("""pid => {
+                page.evaluate("""() => {
                   const select = document.querySelector('#editor-project');
-                  for (const value of [pid, 'film-studio-switch-four-way-b']) {
+                  for (const value of ['film-studio-switch-four-way-a', 'film-studio-switch-four-way-b']) {
                     if (![...select.options].some(option => option.value === value)) {
                       select.add(new Option(value, value));
                     }
                   }
-                  select.value = pid;
-                  select.dispatchEvent(new Event('change', {bubbles:true}));
-                }""", project_a)
-                page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+                }""")
+                page.locator("#editor-project").select_option(value=project_a)
+                try:
+                    page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible", timeout=10000)
+                except Exception as exc:
+                    diagnostic = page.evaluate("""() => ({
+                      wrapperInstalled:window.__filmStudioEditorAuthorityWrapperInstalled,
+                      wrapperError:window.__filmStudioEditorAuthorityWrapperError||'',
+                      editorLoadType:typeof window.editorLoad,
+                      editorLoadWrapped:!!window.editorLoad?.__filmStudioAuthorityWrapped,
+                      selectedProject:document.querySelector('#editor-project')?.value||'',
+                      panelClass:document.querySelector('#film-studio-panel')?.className||'',
+                      panelDisplay:document.querySelector('#film-studio-panel')?.style.display||'',
+                      studioState:window.filmStudioStore?.getSnapshot?.()||null
+                    })""")
+                    raise AssertionError({"diagnostic":diagnostic,"page_errors":page_errors,
+                      "film_requests":film_requests,"film_responses":film_responses}) from exc
                 page.locator('#fs-timeline .fs-clip[data-clip="project-a-clip"]').wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="project-a-clip"]').click()
                 selected_a = page.evaluate("""() => {
@@ -93,11 +118,7 @@ def test_project_switch_reconciles_request_response_store_and_disk(tmp_path, mon
 
                 film_requests.clear()
                 film_responses.clear()
-                page.evaluate("""pid => {
-                  const select = document.querySelector('#editor-project');
-                  select.value = pid;
-                  select.dispatchEvent(new Event('change', {bubbles:true}));
-                }""", project_b)
+                page.locator("#editor-project").select_option(value=project_b)
                 page.locator('#fs-timeline .fs-clip[data-clip="project-b-clip"]').wait_for(
                     state="visible", timeout=10000
                 )

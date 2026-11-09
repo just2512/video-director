@@ -13,6 +13,10 @@ def test_react_build_uses_film_authority_safe_director_plan_handoff():
     assert "planningIds.push('shotbook-details','creative-plan-panel')" in studio
     assert "function installFilmAuthorityPlanningWriteGate()" in studio
     assert "currentFilmAuthorityProjectId()" in studio
+    assert "window.__filmStudioEditorAuthorityWrapperInstalled=true" in studio
+    assert studio.index("window.__filmStudioEditorAuthorityWrapperInstalled=true") < studio.index("restoreDock();")
+    assert 'onchange="if(this.value)window.editorLoad()"' in index
+    assert 'onclick="window.editorLoad()"' in index
     assert "window.filmStudioProposeFromDirectorPlan=async function()" in studio
     assert "'director-propose-plan': () => window.filmStudioProposeFromDirectorPlan()" in studio
     assert "window.shotbookExportForFilmDirector=function()" in shotbook

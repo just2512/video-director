@@ -102,8 +102,8 @@
     <div id="editor-project-switch-home">
       <div id="editor-project-switch-row" class="btn-row" style="align-items:center;margin-top:0">
         <select id="editor-project" style="max-width:320px" title="切换项目（只列可编辑项目）"
-                onchange="if(this.value)editorLoad()"></select>
-        <button class="btn-secondary btn-sm" onclick="editorLoad()">打开</button>
+                onchange="if(this.value)window.editorLoad()"></select>
+        <button class="btn-secondary btn-sm" onclick="window.editorLoad()">打开</button>
         <span class="hint" id="editor-lib-hint">选中场景/图层后，Inspector 会给出对应的修改项</span>
       </div>
     </div>

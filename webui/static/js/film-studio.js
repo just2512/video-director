@@ -3224,6 +3224,106 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     window.filmStudioClose();
     return !S.open&&!document.documentElement.classList.contains('fs-studio-open');
   };
+  window.__filmStudioEditorAuthorityWrapperInstalled=false;
+  var legacyEditorLoad=window.editorLoad;
+  var editorAuthorityRequestGeneration=0;
+  if(typeof legacyEditorLoad==='function'){
+    window.editorLoad=async function(knownFilmDocument,options){
+      var legacyCompositionMode=!!(options&&options.legacyCompositionMode===true);
+      var authorityRequestGeneration=++editorAuthorityRequestGeneration;
+      var selector=$('editor-project'),pid=(selector&&selector.value)||(typeof ED!=='undefined'&&ED.pid)||'';
+      if(!pid)return await legacyEditorLoad.apply(this,arguments);
+
+      // Reuse an authority result supplied by workspaceOpen(); a result for a
+      // different project is rejected instead of being trusted or silently re-fetched.
+      var state=null;
+      var hasProvidedAuthority=!!(knownFilmDocument&&typeof knownFilmDocument.exists==='boolean');
+      if(hasProvidedAuthority){
+        if(knownFilmDocument.project_id&&String(knownFilmDocument.project_id)!==String(pid)){
+          showStatus('影片预检结果属于另一个项目；未打开旧工作台。','error');
+          return {ok:false,code:'FILM_AUTHORITY_PROJECT_MISMATCH'};
+        }
+        state=knownFilmDocument;
+      }
+      if(!state){
+        try{
+          state=await apiGet('/api/editor/film?project_id='+encodeURIComponent(pid));
+        }catch(error){
+          if(authorityRequestGeneration!==editorAuthorityRequestGeneration){
+            return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
+          }
+          showStatus('无法确认影片文档状态；为避免绕过 film.html 权威门禁，暂不打开旧工作台。','error');
+          return {ok:false,code:'FILM_STATE_UNAVAILABLE',error:String(error&&error.message||error)};
+        }
+      }
+      // Authority is scoped to this editorLoad invocation, not to the selector's
+      // value at the time a delayed request happens to resolve. A stale exists:false
+      // response must never authorize the legacy loader for a newer selection.
+      if(authorityRequestGeneration!==editorAuthorityRequestGeneration||
+         (selector&&String(selector.value||'').trim()!==String(pid).trim())){
+        return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
+      }
+      if(state&&state.exists===true){
+        var opened=await window.filmStudioOpenIfCurrentProjectHasFilm(pid,state);
+        return {
+          ok:opened&&state.ok===true,
+          film_document:true,
+          authority:'film.html',
+          project_id:pid,
+          revision:state.rev||'',
+          error:opened?((state.ok===true)?null:(state.error||'INVALID_FILM')):'FILM_STUDIO_OPEN_FAILED'
+        };
+      }
+      if(!state||state.ok!==true){
+        showStatus('影片文档状态不可用；未加载旧 CompositionIR 工作台。','error');
+        return {ok:false,code:'FILM_STATE_UNAVAILABLE'};
+      }
+
+      // Switch the authority surface before probing legacy CompositionIR.
+      // The old loader can fail for an unavailable/invalid composition, but that
+      // must not leave the previous FilmDocument timeline visible in an open Studio.
+      // Reuse the confirmed exists:false snapshot; do not start another Film GET.
+      // The compatibility editor is opt-in only. Normal project selection must
+      // not populate ED/CompositionIR behind the Film Studio where hidden keyboard
+      // handlers could still mutate the legacy timeline.
+      if(legacyCompositionMode){
+        if(S.open||document.documentElement.classList.contains('fs-studio-open')){
+          showStatus('Film Studio 已打开；为避免双编辑器并行，本次未加载旧 CompositionIR。','error');
+          return {ok:false,code:'STUDIO_OPEN_LEGACY_COMPAT_BLOCKED'};
+        }
+        var legacyArguments=hasProvidedAuthority?Array.prototype.slice.call(arguments,1):arguments;
+        return await legacyEditorLoad.apply(this,legacyArguments);
+      }
+      // One authority wrapper owns both routes: existing FilmDocument opens directly;
+      // legacy Composition projects open the same Studio with a read-only migration preview.
+      if(authorityRequestGeneration!==editorAuthorityRequestGeneration||
+         (selector&&String(selector.value||'').trim()!==String(pid).trim())){
+        return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
+      }
+      var migrationStudioOpened;
+      if(S.open){
+        migrationStudioOpened=await filmStudioLoad(true,state);
+      }else{
+        migrationStudioOpened=await window.filmStudioToggle(state);
+      }
+      if(!migrationStudioOpened){
+        showStatus('旧项目的 Studio 迁移预览未能打开；没有创建 film.html。','error');
+        return {ok:false,code:'FILM_STUDIO_OPEN_FAILED'};
+      }
+      if(authorityRequestGeneration!==editorAuthorityRequestGeneration||
+         (selector&&String(selector.value||'').trim()!==String(pid).trim())||
+         S.projectId!==pid){
+        return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
+      }
+      return {ok:true,mode:'migration',
+        authority:'CompositionIR preview → film.html',project_id:pid};
+    };
+    window.editorLoad.__filmStudioAuthorityWrapped=true;
+    window.__filmStudioEditorAuthorityWrapperInstalled=true;
+  }else{
+    window.__filmStudioEditorAuthorityWrapperError='EDITOR_LOAD_UNAVAILABLE';
+  }
+
   // Project selection is routed by the single editorLoad wrapper above.
   // workspaceOpen() calls filmStudioOpenIfCurrentProjectHasFilm() explicitly;
   // do not also bind a change listener here or the initial selector change races
@@ -4947,101 +5047,6 @@ window.filmStudioCopyClips=function(){
   // The editor-project select already calls editorLoad() via its inline onchange.
   // That wrapper owns the sole Studio reload/open decision; a second change
   // listener here caused concurrent filmStudioLoad requests on every project switch.
-  var legacyEditorLoad=window.editorLoad;
-  var editorAuthorityRequestGeneration=0;
-  if(typeof legacyEditorLoad==='function'){
-    window.editorLoad=async function(knownFilmDocument,options){
-      var legacyCompositionMode=!!(options&&options.legacyCompositionMode===true);
-      var authorityRequestGeneration=++editorAuthorityRequestGeneration;
-      var selector=$('editor-project'),pid=(selector&&selector.value)||(typeof ED!=='undefined'&&ED.pid)||'';
-      if(!pid)return await legacyEditorLoad.apply(this,arguments);
-
-      // Reuse an authority result supplied by workspaceOpen(); a result for a
-      // different project is rejected instead of being trusted or silently re-fetched.
-      var state=null;
-      var hasProvidedAuthority=!!(knownFilmDocument&&typeof knownFilmDocument.exists==='boolean');
-      if(hasProvidedAuthority){
-        if(knownFilmDocument.project_id&&String(knownFilmDocument.project_id)!==String(pid)){
-          showStatus('影片预检结果属于另一个项目；未打开旧工作台。','error');
-          return {ok:false,code:'FILM_AUTHORITY_PROJECT_MISMATCH'};
-        }
-        state=knownFilmDocument;
-      }
-      if(!state){
-        try{
-          state=await apiGet('/api/editor/film?project_id='+encodeURIComponent(pid));
-        }catch(error){
-          if(authorityRequestGeneration!==editorAuthorityRequestGeneration){
-            return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
-          }
-          showStatus('无法确认影片文档状态；为避免绕过 film.html 权威门禁，暂不打开旧工作台。','error');
-          return {ok:false,code:'FILM_STATE_UNAVAILABLE',error:String(error&&error.message||error)};
-        }
-      }
-      // Authority is scoped to this editorLoad invocation, not to the selector's
-      // value at the time a delayed request happens to resolve. A stale exists:false
-      // response must never authorize the legacy loader for a newer selection.
-      if(authorityRequestGeneration!==editorAuthorityRequestGeneration||
-         (selector&&String(selector.value||'').trim()!==String(pid).trim())){
-        return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
-      }
-      if(state&&state.exists===true){
-        var opened=await window.filmStudioOpenIfCurrentProjectHasFilm(pid,state);
-        return {
-          ok:opened&&state.ok===true,
-          film_document:true,
-          authority:'film.html',
-          project_id:pid,
-          revision:state.rev||'',
-          error:opened?((state.ok===true)?null:(state.error||'INVALID_FILM')):'FILM_STUDIO_OPEN_FAILED'
-        };
-      }
-      if(!state||state.ok!==true){
-        showStatus('影片文档状态不可用；未加载旧 CompositionIR 工作台。','error');
-        return {ok:false,code:'FILM_STATE_UNAVAILABLE'};
-      }
-
-      // Switch the authority surface before probing legacy CompositionIR.
-      // The old loader can fail for an unavailable/invalid composition, but that
-      // must not leave the previous FilmDocument timeline visible in an open Studio.
-      // Reuse the confirmed exists:false snapshot; do not start another Film GET.
-      // The compatibility editor is opt-in only. Normal project selection must
-      // not populate ED/CompositionIR behind the Film Studio where hidden keyboard
-      // handlers could still mutate the legacy timeline.
-      if(legacyCompositionMode){
-        if(S.open||document.documentElement.classList.contains('fs-studio-open')){
-          showStatus('Film Studio 已打开；为避免双编辑器并行，本次未加载旧 CompositionIR。','error');
-          return {ok:false,code:'STUDIO_OPEN_LEGACY_COMPAT_BLOCKED'};
-        }
-        var legacyArguments=hasProvidedAuthority?Array.prototype.slice.call(arguments,1):arguments;
-        return await legacyEditorLoad.apply(this,legacyArguments);
-      }
-      // One authority wrapper owns both routes: existing FilmDocument opens directly;
-      // legacy Composition projects open the same Studio with a read-only migration preview.
-      if(authorityRequestGeneration!==editorAuthorityRequestGeneration||
-         (selector&&String(selector.value||'').trim()!==String(pid).trim())){
-        return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
-      }
-      var migrationStudioOpened;
-      if(S.open){
-        migrationStudioOpened=await filmStudioLoad(true,state);
-      }else{
-        migrationStudioOpened=await window.filmStudioToggle(state);
-      }
-      if(!migrationStudioOpened){
-        showStatus('旧项目的 Studio 迁移预览未能打开；没有创建 film.html。','error');
-        return {ok:false,code:'FILM_STUDIO_OPEN_FAILED'};
-      }
-      if(authorityRequestGeneration!==editorAuthorityRequestGeneration||
-         (selector&&String(selector.value||'').trim()!==String(pid).trim())||
-         S.projectId!==pid){
-        return {ok:false,code:'PROJECT_SELECTION_CHANGED'};
-      }
-      return {ok:true,mode:'migration',
-        authority:'CompositionIR preview → film.html',project_id:pid};
-    };
-  }
-
   function currentFilmAuthorityProjectId(){
     var projectId=String(S.projectId||'').trim(),selector=$('editor-project');
     if(!projectId||!S.data||!S.data.exists)return '';
