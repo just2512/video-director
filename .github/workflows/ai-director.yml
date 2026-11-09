@@ -683,8 +683,8 @@ jobs:
               output_path = os.environ.get("GITHUB_OUTPUT", "").strip()
               if output_path:
                   with open(output_path, "a", encoding="utf-8") as output:
-                      output.write(f"error_type={error_type}\\n")
-                      output.write(f"cause_type={cause_type}\\n")
+                      output.write(f"error_type={error_type}\n")
+                      output.write(f"cause_type={cause_type}\n")
               print(f"LIVE_PROVIDER_PROBE=REJECT error_type={error_type} cause_type={cause_type} elapsed_seconds={time.monotonic()-started:.2f}")
               raise SystemExit(1)
           PY
