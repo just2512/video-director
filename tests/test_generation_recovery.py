@@ -1630,3 +1630,108 @@ def test_image_generation_rejects_symlinked_output_directories(
         )
     assert exc.value.code == "GENERATION_OUTPUT_PATH_UNSAFE"
     assert list(external.iterdir()) == []
+
+
+class TestVideoDimensionIdentity:
+    def test_same_prompt_at_different_dimensions_submits_distinct_jobs(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import config, generation as gen
+
+        pid = "proj-video-dimensions"
+        config.init_project_dirs(config.project_dir(pid))
+        client = FakeVideoClient(statuses=["completed", "completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
+        monkeypatch.setattr(gen, "_download_bytes", lambda _url: b"dimension-video")
+
+        first = gen.generate(
+            pid, "same prompt", "video", width=320, height=180, variant="A", model="m1"
+        )
+        second = gen.generate(
+            pid, "same prompt", "video", width=640, height=360, variant="A", model="m1"
+        )
+
+        assert client.post_calls == 2
+        assert first[0].input_fingerprint != second[0].input_fingerprint
+        jobs = list(gen._load_jobs(pid).values())
+        assert {(job["width"], job["height"]) for job in jobs} == {
+            (320, 180), (640, 360)
+        }
+
+    @pytest.mark.parametrize("status", ["running", "submission_unknown"])
+    def test_legacy_dimensionless_job_fails_closed_before_provider_post(
+        self, tmp_path, monkeypatch, status
+    ):
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        import hashlib
+        from video_director import config, generation as gen
+
+        pid = f"proj-legacy-{status}"
+        config.init_project_dirs(config.project_dir(pid))
+        prompt = "legacy paid request"
+        legacy_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
+        gen._update_job(pid, "legacy-job", {
+            "gen_type": "video", "input_fingerprint": legacy_fp,
+            "variant": "A", "status": status,
+            **({"provider_task_id": "provider-task"} if status == "running" else {}),
+        })
+        client = FakeVideoClient(statuses=["completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
+
+        with pytest.raises(gen.GenerationError) as caught:
+            gen.generate(pid, prompt, "video", width=640, height=360, variant="A")
+
+        assert caught.value.code == "VIDEO_LEGACY_DIMENSIONS_UNKNOWN"
+        assert client.post_calls == 0
+
+    @pytest.mark.parametrize("requested_size,should_reuse", [
+        ((320, 180), True),
+        ((640, 360), False),
+    ])
+    def test_legacy_manifest_reuse_requires_exact_dimensions(
+        self, tmp_path, monkeypatch, requested_size, should_reuse
+    ):
+        _isolate(tmp_path, monkeypatch)
+        import hashlib
+        from video_director import config, generation as gen
+
+        pid = f"proj-legacy-manifest-{requested_size[0]}"
+        config.init_project_dirs(config.project_dir(pid))
+        prompt = "legacy manifest request"
+        legacy_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
+        output = config.project_dir(pid) / "assets" / "generated" / "legacy.mp4"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"legacy-video")
+        legacy_row = []
+        gen._register_result(
+            legacy_row, [], "legacy-asset", "video", output, 320, 180,
+            5.0, "old-model", "video-llm", prompt, legacy_fp, "A",
+        )
+        gen._save_manifest(pid, legacy_row)
+
+        if should_reuse:
+            monkeypatch.setattr(
+                gen, "_video_client",
+                lambda _cfg: (_ for _ in ()).throw(
+                    AssertionError("matching legacy manifest must not contact provider")
+                ),
+            )
+            result = gen.generate(
+                pid, prompt, "video", width=requested_size[0],
+                height=requested_size[1], variant="A",
+            )
+            assert result[0].asset_id == "legacy-asset"
+        else:
+            _video_cfg(monkeypatch)
+            client = FakeVideoClient(statuses=["completed"])
+            monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
+            monkeypatch.setattr(gen, "_download_bytes", lambda _url: b"new-size-video")
+            result = gen.generate(
+                pid, prompt, "video", width=requested_size[0],
+                height=requested_size[1], variant="A",
+            )
+            assert result[0].asset_id != "legacy-asset"
+            assert client.post_calls == 1

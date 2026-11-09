@@ -263,6 +263,38 @@ def _prompt_fingerprint(prompt: str, gen_type: str) -> str:
     return hashlib.sha256((prompt + "|" + gen_type).encode("utf-8")).hexdigest()
 
 
+def _assert_no_legacy_dimensionless_video_jobs(
+    project_id: str, legacy_input_fp: str, variants: List[str],
+) -> None:
+    """Fail closed on pre-dimension reservations whose requested size is unknowable."""
+    active = {"pending", "submitting", "submission_unknown", "running", "downloading"}
+    for job in _load_jobs(project_id).values():
+        if (
+            job.get("gen_type") != "video"
+            or job.get("input_fingerprint") != legacy_input_fp
+            or job.get("variant") not in variants
+        ):
+            continue
+        status = job.get("status")
+        if status not in active and not (
+            status == "done" and (
+                job.get("recovery_needs_registration") is True
+                or job.get("manifest_registered") is True
+            )
+        ):
+            continue
+        width, height = job.get("width"), job.get("height")
+        if (
+            isinstance(width, bool) or not isinstance(width, int) or width <= 0
+            or isinstance(height, bool) or not isinstance(height, int) or height <= 0
+        ):
+            raise GenerationError(
+                "VIDEO_LEGACY_DIMENSIONS_UNKNOWN",
+                "发现旧版视频任务没有持久化输出尺寸；无法确认它与当前请求一致。"
+                f"任务 {job.get('job_id')} 已停止自动复用/重提，请先人工核实供应商任务与产物。",
+            )
+
+
 def _find_reusable_job(project_id: str, input_fp: str, variant: str) -> Optional[dict]:
     """同 fingerprint+variant 且仍在跑的外部任务 → 复用轮询，不重复提交付费。"""
     for job in _load_jobs(project_id).values():
@@ -782,7 +814,13 @@ def generate(
         fp_src += "|last:" + str(last_frame)[:80]
     if model:
         fp_src += "|model:" + str(model)
-    input_fp = hashlib.sha256(fp_src.encode("utf-8")).hexdigest()[:16]
+    legacy_input_fp = hashlib.sha256(fp_src.encode("utf-8")).hexdigest()[:16]
+    # Video dimensions are part of the paid provider request identity. Keep the
+    # pre-dimension fingerprint only for safe legacy manifest/job inspection.
+    input_fp = (
+        hashlib.sha256(f"{fp_src}|dimensions:{width}x{height}".encode("utf-8")).hexdigest()[:16]
+        if gen_type == "video" else legacy_input_fp
+    )
     results: List[GenerationResult] = []
     manifest = _load_manifest(project_id)
     manifest_ids_before_generation = {
@@ -794,6 +832,13 @@ def generate(
             project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
             model=model)
     elif gen_type == "video":
+        # Old reservations were keyed without dimensions. If their dimensions
+        # were never persisted, attaching them to a new request is ambiguous:
+        # stop before recovery/provider access rather than risk wrong-size reuse
+        # or a duplicate paid submission.
+        _assert_no_legacy_dimensionless_video_jobs(
+            project_id, legacy_input_fp, variants
+        )
         # 审计差距 2：视频分支入口先恢复历史 running 任务（幂等；失败不阻塞
         # 本次生成——恢复失败只记警告，job 留待下次）。
         try:
@@ -818,7 +863,7 @@ def generate(
                 ) from exc
         results = _generate_video(
             project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
-            model=model)
+            model=model, legacy_input_fp=legacy_input_fp)
     elif gen_type == "motion":
         # §十八/§十四 Huashu 艺术动画：生成入口统一走 generation（与图片/视频
         # 同一 UI 面），产物由 procedural_motion 持久化（plans/motion + Asset
@@ -1044,7 +1089,7 @@ def _generate_image_or_fallback(project_id, prompt, width, height, variants,
 
 
 def _generate_video(project_id, prompt, width, height, variants, assets_dir,
-                    input_fp, manifest, model=None):
+                    input_fp, manifest, model=None, legacy_input_fp=None):
     """video → AI 生视频（roles["video"]，异步任务）；无 key 诚实报错（不 fake）。
 
     外部任务持久化（审计差距 2）：提交成功即落盘 provider_task_id 到
@@ -1058,10 +1103,12 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
     for v in variants:
         existing = next((
             item for item in manifest
-            if item.get("input_fingerprint") == input_fp
+            if item.get("input_fingerprint") in {input_fp, legacy_input_fp}
             and item.get("variant") == v
             and item.get("type") == "video"
             and item.get("source") == "generated"
+            and item.get("width") == width
+            and item.get("height") == height
         ), None)
         if existing:
             existing_path = Path(existing.get("file") or "")
@@ -1257,6 +1304,8 @@ def _create_poll_and_persist_video(
                 "gen_type": "video",
                 "prompt_fingerprint": _prompt_fingerprint(prompt, "video"),
                 "input_fingerprint": input_fp,
+                "width": width,
+                "height": height,
                 "variant": variant,
                 "status": "submitting",
                 "output_file": out_file,
