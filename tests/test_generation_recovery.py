@@ -1674,7 +1674,7 @@ class TestVideoDimensionIdentity:
             (320, 180), (640, 360)
         }
 
-    @pytest.mark.parametrize("status", ["running", "submission_unknown"])
+    @pytest.mark.parametrize("status", ["submitting", "running", "submission_unknown"])
     def test_legacy_dimensionless_job_fails_closed_before_provider_post(
         self, tmp_path, monkeypatch, status
     ):
@@ -1749,3 +1749,37 @@ class TestVideoDimensionIdentity:
             )
             assert result[0].asset_id != "legacy-asset"
             assert client.post_calls == 1
+
+
+    @pytest.mark.parametrize("gen_type", ["image", "graphic", "motion"])
+    def test_non_video_generation_fingerprints_ignore_output_dimensions(
+        self, tmp_path, monkeypatch, gen_type
+    ):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import generation as gen
+
+        captured = []
+        if gen_type == "image":
+            def fake_generate(*args, **kwargs):
+                captured.append(args[6])
+                return []
+            monkeypatch.setattr(gen, "_generate_image_or_fallback", fake_generate)
+        elif gen_type == "graphic":
+            def fake_generate(*args, **kwargs):
+                captured.append(args[5])
+                return []
+            monkeypatch.setattr(gen, "_generate_graphic", fake_generate)
+        else:
+            def fake_generate(*args, **kwargs):
+                captured.append(args[4])
+                return []
+            monkeypatch.setattr(gen, "_generate_motion", fake_generate)
+
+        pid = f"proj-non-video-fingerprint-{gen_type}"
+        gen.generate(pid, "same non-video prompt", gen_type,
+                     width=320, height=180, variant="A")
+        gen.generate(pid, "same non-video prompt", gen_type,
+                     width=640, height=360, variant="A")
+
+        assert len(captured) == 2
+        assert captured[0] == captured[1]
