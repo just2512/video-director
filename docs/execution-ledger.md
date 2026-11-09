@@ -135,14 +135,14 @@ Execution order:
 | Order | Task | Lane | Exit condition | State |
 |---:|---|---|---|---|
 | 1 | Disable self-hosted AI Director job; establish hosted-only runner rule | W6 | No future workflow path allocates a self-hosted runner | PASS — job-level `if: false` verified; run `42617062648` allocated no job |
-| 2 | Convert current branch-gated workstream CI into hosted main-only lanes | W6 | Generation, timeline, lifecycle and Product IA scoped jobs can run from main SHA | BLOCKED on workflow migration |
-| 3 | Re-run focused generation/provider recovery suite on hosted runner | W1 | Exact-main tests pass; provider submission and manifest invariants verified | BLOCKED on 2 |
-| 4 | Re-run timeline multi-select/cross-track/Undo/Redo browser suite | W2 | Atomic transaction and full undo/redo behavior pass on exact SHA | BLOCKED on 2 |
-| 5 | Implement project-home/create UX over existing create lifecycle | W4 | Create/cancel/failure/resume browser scenarios pass | MISSING |
-| 6 | Implement categorized settings IA | W5 | Expand/save/import/export and secret preservation browser scenarios pass | MISSING |
+| 2 | Convert branch-gated workstream CI into hosted main-only lanes | W6 | W1/W2/W3 and W4/W5 run as independent GitHub-hosted jobs from main SHA | IMPLEMENTED; latest exact-main run in progress |
+| 3 | Re-run focused generation/provider recovery suite on hosted runner | W1 | Exact-main tests pass; provider submission and manifest invariants verified | IN PROGRESS — prior SHA cfbc893fa2 W1 PASS; latest SHA ab0454b568 run pending |
+| 4 | Re-run timeline multi-select/cross-track/Undo/Redo browser suite | W2 | Atomic transaction and full undo/redo behavior pass on exact SHA | IN PROGRESS — hosted jobs pending on latest SHA ab0454b568 |
+| 5 | Implement project-home/create UX over existing create lifecycle | W4 | Create/cancel/failure/resume browser scenarios pass | MISSING — current hosted regression running; no UX implementation evidence yet |
+| 6 | Implement categorized settings IA | W5 | Expand/save/import/export and secret preservation browser scenarios pass | MISSING — tests pass on prior SHA cfbc893fa2; latest SHA run pending; implementation still missing |
 | 7 | Integrate shared shell serially | W7 | One route/view state; no duplicate project or settings state | BLOCKED on 5, 6 |
 | 8 | Run lifecycle/export/QC E2E and project defaults compatibility | W3 | One project/revision across create→edit→reopen→export/QC | BLOCKED on 3, 4, 7 |
-| 9 | Run final hosted full regression on exact main SHA | W6/W0 | All required hosted jobs pass; no local runner used | BLOCKED on 2–8 |
+| 9 | Run final hosted full regression on exact main SHA | W6/W0 | All required hosted jobs pass; no local runner used | BLOCKED on business lanes 1–8 |
 
 ## 7. Stop conditions
 
@@ -157,3 +157,47 @@ Stop and request a decision only for architecture/contract conflict, data-loss r
 - The earlier run `42616478439` had already started on the self-hosted WSL runner before the guard commit. It remained in progress at the time of verification. The connected GitHub operations available in this session do not expose workflow cancellation; this work does not claim it was cancelled.
 - Windows-native publication run `42617062343` is on GitHub-hosted `windows-latest` and was in progress at verification time.
 - Full hosted AI Director regression is still BLOCKED: the existing main integration workflow is disabled, while the branch-gated parallel/Product IA workflows do not yet provide main-only parallel lanes. This is the next W6 task, not a PASS.
+
+
+## 9. Hosted parallel CI rollout — 2026-11-09
+
+### Changes committed
+
+- `a482e48b38a08eca9646a01dc04f97c17c27d773`: converted `parallel-workstream-ci.yml` to main push + manual dispatch and three independent GitHub-hosted jobs:
+  - W1 generation durability;
+  - W2 timeline transactions;
+  - W3 lifecycle/export/QC.
+- `cfbc893fa23bfa4f40a1dac00ed4511d03adbdb2`: converted `product-ia-regression.yml` to main push + manual dispatch and two independent GitHub-hosted jobs:
+  - W4 project home/create lifecycle;
+  - W5 settings IA/credential safety.
+- `7f2c4dfe0c00ad199210352c51c070a5e9f893c3` and `ab0454b568bd09eff19124b3592f5db25485bb14`: added documentation-only path exclusions so updating this ledger does not launch another full test matrix.
+- All five lane jobs use `ubuntu-24.04`, checkout `github.sha`, and have independent hosted runners. No self-hosted runner labels or local workspaces are used by these five jobs.
+- The AI Director workflow remains guarded by job-level `if: false`; run `42618516049` and run `42618666941` were skipped with no job allocation.
+- Workflow YAML validation on latest SHA `ab0454b568bd09eff19124b3592f5db25485bb14`: run `42618666928`, SUCCESS.
+- Windows native publication on prior SHA `a482e48b38`: run `42618491298`, SUCCESS. Latest SHA run `42618666974` was pending at last inspection.
+
+### Current hosted lane evidence
+
+Latest main SHA at this update: `ab0454b568bd09eff19124b3592f5db25485bb14`.
+
+| Lane | Latest run | State at last inspection | Evidence interpretation |
+|---|---:|---|---|
+| W1 generation | `42618666944` | IN_PROGRESS | No latest-SHA PASS yet; earlier `42618516043` completed W1 successfully on `cfbc893fa2` |
+| W2 timeline | `42618666944` | IN_PROGRESS | No PASS/FAIL conclusion yet |
+| W3 lifecycle/export/QC | `42618666944` | IN_PROGRESS | No PASS/FAIL conclusion yet |
+| W4 project/create | `42618667030` | IN_PROGRESS | No latest-SHA PASS yet |
+| W5 settings IA | `42618667030` | IN_PROGRESS | Earlier `42618516045` W5 job succeeded on `cfbc893fa2`; latest-SHA run pending |
+| YAML validation | `42618666928` | SUCCESS | Workflow syntax valid on latest SHA |
+
+Additional duplicate runs were created because the two workflow files were committed sequentially while both listened to every main push. These runs are all GitHub-hosted; the available GitHub operations do not expose cancellation. Documentation-only commits are now excluded from the two lane workflows to prevent further unnecessary matrix runs.
+
+### Self-hosted runner incident update
+
+The historical self-hosted AI Director run `42616478439` is no longer active; it completed with FAILURE. Its failing steps were the full pytest run and timeline browser regression gate. This is historical failure evidence on the pre-guard SHA `c221a0b4fe`, not a failure of the hosted main-lane jobs. No later run allocated that self-hosted job; AI Director runs after the guard are SKIPPED with no jobs.
+
+### Next action
+
+1. Monitor W1–W5 on exact main SHA `ab0454b568bd09eff19124b3592f5db25485bb14` until all jobs complete; diagnose each failure from its step log.
+2. Do not count earlier-SHA PASS as current-main PASS.
+3. Once the hosted test matrix is stable, proceed with W1/W2 actual implementation gaps and W4/W5 UI implementation; tests alone do not close those deliverables.
+4. W7 shared shell integration remains serial and W3 integrated lifecycle acceptance remains downstream.
