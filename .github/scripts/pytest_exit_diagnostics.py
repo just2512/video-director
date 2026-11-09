@@ -32,7 +32,7 @@ def pytest_sessionfinish(session, exitstatus):
         faulthandler.dump_traceback(file=sys.stderr, all_threads=True)
         try:
             result = subprocess.run(
-                ["ps", "-eo", "pid,ppid,stat,etime,args", "--forest"],
+                ["ps", "-eo", "pid,ppid,stat,etime,comm", "--forest"],
                 check=False,
                 capture_output=True,
                 text=True,
