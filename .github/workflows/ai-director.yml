@@ -386,7 +386,8 @@ jobs:
           env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
             -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
             -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
-            timeout --signal=TERM --kill-after=15s 22m "$PY311_BIN/python3.11" -m pytest -vv --tb=short -o faulthandler_timeout=45 --junitxml=junit.xml 2>&1 | tee pytest-output.log
+            PYTHONPATH="$GITHUB_WORKSPACE/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \\
+            timeout --signal=TERM --kill-after=15s 22m "$PY311_BIN/python3.11" -m pytest -p pytest_exit_diagnostics -vv --tb=short -o faulthandler_timeout=45 --junitxml=junit.xml 2>&1 | tee pytest-output.log
           test_exit=$?
           set -e
           if [ -f pytest-output.log ]; then
