@@ -81,6 +81,32 @@ def _video_identity(monkeypatch, gen, model="fake-model"):
     return gen._video_provider_identity(gen._role_cfg("video"), model)
 
 
+def test_direct_video_submission_rejects_missing_provider_identity(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    from video_director import config, generation as gen
+
+    project_id = "proj-video-identity-required"
+    config.init_project_dirs(config.project_dir(project_id))
+
+    class NoSubmitClient:
+        post_calls = 0
+
+        def post(self, *_args, **_kwargs):
+            self.post_calls += 1
+            raise AssertionError("provider POST must not run without endpoint identity")
+
+    client = NoSubmitClient()
+    with pytest.raises(gen.GenerationError) as exc:
+        gen._create_poll_and_persist_video(
+            client, project_id, "fake-model", "prompt", 320, 180,
+            "a" * 64, "A", str(config.project_dir(project_id) / "result.mp4"),
+        )
+
+    assert exc.value.code == "VIDEO_PROVIDER_IDENTITY_REQUIRED"
+    assert client.post_calls == 0
+    assert gen._load_jobs(project_id) == {}
+
+
 def test_explicit_submission_unknown_code_is_not_reclassified_from_diagnostic_text():
     from video_director.generation import GenerationError
 
