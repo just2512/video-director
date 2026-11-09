@@ -35,7 +35,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[unblock-runner]') }}
 
 jobs:
+  # Disabled: this job previously used the developer's private self-hosted WSL runner.
+  # Re-enable only after every step is migrated and verified on GitHub-hosted runners.
   ai-director:
+    if: false
     timeout-minutes: 45
     # Self-hosted runner: WSL2 Ubuntu on the local Windows machine
     # (D:\WSL\Ubuntu). Kept online by the WSLUbuntuKeepAlive scheduled task.
