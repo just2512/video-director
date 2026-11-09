@@ -367,7 +367,8 @@ def _find_reusable_job(
         )
         if (job.get("input_fingerprint") == input_fp
                 and job.get("variant") == variant
-                and (provider_identity is None or job.get("provider_identity") == provider_identity)
+                and provider_identity is not None
+                and job.get("provider_identity") == provider_identity
                 and (reusable_status or recovered_output)
                 and job.get("provider_task_id")):
             return job
@@ -383,7 +384,8 @@ def _find_video_job(
         if job.get("gen_type") == "video"
         and job.get("input_fingerprint") == input_fp
         and job.get("variant") == variant
-        and (provider_identity is None or job.get("provider_identity") == provider_identity)
+        and provider_identity is not None
+        and job.get("provider_identity") == provider_identity
         and job.get("provider_task_id")
     ]
     return max(
