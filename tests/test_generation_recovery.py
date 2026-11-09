@@ -196,8 +196,10 @@ class TestVideoJobPersistence:
 
         pid = "proj-terminal-race"
         config.init_project_dirs(config.project_dir(pid))
+        identity = gen._video_provider_identity(gen._role_cfg("video"))
         gen._update_job(pid, "job-race", {
             "provider_task_id": "provider-race",
+            "provider_identity": identity,
             "gen_type": "video",
             "status": "running",
         })
@@ -222,11 +224,13 @@ class TestRecoverPendingVideoJobs:
         from video_director import config, generation as gen
         pid = "proj-recover"
         config.init_project_dirs(config.project_dir(pid))
+        identity = gen._video_provider_identity(gen._role_cfg("video"))
         out_file = config.project_dir(pid) / "assets" / "generated" / "rec.mp4"
         out_file.parent.mkdir(parents=True, exist_ok=True)
         # 模拟中断残留：running + provider_task_id 已落盘
         gen._update_job(pid, "genjob-abc", {
             "provider": "fake", "provider_task_id": "ext-task-9",
+            "provider_identity": identity,
             "gen_type": "video", "prompt_fingerprint": "f" * 64,
             "status": "running", "output_file": str(out_file),
         })
@@ -250,9 +254,11 @@ class TestRecoverPendingVideoJobs:
 
         pid = "proj-recover-stale-running"
         config.init_project_dirs(config.project_dir(pid))
+        identity = gen._video_provider_identity(gen._role_cfg("video"))
         gen._update_job(pid, "genjob-downloading", {
             "provider": "fake",
             "provider_task_id": "ext-task-downloading",
+            "provider_identity": identity,
             "gen_type": "video",
             "status": "downloading",
             "output_file": "pending-output.mp4",
@@ -276,9 +282,11 @@ class TestRecoverPendingVideoJobs:
         from video_director import config, generation as gen
         pid = "proj-recover-downloading"
         config.init_project_dirs(config.project_dir(pid))
+        identity = gen._video_provider_identity(gen._role_cfg("video"))
         out_file = config.project_dir(pid) / "assets" / "generated" / "interrupted.mp4"
         gen._update_job(pid, "genjob-downloading", {
             "provider": "fake", "provider_task_id": "ext-task-d",
+            "provider_identity": identity,
             "gen_type": "video", "input_fingerprint": "d" * 16,
             "variant": "A", "status": "downloading", "output_file": str(out_file),
         })
@@ -341,8 +349,10 @@ class TestRecoverPendingVideoJobs:
         from video_director import config, generation as gen
         pid = "proj-recover-fail"
         config.init_project_dirs(config.project_dir(pid))
+        identity = gen._video_provider_identity(gen._role_cfg("video"))
         gen._update_job(pid, "genjob-f", {
             "provider": "fake", "provider_task_id": "ext-task-f",
+            "provider_identity": identity,
             "gen_type": "video", "status": "running", "output_file": "",
         })
         fake = FakeVideoClient(statuses=["failed"])
