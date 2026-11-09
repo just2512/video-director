@@ -178,7 +178,8 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     provider_probe = ai_workflow.split(
         "      - name: Probe NVIDIA streaming endpoint with a minimal prompt", 1
     )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
-    assert 'timeout --signal=TERM --kill-after=5s 75s' in provider_probe
+    assert 'timeout --signal=TERM --kill-after=5s 150s' in provider_probe
+    assert 'httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=15.0)' in provider_probe
     assert 'max_tokens=512' in provider_probe
     assert 'endpoint_host == "integrate.api.nvidia.com" and config["model"].strip().lower() == "z-ai/glm-5.3-flash"' in provider_probe
     assert '"reasoning_effort": effort' in provider_probe
