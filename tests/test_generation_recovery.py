@@ -478,16 +478,19 @@ class TestFingerprintReuse:
         self, tmp_path, monkeypatch
     ):
         _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
         from video_director import config, generation as gen
         pid = "proj-manifest-row-lost"
         config.init_project_dirs(config.project_dir(pid))
+        identity = gen._video_provider_identity(gen._role_cfg("video"))
         gen._update_job(pid, "genjob-registered", {
             "provider_task_id": "provider-task-registered",
             "gen_type": "video", "input_fingerprint": "a" * 16,
+            "provider_identity": identity,
             "variant": "A", "status": "done",
             "manifest_registered": True,
         })
-        reusable = gen._find_reusable_job(pid, "a" * 16, "A")
+        reusable = gen._find_reusable_job(pid, "a" * 16, "A", identity)
         assert reusable is not None
         assert reusable["job_id"] == "genjob-registered"
 
