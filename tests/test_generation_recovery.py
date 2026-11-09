@@ -75,6 +75,12 @@ def _video_cfg(monkeypatch):
         if role == "video" else {"api_key": "", "base_url": "", "model": ""})
 
 
+def _video_identity(monkeypatch, gen, model="fake-model"):
+    """Canonical identity required by direct durable-job helper tests."""
+    _video_cfg(monkeypatch)
+    return gen._video_provider_identity(gen._role_cfg("video"), model)
+
+
 def test_explicit_submission_unknown_code_is_not_reclassified_from_diagnostic_text():
     from video_director.generation import GenerationError
 
@@ -329,11 +335,13 @@ class TestRecoverPendingVideoJobs:
         from video_director import config, generation as gen
         pid = "proj-poll-downloading"
         config.init_project_dirs(config.project_dir(pid))
+        identity = _video_identity(monkeypatch, gen, "fake-model")
         fake = FakeVideoClient(statuses=["completed"])
         monkeypatch.setattr(gen, "_download_bytes", lambda url: b"fake-mp4")
         url = gen._create_poll_and_persist_video(
             fake, pid, "fake-model", "prompt", 320, 180,
             "e" * 16, "A", str(config.project_dir(pid) / "result.mp4"), timeout=1,
+            provider_identity=identity,
         )
         assert url == "https://cdn/x.mp4"
         job = next(iter(gen._load_jobs(pid).values()))
@@ -818,6 +826,7 @@ class TestConcurrentVideoSubmission:
         _isolate(tmp_path, monkeypatch)
         from video_director import config, generation as gen
 
+        identity = _video_identity(monkeypatch, gen, "fake-model")
         project_id = "proj-concurrent-video-submit"
         config.init_project_dirs(config.project_dir(project_id))
         post_entered = threading.Event()
@@ -879,6 +888,7 @@ class TestConcurrentVideoSubmission:
                     "A",
                     str(config.project_dir(project_id) / "assets" / f"result-{index}.mp4"),
                     timeout=5,
+                    provider_identity=identity,
                 ))
             except Exception as exc:
                 errors.append(exc)
@@ -1044,6 +1054,7 @@ class TestConcurrentVideoSubmission:
         _isolate(tmp_path, monkeypatch)
         from video_director import config, generation as gen
 
+        identity = _video_identity(monkeypatch, gen, "fake-model")
         project_id = "proj-late-video-joiner"
         config.init_project_dirs(config.project_dir(project_id))
         output = config.project_dir(project_id) / "assets" / "generated" / "committed.mp4"
@@ -1051,6 +1062,7 @@ class TestConcurrentVideoSubmission:
         output.write_bytes(b"already-committed-video")
         gen._update_job(project_id, "genjob-late-joiner", {
             "provider_task_id": "already-finished-task",
+            "provider_identity": identity,
             "gen_type": "video",
             "input_fingerprint": "d" * 16,
             "variant": "A",
@@ -1071,6 +1083,7 @@ class TestConcurrentVideoSubmission:
             NoProviderCalls(), project_id, "fake-model", "prompt", 320, 180,
             "d" * 16, "A", str(config.project_dir(project_id) / "assets" / "other.mp4"),
             timeout=1,
+            provider_identity=identity,
         )
 
         assert result is None
@@ -1119,6 +1132,7 @@ class TestConcurrentVideoSubmission:
         _isolate(tmp_path, monkeypatch)
         from video_director import config, generation as gen
 
+        identity = _video_identity(monkeypatch, gen, "fake-model")
         project_id = "proj-video-submit-timeout"
         config.init_project_dirs(config.project_dir(project_id))
         from types import SimpleNamespace
@@ -1140,6 +1154,7 @@ class TestConcurrentVideoSubmission:
                 client, project_id, "fake-model", "prompt", 320, 180,
                 "b" * 64, "A", str(config.project_dir(project_id) / "result.mp4"),
                 timeout=1,
+                provider_identity=identity,
             )
         jobs = gen._load_jobs(project_id)
         assert len(jobs) == 1
@@ -1155,6 +1170,7 @@ class TestConcurrentVideoSubmission:
                 client, project_id, "fake-model", "prompt", 320, 180,
                 "b" * 64, "A", str(config.project_dir(project_id) / "retry.mp4"),
                 timeout=1,
+                provider_identity=identity,
             )
         assert retry_error.value.code == "VIDEO_SUBMISSION_UNKNOWN"
         assert client.paths == ["/video/generations"]
@@ -1188,11 +1204,13 @@ class TestConcurrentVideoSubmission:
                     "url": "https://cdn.example/fallback.mp4",
                 })
 
+        identity = _video_identity(monkeypatch, gen, "fake-model")
         client = FallbackClient()
         result = gen._create_poll_and_persist_video(
             client, project_id, "fake-model", "prompt", 320, 180,
             "c" * 64, "A", str(config.project_dir(project_id) / "result.mp4"),
             timeout=1,
+            provider_identity=identity,
         )
         assert result == "https://cdn.example/fallback.mp4"
         assert client.paths == ["/video/generations", "/videos"]
@@ -1211,6 +1229,7 @@ class TestVideoGenerationTimeoutRecovery:
         assets_dir = config.project_dir(project_id) / "assets"
         assets_dir.mkdir(parents=True, exist_ok=True)
         output = assets_dir / "resumed.mp4"
+        identity = _video_identity(monkeypatch, gen, "fake-video-model")
         client = FakeVideoClient(statuses=["queued", "completed"])
 
         # Advance a deterministic clock instead of sleeping through the timeout.
@@ -1225,6 +1244,7 @@ class TestVideoGenerationTimeoutRecovery:
             gen._create_poll_and_persist_video(
                 client, project_id, "fake-video-model", "same prompt", 320, 180,
                 "d" * 64, "A", str(output), timeout=5,
+                provider_identity=identity,
             )
 
         assert timeout_error.value.code == "VIDEO_GENERATION_TIMEOUT"
@@ -1240,6 +1260,7 @@ class TestVideoGenerationTimeoutRecovery:
         resumed_url = gen._create_poll_and_persist_video(
             client, project_id, "fake-video-model", "same prompt", 320, 180,
             "d" * 64, "A", str(output), timeout=10,
+            provider_identity=identity,
         )
         assert resumed_url == "https://cdn/x.mp4"
         assert client.post_calls == 1, "timeout recovery must never POST a second provider task"
