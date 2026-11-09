@@ -55,7 +55,17 @@ def test_generation_reservation_durability_failure_blocks_paid_submission(
     tmp_path, monkeypatch
 ):
     _isolate(monkeypatch, tmp_path)
-    from video_director import generation as gen
+    from video_director import generation as gen, model_config
+    monkeypatch.setattr(
+        model_config,
+        "get_role_config",
+        lambda role: {
+            "api_key": "test-key",
+            "base_url": "https://durability-test.example/v1",
+            "model": "model",
+        } if role == "video" else {},
+    )
+    identity = gen._video_provider_identity(gen._role_cfg("video"), "model")
 
     project_id = "durable-submit-gate"
     config.init_project_dirs(config.project_dir(project_id))
@@ -82,6 +92,7 @@ def test_generation_reservation_durability_failure_blocks_paid_submission(
             "A",
             str(config.project_dir(project_id) / "assets" / "generated" / "result.mp4"),
             timeout=1,
+            provider_identity=identity,
         )
 
     assert caught.value.code == "VIDEO_JOB_DURABILITY_UNCONFIRMED"
