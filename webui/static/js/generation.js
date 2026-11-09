@@ -143,7 +143,15 @@ async function editorGenerate(){
       height: ED.comp ? (ED.comp.height || 1920) : 1920, confirmed: true});
   }
   const box = document.getElementById('gen-results');
-  if (!r.ok) { status.textContent = ''; box.innerHTML = `<div class="err-box">${type === 'sfx' ? '音效搜索失败' : '生成失败'}：${esc(r.error||'未知原因')}</div>`; return; }
+  if (!r.ok) {
+    status.textContent = '';
+    const pollTimedOut = type === 'video' && r.code === 'VIDEO_GENERATION_TIMEOUT';
+    const errorMessage = pollTimedOut
+      ? `${r.error || '本地等待超时'}。供应商任务仍在运行。保持项目、提示词、模型、参考素材和尺寸不变，再次点击「生成」会接管原任务继续轮询，不会再次提交供应商任务。`
+      : `${type === 'sfx' ? '音效搜索失败' : '生成失败'}：${r.error || '未知原因'}`;
+    box.innerHTML = `<div class="err-box">${esc(errorMessage)}</div>`;
+    return;
+  }
   // 差距 2a：音效产物不是画面变体——展示来源（Openverse CC0）与提示，不伪装成 AI 生成。
   if (type === 'sfx') {
     status.textContent = `已搜索并入库音效（${r.note || 'Openverse/freesound CC0'}）`;

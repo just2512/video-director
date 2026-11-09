@@ -1131,6 +1131,59 @@ class TestConcurrentVideoSubmission:
         assert client.paths == ["/video/generations", "/videos"]
 
 
+class TestVideoGenerationTimeoutRecovery:
+    def test_poll_timeout_resumes_existing_provider_task_without_second_submit(
+        self, tmp_path, monkeypatch
+    ):
+        """A local wait timeout keeps the provider task running and resumes by polling only."""
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen
+
+        project_id = "proj-video-timeout-resume"
+        config.init_project_dirs(config.project_dir(project_id))
+        assets_dir = config.project_dir(project_id) / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        output = assets_dir / "resumed.mp4"
+        client = FakeVideoClient(statuses=["queued", "completed"])
+
+        # Advance a deterministic clock instead of sleeping through the timeout.
+        clock = {"now": 1000.0}
+        monkeypatch.setattr(gen.time, "time", lambda: clock["now"])
+        monkeypatch.setattr(
+            gen.time, "sleep", lambda seconds: clock.__setitem__("now", clock["now"] + seconds)
+        )
+        monkeypatch.setattr(gen, "_download_bytes", lambda _url: b"resumed-video-bytes")
+
+        with pytest.raises(gen.GenerationError) as timeout_error:
+            gen._create_poll_and_persist_video(
+                client, project_id, "fake-video-model", "same prompt", 320, 180,
+                "d" * 64, "A", str(output), timeout=5,
+            )
+
+        assert timeout_error.value.code == "VIDEO_GENERATION_TIMEOUT"
+        jobs = gen._load_jobs(project_id)
+        assert len(jobs) == 1
+        job = next(iter(jobs.values()))
+        assert job["status"] == "running"
+        assert job["provider_task_id"] == client.created_task_id
+        assert client.post_calls == 1
+        assert client.get_calls == 1
+
+        resumed_url = gen._create_poll_and_persist_video(
+            client, project_id, "fake-video-model", "same prompt", 320, 180,
+            "d" * 64, "A", str(output), timeout=10,
+        )
+        assert resumed_url == "https://cdn/x.mp4"
+        assert client.post_calls == 1, "timeout recovery must never POST a second provider task"
+        assert client.get_calls == 2, "recovery must continue polling the existing provider task"
+
+        persisted = gen._persist_video_output(project_id, job["job_id"], str(output), resumed_url)
+        assert persisted == output
+        final_job = gen._load_jobs(project_id)[job["job_id"]]
+        assert final_job["status"] == "done"
+        assert output.read_bytes() == b"resumed-video-bytes"
+
+
 class TestManualSubmissionResolution:
     def test_found_provider_task_resumes_polling_without_new_submit(self, tmp_path, monkeypatch):
         _isolate(tmp_path, monkeypatch)
