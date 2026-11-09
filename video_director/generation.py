@@ -264,9 +264,15 @@ def _prompt_fingerprint(prompt: str, gen_type: str) -> str:
 
 
 def _assert_no_legacy_dimensionless_video_jobs(
-    project_id: str, legacy_input_fp: str, variants: List[str],
+    project_id: str, legacy_input_fp: str, variants: List[str], manifest: List[dict],
 ) -> None:
-    """Fail closed on pre-dimension reservations whose requested size is unknowable."""
+    """Fail closed on ambiguous legacy jobs, but trust a dimensioned manifest row.
+
+    Active legacy reservations are always ambiguous. A completed legacy job can
+    be distinguished from a new request only when its already-registered
+    manifest row carries valid output dimensions; the normal manifest lookup
+    then decides whether that exact artifact is reusable for this request.
+    """
     active = {"pending", "submitting", "submission_unknown", "running", "downloading"}
     for job in _load_jobs(project_id).values():
         if (
@@ -276,21 +282,35 @@ def _assert_no_legacy_dimensionless_video_jobs(
         ):
             continue
         status = job.get("status")
-        if status not in active and not (
-            status == "done" and (
-                job.get("recovery_needs_registration") is True
-                or job.get("manifest_registered") is True
-            )
-        ):
+        if status not in active and status != "done":
             continue
         width, height = job.get("width"), job.get("height")
         if (
             isinstance(width, bool) or not isinstance(width, int) or width <= 0
-            or isinstance(height, bool) or not isinstance(height, int) or height <= 0
+        ) or (
+            isinstance(height, bool) or not isinstance(height, int) or height <= 0
         ):
+            if status == "done":
+                row = next((
+                    item for item in manifest
+                    if item.get("input_fingerprint") == legacy_input_fp
+                    and item.get("variant") == job.get("variant")
+                    and item.get("type") == "video"
+                    and item.get("source") == "generated"
+                ), None)
+                row_width = row.get("width") if row else None
+                row_height = row.get("height") if row else None
+                if (
+                    row is not None
+                    and isinstance(row_width, int) and not isinstance(row_width, bool)
+                    and row_width > 0
+                    and isinstance(row_height, int) and not isinstance(row_height, bool)
+                    and row_height > 0
+                ):
+                    continue
             raise GenerationError(
                 "VIDEO_LEGACY_DIMENSIONS_UNKNOWN",
-                "发现旧版视频任务没有持久化输出尺寸；无法确认它与当前请求一致。"
+                "发现旧版视频任务没有持久化输出尺寸，且没有可核验的带尺寸 Manifest 记录。"
                 f"任务 {job.get('job_id')} 已停止自动复用/重提，请先人工核实供应商任务与产物。",
             )
 
@@ -837,7 +857,7 @@ def generate(
         # stop before recovery/provider access rather than risk wrong-size reuse
         # or a duplicate paid submission.
         _assert_no_legacy_dimensionless_video_jobs(
-            project_id, legacy_input_fp, variants
+            project_id, legacy_input_fp, variants, manifest
         )
         # 审计差距 2：视频分支入口先恢复历史 running 任务（幂等；失败不阻塞
         # 本次生成——恢复失败只记警告，job 留待下次）。

@@ -1783,3 +1783,84 @@ class TestVideoDimensionIdentity:
 
         assert len(captured) == 2
         assert captured[0] == captured[1]
+
+
+    @pytest.mark.parametrize("requested_size,should_reuse", [
+        ((320, 180), True),
+        ((640, 360), False),
+    ])
+    def test_completed_legacy_job_uses_dimensioned_manifest_as_compatibility_evidence(
+        self, tmp_path, monkeypatch, requested_size, should_reuse
+    ):
+        _isolate(tmp_path, monkeypatch)
+        import hashlib
+        from video_director import config, generation as gen
+
+        pid = f"proj-legacy-done-{requested_size[0]}"
+        config.init_project_dirs(config.project_dir(pid))
+        prompt = "completed legacy job"
+        legacy_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
+        old_output = config.project_dir(pid) / "assets" / "generated" / "legacy-done.mp4"
+        old_output.parent.mkdir(parents=True, exist_ok=True)
+        old_output.write_bytes(b"legacy-done-video")
+        manifest = []
+        gen._register_result(
+            manifest, [], "legacy-done-asset", "video", old_output, 320, 180,
+            5.0, "old-model", "video-llm", prompt, legacy_fp, "A",
+        )
+        gen._save_manifest(pid, manifest)
+        gen._update_job(pid, "legacy-done-job", {
+            "gen_type": "video", "input_fingerprint": legacy_fp,
+            "variant": "A", "status": "done", "provider_task_id": "old-provider-task",
+            "manifest_registered": True, "output_file": str(old_output),
+        })
+
+        if should_reuse:
+            monkeypatch.setattr(
+                gen, "_video_client",
+                lambda _cfg: (_ for _ in ()).throw(
+                    AssertionError("dimension-matched legacy manifest should be reused")
+                ),
+            )
+            result = gen.generate(
+                pid, prompt, "video", width=requested_size[0],
+                height=requested_size[1], variant="A",
+            )
+            assert result[0].asset_id == "legacy-done-asset"
+        else:
+            _video_cfg(monkeypatch)
+            client = FakeVideoClient(statuses=["completed"])
+            monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
+            monkeypatch.setattr(gen, "_download_bytes", lambda _url: b"new-size-video")
+            result = gen.generate(
+                pid, prompt, "video", width=requested_size[0],
+                height=requested_size[1], variant="A",
+            )
+            assert result[0].asset_id != "legacy-done-asset"
+            assert client.post_calls == 1
+
+    def test_completed_dimensionless_legacy_job_without_manifest_fails_closed(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        import hashlib
+        from video_director import config, generation as gen
+
+        pid = "proj-legacy-done-no-manifest"
+        config.init_project_dirs(config.project_dir(pid))
+        prompt = "completed legacy without manifest"
+        legacy_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
+        gen._update_job(pid, "legacy-done-job", {
+            "gen_type": "video", "input_fingerprint": legacy_fp,
+            "variant": "A", "status": "done", "provider_task_id": "old-provider-task",
+            "manifest_registered": True,
+        })
+        client = FakeVideoClient(statuses=["completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
+
+        with pytest.raises(gen.GenerationError) as caught:
+            gen.generate(pid, prompt, "video", width=320, height=180, variant="A")
+
+        assert caught.value.code == "VIDEO_LEGACY_DIMENSIONS_UNKNOWN"
+        assert client.post_calls == 0
