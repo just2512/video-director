@@ -638,6 +638,7 @@ def test_full_hosted_regression_gate_is_main_sha_pinned_and_uses_no_self_hosted_
     assert "ANTHROPIC_API_KEY" not in live_job
     assert "environment:" not in live_job
     assert "id: live_provider_probe" in live_job
+    assert "python -m pip install -r requirements.txt httpx" in live_job
     assert "LIVE_PROVIDER_PROBE_OUTCOME" in live_job
     assert "httpx.Timeout(connect=15.0, read=210.0, write=30.0, pool=15.0)" in live_job
     assert 'VD_LLM_REQUEST_TIMEOUT_SECONDS: "210"' in live_job
@@ -648,3 +649,4 @@ def test_full_hosted_regression_gate_is_main_sha_pinned_and_uses_no_self_hosted_
     assert "steps.live_provider_probe.outcome == 'success'" in live_job
     assert 'LIVE_STREAM_CONFIG_OUTCOME="$LIVE_CONFIG_OUTCOME"' in live_job
     assert 'LIVE_PROVIDER_PROBE_ERROR_TYPE="$LIVE_PROVIDER_PROBE_ERROR_TYPE"' in live_job
+    assert 'LIVE_PROVIDER_PROBE_CAUSE_TYPE="$LIVE_PROVIDER_PROBE_CAUSE_TYPE"' in live_job

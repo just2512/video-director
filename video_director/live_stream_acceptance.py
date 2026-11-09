@@ -185,6 +185,12 @@ def classify_live_stream_acceptance(
         }
         if str(probe_error_type or "") in timeout_types or str(probe_cause_type or "") in timeout_types:
             return "BLOCKED_ENDPOINT"
+        missing_dependency_types = {"ModuleNotFoundError", "ImportError"}
+        if (
+            str(probe_error_type or "") in missing_dependency_types
+            or str(probe_cause_type or "") in missing_dependency_types
+        ):
+            return "MISSING"
         return "REJECT"
 
     path = Path(junit_path)

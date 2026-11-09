@@ -332,3 +332,10 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - NVIDIA's current model card says GLM-5.3-Flash supports reasoning/tool use, defaults `reasoning_effort` to `max`, and defaults `clear_thinking` to false. The official API reference documents OpenAI-compatible `/v1/chat/completions` streaming as SSE deltas. The provider already sends `reasoning_effort=low`, `clear_thinking=true`, and an 8192-token budget for this exact model.
 - Community reports dated 2026-10-14 describe GLM-5.3 chat-completions timeouts with zero response bytes while `/v1/models` remained HTTP 200. This is diagnostic context, not proof of a provider outage.
 - If the minimal probe or full app stream again times out, record BLOCKED_ENDPOINT and keep final acceptance OPEN. Do not substitute a mock or claim model availability from a catalog response.
+
+
+## 17. NVIDIA probe dependency correction — 2026-11-09
+
+- Exact main SHA `84886d74878178d0b606e283ee10e60e23bae9e2`, full hosted run `42635166809`: full pytest 1941 passed / 2 skipped and Studio gate 344 passed; the NVIDIA job's minimal probe failed before network access with `ModuleNotFoundError: No module named 'httpx'`.
+- The NVIDIA secret was present, but no model request occurred in this attempt. This is a live-job dependency omission, not evidence of an NVIDIA endpoint failure.
+- The live job now explicitly installs `httpx`; the probe catches import errors and classifies them as MISSING. The next exact-main run must again pass full pytest and Studio before the minimal NVIDIA stream probe and full Film AI stream acceptance execute.

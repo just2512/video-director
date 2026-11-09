@@ -83,6 +83,14 @@ def test_probe_failure_without_transport_evidence_remains_rejected(tmp_path):
     ) == "REJECT"
 
 
+@pytest.mark.parametrize("error_type", ["ModuleNotFoundError", "ImportError"])
+def test_provider_probe_missing_runtime_dependency_is_missing(tmp_path, error_type):
+    assert classify_live_stream_acceptance(
+        "success", "skipped", tmp_path / "missing.xml",
+        probe_outcome="failure", probe_error_type=error_type,
+    ) == "MISSING"
+
+
 def test_missing_or_ambiguous_junit_evidence_is_unknown(tmp_path):
     path = tmp_path / "live.xml"
     write_junit(path, test_name="some_other_test")
