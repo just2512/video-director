@@ -3,8 +3,6 @@ name: Full hosted regression
 on:
   push:
     branches: [main]
-      - "**/*.md"
-      - "README*"
   workflow_dispatch:
     inputs:
       run_live_nvidia:
