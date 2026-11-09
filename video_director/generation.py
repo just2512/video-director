@@ -285,9 +285,17 @@ def _update_job(project_id: str, job_id: str, fields: dict) -> dict:
         # another poller has already persisted "downloading". Downloading means
         # the provider task is complete and local output finalization has begun;
         # it must never be downgraded to running by that stale observation.
-        if current_status == "downloading" and requested_status == "running":
+        if current_status == "downloading" and requested_status in {
+            "running", "failed", "submission_rejected", "cancelled"
+        }:
+            # Once a poller has observed provider completion and started local
+            # materialization, a stale concurrent provider observation must not
+            # downgrade the durable download transaction. Download failures
+            # remain retryable in downloading; only successful local commit may
+            # advance it to done.
             logger.info(
-                f"generation: 任务 {job_id} 已进入 downloading，忽略迟到的 running 状态观察"
+                f"generation: 任务 {job_id} 已进入 downloading，忽略迟到的 "
+                f"{requested_status!r} 状态观察"
             )
             return job
         if current_status in _TERMINAL_JOB_STATUSES and requested_status != current_status:

@@ -304,6 +304,41 @@ class TestRecoverPendingVideoJobs:
         assert job["status"] == "downloading"
         assert job["output_file"] == "pending-output.mp4"
 
+    def test_stale_failed_recovery_observation_cannot_downgrade_downloading_job(
+        self, tmp_path, monkeypatch
+    ):
+        """A stale failed poll must not destroy a task already finalizing its output."""
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import config, generation as gen
+
+        pid = "proj-recover-stale-failed"
+        config.init_project_dirs(config.project_dir(pid))
+        identity = gen._video_provider_identity(gen._role_cfg("video"))
+        gen._update_job(pid, "genjob-downloading", {
+            "provider": "fake",
+            "provider_task_id": "ext-task-downloading",
+            "provider_identity": identity,
+            "gen_type": "video",
+            "status": "running",
+            "output_file": "pending-output.mp4",
+        })
+
+        def stale_failed_after_download_started(_client, _task_id):
+            gen._update_job(pid, "genjob-downloading", {
+                "status": "downloading",
+                "output_file": "pending-output.mp4",
+            })
+            return "failed", None, {"status": "failed"}
+
+        monkeypatch.setattr(gen, "_query_video_status", stale_failed_after_download_started)
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: FakeVideoClient([]))
+
+        assert gen.recover_pending_video_jobs(pid) == []
+        job = gen._load_jobs(pid)["genjob-downloading"]
+        assert job["status"] == "downloading"
+        assert job["output_file"] == "pending-output.mp4"
+
 
     def test_recover_finishes_downloading_job_after_process_interruption(
         self, tmp_path, monkeypatch
