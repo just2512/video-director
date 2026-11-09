@@ -134,16 +134,16 @@ Execution order:
 
 | Order | Task | Lane | Exit condition | State |
 |---:|---|---|---|---|
-| 1 | Disable self-hosted AI Director job; establish hosted-only runner rule | W6 | No future workflow path allocates a self-hosted runner | PASS — job-level `if: false` verified; run `42617062648` allocated no job |
-| 2 | Convert branch-gated workstream CI into hosted main-only lanes | W6 | W1/W2/W3 and W4/W5 run as independent GitHub-hosted jobs from main SHA | IMPLEMENTED; latest exact-main run in progress |
-| 3 | Re-run focused generation/provider recovery suite on hosted runner | W1 | Exact-main tests pass; provider submission and manifest invariants verified | PASS — code SHA `471800ca2d`, run `42620911400` |
-| 4 | Re-run timeline multi-select/cross-track/Undo/Redo browser suite | W2 | Atomic transaction and full undo/redo behavior pass on exact SHA | PASS — code SHA `471800ca2d`, run `42620911400`; includes AI proposal preview/reject/apply and stream contracts |
-| 5 | Implement project-home/create UX over existing create lifecycle | W4 | Create/cancel/failure/resume and project metadata fields pass | PARTIAL — existing workspace/cancel/draft flows pass; add project name/type inputs and persist them to project params |
-| 6 | Implement categorized settings IA | W5 | Expand/save/import/export and secret preservation browser scenarios pass | PASS — code SHA `471800ca2d`, run `42620911467`; includes browser export-redaction/partial-import test |
-| 7 | Integrate shared shell serially | W7 | One route/view state; no duplicate project or settings state | BLOCKED on 5, 6 |
-| 8 | Run lifecycle/export/QC E2E and project defaults compatibility | W3 | One project/revision across create→edit→reopen→export/QC | W3 PASS on `ac1fbf5558`; explicit project width/height/FPS round-trip test added and passed in W4 on that SHA |
-| 9 | Run final hosted full regression on exact main SHA | W6/W0 | All required hosted jobs pass; no local runner used | BLOCKED on business lanes 1–8 |
-
+| 1 | Disable self-hosted AI Director job; establish hosted-only runner rule | W6 | No future workflow path allocates a self-hosted runner | PASS — AI Director job-level `if: false`; current main run `42637922618` skipped |
+| 2 | Convert branch-gated workstream CI into hosted main-only lanes | W6 | W1/W2/W3/W4/W5 execute independently on GitHub-hosted runners from main SHA | PASS — latest completed SHA `84886d7487`, runs `42635166724` and `42635166694`; SHA `6ba62841bd` revalidation running |
+| 3 | Generation/provider recovery suite | W1 | Provider identity, retry reservation and manifest invariants pass | PASS — SHA `84886d7487`, 89 passed, run `42635166724` |
+| 4 | Timeline transactions, stale revisions, Undo/Redo and AI proposal contracts | W2 | Atomic transaction and revision-bound proposal behavior pass | PASS — SHA `84886d7487`, 333 passed, run `42635166724` |
+| 5 | Project home/create, cancel/resume, metadata and project defaults | W4 | Existing create lifecycle and metadata fields pass without a second backend state machine | PASS — SHA `84886d7487`, 35 passed, run `42635166694` |
+| 6 | Settings IA, safe save/import/export and secret preservation | W5 | Categorized UI and credential safety pass | PASS — SHA `84886d7487`, 13 passed, run `42635166694` |
+| 7 | Shared shell navigation contract | W7 | Home/editor/settings switch with one active pane, stable URL and global create action | IMPLEMENTED; dedicated browser job pending on next main SHA |
+| 8 | Integrated product journey across create lifecycle and settings | W7/W3 | One browser journey covers home → create/cancel/resume → settings expand/save/import/export | PARTIAL — W4 and W5 separate browser suites pass; single cross-workflow journey still missing |
+| 9 | Exact-main full hosted regression | W6/W0 | Full pytest, Studio release gate, all scoped lanes and Windows native check pass on exact main SHA | PASS for non-live gates on `84886d7487`; full run `42635166809` live NVIDIA job failed before network access; SHA `6ba62841bd` rerun in progress |
+| 10 | Real NVIDIA token-stream and FilmDocument immutability acceptance | W6/W0 | Real model emits token fragments before result; proposal is revision-bound; document unchanged before approval; approval single-use | BLOCKED — prior run `42635166809` failed before network access due missing `httpx`; dependency fix committed in `6ba62841bd`, live run pending |
 ## 7. Stop conditions
 
 Stop and request a decision only for architecture/contract conflict, data-loss risk, security boundary change, irreversible migration, production-impacting change, or a product decision not specified by either source plan. Ordinary test failures, lint issues and CI configuration defects are to be diagnosed and fixed without changing acceptance thresholds.
@@ -334,8 +334,10 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - If the minimal probe or full app stream again times out, record BLOCKED_ENDPOINT and keep final acceptance OPEN. Do not substitute a mock or claim model availability from a catalog response.
 
 
-## 17. NVIDIA probe dependency correction — 2026-11-09
+## 17. Hosted regression evidence and live-probe dependency correction — 2026-11-09
 
-- Exact main SHA `84886d74878178d0b606e283ee10e60e23bae9e2`, full hosted run `42635166809`: full pytest 1941 passed / 2 skipped and Studio gate 344 passed; the NVIDIA job's minimal probe failed before network access with `ModuleNotFoundError: No module named 'httpx'`.
-- The NVIDIA secret was present, but no model request occurred in this attempt. This is a live-job dependency omission, not evidence of an NVIDIA endpoint failure.
-- The live job now explicitly installs `httpx`; the probe catches import errors and classifies them as MISSING. The next exact-main run must again pass full pytest and Studio before the minimal NVIDIA stream probe and full Film AI stream acceptance execute.
+- Main SHA `84886d74878178d0b606e283ee10e60e23bae9e2`: W1 89 passed, W2 333 passed, W3 235 passed / 1 skipped, W4 35 passed, W5 13 passed. Runs: `42635166724` and `42635166694`.
+- The same SHA's full pytest summary was 1,943 tests, 0 failures, 0 errors, 2 skipped; Studio release gate was 344 passed. Full hosted run: `42635166809`.
+- The NVIDIA live job on that SHA failed before making a network request: the probe imported `httpx`, but the hosted environment did not install it. The NVIDIA secret was present; this is a workflow dependency defect, not evidence about endpoint availability.
+- Main commit `6ba62841bdf1ce1dff0d9567dd833c491acd2020` explicitly installs `httpx` in the isolated live-provider job. Its full hosted regression, W1–W5 lanes, and Windows-native workflow were running when this ledger revision was prepared. The real model request must not be claimed as successful until its job and the full Film AI streaming test complete.
+- The legacy AI Director self-hosted job remains disabled. No local runner is to be dispatched.

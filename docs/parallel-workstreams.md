@@ -52,3 +52,5 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
 - W4 verifies project-scoped output profile restoration (width, height, FPS), clean defaults when switching to a project without stored settings, and legacy platform-only aspect-ratio fallback.
 - W5 verifies export redacts API keys and partial import preserves local keys for both submitted and omitted roles.
 - These refinements add regression coverage only; they do not change FilmDocument, project lifecycle, model-config, or provider contracts.
+
+- W7 now has a dedicated browser contract test: `tests/test_product_shell_navigation_browser.py` verifies home → editor → settings → home, exactly one visible pane and active tab, stable in-page URL, and the global create action in every space. Its CI job is isolated on GitHub-hosted Ubuntu.

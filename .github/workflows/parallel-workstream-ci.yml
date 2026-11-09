@@ -111,3 +111,25 @@ jobs:
             tests/test_film_render_scene_e2e.py \
             tests/test_film_document_contract.py \
             tests/test_film_studio_generated_asset_adoption_browser.py
+
+  shell-navigation:
+    name: W7 shared shell navigation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install browser dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest playwright
+          python -m playwright install --with-deps chromium
+      - name: Verify top-level route and shared-shell behavior
+        run: |
+          python -m pytest -q --tb=short tests/test_product_shell_navigation_browser.py
