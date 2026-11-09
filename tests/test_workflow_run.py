@@ -176,3 +176,42 @@ def test_director_retry_prefers_current_project_metadata_over_original_spec(monk
     assert run_id == "run-retry-metadata"
     assert captured["spec"]["project_name"] == "已重命名项目"
     assert captured["spec"]["project_type"] == "知识科普"
+
+def test_director_retry_falls_back_to_persisted_metadata_for_legacy_params(monkeypatch):
+    import json
+
+    from video_director import director_inputs, director_intent, store, workflow_run as wf
+
+    project_id = "web-retry-legacy-metadata"
+    bundle = {
+        "brief": "继续制作旧项目",
+        "script": {"text": "原项目文案"},
+        "assets": {"asset_refs": []},
+    }
+    monkeypatch.setattr(store, "get_project", lambda _pid: {
+        "project_id": project_id,
+        "script": "原项目文案",
+        # Legacy rows predate the explicit name/type params_json keys.
+        "params_json": json.dumps({"creative_brief": "继续制作旧项目"}),
+    })
+    monkeypatch.setattr(wf, "list_runs", lambda **_kwargs: [])
+    monkeypatch.setattr(director_inputs, "load_bundle", lambda _pid: bundle)
+    monkeypatch.setattr(director_intent, "resolve_rule_intents", lambda _brief: {})
+    monkeypatch.setattr(
+        wf, "_load_persisted_director_spec",
+        lambda _pid: {"project_name": "历史项目名称", "project_type": "旧项目类型"},
+    )
+    monkeypatch.setattr(store, "set_stage", lambda *_args, **_kwargs: None)
+    captured = {}
+
+    def capture_retry_spec(spec):
+        captured["spec"] = spec
+        return "run-retry-legacy-metadata"
+
+    monkeypatch.setattr(wf, "run_director_create_async", capture_retry_spec)
+
+    run_id = wf.run_director_retry_async(project_id)
+
+    assert run_id == "run-retry-legacy-metadata"
+    assert captured["spec"]["project_name"] == "历史项目名称"
+    assert captured["spec"]["project_type"] == "旧项目类型"

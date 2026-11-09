@@ -287,3 +287,38 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - W4 follow-up: the first metadata browser run found the draft preview replaced the creative brief with the project name, and the project-prefill endpoint returned HTTP 500. The preview now retains name/type plus brief; the browser test performs a direct endpoint probe and the server logs the caught exception so the 500 root cause is visible instead of timing out silently. Revalidation is required on the new exact main SHA.
 
 - W4 prefill HTTP 500 root cause confirmed by the diagnostic response: `NameError: config is not defined` in the pre-existing brief route. The module imports the configuration singleton as `vd_config`; the route now uses `vd_config.project_dir(pid)`. The direct browser probe remains as regression coverage.
+
+
+## 13. Exact-main full regression closure and live NVIDIA trigger — 2026-11-09
+
+### Exact main SHA before the explicit live trigger
+
+- Main SHA: `e2d361867bcc686bc50151f3401d4a9fbe566a53`.
+- Full hosted regression run `42628470638`: SUCCESS. Full pytest: 1,936 passed, 2 skipped, 8 warnings; 1,938 collected; 0 failures and 0 errors; 693.68 seconds.
+- The two full-suite skips are explicit: Windows write-through persistence is Linux-inapplicable (the separate Windows-native run passed), and real NVIDIA live-stream is opt-in only (therefore MISSING, not PASS).
+- Studio build/timeline/lifecycle/export/QC release gate in the same run: 344 passed, 0 failed, 0 skipped.
+- Parallel workstreams run `42628470803`: W1 generation 89 passed; W2 timeline 333 passed; W3 lifecycle/export/QC 235 passed, 1 skipped (quiet lane log did not emit the skip reason).
+- Project home/create run `42628470596`: W4 35 passed; W5 13 passed.
+- Windows native persistence run `42628470688`: 1 passed on the Windows runner, exercising the real MoveFileExW write-through replace/delete path.
+- Workflow YAML run `42628470605`: all 8 workflow files parsed successfully.
+- Legacy self-hosted AI Director run `42628470660`: SKIPPED by its explicit disabled job condition; no self-hosted result is claimed. The full hosted replacement above is the authoritative regression gate.
+
+### Studio ripple-delete browser regression correction
+
+- A Studio-only run exposed a race in the browser test: it used the last observed `/api/editor/film/edit` response without correlating that response to the specific `ripple_delete` request. An earlier edit response could therefore be mistaken for the ripple response while the test compared a later document revision.
+- The test now uses Playwright `expect_response` with a predicate that checks the request's `ops[0].op == ripple_delete`, waits for that exact response, checks the response revision, uses `cache: no-store` for the authoritative read, and verifies server/client FilmDocument paths plus immediate and post-read disk revision equality.
+- Exact-main Studio gate passed 344 tests with the added checks. This was a test synchronization defect; no product timeline behavior was weakened.
+
+### Project metadata and retry compatibility
+
+- Create form now carries free-text project name and project type through draft, conversation snapshot, Director service, `projects.params_json`, project index and prefill. W4 browser lane passed 35 tests.
+- The current-DB metadata retry test confirms a rename wins over the historical spec.
+- This commit additionally fixes legacy-row fallback: when old `params_json` has no `name` or `project_type` key, the retry spec leaves the key absent so the persisted `plans/director_spec.json` can backfill it. Explicitly present empty DB values remain authoritative. A targeted regression covers both legacy fields.
+
+### NVIDIA live-stream remains the final open gate
+
+- The broad suite's live-stream test is SKIPPED without explicit opt-in; it is not a real-provider PASS.
+- The next main commit explicitly opts in with `[live-stream-smoke] [live-provider=nvidia] [live-model=z-ai/glm-5.3-flash]`.
+- The hosted workflow now requires all three markers, waits for both full pytest and Studio release gates, uses only `secrets.NVIDIA_API_KEY`, pins `https://integrate.api.nvidia.com/v1` and `z-ai/glm-5.3-flash`, and has no environment approval gate.
+- Documentation-only pushes no longer bypass the full hosted regression workflow. This preserves exact-main evidence when the execution ledger is updated.
+- Final closure still requires the real response to contain model token fragments before result, a revision-bound proposal, unchanged FilmDocument bytes/revision before approval, and single-use approval/replay rejection. If the secret is absent, report MISSING and keep the final gate open.

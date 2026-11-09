@@ -624,3 +624,16 @@ def test_full_hosted_regression_gate_is_main_sha_pinned_and_uses_no_self_hosted_
     assert "z-ai/glm-5.3-flash" in workflow
     assert "LIVE_STREAM_ACCEPTANCE=MISSING" in workflow
     assert "VIDEO_DIRECTOR_STORAGE_ROOT" in workflow
+    assert "paths-ignore:" not in workflow
+    assert "contains(github.event.head_commit.message, '[live-stream-smoke]')" in workflow
+    assert "contains(github.event.head_commit.message, '[live-provider=nvidia]')" in workflow
+    assert "contains(github.event.head_commit.message, '[live-model=z-ai/glm-5.3-flash]')" in workflow
+    live_job = workflow.split("  nvidia_live_stream:", 1)[1]
+    assert "needs: [full_regression, studio_release_gate]" in live_job
+    assert "NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}" in live_job
+    assert 'export VD_LLM_API_KEY="$NVIDIA_API_KEY"' in live_job
+    assert 'export VD_LLM_BASE_URL="https://integrate.api.nvidia.com/v1"' in live_job
+    assert 'export VD_LLM_MODEL="z-ai/glm-5.3-flash"' in live_job
+    assert "OPENAI_API_KEY" not in live_job
+    assert "ANTHROPIC_API_KEY" not in live_job
+    assert "environment:" not in live_job

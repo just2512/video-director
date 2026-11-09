@@ -650,9 +650,6 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
 
     spec = {
         "project_id": project_id,
-        # 当前项目元数据以 DB 为准；spec 仅在旧项目缺少 DB 字段时作为后续回填兜底。
-        "project_name": str(params.get("name") or "").strip(),
-        "project_type": str(params.get("project_type") or "").strip(),
         # 重试沿用初次参数；script 覆盖：bundle 里可能有 director 生成稿
         "script": (bundle.get("script") or {}).get("text")
                  or proj.get("script") or "",
@@ -671,6 +668,15 @@ def run_director_retry_async(project_id: str) -> Optional[str]:
         "clip_speed": params.get("clip_speed") or _intent.get("clip_speed"),
         "match_materials_to_script": params.get("match_materials_to_script", True),
     }
+    # Current DB fields take priority. For legacy rows where these keys do not
+    # exist at all, leave them absent so the persisted director_spec backfill
+    # below can restore the original name/type. An explicitly empty DB value
+    # remains authoritative and is not silently replaced by historical data.
+    if "name" in params:
+        spec["project_name"] = str(params.get("name") or "").strip()
+    if "project_type" in params:
+        spec["project_type"] = str(params.get("project_type") or "").strip()
+
     if _intent.get("duration"):
         spec["_intent_duration_s"] = _intent["duration"]
 
