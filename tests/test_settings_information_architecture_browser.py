@@ -69,3 +69,78 @@ def test_settings_categories_keep_local_credentials_read_only_until_explicit_sav
         server.server_close()
         thread.join(timeout=5)
         model_config._cache = None
+
+
+def test_settings_export_redacts_keys_and_partial_import_preserves_local_keys(tmp_path, monkeypatch):
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    monkeypatch.setattr(config, "composer_storage_root", lambda: storage)
+    storage.mkdir(parents=True)
+    config_path = storage / "model_config.json"
+    config_path.write_text(json.dumps({
+        "llm": {"api_key": "fixture-export-llm-secret", "base_url": "https://llm.example/v1", "model": "llm-before"},
+        "image": {"api_key": "fixture-export-image-secret", "base_url": "https://image.example/v1", "model": "image-before"},
+    }), encoding="utf-8")
+    model_config._cache = None
+
+    import webui.server as web_server
+    web_server = importlib.reload(web_server)
+    monkeypatch.setattr(web_server, "COMPOSER_ROOT", storage)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                assert response and response.status == 200
+                page.evaluate("switchTab('settings')")
+                config_section = page.locator("#pane-settings details.settings-section").filter(has_text="配置管理")
+                config_section.locator("summary").click()
+
+                with page.expect_download() as download_info:
+                    page.get_by_role("button", name="导出设置").click()
+                download = download_info.value
+                export_path = tmp_path / "settings-export.json"
+                download.save_as(export_path)
+                exported = json.loads(export_path.read_text(encoding="utf-8"))
+                assert exported["ok"] is True
+                exported_text = json.dumps(exported, ensure_ascii=False)
+                assert "fixture-export-llm-secret" not in exported_text
+                assert "fixture-export-image-secret" not in exported_text
+                assert all("api_key" not in role for role in exported["models"])
+
+                imported = {
+                    "ok": True,
+                    "version": 1,
+                    "models": [{
+                        "role": "image",
+                        "base_url": "https://image-imported.example/v2",
+                        "model": "image-imported",
+                    }],
+                }
+                page.locator("#settings-import-file").set_input_files({
+                    "name": "partial-settings.json",
+                    "mimeType": "application/json",
+                    "buffer": json.dumps(imported).encode("utf-8"),
+                })
+                page.wait_for_function("""() =>
+                  (document.getElementById('settings-config-status')?.textContent || '').includes('已导入 1 个角色')
+                """)
+                saved = json.loads(config_path.read_text(encoding="utf-8"))
+                assert saved["llm"]["api_key"] == "fixture-export-llm-secret"
+                assert saved["image"]["api_key"] == "fixture-export-image-secret"
+                assert saved["image"]["base_url"] == "https://image-imported.example/v2"
+                assert saved["image"]["model"] == "image-imported"
+                assert not errors, errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+        model_config._cache = None
