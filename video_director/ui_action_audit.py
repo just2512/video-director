@@ -147,6 +147,12 @@ def _extract_onclicks(src: str) -> list:
     return out
 
 
+def _is_ui_only_call(call: str) -> bool:
+    normalized = call.strip()
+    if normalized.startswith("window."):
+        normalized = normalized[len("window."): ]
+    return normalized.startswith(UI_ONLY_PREFIXES)
+
 def audit_ui() -> dict:
     """§78 主审计：扫描全部前端源 → 四层核对报告。"""
     from video_director import action_registry as ar
@@ -204,14 +210,14 @@ def audit_ui() -> dict:
                 pat = re.compile(r"onclick[\x22\x27]?\s*[:=]\s*[\x22\x27`](\w+\()")
                 indirect = set(pat.findall(src))
                 bad_indirect = [fn for fn in indirect
-                                if not fn.startswith(UI_ONLY_PREFIXES)]
+                                if not _is_ui_only_call(fn)]
                 if bad_indirect:
                     for fn in bad_indirect:
                         report["orphan_button"].append(f"{rel}: 间接 {fn}...")
                 else:
                     report["pass"] += 1
                 continue
-            if call.startswith(UI_ONLY_PREFIXES):
+            if _is_ui_only_call(call):
                 report["pass"] += 1
                 continue
             report["orphan_button"].append(f"{rel}: onclick={call[:60]}")

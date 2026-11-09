@@ -260,15 +260,18 @@ def test_default_live_run_preserves_saved_config_first_precedence():
     ) == ("runner_saved_config", "saved-key")
 
 
-def test_nvidia_live_workflow_uses_provider_aware_key_resolver():
-    from pathlib import Path
 
-    workflow = (
-        Path(__file__).resolve().parents[1]
-        / ".github"
-        / "workflows"
-        / "ai-director.yml"
-    ).read_text(encoding="utf-8")
-    assert "import resolve_live_api_key," in workflow
-    assert "resolve_live_api_key(" in workflow
-    assert "key_candidates = (" not in workflow
+def test_nvidia_live_workflow_uses_dedicated_secret_and_official_endpoint():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "full-hosted-regression.yml").read_text(encoding="utf-8")
+    live_job = workflow.split("  nvidia_live_stream:", 1)[1]
+
+    assert "NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}" in live_job
+    assert 'api_key=os.environ["NVIDIA_API_KEY"]' in live_job
+    assert 'base_url="https://integrate.api.nvidia.com/v1"' in live_job
+    assert 'export VD_LLM_API_KEY="$NVIDIA_API_KEY"' in live_job
+    assert 'export VD_LLM_BASE_URL="https://integrate.api.nvidia.com/v1"' in live_job
+    assert 'export VD_LLM_MODEL="z-ai/glm-5.3-flash"' in live_job
+    assert "OPENAI_API_KEY" not in live_job
+    assert "ANTHROPIC_API_KEY" not in live_job
+

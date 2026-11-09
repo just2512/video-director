@@ -27,94 +27,49 @@ def test_react_build_uses_film_authority_safe_director_plan_handoff():
     assert "当前项目使用 film.html" in studio
 
 
+
 def test_studio_build_uses_isolated_hosted_runner_and_lockfile():
     root = Path(__file__).resolve().parents[1]
-    workflow = (root / ".github" / "workflows" / "studio-ui-build.yml").read_text(encoding="utf-8")
+    studio_workflow = (root / ".github" / "workflows" / "studio-ui-build.yml").read_text(encoding="utf-8")
+    full_workflow = (root / ".github" / "workflows" / "full-hosted-regression.yml").read_text(encoding="utf-8")
+    parallel_workflow = (root / ".github" / "workflows" / "parallel-workstream-ci.yml").read_text(encoding="utf-8")
     contract = (root / "CONTRACT.md").read_text(encoding="utf-8")
-    ai_workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
-    proxy_bootstrap = (root / "tools" / "bootstrap_python_socks.sh").read_text(encoding="utf-8")
     requirements = (root / "requirements.txt").read_text(encoding="utf-8")
-    package_path = root / "studio_ui" / "package.json"
-    package = json.loads(package_path.read_text(encoding="utf-8"))
+    package = json.loads((root / "studio_ui" / "package.json").read_text(encoding="utf-8"))
     remotion_package = json.loads((root / "remotion_runtime" / "package.json").read_text(encoding="utf-8"))
 
-    assert "runs-on: ubuntu-24.04" in workflow
-    assert "runs-on: [self-hosted" not in workflow
-    assert "group: studio-ui-hosted-" in workflow
-    assert "ref: ${{ github.sha }}" in workflow
-    assert "npm ci --no-audit --no-fund" in workflow
-    assert "working-directory: studio_ui" in workflow
-    assert "bash tools/bootstrap_python_socks.sh" not in workflow
-    assert "bash tools/bootstrap_python_socks.sh" in ai_workflow
-    # The real-provider credential must exist only in the isolated live-test child
-    # process; broad regressions must not inherit the runner's paid model config.
-    assert "VD_PRESERVED_MODEL_CONFIG_FILE" in ai_workflow
-    assert 'current_mode="$(stat -c \'%a\' "$ORIGINAL_MODEL_CONFIG_FILE")"' in ai_workflow
-    assert '"$current_mode" == "$ORIGINAL_MODEL_CONFIG_MODE"' in ai_workflow
-    assert 'restored_mode="$(stat -c \'%a\' "$ORIGINAL_MODEL_CONFIG_FILE")"' in ai_workflow
-    assert 'LOCAL_MODEL_CONFIG_PRESERVATION=FAIL restored file mode mismatch.' in ai_workflow
-    assert "VD_LLM_LIVE_CONFIG_FILE" in ai_workflow
-    live_config_step = ai_workflow.split(
-        "      - name: Configure opt-in live model token-stream smoke", 1
-    )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
-    assert "resolve_live_api_key" in live_config_step
-    assert "resolve_live_provider_override" in live_config_step
-    assert "resolve_live_model_override" in live_config_step
-    assert 'nvidia_api_key_secret=os.environ.get("NVIDIA_API_KEY_SECRET", "")' in live_config_step
-    assert 'nvidia_api_key=os.environ.get("NVIDIA_API_KEY", "")' in live_config_step
-    assert 'generic_api_key=os.environ.get("VD_LLM_API_KEY_SECRET", "")' in live_config_step
-    assert 'saved_base_url=saved.get("base_url", "")' in live_config_step
-    assert '"https://integrate.api.nvidia.com/v1"' in live_config_step
-    # Provider-aware selection is implemented and unit-tested in the shared helper:
-    # NVIDIA overrides may reuse a saved key only when its saved endpoint is NVIDIA;
-    # otherwise a named NVIDIA key is required and generic credentials fail closed.
-    helper = (root / "video_director" / "live_stream_acceptance.py").read_text(encoding="utf-8")
-    nvidia_branch = helper.split('if provider == "nvidia":', 1)[1].split('    for source, value in (', 1)[0]
-    assert 'saved_host == "integrate.api.nvidia.com"' in nvidia_branch
-    assert '"NVIDIA_API_KEY_SECRET"' in helper and '"NVIDIA_API_KEY"' in helper
-    assert "refusing to send an" in helper
-    assert live_config_step.index("saved.get(\"base_url\")") < live_config_step.index('os.environ.get("VD_LLM_BASE_URL_CONFIG")')
-    assert live_config_step.index("saved.get(\"model\")") < live_config_step.index('os.environ.get("VD_LLM_MODEL_CONFIG")')
-    assert "value is redacted" in live_config_step
-    assert "id: live_stream_smoke" in ai_workflow
-    live_smoke = ai_workflow.split(
-        "      - name: Run isolated real-model token-stream acceptance test", 1
-    )[1].split("      - name: Install Remotion rendering runtime dependencies", 1)[0]
-    assert "steps.live_stream_config.outcome == 'success'" in live_smoke
-    assert "steps.live_provider_probe.outcome == 'success'" in live_smoke
-    assert "VD_LLM_LIVE_STREAM_TEST" in live_smoke
-    assert "run the documented opt-in test locally" not in live_smoke
-    assert "steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped'" in ai_workflow
-    assert "live-stream-junit.xml" in ai_workflow
-    assert "env -u VD_LLM_API_KEY" in ai_workflow
-    assert "VIDEO_DIRECTOR_STORAGE_ROOT=%s" not in ai_workflow
-    assert not any(
-        "VD_LLM_API_KEY=%s" in line and "GITHUB_ENV" in line
-        for line in ai_workflow.splitlines()
-    )
-    assert 'download_and_install_wheel "PySocks" "1.7.1"' in proxy_bootstrap
-    assert 'download_and_install_wheel "socksio" "1.0.0"' in proxy_bootstrap
-    assert 'if ! "$python_bin" -c "import socksio"' in proxy_bootstrap
-    assert "import socks" in proxy_bootstrap and "import socksio" in proxy_bootstrap
-    assert "socksio==1.0.0" in requirements
-    assert not any(line.startswith(("import json", "import sys", "from pathlib")) for line in workflow.splitlines())
-    assert "Install Remotion runtime dependencies" in workflow
-    assert "Install Remotion rendering runtime dependencies" in ai_workflow
-    assert "working-directory: studio_ui" in ai_workflow
-    assert "studio_ui/package-lock.json" in ai_workflow
-    assert 'if "HTTP 404" not in str(exc):' in ai_workflow
-    assert "-m playwright install --with-deps chromium" in workflow
-    assert "build:studio" in package["scripts"]
-    assert "build:studio:css" in package["scripts"]
-    assert package["scripts"]["build:studio:css"].startswith("tailwindcss -i film-studio-tailwind.css")
-    tailwind_entry = root / "studio_ui" / "film-studio-tailwind.css"
-    assert tailwind_entry.is_file()
-    assert '@source "../remotion_runtime/src/StudioCanvasInspector.tsx";' in tailwind_entry.read_text(encoding="utf-8")
+    assert "runs-on: ubuntu-24.04" in studio_workflow
+    assert "runs-on: [self-hosted" not in studio_workflow
+    assert "group: studio-ui-hosted-" in studio_workflow
+    assert "ref: ${{ github.sha }}" in studio_workflow
+    assert "npm ci --no-audit --no-fund" in studio_workflow
+    assert "working-directory: studio_ui" in studio_workflow
+    assert "workflow_dispatch:" in studio_workflow
+    assert "push:" not in studio_workflow.split("permissions:", 1)[0]
+
+    active_workflows = studio_workflow + full_workflow + parallel_workflow
+    assert "self-hosted" not in active_workflows
+    assert "tools/bootstrap_python_socks.sh" not in active_workflows
+    assert "runs-on: ubuntu-24.04" in full_workflow
+    assert "runs-on: ubuntu-24.04" in parallel_workflow
+    assert "python -m compileall -q video_director webui" in full_workflow
+    assert "python -m pytest" in full_workflow
+    assert "tests/test_bulk_management.py" in parallel_workflow
+    assert "env -u VD_LLM_API_KEY" in full_workflow
+
+    full_job = full_workflow.split("  full_regression:", 1)[1].split("  studio_release_gate:", 1)[0]
+    studio_gate = full_workflow.split("  studio_release_gate:", 1)[1].split("  nvidia_live_stream:", 1)[0]
+    live_job = full_workflow.split("  nvidia_live_stream:", 1)[1]
+    assert "NVIDIA_API_KEY" not in full_job
+    assert "NVIDIA_API_KEY" not in studio_gate
+    assert "NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}" in live_job
+    assert "python -m pip install -r requirements.txt httpx" in live_job
+
+    assert "pytest" in requirements
     assert not any(name.startswith("@remotion/") for name in package["dependencies"])
     assert "@remotion/renderer" in remotion_package["dependencies"]
     assert "React 19 + Tailwind 4" in contract
     assert "第二份权威影片状态" in contract
-
 
 def test_studio_published_assets_are_real_build_outputs():
     root = Path(__file__).resolve().parents[1]
@@ -132,26 +87,28 @@ def test_studio_published_assets_are_real_build_outputs():
 
 
 
-def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
-    """Only the full browser/render/CLI/MCP gate may publish the built Studio bundle."""
+
+def test_studio_release_gate_and_live_acceptance_are_separate_hosted_jobs():
     root = Path(__file__).resolve().parents[1]
     studio_workflow = (root / ".github" / "workflows" / "studio-ui-build.yml").read_text(encoding="utf-8")
-    ai_workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
+    full_workflow = (root / ".github" / "workflows" / "full-hosted-regression.yml").read_text(encoding="utf-8")
     live_acceptance = (root / "video_director" / "live_stream_acceptance.py").read_text(encoding="utf-8")
 
-    assert "Publish built Studio assets without overwriting newer main" not in studio_workflow
     assert "runs-on: ubuntu-24.04" in studio_workflow
-    assert "workflow_dispatch" in studio_workflow
+    assert "workflow_dispatch:" in studio_workflow
     assert "Publish verified React Studio bundle" not in studio_workflow
     assert "git push" not in studio_workflow
+    assert "runs-on: ubuntu-24.04" in full_workflow
 
-    gate = ai_workflow.split(
-        "      - name: Gate Studio asset publication on timeline browser regressions", 1
-    )[1].split("      - name: Publish verified React Studio bundle and Tailwind CSS to main", 1)[0]
+    gate = full_workflow.split("  studio_release_gate:", 1)[1].split("  nvidia_live_stream:", 1)[0]
     for required_real_gate in (
-        "tests/test_film_studio_timeline_history_browser.py",
+        "tests/test_film_document_contract.py",
         "tests/test_film_studio_external_watch_browser.py",
+        "tests/test_film_studio_migration_preview_browser.py",
+        "tests/test_film_studio_layout_persistence_browser.py",
         "tests/test_film_studio_ai_proposal_browser.py",
+        "tests/test_film_studio_project_switch_four_way_browser.py",
+        "tests/test_film_studio_generated_asset_adoption_browser.py",
         "tests/test_film_agent_cli.py",
         "tests/test_film_mcp_server.py",
         "tests/test_film_full_pipeline_e2e.py",
@@ -159,88 +116,17 @@ def test_studio_artifact_publish_is_single_and_requires_expanded_release_gate():
     ):
         assert required_real_gate in gate, f"release gate lost {required_real_gate}"
 
-    assert "id: live_stream_config" in ai_workflow
-    assert "id: full_regression" in ai_workflow
-    assert "steps.full_regression.outcome == 'success'" in ai_workflow
-    # MISSING is allowed when the live request was not opted in; an explicit
-    # live request that rejects or times out must block release publication.
-    require_live_or_not_requested = (
-        "steps.live_stream_config.conclusion == 'success' || "
-        "steps.live_stream_config.conclusion == 'skipped' || "
-        "steps.live_stream_config.conclusion == 'failure'"
-    )
-    publish_step = ai_workflow.split(
-        "      - name: Publish verified React Studio bundle and Tailwind CSS to main", 1
-    )[1]
-    assert require_live_or_not_requested in publish_step
-    live_config_step = ai_workflow.split(
-        "      - name: Configure opt-in live model token-stream smoke", 1
-    )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
-    assert "continue-on-error: true" in live_config_step
-    assert "raise SystemExit(1)" in live_config_step
-    assert "id: live_provider_probe" in ai_workflow
-    provider_probe = ai_workflow.split(
-        "      - name: Probe NVIDIA streaming endpoint with a minimal prompt", 1
-    )[1].split("      - name: Run isolated real-model token-stream acceptance test", 1)[0]
-    assert 'timeout --signal=TERM --kill-after=5s 150s' in provider_probe
-    assert 'httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=15.0)' in provider_probe
-    assert 'max_tokens=512' in provider_probe
-    assert 'endpoint_host == "integrate.api.nvidia.com" and config["model"].strip().lower() == "z-ai/glm-5.3-flash"' in provider_probe
-    assert '"reasoning_effort": effort' in provider_probe
-    assert '"chat_template_kwargs": {"clear_thinking": True}' in provider_probe
-    assert "type(exc).__name__" in provider_probe
-    provider_source = (root / "video_director" / "llm_provider.py").read_text(encoding="utf-8")
-    nvidia_request_options = provider_source.split("def _model_request_options", 1)[1].split(
-        "def generate(", 1
-    )[0]
-    assert '"max_tokens": 8192' in nvidia_request_options
-    live_smoke_step = ai_workflow.split(
-        "      - name: Run isolated real-model token-stream acceptance test", 1
-    )[1].split("      - name: Install Remotion rendering runtime dependencies", 1)[0]
-    # Explicitly opted-in real-provider acceptance runs only after config and
-    # upstream visible-token probe pass; ordinary CI remains uncharged.
-    assert "steps.live_stream_config.outcome == 'success'" in live_smoke_step
-    assert "steps.live_provider_probe.outcome == 'success'" in live_smoke_step
-    assert "VD_LLM_LIVE_STREAM_TEST" in live_smoke_step
-    assert "live-stream-junit.xml" in live_smoke_step
-    assert "id: live_stream_smoke" in ai_workflow
-    assert "steps.live_stream_config.outcome" in ai_workflow
-    assert "steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped'" in ai_workflow
-    assert "steps.live_stream_acceptance.conclusion == 'success'" in ai_workflow
-    live_report_step = ai_workflow.split(
-        "      - name: Report real-model token-stream acceptance gate", 1
-    )[1].split("      - name: Check JavaScript syntax", 1)[0]
-    assert "continue-on-error: true" not in live_report_step
-    assert "LIVE_STREAM_CONFIG_OUTCOME" in live_report_step and "steps.live_stream_config.outcome" in live_report_step
-    assert "LIVE_STREAM_TEST_OUTCOME" in live_report_step and "steps.live_stream_smoke.outcome" in live_report_step
-    # Diagnostics are written to the built-in Actions log and job summary.
-    # Do not restore upload-artifact or its proxy bridge: action downloads happen
-    # before shell steps and have repeatedly failed on this SOCKS-backed runner.
-    assert "actions/upload-artifact@v4" not in ai_workflow
-    assert "Prepare local HTTP bridge for SOCKS-backed artifact upload" not in ai_workflow
-    assert "Stop local HTTP bridge for SOCKS-backed artifact upload" not in ai_workflow
-    diagnostic_summary = ai_workflow.split(
-        "      - name: Summarize retained regression diagnostics", 1
-    )[1].split("      - name: Publish verified React Studio bundle", 1)[0]
-    assert "GITHUB_STEP_SUMMARY" in diagnostic_summary
-    assert "junit.xml" in diagnostic_summary
-    assert "timeline-junit.xml" in diagnostic_summary
-    assert "Detailed pytest output and failure traces remain in the corresponding Actions step logs." in diagnostic_summary
-    assert "steps.timeline_regression_gate.outcome == 'success'" in ai_workflow
-    # Artifact publication itself must not trigger an endless build/publish commit loop.
-    assert '"message": "build: publish verified React 19 Studio bundle [skip ci]"' in ai_workflow
-    assert '"BLOCKED_PROVIDER":' in live_acceptance
-    assert '"BLOCKED_MODEL":' in live_acceptance
-    assert '"insufficient balance" in evidence' in live_acceptance
-    assert '"has reached its end of life"' in live_acceptance
-    assert 'LIVE_STREAM_ACCEPTANCE={status}' in live_acceptance
+    live_job = full_workflow.split("  nvidia_live_stream:", 1)[1]
+    assert "needs: [full_regression, studio_release_gate]" in live_job
+    assert "if: steps.live_provider_probe.outcome == 'success'" in live_job
+    assert "python -m video_director.live_stream_acceptance --junit live-stream-junit.xml" in live_job
+    assert "actions/upload-artifact@v4" in full_workflow
+    assert "GITHUB_STEP_SUMMARY" in full_workflow
+    assert "git push" not in full_workflow
+    assert "LIVE_STREAM_ACCEPTANCE=MISSING" in live_job
+    for status in ('"BLOCKED_PROVIDER": (', '"BLOCKED_MODEL": (', '"BLOCKED_ENDPOINT": (', '"MISSING": (', '"REJECT": ('):
+        assert status in live_acceptance
     assert 'if config_outcome != "skipped" and status != "PASS":' in live_acceptance
-    assert 'python3.11" -m video_director.live_stream_acceptance --junit live-stream-junit.xml' in ai_workflow
-    manual = (root / "docs" / "FILM_AGENT_MANUAL.md").read_text(encoding="utf-8")
-    assert "当前真实模型验收只在本地执行" in manual
-    assert "Real-model token-stream acceptance (local opt-in)" in manual
-
-
 
 def test_crossfade_action_has_strict_overlap_and_single_transaction_contract():
     root = Path(__file__).resolve().parents[1]
@@ -315,45 +201,36 @@ def test_studio_components_share_one_react_root_and_keep_portal_slots():
     ):
         assert f'"{surface}"' in component
 
-def test_live_model_stream_smoke_is_explicit_ci_opt_in_and_default_ci_reports_missing():
-    """The live provider request is intentionally local; default CI must not fake a PASS."""
-    root = Path(__file__).resolve().parents[1]
-    workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
-    config_step = workflow.split("      - name: Configure opt-in live model token-stream smoke", 1)[1].split(
-        "      - name: Probe NVIDIA streaming endpoint with a minimal prompt", 1
-    )[0]
-    live_step = workflow.split("      - name: Run isolated real-model token-stream acceptance test", 1)[1].split(
-        "      - name: Install Remotion rendering runtime dependencies", 1
-    )[0]
-    report_step = workflow.split(
-        "      - name: Report real-model token-stream acceptance gate", 1
-    )[1].split("      - name: Check JavaScript syntax", 1)[0]
 
-    # The config/probe can only be reached through explicit opt-in configuration;
-    # the expensive real-model acceptance itself is never run by normal CI.
-    assert "contains(github.event.head_commit.message, '[live-stream-smoke]')" in workflow
-    assert "VD_LLM_API_KEY_SECRET" in config_step
-    assert "VD_LLM_BASE_URL_CONFIG" in config_step
-    assert "VD_LLM_MODEL_CONFIG" in config_step
-    assert "NVIDIA_API_KEY_SECRET" in config_step
-    assert "NVIDIA_API_KEY" in config_step
-    assert "resolve_live_api_key" in config_step
-    assert 'saved_base_url=saved.get("base_url", "")' in config_step
-    assert 'generic_api_key=os.environ.get("VD_LLM_API_KEY_SECRET", "")' in config_step
+def test_live_model_stream_smoke_is_explicit_ci_opt_in_and_fails_closed():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "full-hosted-regression.yml").read_text(encoding="utf-8")
+    live_job = workflow.split("  nvidia_live_stream:", 1)[1]
     helper = (root / "video_director" / "live_stream_acceptance.py").read_text(encoding="utf-8")
-    assert 'saved_host == "integrate.api.nvidia.com"' in helper
+
+    assert "workflow_dispatch:" in workflow
+    assert "run_live_nvidia:" in workflow
+    assert "default: false" in workflow
+    assert "contains(github.event.head_commit.message, '[live-stream-smoke]')" in live_job
+    assert "contains(github.event.head_commit.message, '[live-provider=nvidia]')" in live_job
+    assert "contains(github.event.head_commit.message, '[live-model=z-ai/glm-5.3-flash]')" in live_job
+    assert "github.event_name == 'workflow_dispatch' && inputs.run_live_nvidia" in live_job
+    assert "needs: [full_regression, studio_release_gate]" in live_job
+    assert "NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}" in live_job
+    assert "https://integrate.api.nvidia.com/v1" in live_job
+    assert "z-ai/glm-5.3-flash" in live_job
+    assert "python -m pip install -r requirements.txt httpx" in live_job
+    assert "httpx.Timeout(connect=15.0, read=210.0, write=30.0, pool=15.0)" in live_job
+    assert "max_retries=0" in live_job
+    assert "if: steps.live_provider_probe.outcome == 'success'" in live_job
+    assert "LIVE_STREAM_ACCEPTANCE=MISSING" in live_job
+    assert "LIVE_PROVIDER_PROBE_ERROR_TYPE" in live_job
+    assert "python -m video_director.live_stream_acceptance --junit live-stream-junit.xml" in live_job
+
     assert "NVIDIA live override requires NVIDIA_API_KEY" in helper
-    assert "unrelated provider key." in helper
-    assert "Opt-in live-model smoke is missing a complete key/base URL/model configuration." in config_step
-    assert "raise SystemExit(1)" in config_step
-    assert "steps.live_stream_config.outcome == 'success'" in live_step
-    assert "steps.live_provider_probe.outcome == 'success'" in live_step
-    assert "VD_LLM_LIVE_STREAM_TEST" in live_step
-    assert "live-stream-junit.xml" in live_step
-    assert "LIVE_STREAM_CONFIG_OUTCOME" in report_step
-    assert "LIVE_STREAM_TEST_OUTCOME" in report_step
-    assert "steps.live_stream_acceptance.conclusion == 'success' || steps.live_stream_acceptance.conclusion == 'skipped'" in workflow
-    assert 'python3.11" -m video_director.live_stream_acceptance --junit live-stream-junit.xml' in workflow
+    assert "BLOCKED_ENDPOINT" in helper
+    assert "ModuleNotFoundError" in helper
+    assert 'if config_outcome != "skipped" and status != "PASS":' in helper
 
 def test_react_timeline_owns_pointer_anchored_zoom_and_legacy_toolbar_delegates():
     """The built React timeline owns zoom scale/anchor; legacy toolbar is compatibility only."""
@@ -557,33 +434,42 @@ def test_react_timeline_prepares_all_clip_gesture_operations_before_dispatch():
     assert "cancel(\"missing commit runtime bridge/controller contract\")" in end_body
     assert "cancelReactClipGesture(event,reason);" in end_body
 
-def test_studio_hosted_workflow_isolated_from_ai_director_self_hosted_runner():
+
+def test_all_active_regression_workflows_use_hosted_runners():
     root = Path(__file__).resolve().parents[1]
-    ai_workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
-    studio_workflow = (root / ".github" / "workflows" / "studio-ui-build.yml").read_text(encoding="utf-8")
-    expected_group = "group: video-director-self-hosted-${{ github.repository }}"
-    assert expected_group in ai_workflow
-    assert expected_group not in studio_workflow
-    assert "runs-on: ubuntu-24.04" in studio_workflow
-    assert "group: studio-ui-hosted-" in studio_workflow
-    assert "runs-on: [self-hosted, linux, x64]" not in studio_workflow
-    assert "cancel-in-progress: false" in studio_workflow
-    trigger_block = studio_workflow.split("permissions:", 1)[0]
-    assert "\n  workflow_dispatch:\n" in trigger_block
-    assert "\n  push:\n" not in trigger_block
-    assert "contains(github.event.head_commit.message, '[unblock-runner]')" in ai_workflow
+    workflow_paths = (
+        ".github/workflows/full-hosted-regression.yml",
+        ".github/workflows/parallel-workstream-ci.yml",
+        ".github/workflows/product-ia-regression.yml",
+        ".github/workflows/studio-ui-build.yml",
+        ".github/workflows/validate-workflows.yml",
+    )
+    active = {
+        path: (root / path).read_text(encoding="utf-8")
+        for path in workflow_paths
+    }
+    windows = (root / ".github" / "workflows" / "windows-native-publication.yml").read_text(encoding="utf-8")
+
+    for path, workflow in active.items():
+        assert "self-hosted" not in workflow, f"{path} must not require a self-hosted runner"
+        assert "runs-on: ubuntu-24.04" in workflow, f"{path} must use the pinned hosted Linux runner"
+    assert "runs-on: windows-latest" in windows
+    assert "self-hosted" not in windows
+    studio = active[".github/workflows/studio-ui-build.yml"]
+    assert "workflow_dispatch:" in studio
+    assert "push:" not in studio.split("permissions:", 1)[0]
+    assert "group: studio-ui-hosted-" in studio
 
 
-def test_ai_director_workflow_retains_regression_diagnostics():
+def test_full_hosted_workflow_retains_regression_diagnostics():
     root = Path(__file__).resolve().parents[1]
-    workflow = (root / ".github" / "workflows" / "ai-director.yml").read_text(encoding="utf-8")
-    assert "actions/upload-artifact@v4" not in workflow
-    assert "Summarize retained regression diagnostics" in workflow
+    workflow = (root / ".github" / "workflows" / "full-hosted-regression.yml").read_text(encoding="utf-8")
+    assert "Summarize full pytest JUnit results" in workflow
     assert "GITHUB_STEP_SUMMARY" in workflow
     assert "timeline-junit.xml" in workflow
-    assert "timeline-regression-output.log" in workflow
     assert "pytest-output.log" in workflow
-
+    assert "junit.xml" in workflow
+    assert "actions/upload-artifact@v4" in workflow
 
 def test_film_ai_progress_events_are_distinct_from_model_tokens():
     root = Path(__file__).resolve().parent.parent
@@ -600,6 +486,7 @@ def test_film_ai_progress_events_are_distinct_from_model_tokens():
     assert "cancel_event.set()" in server
     assert "AI 指令正在处理，模型尚未返回可预览文本。" in server
     assert "AI 指令正在处理，模型尚未返回可预览文本。" in runtime
+
 
 
 
@@ -628,7 +515,15 @@ def test_full_hosted_regression_gate_is_main_sha_pinned_and_uses_no_self_hosted_
     assert "z-ai/glm-5.3-flash" in workflow
     assert "LIVE_STREAM_ACCEPTANCE=MISSING" in workflow
     assert "VIDEO_DIRECTOR_STORAGE_ROOT" in workflow
-    assert "paths-ignore:" not in workflow
+
+    ignored = workflow.split("paths-ignore:", 1)[1].split("  workflow_dispatch:", 1)[0]
+    assert "'docs/**'" in ignored
+    assert "'**/*.md'" in ignored
+    assert "'README*'" in ignored
+    assert "tests/" not in ignored
+    assert "video_director/" not in ignored
+    assert ".github/workflows/" not in ignored
+
     assert "contains(github.event.head_commit.message, '[live-stream-smoke]')" in workflow
     assert "contains(github.event.head_commit.message, '[live-provider=nvidia]')" in workflow
     assert "contains(github.event.head_commit.message, '[live-model=z-ai/glm-5.3-flash]')" in workflow
@@ -647,10 +542,11 @@ def test_full_hosted_regression_gate_is_main_sha_pinned_and_uses_no_self_hosted_
     assert "httpx.Timeout(connect=15.0, read=210.0, write=30.0, pool=15.0)" in live_job
     assert 'VD_LLM_REQUEST_TIMEOUT_SECONDS: "210"' in live_job
     assert 'VD_LLM_MAX_RETRIES: "0"' in live_job
-    assert 'max_tokens=512' in live_job
+    assert "max_tokens=512" in live_job
     assert 'reasoning_effort="low"' in live_job
     assert '"chat_template_kwargs": {"clear_thinking": True}' in live_job
     assert "steps.live_provider_probe.outcome == 'success'" in live_job
     assert 'LIVE_STREAM_CONFIG_OUTCOME="$LIVE_CONFIG_OUTCOME"' in live_job
     assert 'LIVE_PROVIDER_PROBE_ERROR_TYPE="$LIVE_PROVIDER_PROBE_ERROR_TYPE"' in live_job
-    assert 'LIVE_PROVIDER_PROBE_CAUSE_TYPE="$LIVE_PROVIDER_PROBE_CAUSE_TYPE"' in live_job
+    assert "python -m video_director.live_stream_acceptance --junit live-stream-junit.xml" in live_job
+

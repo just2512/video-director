@@ -210,7 +210,8 @@ def test_frontend_bulk_contracts_and_ci_coverage():
     workflow_js = (root / "webui/static/js/workflow.js").read_text(encoding="utf-8")
     library_js = (root / "webui/static/js/library.js").read_text(encoding="utf-8")
     create_js = (root / "webui/static/js/create.js").read_text(encoding="utf-8")
-    ci = (root / ".github/workflows/ai-director.yml").read_text(encoding="utf-8")
+    full_ci = (root / ".github/workflows/full-hosted-regression.yml").read_text(encoding="utf-8")
+    parallel_ci = (root / ".github/workflows/parallel-workstream-ci.yml").read_text(encoding="utf-8")
 
     assert 'id="pm-bulk-bar"' in index
     assert "/api/bulk_action" in project_js
@@ -226,12 +227,10 @@ def test_frontend_bulk_contracts_and_ci_coverage():
     for marker in ('id="cf-script"', 'id="cf-assets"', 'id="cf-reference"', 'id="cf-repo-root"', 'name="cf-scope"'):
         assert marker in create_js
 
-    assert "pytest -q" in ci
-    # Self-hosted runner workflow calls compileall through a pinned
-    # interpreter path ("$PY311_BIN/python3.11"); assert on the module
-    # invocation itself, not the python prefix.
-    assert "m compileall video_director webui" in ci
-    assert 'node --check "$f"' in ci
+    assert "python -m pytest" in full_ci
+    assert "python -m compileall -q video_director webui" in full_ci
+    assert 'node --check "$file"' in full_ci
+    assert "tests/test_bulk_management.py" in parallel_ci
 
 
 def test_webui_storage_root_isolation_not_hardcoded():

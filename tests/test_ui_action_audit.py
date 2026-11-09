@@ -103,3 +103,10 @@ def test_visual_overlay_toolbar_actions_are_registered_and_exposed():
     assert "editorSelectVisualOverlay" in timeline
     assert "editorEditSelectedVisualOverlay" in timeline
     assert 'data-action="ui.edit_visual_overlay"' in html
+
+
+def test_window_qualified_known_ui_handler_is_not_orphaned():
+    from video_director.ui_action_audit import _is_ui_only_call
+
+    assert _is_ui_only_call("window.editorLoad()")
+    assert not _is_ui_only_call("window.unknownAction()")
