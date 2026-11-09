@@ -134,7 +134,7 @@ Execution order:
 
 | Order | Task | Lane | Exit condition | State |
 |---:|---|---|---|---|
-| 1 | Disable self-hosted AI Director job; establish hosted-only runner rule | W6 | No future workflow path allocates a self-hosted runner | IN PROGRESS |
+| 1 | Disable self-hosted AI Director job; establish hosted-only runner rule | W6 | No future workflow path allocates a self-hosted runner | PASS — job-level `if: false` verified; run `42617062648` allocated no job |
 | 2 | Convert current branch-gated workstream CI into hosted main-only lanes | W6 | Generation, timeline, lifecycle and Product IA scoped jobs can run from main SHA | BLOCKED on workflow migration |
 | 3 | Re-run focused generation/provider recovery suite on hosted runner | W1 | Exact-main tests pass; provider submission and manifest invariants verified | BLOCKED on 2 |
 | 4 | Re-run timeline multi-select/cross-track/Undo/Redo browser suite | W2 | Atomic transaction and full undo/redo behavior pass on exact SHA | BLOCKED on 2 |
@@ -147,3 +147,13 @@ Execution order:
 ## 7. Stop conditions
 
 Stop and request a decision only for architecture/contract conflict, data-loss risk, security boundary change, irreversible migration, production-impacting change, or a product decision not specified by either source plan. Ordinary test failures, lint issues and CI configuration defects are to be diagnosed and fixed without changing acceptance thresholds.
+
+
+## 8. Execution update after ledger commit
+
+- Ledger/workstream policy commit: `2c5997b94ec54ac9ab7b014fb814882fb050c0ad`.
+- GitHub Actions YAML validation for that exact SHA: run `42617062288`, SUCCESS.
+- The AI Director workflow was guarded with job-level `if: false`; run `42617062648` has no jobs, so this commit did not allocate a self-hosted runner.
+- The earlier run `42616478439` had already started on the self-hosted WSL runner before the guard commit. It remained in progress at the time of verification. The connected GitHub operations available in this session do not expose workflow cancellation; this work does not claim it was cancelled.
+- Windows-native publication run `42617062343` is on GitHub-hosted `windows-latest` and was in progress at verification time.
+- Full hosted AI Director regression is still BLOCKED: the existing main integration workflow is disabled, while the branch-gated parallel/Product IA workflows do not yet provide main-only parallel lanes. This is the next W6 task, not a PASS.
