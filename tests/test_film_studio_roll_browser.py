@@ -603,7 +603,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 page.mouse.move(x, y)
                 page.mouse.down()
                 page.mouse.move(x + 9, y, steps=3)  # +0.25 timeline s × 2× speed = +0.5 source s
-                page.wait_for_function("""(isMultiSelect) => {
+                page.wait_for_function("""() => {
                   const state = window.filmStudioStore?.getSnapshot();
                   const preview = state?.timelineGesturePreview?.['clip-a'];
                   const node = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-a"]');
