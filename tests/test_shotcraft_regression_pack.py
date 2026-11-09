@@ -232,6 +232,10 @@ class TestGenerationLineage:
         except ImportError:
             pytest.skip("playwright 不可用（图形渲染依赖）")
         from video_director import generation as vd_generation
+        # This test verifies deterministic local fallback output, not a live LLM call.
+        # CI may inherit developer/provider credentials; keep the test hermetic.
+        from video_director import llm_provider
+        monkeypatch.setattr(llm_provider, "get_llm", lambda: None)
         pid = "gentest-01"
         base = tmp_path / pid
         (base / "assets").mkdir(parents=True)
@@ -272,6 +276,10 @@ class TestAIProviderDispatch:
         """§五十一 Capability G：roles.image 无 key → IMAGE_PROVIDER_UNAVAILABLE。"""
         from video_director import generation as vd_generation
         import video_director.generation as gmod
+        # The fallback contract is deterministic and must not depend on CI secrets
+        # or make network requests to a configured text-generation provider.
+        from video_director import llm_provider
+        monkeypatch.setattr(llm_provider, "get_llm", lambda: None)
         orig = gmod._role_cfg
         gmod._role_cfg = lambda role: {"api_key": ""}
         try:
