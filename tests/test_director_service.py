@@ -328,6 +328,7 @@ def test_create_rejects_graphics_provider_as_final_video_engine(monkeypatch):
 
 
 def test_director_agent_persists_project_name_and_type_in_project_params(tmp_path, monkeypatch):
+    import json
     from types import SimpleNamespace
 
     from video_director import config, director_agent, director_inputs, store
