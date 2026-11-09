@@ -2182,7 +2182,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       :projectId?'关联项目：'+projectId
       :hasContext?'已保存补充资料'
       :hasSettings?'已调整：'+changedSettings.join('、'):'已保存补充资料';
-    const preview=(projectName||projectType||brief||script||detail).slice(0,160);
+    const preview=[projectName,projectType,brief||script||detail].filter(Boolean).join(' · ').slice(0,160);
     const updated=Number(draft.updated_at||0);
     const source=draft.local_only?'本机草稿':'已同步草稿';
     host.innerHTML='<div class="panel" style="padding:10px;margin:0 0 10px">'+

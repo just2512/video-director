@@ -3843,6 +3843,7 @@ class Handler(BaseHTTPRequestHandler):
                     },
                 })
             except Exception as exc:
+                print(f"[web] POST /api/director/brief failed for {pid}: {exc!r}", file=sys.stderr)
                 self._send_json({"ok": False, "error": str(exc)[:200]}, 500)
             return
         if parsed.path == "/api/director/retry":

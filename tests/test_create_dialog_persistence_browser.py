@@ -2580,6 +2580,21 @@ def test_project_metadata_prefills_from_project_row_and_is_submitted_with_create
                         }),
                     )
 
+                prefill_probe = page.evaluate(
+                    """async projectId => {
+                      const response = await fetch('/api/director/brief', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({project_id: projectId}),
+                      });
+                      return {status: response.status, body: await response.json()};
+                    }""",
+                    project_id,
+                )
+                assert prefill_probe["status"] == 200, prefill_probe
+                assert prefill_probe["body"]["spec_settings"]["project_name"] == "已重命名项目"
+                assert prefill_probe["body"]["spec_settings"]["project_type"] == "知识科普"
+
                 page.route("**/api/director/conversations", capture_conversation)
                 page.route("**/api/director/create", capture_create)
                 page.route(
