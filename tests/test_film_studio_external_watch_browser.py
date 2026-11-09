@@ -2669,7 +2669,12 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert snap_state["preview"]["clip-a"]["width"] != float(snap_bounds_before["width"].removesuffix("px")), snap_state
                 assert len(film_edit_requests) == snap_edit_count
                 assert fd.read_project_film(project_id)["rev"] == snap_before["rev"]
-                page.mouse.up()
+                # Pointer-up clears the transient preview before the async edit
+                # response necessarily reaches the browser. Wait for the actual
+                # authoritative write response before asserting the new revision.
+                with page.expect_response("**/api/editor/film/edit", timeout=10000) as snap_edit_response:
+                    page.mouse.up()
+                assert snap_edit_response.value.status == 200
                 page.wait_for_function(
                     """() => {
                       const state = window.filmStudioStore?.getSnapshot();
