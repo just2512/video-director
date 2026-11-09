@@ -374,7 +374,7 @@ class TestRecoverPendingVideoJobs:
         monkeypatch.setattr(gen, "_video_client", lambda cfg: FakeVideoClient(["failed"]))
         monkeypatch.setattr(
             gen, "recover_pending_video_jobs",
-            lambda project_id: called.__setitem__("recover", called["recover"] + 1)
+            lambda project_id, **kwargs: called.__setitem__("recover", called["recover"] + 1)
             or real_recover(project_id))
         # 提交失败（fake 返回 failed）→ 诚实报错，但 recover 已先跑
         with pytest.raises(gen.GenerationError):
@@ -1701,20 +1701,17 @@ class TestVideoDimensionIdentity:
         assert caught.value.code == "VIDEO_LEGACY_DIMENSIONS_UNKNOWN"
         assert client.post_calls == 0
 
-    @pytest.mark.parametrize("requested_size,should_reuse", [
-        ((320, 180), True),
-        ((640, 360), False),
-    ])
-    def test_legacy_manifest_reuse_requires_exact_dimensions(
-        self, tmp_path, monkeypatch, requested_size, should_reuse
+    def test_legacy_manifest_without_provider_identity_fails_closed(
+        self, tmp_path, monkeypatch
     ):
         _isolate(tmp_path, monkeypatch)
-        import hashlib
+        _video_cfg(monkeypatch)
         from video_director import config, generation as gen
 
-        pid = f"proj-legacy-manifest-{requested_size[0]}"
+        pid = "proj-legacy-manifest-identity"
         config.init_project_dirs(config.project_dir(pid))
         prompt = "legacy manifest request"
+        import hashlib
         legacy_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
         output = config.project_dir(pid) / "assets" / "generated" / "legacy.mp4"
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -1725,30 +1722,14 @@ class TestVideoDimensionIdentity:
             5.0, "old-model", "video-llm", prompt, legacy_fp, "A",
         )
         gen._save_manifest(pid, legacy_row)
+        client = FakeVideoClient(statuses=["completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
 
-        if should_reuse:
-            monkeypatch.setattr(
-                gen, "_video_client",
-                lambda _cfg: (_ for _ in ()).throw(
-                    AssertionError("matching legacy manifest must not contact provider")
-                ),
-            )
-            result = gen.generate(
-                pid, prompt, "video", width=requested_size[0],
-                height=requested_size[1], variant="A",
-            )
-            assert result[0].asset_id == "legacy-asset"
-        else:
-            _video_cfg(monkeypatch)
-            client = FakeVideoClient(statuses=["completed"])
-            monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
-            monkeypatch.setattr(gen, "_download_bytes", lambda _url: b"new-size-video")
-            result = gen.generate(
-                pid, prompt, "video", width=requested_size[0],
-                height=requested_size[1], variant="A",
-            )
-            assert result[0].asset_id != "legacy-asset"
-            assert client.post_calls == 1
+        with pytest.raises(gen.GenerationError) as caught:
+            gen.generate(pid, prompt, "video", width=320, height=180, variant="A")
+
+        assert caught.value.code == "VIDEO_LEGACY_PROVIDER_IDENTITY_UNKNOWN"
+        assert client.post_calls == 0
 
 
     @pytest.mark.parametrize("gen_type", ["image", "graphic", "motion"])
@@ -1785,18 +1766,15 @@ class TestVideoDimensionIdentity:
         assert captured[0] == captured[1]
 
 
-    @pytest.mark.parametrize("requested_size,should_reuse", [
-        ((320, 180), True),
-        ((640, 360), False),
-    ])
-    def test_completed_legacy_job_uses_dimensioned_manifest_as_compatibility_evidence(
-        self, tmp_path, monkeypatch, requested_size, should_reuse
+    def test_completed_legacy_job_with_unknown_provider_identity_fails_closed(
+        self, tmp_path, monkeypatch
     ):
         _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
         import hashlib
         from video_director import config, generation as gen
 
-        pid = f"proj-legacy-done-{requested_size[0]}"
+        pid = "proj-legacy-done-unknown-provider"
         config.init_project_dirs(config.project_dir(pid))
         prompt = "completed legacy job"
         legacy_fp = hashlib.sha256((prompt + "|video").encode("utf-8")).hexdigest()[:16]
@@ -1814,30 +1792,15 @@ class TestVideoDimensionIdentity:
             "variant": "A", "status": "done", "provider_task_id": "old-provider-task",
             "manifest_registered": True, "output_file": str(old_output),
         })
+        client = FakeVideoClient(statuses=["completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
 
-        if should_reuse:
-            monkeypatch.setattr(
-                gen, "_video_client",
-                lambda _cfg: (_ for _ in ()).throw(
-                    AssertionError("dimension-matched legacy manifest should be reused")
-                ),
-            )
-            result = gen.generate(
-                pid, prompt, "video", width=requested_size[0],
-                height=requested_size[1], variant="A",
-            )
-            assert result[0].asset_id == "legacy-done-asset"
-        else:
-            _video_cfg(monkeypatch)
-            client = FakeVideoClient(statuses=["completed"])
-            monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
-            monkeypatch.setattr(gen, "_download_bytes", lambda _url: b"new-size-video")
-            result = gen.generate(
-                pid, prompt, "video", width=requested_size[0],
-                height=requested_size[1], variant="A",
-            )
-            assert result[0].asset_id != "legacy-done-asset"
-            assert client.post_calls == 1
+        with pytest.raises(gen.GenerationError) as caught:
+            gen.generate(pid, prompt, "video", width=320, height=180, variant="A")
+
+        assert caught.value.code == "VIDEO_LEGACY_PROVIDER_IDENTITY_UNKNOWN"
+        assert client.post_calls == 0
+
 
     def test_completed_dimensionless_legacy_job_without_manifest_fails_closed(
         self, tmp_path, monkeypatch
@@ -1864,3 +1827,37 @@ class TestVideoDimensionIdentity:
 
         assert caught.value.code == "VIDEO_LEGACY_DIMENSIONS_UNKNOWN"
         assert client.post_calls == 0
+
+
+
+class TestVideoProviderIdentity:
+    def test_identity_normalizes_endpoint_and_excludes_credentials_and_query(self):
+        from video_director.generation import _video_provider_identity
+
+        first = _video_provider_identity({
+            "api_key": "secret-one",
+            "base_url": "HTTPS://user:pass@EXAMPLE.COM:443/v1/?token=secret-a",
+            "model": "model-a",
+        })
+        rotated = _video_provider_identity({
+            "api_key": "secret-two",
+            "base_url": "https://EXAMPLE.com/v1?token=secret-b",
+            "model": "model-a",
+        })
+
+        assert first == rotated
+        assert first["endpoint"] == "https://example.com/v1"
+        assert "secret" not in json.dumps(first).lower()
+        assert "user" not in json.dumps(first).lower()
+        assert "pass" not in json.dumps(first).lower()
+
+    def test_identity_changes_when_effective_model_or_endpoint_changes(self):
+        from video_director.generation import _video_provider_identity
+
+        base = {"api_key": "k", "base_url": "https://one.example/v1", "model": "model-a"}
+        baseline = _video_provider_identity(base)
+        changed_model = _video_provider_identity({**base, "model": "model-b"})
+        changed_endpoint = _video_provider_identity({**base, "base_url": "https://two.example/v1"})
+
+        assert baseline["fingerprint"] != changed_model["fingerprint"]
+        assert baseline["fingerprint"] != changed_endpoint["fingerprint"]
