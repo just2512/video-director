@@ -1036,7 +1036,6 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
             edit_requests: list[dict] = []
-            edit_responses: list[dict] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
 
             def capture_edit(request):
@@ -1046,15 +1045,16 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                     except Exception:
                         edit_requests.append({"raw": request.post_data})
 
-            def capture_edit_response(response):
-                if response.url.endswith("/api/editor/film/edit"):
-                    try:
-                        edit_responses.append({"status": response.status, "body": response.json()})
-                    except Exception as exc:
-                        edit_responses.append({"status": response.status, "body_error": repr(exc)})
+            def is_ripple_edit_response(response):
+                if response.request.method != "POST" or not response.url.endswith("/api/editor/film/edit"):
+                    return False
+                try:
+                    operations = response.request.post_data_json.get("ops") or []
+                except Exception:
+                    return False
+                return len(operations) == 1 and operations[0].get("op") == "ripple_delete"
 
             page.on("request", capture_edit)
-            page.on("response", capture_edit_response)
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
@@ -1166,10 +1166,20 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 assert menu_bounds["x"] >= 0 and menu_bounds["y"] >= 0, menu_bounds
                 assert menu_bounds["x"] + menu_bounds["width"] <= 1441, menu_bounds
                 assert menu_bounds["y"] + menu_bounds["height"] <= 1001, menu_bounds
-                menu.locator('[data-context-action="ripple"]').click()
+                with page.expect_response(is_ripple_edit_response, timeout=10000) as ripple_response_info:
+                    menu.locator('[data-context-action="ripple"]').click()
+                ripple_http_response = ripple_response_info.value
+                ripple_response = {
+                    "status": ripple_http_response.status,
+                    "body": ripple_http_response.json(),
+                    "request": ripple_http_response.request.post_data_json,
+                }
+                assert ripple_response["status"] == 200, ripple_response
+                assert ripple_response["body"].get("ok") is True, ripple_response
+                assert ripple_response["body"].get("rev") != revision_before_ripple, ripple_response
 
                 page.wait_for_function("""async (pid) => {
-                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
+                  const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid), {cache:'no-store'});
                   if (!response.ok) return false;
                   const doc = await response.json();
                   const state = window.filmStudioStore?.getSnapshot();
@@ -1194,10 +1204,7 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 assert ripple_ops[0].get("clip") == "video-target", ripple_ops
                 assert ripple_ops[0].get("scope") == "all", ripple_ops
 
-                ripple_response = edit_responses[-1] if edit_responses else {}
-                assert ripple_response.get("status") == 200, ripple_response
-                assert ripple_response.get("body", {}).get("ok") is True, ripple_response
-                assert ripple_response["body"].get("rev") != revision_before_ripple, {
+                assert ripple_response["request"]["ops"] == edit_requests[-1]["ops"], {
                     "response": ripple_response,
                     "request": edit_requests[-1],
                 }
