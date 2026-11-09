@@ -892,6 +892,10 @@ def generate(
     legacy_input_fp = hashlib.sha256(fp_src.encode("utf-8")).hexdigest()[:16]
     video_cfg = _role_cfg("video") if gen_type == "video" else None
     provider_identity = None
+    legacy_dimension_fp = (
+        hashlib.sha256(f"{fp_src}|dimensions:{width}x{height}".encode("utf-8")).hexdigest()[:16]
+        if gen_type == "video" else None
+    )
     if gen_type == "video":
         effective_model = model or (video_cfg or {}).get("model") or ""
         provider_identity = _video_provider_identity(video_cfg or {}, effective_model)
@@ -915,14 +919,19 @@ def generate(
         # were never persisted, attaching them to a new request is ambiguous:
         # stop before recovery/provider access rather than risk wrong-size reuse
         # or a duplicate paid submission.
-        _assert_no_legacy_dimensionless_video_jobs(
-            project_id, legacy_input_fp, variants, manifest
-        )
+        for legacy_fp in {legacy_input_fp, legacy_dimension_fp}:
+            _assert_no_legacy_dimensionless_video_jobs(
+                project_id, legacy_fp, variants, manifest
+            )
+        legacy_fingerprints = {legacy_input_fp, legacy_dimension_fp}
         legacy_provider_jobs = [
             job for job in _load_jobs(project_id).values()
             if job.get("gen_type") == "video"
+            and job.get("input_fingerprint") in legacy_fingerprints
+            and job.get("variant") in variants
             and job.get("status") in {
-                "pending", "submitting", "submission_unknown", "running", "downloading",
+                "pending", "submitting", "submission_unknown", "running",
+                "downloading", "done",
             }
             and job.get("provider_identity") is None
         ]
@@ -959,6 +968,7 @@ def generate(
         results = _generate_video(
             project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
             model=effective_model, legacy_input_fp=legacy_input_fp,
+            legacy_dimension_fp=legacy_dimension_fp,
             provider_cfg=video_cfg, provider_identity=provider_identity)
     elif gen_type == "motion":
         # §十八/§十四 Huashu 艺术动画：生成入口统一走 generation（与图片/视频
@@ -1188,7 +1198,8 @@ def _generate_image_or_fallback(project_id, prompt, width, height, variants,
 
 def _generate_video(
     project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
-    model=None, legacy_input_fp=None, provider_cfg=None, provider_identity=None,
+    model=None, legacy_input_fp=None, legacy_dimension_fp=None,
+    provider_cfg=None, provider_identity=None,
 ):
     """video → AI 生视频（roles["video"]，异步任务）；无 key 诚实报错（不 fake）。
 
@@ -1203,7 +1214,7 @@ def _generate_video(
     for v in variants:
         legacy_rows = [
             item for item in manifest
-            if item.get("input_fingerprint") == legacy_input_fp
+            if item.get("input_fingerprint") in {legacy_input_fp, legacy_dimension_fp}
             and item.get("variant") == v
             and item.get("type") == "video"
             and item.get("source") == "generated"
