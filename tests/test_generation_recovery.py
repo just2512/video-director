@@ -1199,6 +1199,77 @@ class TestVideoGenerationTimeoutRecovery:
         assert output.read_bytes() == b"resumed-video-bytes"
 
 
+    def test_generate_retries_timed_out_video_through_recovery_without_second_submit(
+        self, tmp_path, monkeypatch
+    ):
+        """The public generate() path must recover the durable task before attempting a new POST."""
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        from video_director import config, generation as gen
+
+        project_id = "proj-video-timeout-full-flow"
+        config.init_project_dirs(config.project_dir(project_id))
+        client = FakeVideoClient(statuses=["queued", "completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
+        monkeypatch.setattr(gen, "_download_bytes", lambda _url: b"full-flow-resumed-mp4")
+
+        clock = {"now": 1000.0}
+        monkeypatch.setattr(gen.time, "time", lambda: clock["now"])
+        monkeypatch.setattr(
+            gen.time,
+            "sleep",
+            lambda seconds: clock.__setitem__("now", clock["now"] + seconds),
+        )
+        original_poll = gen._create_poll_and_persist_video
+
+        def short_local_wait(*args, **kwargs):
+            kwargs["timeout"] = 5
+            return original_poll(*args, **kwargs)
+
+        monkeypatch.setattr(gen, "_create_poll_and_persist_video", short_local_wait)
+
+        with pytest.raises(gen.GenerationError) as first_attempt:
+            gen.generate(
+                project_id, "same paid video request", "video",
+                width=320, height=180, variant="A",
+            )
+
+        assert first_attempt.value.code == "VIDEO_GENERATION_TIMEOUT"
+        jobs = gen._load_jobs(project_id)
+        assert len(jobs) == 1
+        job_id, job = next(iter(jobs.items()))
+        assert job["status"] == "running"
+        assert job["provider_task_id"] == client.created_task_id
+        assert client.post_calls == 1
+        assert client.get_calls == 1
+
+        # generate() first runs recover_pending_video_jobs(); that recovery must
+        # finish the same paid task and register its existing output in the manifest.
+        results = gen.generate(
+            project_id, "same paid video request", "video",
+            width=320, height=180, variant="A",
+        )
+
+        assert len(results) == 1
+        assert results[0].file
+        output = Path(results[0].file)
+        assert output.is_file()
+        assert output.read_bytes() == b"full-flow-resumed-mp4"
+        assert client.post_calls == 1, "public recovery path must not submit a second paid task"
+        assert client.get_calls == 2, "public recovery path must poll the existing provider task"
+        final_job = gen._load_jobs(project_id)[job_id]
+        assert final_job["status"] == "done"
+        manifest = gen._load_manifest(project_id)
+        rows = [
+            item for item in manifest
+            if item.get("input_fingerprint") == results[0].input_fingerprint
+            and item.get("variant") == "A"
+            and item.get("type") == "video"
+        ]
+        assert len(rows) == 1
+        assert rows[0]["file"] == str(output)
+
+
 class TestManualSubmissionResolution:
     def test_found_provider_task_resumes_polling_without_new_submit(self, tmp_path, monkeypatch):
         _isolate(tmp_path, monkeypatch)
