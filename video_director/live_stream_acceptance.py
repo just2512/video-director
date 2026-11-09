@@ -140,6 +140,11 @@ REPORTS = {
         "The configured model has been retired or is no longer available (HTTP 410). "
         "No token stream was produced; select a currently supported model and rerun."
     ),
+    "BLOCKED_ENDPOINT": (
+        "The official provider endpoint did not complete the minimal streaming probe "
+        "within its connection/read timeout. The model-token acceptance test was not run; "
+        "inspect runner egress, provider availability, and first-token latency before rerunning."
+    ),
     "UNKNOWN": (
         "The isolated real-provider JUnit evidence was missing or could not be interpreted."
     ),
@@ -161,13 +166,25 @@ def classify_live_stream_acceptance(
     config_outcome: str,
     test_outcome: str,
     junit_path: str | Path = "live-stream-junit.xml",
+    probe_outcome: str = "skipped",
+    probe_error_type: str = "",
+    probe_cause_type: str = "",
 ) -> str:
-    """Return PASS/MISSING/REJECT/BLOCKED_PROVIDER/BLOCKED_MODEL/UNKNOWN."""
+    """Return PASS/MISSING/REJECT/provider blockers/UNKNOWN."""
     config_outcome = str(config_outcome or "unknown")
     test_outcome = str(test_outcome or "unknown")
+    probe_outcome = str(probe_outcome or "skipped")
     if config_outcome == "skipped":
         return "MISSING"
     if config_outcome != "success":
+        return "REJECT"
+    if probe_outcome not in {"success", "skipped"}:
+        timeout_types = {
+            "APITimeoutError", "TimeoutError", "ReadTimeout", "ConnectTimeout",
+            "PoolTimeout", "WriteTimeout", "APIConnectionError",
+        }
+        if str(probe_error_type or "") in timeout_types or str(probe_cause_type or "") in timeout_types:
+            return "BLOCKED_ENDPOINT"
         return "REJECT"
 
     path = Path(junit_path)
@@ -229,7 +246,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     config_outcome = os.environ.get("LIVE_STREAM_CONFIG_OUTCOME", "unknown")
     test_outcome = os.environ.get("LIVE_STREAM_TEST_OUTCOME", "unknown")
-    status = classify_live_stream_acceptance(config_outcome, test_outcome, args.junit)
+    probe_outcome = os.environ.get("LIVE_PROVIDER_PROBE_OUTCOME", "skipped")
+    probe_error_type = os.environ.get("LIVE_PROVIDER_PROBE_ERROR_TYPE", "")
+    probe_cause_type = os.environ.get("LIVE_PROVIDER_PROBE_CAUSE_TYPE", "")
+    status = classify_live_stream_acceptance(
+        config_outcome, test_outcome, args.junit,
+        probe_outcome, probe_error_type, probe_cause_type,
+    )
     print(f"LIVE_STREAM_ACCEPTANCE={status}")
     summary_path = os.environ.get("GITHUB_STEP_SUMMARY", "").strip()
     if summary_path:

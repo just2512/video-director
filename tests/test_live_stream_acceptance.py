@@ -55,6 +55,34 @@ def test_provider_and_acceptance_failures_have_distinct_statuses(tmp_path, messa
     assert REPORTS[expected]
 
 
+def test_provider_probe_timeout_is_blocked_endpoint_not_code_reject(tmp_path):
+    status = classify_live_stream_acceptance(
+        "success",
+        "skipped",
+        tmp_path / "missing.xml",
+        probe_outcome="failure",
+        probe_error_type="APITimeoutError",
+        probe_cause_type="ReadTimeout",
+    )
+    assert status == "BLOCKED_ENDPOINT"
+    assert "timeout" in REPORTS[status].lower()
+
+
+@pytest.mark.parametrize("error_type", ["ConnectTimeout", "ReadTimeout", "APITimeoutError"])
+def test_provider_probe_timeout_classification_accepts_transport_timeout_types(tmp_path, error_type):
+    assert classify_live_stream_acceptance(
+        "success", "skipped", tmp_path / "missing.xml",
+        probe_outcome="failure", probe_error_type=error_type,
+    ) == "BLOCKED_ENDPOINT"
+
+
+def test_probe_failure_without_transport_evidence_remains_rejected(tmp_path):
+    assert classify_live_stream_acceptance(
+        "success", "skipped", tmp_path / "missing.xml",
+        probe_outcome="failure", probe_error_type="AuthenticationError",
+    ) == "REJECT"
+
+
 def test_missing_or_ambiguous_junit_evidence_is_unknown(tmp_path):
     path = tmp_path / "live.xml"
     write_junit(path, test_name="some_other_test")

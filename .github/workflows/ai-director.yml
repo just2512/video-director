@@ -614,18 +614,27 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          timeout --signal=TERM --kill-after=5s 75s "$PY311_BIN/python3.11" - <<'PY'
+          timeout --signal=TERM --kill-after=5s 150s "$PY311_BIN/python3.11" - <<'PY'
           import json
           import os
           import time
           from pathlib import Path
+          import httpx
           from openai import OpenAI
 
           config_path = Path(os.environ["VD_LLM_LIVE_CONFIG_FILE"])
           config = json.loads(config_path.read_text(encoding="utf-8"))
           started = time.monotonic()
           try:
-              client = OpenAI(api_key=config["api_key"], base_url=config["base_url"], timeout=60, max_retries=0)
+              # Separate connection establishment from model first-token latency.
+              # The app's normal provider timeout is 120s; the live probe must not
+              # impose a shorter 60s ceiling on a cold or queued NVIDIA endpoint.
+              client = OpenAI(
+                  api_key=config["api_key"],
+                  base_url=config["base_url"],
+                  timeout=httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=15.0),
+                  max_retries=0,
+              )
               from urllib.parse import urlparse
 
               endpoint_host = (urlparse(config["base_url"]).hostname or "").lower().rstrip(".")
@@ -668,7 +677,15 @@ jobs:
               raise
           except Exception as exc:
               # Do not print exception text; some providers echo request metadata.
-              print(f"LIVE_PROVIDER_PROBE=REJECT error_type={type(exc).__name__} elapsed_seconds={time.monotonic()-started:.2f}")
+              error_type = type(exc).__name__
+              cause = exc.__cause__ or exc.__context__
+              cause_type = type(cause).__name__ if cause is not None else "none"
+              output_path = os.environ.get("GITHUB_OUTPUT", "").strip()
+              if output_path:
+                  with open(output_path, "a", encoding="utf-8") as output:
+                      output.write(f"error_type={error_type}\\n")
+                      output.write(f"cause_type={cause_type}\\n")
+              print(f"LIVE_PROVIDER_PROBE=REJECT error_type={error_type} cause_type={cause_type} elapsed_seconds={time.monotonic()-started:.2f}")
               raise SystemExit(1)
           PY
 
@@ -713,6 +730,9 @@ jobs:
         env:
           LIVE_STREAM_CONFIG_OUTCOME: ${{ steps.live_stream_config.outcome }}
           LIVE_STREAM_TEST_OUTCOME: ${{ steps.live_stream_smoke.outcome }}
+          LIVE_PROVIDER_PROBE_OUTCOME: ${{ steps.live_provider_probe.outcome }}
+          LIVE_PROVIDER_PROBE_ERROR_TYPE: ${{ steps.live_provider_probe.outputs.error_type || '' }}
+          LIVE_PROVIDER_PROBE_CAUSE_TYPE: ${{ steps.live_provider_probe.outputs.cause_type || '' }}
         run: |
           set -euo pipefail
           "$PY311_BIN/python3.11" -m video_director.live_stream_acceptance --junit live-stream-junit.xml
