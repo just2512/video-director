@@ -285,3 +285,5 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - Retry recovery now seeds `project_name` and `project_type` from current `params_json` before historical `director_spec.json` backfill, so a post-creation rename is not reverted by retry.
 
 - W4 follow-up: the first metadata browser run found the draft preview replaced the creative brief with the project name, and the project-prefill endpoint returned HTTP 500. The preview now retains name/type plus brief; the browser test performs a direct endpoint probe and the server logs the caught exception so the 500 root cause is visible instead of timing out silently. Revalidation is required on the new exact main SHA.
+
+- W4 prefill HTTP 500 root cause confirmed by the diagnostic response: `NameError: config is not defined` in the pre-existing brief route. The module imports the configuration singleton as `vd_config`; the route now uses `vd_config.project_dir(pid)`. The direct browser probe remains as regression coverage.

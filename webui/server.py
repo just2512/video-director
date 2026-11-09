@@ -3795,7 +3795,7 @@ class Handler(BaseHTTPRequestHandler):
                 from video_director import director_inputs as _di
                 bundle = _di.load_bundle(pid)
                 spec = {}
-                spec_path = config.project_dir(pid) / "plans" / "director_spec.json"
+                spec_path = vd_config.project_dir(pid) / "plans" / "director_spec.json"
                 try:
                     if spec_path.is_file(): spec = json.loads(spec_path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError): spec = {}
