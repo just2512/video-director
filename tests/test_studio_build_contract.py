@@ -597,3 +597,29 @@ def test_film_ai_progress_events_are_distinct_from_model_tokens():
     assert "AI 指令正在处理，模型尚未返回可预览文本。" in server
     assert "AI 指令正在处理，模型尚未返回可预览文本。" in runtime
 
+
+
+def test_full_hosted_regression_gate_is_main_sha_pinned_and_uses_no_self_hosted_runner():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github" / "workflows" / "full-hosted-regression.yml").read_text(encoding="utf-8")
+
+    assert "branches: [main]" in workflow
+    assert "runs-on: ubuntu-24.04" in workflow
+    assert "ref: ${{ github.sha }}" in workflow
+    assert "runs-on: [self-hosted" not in workflow
+    assert "python -m pytest" in workflow
+    assert "junit.xml" in workflow
+    assert "timeline-junit.xml" in workflow
+    assert "tests/test_generation_recovery.py" not in workflow or "full_regression" in workflow
+    assert "tests/test_film_studio_timeline_history_browser.py" in workflow
+    assert "tests/test_film_studio_ai_proposal_browser.py" in workflow
+    assert "tests/test_film_studio_project_switch_four_way_browser.py" in workflow
+    assert "tests/test_film_studio_generated_asset_adoption_browser.py" in workflow
+    assert "tests/test_film_full_pipeline_e2e.py" in workflow
+    assert "tests/test_film_render_scene_e2e.py" in workflow
+    assert "needs: [full_regression, studio_release_gate]" in workflow
+    assert "secrets.NVIDIA_API_KEY" in workflow
+    assert "https://integrate.api.nvidia.com/v1" in workflow
+    assert "z-ai/glm-5.3-flash" in workflow
+    assert "LIVE_STREAM_ACCEPTANCE=MISSING" in workflow
+    assert "VIDEO_DIRECTOR_STORAGE_ROOT" in workflow

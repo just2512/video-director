@@ -249,3 +249,27 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - AI Director legacy self-hosted workflow: run `42620911500`, SKIPPED, no job allocated.
 - The complete hosted full-regression gate is not yet implemented; scoped lane PASS does not replace it.
 - W4 remains PARTIAL overall because explicit project name/type inputs and persistence are still absent, as documented in section 11.
+
+
+## 12. Exact-main full hosted regression and NVIDIA gate — 2026-11-09
+
+### Latest-main trigger audit before this change
+
+- Main was `e7aca4b1b82853c165c0fb5173ca63c3d5337891`, a documentation-only commit.
+- Its push-triggered AI Director run `42621455183` concluded `SKIPPED`; job `ai-director` had no steps and the job-log endpoint returned 404 because GitHub did not create a log stream. The source-level reason is the deliberate job-level `if: false` on the former self-hosted WSL job.
+- The same exact SHA's Windows native publication run `42621455035` succeeded. Its steps included checkout of the exact SHA, Python 3.11 setup, isolated dependencies, and the real Windows `MoveFileExW` write-through replace/durable-delete test; the test step succeeded.
+- The same exact SHA's workflow syntax run `42621455011` succeeded; all workflow YAML files parsed.
+- Because the commit changed only documentation, the path-filtered W1–W5 workflows did not trigger. Earlier W1–W5 PASS evidence on `471800ca2dfecc7dea04ed23d7dbf833d0ba7691` is historical and is not relabeled as an `e7aca4b` PASS.
+
+### Hosted full-regression replacement
+
+- Added `.github/workflows/full-hosted-regression.yml` with two independent GitHub-hosted Ubuntu 24.04 jobs. Both check out immutable `github.sha`; neither uses self-hosted labels, developer storage, local model config, or provider credentials.
+- `full_regression` compiles application/tests and runs the complete pytest suite with JUnit and retained console logs.
+- `studio_release_gate` builds React 19/Tailwind 4, installs Remotion and Chromium, then runs React integration, timeline transaction, revision conflict, project-switch, lifecycle, render/export and QC browser/CLI/MCP regressions.
+- The explicit NVIDIA job is downstream of both hosted gates. It is opt-in only, requires the dedicated `NVIDIA_API_KEY` secret, pins `https://integrate.api.nvidia.com/v1` and `z-ai/glm-5.3-flash`, and invokes the real live-stream acceptance test. It does not fall back to generic provider credentials. The test itself checks at least two non-empty token chunks before the result, non-buffered timing, a revision-bound proposal, unchanged FilmDocument bytes/revision before approval, and single-use approval/replay rejection.
+- Missing NVIDIA credentials produce an explicit `LIVE_STREAM_ACCEPTANCE=MISSING` failure; no mock or lifecycle-only event can be reported as PASS.
+- This change establishes the hosted full-regression path; its result is PENDING until the new workflow runs on the resulting exact main SHA. The legacy self-hosted workflow remains disabled and must not be re-enabled.
+
+### Current implementation correction
+
+- `VIDEO_GENERATION_TIMEOUT` is already explicitly recoverable only by polling the persisted provider task. `tests/test_generation_recovery.py` contains both direct classification coverage and a full retry test asserting one provider POST. The earlier proposed follow-up to add this behavior is therefore not a missing implementation and must not be reintroduced as a duplicate change.

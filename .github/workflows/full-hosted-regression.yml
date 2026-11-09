@@ -1,0 +1,306 @@
+name: Full hosted regression
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "README*"
+  workflow_dispatch:
+    inputs:
+      run_live_nvidia:
+        description: "After all hosted regression gates pass, call NVIDIA z-ai/glm-5.3-flash for real token-stream acceptance (may incur provider cost)"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-hosted-regression-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  full_regression:
+    name: Full Python and browser regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO: "1"
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install native media dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
+      - name: Install Python and Chromium dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Compile application and test modules
+        run: |
+          python -m compileall -q video_director webui
+          python -m compileall -q tests
+      - name: Run complete pytest suite without provider credentials
+        id: full_pytest
+        shell: bash
+        run: |
+          set -o pipefail
+          env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
+            -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
+            -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+            PYTHONPATH="$GITHUB_WORKSPACE/.github/scripts${PYTHONPATH:+:$PYTHONPATH}" \
+            timeout --signal=TERM --kill-after=15s 30m python -m pytest \
+              -p pytest_exit_diagnostics -vv --tb=short -o faulthandler_timeout=45 \
+              --junitxml=junit.xml 2>&1 | tee pytest-output.log
+      - name: Summarize full pytest JUnit results
+        if: always()
+        run: |
+          python - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          report = Path("junit.xml")
+          if not report.is_file():
+              print("FULL_PYTEST_SUMMARY=MISSING junit.xml was not produced")
+              raise SystemExit(1)
+          root = ET.parse(report).getroot()
+          suites = [root] if root.tag == "testsuite" else list(root.findall(".//testsuite"))
+          totals = {key: 0 for key in ("tests", "failures", "errors", "skipped")}
+          failed = []
+          for suite in suites:
+              for key in totals:
+                  totals[key] += int(suite.attrib.get(key, "0") or 0)
+              for case in suite.findall("testcase"):
+                  for kind in ("failure", "error"):
+                      node = case.find(kind)
+                      if node is not None:
+                          failed.append(
+                              f"{case.attrib.get('classname', '')}::{case.attrib.get('name', '')}: "
+                              f"{(node.attrib.get('message') or '').strip()[:300]}"
+                          )
+          print("FULL_PYTEST_SUMMARY=" + str(totals))
+          summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as stream:
+                  stream.write("## Full pytest regression\n\n")
+                  for key, value in totals.items():
+                      stream.write(f"- {key}: {value}\n")
+                  if failed:
+                      stream.write("\n### Failures and errors\n")
+                      for item in failed[:100]:
+                          stream.write(f"- `{item}`\n")
+          if totals["failures"] or totals["errors"]:
+              raise SystemExit(1)
+          PY
+      - name: Retain full regression logs and JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-regression-${{ github.sha }}
+          path: |
+            junit.xml
+            pytest-output.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  studio_release_gate:
+    name: Studio build, timeline, lifecycle, export and QC release gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    env:
+      VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO: "1"
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: studio_ui/package-lock.json
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install native media dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
+      - name: Build React 19 Studio and Tailwind 4
+        working-directory: studio_ui
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm run build:studio
+          npm run build:studio:css
+          test -s ../webui/static/js/film-studio-react.js
+          test -s ../webui/static/css/film-studio-tailwind.css
+          if grep -q "Build output placeholder" ../webui/static/js/film-studio-react.js; then
+            echo "React Studio bundle is still a placeholder" >&2
+            exit 1
+          fi
+          test "$(wc -c < ../webui/static/css/film-studio-tailwind.css)" -ge 1000
+      - name: Install Remotion runtime dependencies
+        working-directory: remotion_runtime
+        run: npm install --no-package-lock --no-audit --no-fund --fetch-retries=2
+      - name: Install Python and Chromium dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Run React Studio integration regressions
+        id: react_smoke
+        shell: bash
+        run: |
+          set -o pipefail
+          env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
+            -u VD_LLM_LIVE_STREAM_TEST -u VIDEO_DIRECTOR_STORAGE_ROOT \
+            -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+            timeout --signal=TERM --kill-after=10s 12m python -m pytest -q --tb=short \
+              tests/test_film_studio_canvas_history_browser.py \
+              tests/test_film_studio_react_clip_inspector.py \
+              tests/test_film_studio_react_fallback.py \
+              tests/test_film_studio_inspector_renderer.py \
+              tests/test_film_runtime_mask_keyframes_browser.py \
+              tests/test_film_mask_overlay_migration.py \
+              tests/test_film_variant_transform_keyframes.py \
+              tests/test_film_registered_style_migration.py
+      - name: Run timeline, revision, project-switch, lifecycle, render and QC release gate
+        id: timeline_release_gate
+        shell: bash
+        run: |
+          set -o pipefail
+          env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
+            -u VD_LLM_LIVE_STREAM_TEST -u VIDEO_DIRECTOR_STORAGE_ROOT \
+            -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+            timeout --signal=TERM --kill-after=10s 18m python -m pytest -vv --tb=short \
+              -o faulthandler_timeout=45 --junitxml=timeline-junit.xml \
+              tests/test_film_document_contract.py \
+              tests/test_film_studio_external_watch_browser.py \
+              tests/test_film_studio_migration_preview_browser.py \
+              tests/test_film_studio_layout_persistence_browser.py \
+              tests/test_film_variant_migration_api.py \
+              tests/test_film_studio_ai_proposal_browser.py \
+              tests/test_film_studio_ai_stream_contract.py \
+              tests/test_film_studio_react_timeline_toolbar.py \
+              tests/test_film_studio_react_toolbar.py \
+              tests/test_film_agent_cli.py \
+              tests/test_film_mcp_server.py \
+              tests/test_film_full_pipeline_e2e.py \
+              tests/test_film_render_scene_e2e.py \
+              tests/test_film_runtime_video_frame_wait.py \
+              tests/test_film_scene_runtime.py \
+              tests/test_film_studio_canvas_history_browser.py \
+              tests/test_film_studio_timeline_history_browser.py \
+              tests/test_film_studio_project_switch_four_way_browser.py \
+              tests/test_film_studio_generated_asset_adoption_browser.py \
+              tests/test_film_studio_pending_revision.py \
+              tests/test_film_studio_roll_browser.py \
+              tests/test_film_studio_insert_browser.py \
+              tests/test_film_external_watch_history.py \
+              tests/test_film_variant_transform_keyframes.py \
+              tests/test_film_volume_keyframe_migration.py \
+              tests/test_film_runtime_mask_keyframes_browser.py \
+              tests/test_studio_build_contract.py
+      - name: Check JavaScript syntax
+        if: always()
+        run: |
+          for file in webui/static/js/*.js; do node --check "$file"; done
+          for file in $(find third_party/huashu-art-motion/clip -name '*.js'); do node --check "$file"; done
+          node --check third_party/huashu/huashu_motion_bundle.js
+      - name: Retain Studio release-gate diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-release-gate-${{ github.sha }}
+          path: |
+            timeline-junit.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+  nvidia_live_stream:
+    name: Explicit NVIDIA real token-stream acceptance
+    if: >-
+      needs.full_regression.result == 'success' &&
+      needs.studio_release_gate.result == 'success' &&
+      (
+        (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-stream-smoke]')) ||
+        (github.event_name == 'workflow_dispatch' && inputs.run_live_nvidia)
+      )
+    needs: [full_regression, studio_release_gate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install application dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Call NVIDIA official endpoint and verify actual model token stream
+        id: live_test
+        shell: bash
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${NVIDIA_API_KEY:-}" ]]; then
+            echo "config_outcome=missing" >> "$GITHUB_OUTPUT"
+            echo "::error::LIVE_STREAM_ACCEPTANCE=MISSING; NVIDIA_API_KEY secret is not configured."
+            exit 1
+          fi
+          echo "config_outcome=success" >> "$GITHUB_OUTPUT"
+          export VD_LLM_API_KEY="$NVIDIA_API_KEY"
+          export VD_LLM_BASE_URL="https://integrate.api.nvidia.com/v1"
+          export VD_LLM_MODEL="z-ai/glm-5.3-flash"
+          export VD_LLM_LIVE_STREAM_TEST="1"
+          timeout --signal=TERM --kill-after=10s 300s python -m pytest -q -s \
+            --junitxml=live-stream-junit.xml \
+            tests/test_film_studio_live_ai_streaming.py::test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film
+      - name: Classify and retain real NVIDIA acceptance result
+        if: always()
+        shell: bash
+        env:
+          LIVE_CONFIG_OUTCOME: ${{ steps.live_test.outputs.config_outcome || 'unknown' }}
+          LIVE_TEST_OUTCOME: ${{ steps.live_test.outcome }}
+        run: |
+          set -euo pipefail
+          if [[ "$LIVE_CONFIG_OUTCOME" == "missing" ]]; then
+            echo "LIVE_STREAM_ACCEPTANCE=MISSING"
+            exit 1
+          fi
+          LIVE_STREAM_CONFIG_OUTCOME="success" \
+          LIVE_STREAM_TEST_OUTCOME="$LIVE_TEST_OUTCOME" \
+          python -m video_director.live_stream_acceptance --junit live-stream-junit.xml
+      - name: Retain real NVIDIA JUnit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvidia-live-stream-${{ github.sha }}
+          path: live-stream-junit.xml
+          if-no-files-found: warn
+          retention-days: 30
