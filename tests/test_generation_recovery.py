@@ -101,6 +101,20 @@ def test_generic_provider_failure_still_classifies_transient_transport_errors():
     assert error.is_recoverable() is True
 
 
+def test_video_generation_timeout_is_recoverable_only_through_existing_task_poll():
+    from video_director.generation import GenerationError
+
+    error = GenerationError(
+        "VIDEO_GENERATION_TIMEOUT",
+        "生视频任务仍在供应商侧运行；可接管原任务继续轮询。",
+    )
+
+    assert error.code == "VIDEO_GENERATION_TIMEOUT"
+    assert error.is_recoverable() is True
+    # This is not a generic transient provider failure: never trigger a fresh submit.
+    assert error.is_transient is False
+
+
 class TestVideoJobPersistence:
     """任务 A：提交落盘 → 轮询更新 → done 写 output_file。"""
 
@@ -1161,6 +1175,7 @@ class TestVideoGenerationTimeoutRecovery:
             )
 
         assert timeout_error.value.code == "VIDEO_GENERATION_TIMEOUT"
+        assert timeout_error.value.is_recoverable() is True
         jobs = gen._load_jobs(project_id)
         assert len(jobs) == 1
         job = next(iter(jobs.values()))

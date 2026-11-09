@@ -72,6 +72,9 @@ class GenerationError(Exception):
             # （供应商原文（含「余额不足」等中文提示）用户要能看懂）
             self.code = "QUOTA_EXCEEDED"
             self.recoverable = False
+        elif code == "VIDEO_GENERATION_TIMEOUT":
+            # provider_task_id 已持久化；只允许接管同一任务继续轮询，不允许重新 POST。
+            self.recoverable = True
         else:
             self.recoverable = self.is_transient
         super().__init__(f"[{self.code}] {message}")
