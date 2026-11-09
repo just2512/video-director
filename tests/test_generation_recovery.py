@@ -1870,3 +1870,80 @@ class TestVideoProviderIdentity:
 
         assert baseline["fingerprint"] != changed_model["fingerprint"]
         assert baseline["fingerprint"] != changed_endpoint["fingerprint"]
+
+
+
+    def test_pre_provider_dimensioned_manifest_fails_closed_without_endpoint_identity(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        _video_cfg(monkeypatch)
+        import hashlib
+        from video_director import config, generation as gen
+
+        pid = "proj-legacy-dimensioned-manifest"
+        config.init_project_dirs(config.project_dir(pid))
+        prompt = "old dimensioned provider request"
+        old_fp = hashlib.sha256(
+            (prompt + "|video|dimensions:320x180").encode("utf-8")
+        ).hexdigest()[:16]
+        output = config.project_dir(pid) / "assets" / "generated" / "old.mp4"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"old-provider-video")
+        manifest = []
+        gen._register_result(
+            manifest, [], "old-dimensioned-asset", "video", output, 320, 180,
+            5.0, "same-model", "video-llm", prompt, old_fp, "A",
+        )
+        gen._save_manifest(pid, manifest)
+        client = FakeVideoClient(statuses=["completed"])
+        monkeypatch.setattr(gen, "_video_client", lambda _cfg: client)
+
+        with pytest.raises(gen.GenerationError) as caught:
+            gen.generate(pid, prompt, "video", width=320, height=180, variant="A")
+
+        assert caught.value.code == "VIDEO_LEGACY_PROVIDER_IDENTITY_UNKNOWN"
+        assert client.post_calls == 0
+
+
+    def test_same_model_on_changed_endpoint_creates_distinct_provider_task(
+        self, tmp_path, monkeypatch
+    ):
+        _isolate(tmp_path, monkeypatch)
+        from video_director import config, generation as gen, model_config
+
+        pid = "proj-video-provider-switch"
+        config.init_project_dirs(config.project_dir(pid))
+        current = {
+            "api_key": "key-one",
+            "base_url": "https://provider-one.example/v1",
+            "model": "same-model",
+        }
+        monkeypatch.setattr(
+            model_config, "get_role_config",
+            lambda role: dict(current) if role == "video" else {
+                "api_key": "", "base_url": "", "model": ""
+            },
+        )
+        clients = []
+        def make_client(_cfg):
+            client = FakeVideoClient(statuses=["completed"])
+            clients.append(client)
+            return client
+        monkeypatch.setattr(gen, "_video_client", make_client)
+        monkeypatch.setattr(gen, "_download_bytes", lambda _url: b"provider-video")
+
+        first = gen.generate(pid, "provider route switch", "video", variant="A")
+        current.update({
+            "api_key": "key-two",
+            "base_url": "https://provider-two.example/v1",
+        })
+        second = gen.generate(pid, "provider route switch", "video", variant="A")
+
+        assert len(clients) == 2
+        assert all(client.post_calls == 1 for client in clients)
+        assert first[0].input_fingerprint != second[0].input_fingerprint
+        identities = [job["provider_identity"] for job in gen._load_jobs(pid).values()]
+        assert {identity["endpoint"] for identity in identities} == {
+            "https://provider-one.example/v1", "https://provider-two.example/v1"
+        }
