@@ -19,10 +19,10 @@ Source changes are integrated directly into `main`, serially, after review again
 | Lane | Scope | Primary regression |
 |---|---|---|
 | W1 Generation durability (19D) | Generation reservation/state machine, provider submission identity, crash recovery, Manifest/Registry idempotency | `tests/test_generation_recovery.py`, `tests/test_generation_gap1.py`, `tests/test_film_transaction_recovery.py`, `tests/test_project_manifest.py`, `tests/test_bulk_management.py` |
-| W2 Timeline transaction state (19D) | Multi-select, cross-track drag, Undo/Redo, stale revisions, project-switch state | `tests/test_editor_undo_redo.py`, `tests/test_film_studio_timeline_history_browser.py`, `tests/test_film_studio_pending_revision.py`, `tests/test_film_studio_external_watch_browser.py`, `tests/test_editor_command_project_switch_browser.py` |
+| W2 Timeline transaction state (19D) | Multi-select, cross-track drag, Undo/Redo, stale revisions, project-switch state | `tests/test_editor_undo_redo.py`, `tests/test_film_studio_timeline_history_browser.py`, `tests/test_film_studio_pending_revision.py`, `tests/test_film_studio_external_watch_browser.py`, `tests/test_editor_command_project_switch_browser.py`, `tests/test_film_studio_ai_proposal_browser.py`, `tests/test_film_studio_ai_stream_contract.py` |
 | W3 Lifecycle/export acceptance (19D) | Create, migrate, edit, reopen, render, QC and artifact provenance | `tests/test_project_manager.py`, `tests/test_project_manager_film_authority.py`, `tests/test_film_full_pipeline_e2e.py`, `tests/test_film_studio_migration_preview_browser.py`, `tests/test_film_render_publication_transaction.py`, `tests/test_film_render_scene_e2e.py` |
-| W4 Project home/create UX (07D) | Project-first hierarchy and existing create-flow promotion | `tests/test_project_creation_workspace_browser.py`, `tests/test_create_dialog_cancel_browser.py`, `tests/test_create_dialog_persistence_browser.py` |
-| W5 Settings IA (07D) | Categorized settings, progressive disclosure, safe save/import/export UX | `tests/test_settings_information_architecture_browser.py`, `tests/test_model_config_persistence_contract.py` |
+| W4 Project home/create UX (07D) | Project-first hierarchy and existing create-flow promotion | `tests/test_project_creation_workspace_browser.py`, `tests/test_create_dialog_cancel_browser.py`, `tests/test_create_dialog_persistence_browser.py` (including project width/height/FPS restore and legacy platform fallback) |
+| W5 Settings IA (07D) | Categorized settings, progressive disclosure, safe save/import/export UX | `tests/test_settings_information_architecture_browser.py` (including export secret redaction and partial-import key preservation), `tests/test_model_config_persistence_contract.py` |
 | W6 Hosted CI orchestration | GitHub Actions workflows, scoped lanes, artifact retention, exact-SHA provenance | Workflow syntax validation plus each lane's scoped suite |
 | W7 Shared shell integration | `index.html`, `app.js`, navigation and view-state integration | Project home/settings navigation and full browser E2E |
 
@@ -44,3 +44,11 @@ The previous AI Director workflow targeted a self-hosted WSL runner. It is disab
 ## Acceptance rule
 
 A workstream PASS is not an integrated PASS. After each integration commit, rerun affected hosted scoped tests. Final acceptance requires all required workstream tests, browser E2E and full hosted regression to pass on the exact same `main` SHA. Never weaken or skip a gate to make the workflow green.
+
+
+## Acceptance coverage refinements (2026-11-09)
+
+- W2 includes the revision-bound AI proposal preview/reject/apply and stream contract browser tests; these are part of the 19D AI editing contract, not a separate timeline authority.
+- W4 verifies project-scoped output profile restoration (width, height, FPS), clean defaults when switching to a project without stored settings, and legacy platform-only aspect-ratio fallback.
+- W5 verifies export redacts API keys and partial import preserves local keys for both submitted and omitted roles.
+- These refinements add regression coverage only; they do not change FilmDocument, project lifecycle, model-config, or provider contracts.
