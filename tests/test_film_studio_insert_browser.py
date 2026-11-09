@@ -1036,6 +1036,7 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             page_errors: list[str] = []
             edit_requests: list[dict] = []
+            edit_responses: list[dict] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
 
             def capture_edit(request):
@@ -1045,7 +1046,15 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                     except Exception:
                         edit_requests.append({"raw": request.post_data})
 
+            def capture_edit_response(response):
+                if response.url.endswith("/api/editor/film/edit"):
+                    try:
+                        edit_responses.append({"status": response.status, "body": response.json()})
+                    except Exception as exc:
+                        edit_responses.append({"status": response.status, "body_error": repr(exc)})
+
             page.on("request", capture_edit)
+            page.on("response", capture_edit_response)
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
@@ -1184,7 +1193,21 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 assert ripple_ops[0].get("clip") == "video-target", ripple_ops
                 assert ripple_ops[0].get("scope") == "all", ripple_ops
 
-                ripple_doc = fd.read_project_film(project_id)
+                ripple_response = edit_responses[-1] if edit_responses else {}
+                assert ripple_response.get("status") == 200, ripple_response
+                assert ripple_response.get("body", {}).get("ok") is True, ripple_response
+                assert ripple_response["body"].get("rev") != revision_after_lift, {
+                    "response": ripple_response,
+                    "request": edit_requests[-1],
+                }
+                from video_director import film_document as active_fd
+                assert active_fd is fd, "test module and server must share the active FilmDocument module"
+                ripple_doc = active_fd.read_project_film(project_id)
+                assert ripple_doc["rev"] == ripple_response["body"]["rev"], {
+                    "module_path": str(active_fd._film_path(project_id)),
+                    "response_revision": ripple_response["body"]["rev"],
+                    "disk_revision": ripple_doc["rev"],
+                }
                 tracks = {track["id"]: track for track in ripple_doc["doc"]["tracks"]}
                 video = {clip["id"]: clip for clip in tracks["video-main"]["clips"]}
                 audio_by_id = {clip["id"]: clip for clip in tracks["audio-bed"]["clips"]}
