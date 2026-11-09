@@ -232,7 +232,15 @@ def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_
                             }],
                             "software_project": {"id": "repo-a", "root": "D:/project-a", "claims": [{"text": "项目 A 卖点"}]},
                         },
-                        "spec_settings": {"platform": "xhs", "duration": 45, "style_intent": "knowledge-explainer"},
+                        "spec_settings": {"platform": "xhs", "duration": 45, "style_intent": "knowledge-explainer", "width": 1920, "height": 1080, "fps": 60},
+                    }
+                elif project_id == "project-legacy-platform":
+                    payload = {
+                        "ok": True,
+                        "brief": "旧项目的创作要求",
+                        "bundle": {"script": {"text": ""}, "assets": {"asset_refs": []},
+                                   "references": [], "articles": [], "software_project": None},
+                        "spec_settings": {"platform": "xhs"},
                     }
                 elif project_id == "project-without-context":
                     payload = {
@@ -268,7 +276,8 @@ def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_
                 && document.getElementById('cf-assets-summary')?.textContent?.includes('A.mp4')
             """, timeout=10000)
             assert page.locator("#cf-input-context-details").evaluate("(node) => node.open")
-            assert page.locator("#cf-resolution").input_value() == "1080x1440"
+            assert page.locator("#cf-resolution").input_value() == "1920x1080"
+            assert page.locator("#cf-fps").input_value() == "60"
             assert "所选风格由 StyleContract" in (page.locator("#cf-style-contract-detail").text_content() or "")
             assert page.locator('#cf-style-presets [data-studio-style="knowledge-explainer"]').evaluate("(node) => node.classList.contains('tab-active')")
 
@@ -290,6 +299,12 @@ def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_
             assert page.locator("#cf-repo-result").inner_text() == ""
             assert page.locator("#cf-platform").input_value() == ""
             assert page.locator("#cf-duration").input_value() == ""
+            assert page.locator("#cf-resolution").input_value() == "1080x1920"
+            assert page.locator("#cf-fps").input_value() == "30"
+            page.evaluate("openCreate('project-legacy-platform')")
+            page.wait_for_function("document.getElementById('cf-director-brief')?.value === '旧项目的创作要求'")
+            assert page.locator("#cf-resolution").input_value() == "1080x1440"
+            assert page.locator("#cf-fps").input_value() == "30"
             assert not errors
             browser.close()
     finally:
