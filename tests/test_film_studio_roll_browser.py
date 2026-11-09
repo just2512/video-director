@@ -988,11 +988,12 @@ CROSS_TRACK_SAMPLE = """<!doctype html>
 <section id="video-alt" data-label="备用画面">
   <video id="clip-c" src="../assets/a.mp4#t=0,5" at="0"></video>
 </section>
+<section id="video-third" data-label="第三轨道"></section>
 </body></html>"""
 
 
 @pytest.mark.parametrize(
-    "target_scenario", ["valid-target", "locked-target", "overlap-target"]
+    "target_scenario", ["valid-target", "locked-target", "overlap-target", "multi-select-valid-target"]
 )
 def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track(tmp_path, monkeypatch, target_scenario):
     storage_root = tmp_path / "storage"
@@ -1014,6 +1015,7 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
     assert generated.returncode == 0, generated.stderr
 
     target_locked = target_scenario == "locked-target"
+    multi_select = target_scenario == "multi-select-valid-target"
     project_id = "film-studio-cross-track-browser" + ("" if target_scenario == "valid-target" else "-" + target_scenario)
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
@@ -1073,6 +1075,14 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                     assert not page.locator("#fs-static-timeline-toolbar").is_visible()
 
                 source_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
+                if multi_select:
+                    second_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-c"]')
+                    source_clip.click()
+                    second_clip.click(modifiers=["Control"])
+                    page.wait_for_function("""() => {
+                      const ids = window.filmStudioStore?.getSnapshot()?.selectedIds || [];
+                      return ids.includes('clip-a') && ids.includes('clip-c');
+                    }""", timeout=5000)
                 target_track = page.locator('#fs-timeline .fs-track[data-track="video-alt"]')
                 target_body = target_track.locator(".fs-track-body")
                 source_clip.wait_for(state="visible")
@@ -1098,7 +1108,7 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                 page.mouse.down()
                 page.mouse.move(target_x, target_y, steps=12)
 
-                if target_scenario != "valid-target":
+                if target_scenario not in ("valid-target", "multi-select-valid-target"):
                     expected_invalid_reason = "已锁定" if target_locked else "时间重叠"
                     page.wait_for_function("""(expectedReason) => {
                       const state = window.filmStudioStore?.getSnapshot();
@@ -1142,16 +1152,21 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                 page.wait_for_function("""() => {
                   const state = window.filmStudioStore?.getSnapshot();
                   const preview = state?.timelineGesturePreview?.['clip-a'];
+                  const secondPreview = state?.timelineGesturePreview?.['clip-c'];
                   const drop = state?.timelineDropTarget;
                   const ghost = document.querySelector(
                     '#fs-timeline [data-gesture-ghost-for="clip-a"][data-gesture-target-track="video-alt"]'
                   );
+                  const secondGhost = document.querySelector(
+                    '#fs-timeline [data-gesture-ghost-for="clip-c"][data-gesture-target-track="video-third"]'
+                  );
                   const row = document.querySelector('#fs-timeline .fs-track[data-track="video-alt"]');
                   return preview?.targetTrackId === 'video-alt'
                     && Math.abs(Number(preview.left) - 180) < 1
+                    && (!arguments[0] || (secondPreview?.targetTrackId === 'video-third' && !!secondGhost))
                     && drop?.trackId === 'video-alt' && drop.invalid === false
                     && !!ghost && row?.classList.contains('fs-track-drop-target');
-                }""", timeout=8000)
+                }""", arg=multi_select, timeout=8000)
 
                 preview_state = page.evaluate("""() => ({
                   preview:window.filmStudioStore?.getSnapshot()?.timelineGesturePreview?.['clip-a'],
@@ -1173,19 +1188,29 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                   const tracks = doc.tracks || [];
                   const source = tracks.find(track => track.id === 'video-main');
                   const target = tracks.find(track => track.id === 'video-alt');
-                  return !!source && !!target
-                    && !(source.clips || []).some(clip => clip.id === 'clip-a')
-                    && (target.clips || []).some(clip =>
-                      clip.id === 'clip-a' && Math.abs(Number(clip.attrs.at) - 5) < 0.001
+                  const third = tracks.find(track => track.id === 'video-third');
+                  const sourceMoved = !!source && !(source.clips || []).some(clip => clip.id === 'clip-a');
+                  const targetMoved = !!target && (target.clips || []).some(clip =>
+                    clip.id === 'clip-a' && Math.abs(Number(clip.attrs.at) - 5) < 0.001
+                  );
+                  const secondMoved = !!target && !(target.clips || []).some(clip => clip.id === 'clip-c')
+                    && !!third && (third.clips || []).some(clip =>
+                      clip.id === 'clip-c' && Math.abs(Number(clip.attrs.at) - 5) < 0.001
                     );
-                }""", arg=project_id, timeout=15000)
+                  return sourceMoved && targetMoved && (!arguments[1] || secondMoved);
+                }""", arg=[project_id, multi_select], timeout=15000)
 
                 committed_requests = film_edit_requests[request_count:]
                 assert len(committed_requests) == 1, committed_requests
                 operations = committed_requests[0].get("ops") or []
-                assert operations == [{
+                expected_operations = [{
                     "op": "move", "clip": "clip-a", "track_id": "video-alt", "at": 5
-                }], committed_requests
+                }]
+                if multi_select:
+                    expected_operations.append({
+                        "op": "move", "clip": "clip-c", "track_id": "video-third", "at": 5
+                    })
+                assert operations == expected_operations, committed_requests
 
                 persisted = fd.read_project_film(project_id)
                 source_track = next(track for track in persisted["doc"]["tracks"] if track["id"] == "video-main")
@@ -1193,6 +1218,11 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                 assert not any(clip["id"] == "clip-a" for clip in source_track["clips"])
                 moved = next(clip for clip in target_track_doc["clips"] if clip["id"] == "clip-a")
                 assert abs(float(moved["attrs"]["at"]) - 5) < 0.001, moved
+                if multi_select:
+                    third_track_doc = next(track for track in persisted["doc"]["tracks"] if track["id"] == "video-third")
+                    assert not any(clip["id"] == "clip-c" for clip in target_track_doc["clips"])
+                    moved_second = next(clip for clip in third_track_doc["clips"] if clip["id"] == "clip-c")
+                    assert abs(float(moved_second["attrs"]["at"]) - 5) < 0.001, moved_second
                 page.wait_for_function("""() => {
                   const state = window.filmStudioStore?.getSnapshot();
                   return !!state && state.pendingTransaction === null
