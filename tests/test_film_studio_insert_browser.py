@@ -1027,6 +1027,15 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
     initial_text = film_path.read_text(encoding="utf-8")
     assert fd.read_project_film(project_id)["exists"]
 
+    original_film_payload = fd.film_payload
+
+    def film_payload_with_path(pid, state):
+        payload = original_film_payload(pid, state)
+        payload["_debug_film_path"] = str(fd._film_path(pid))
+        return payload
+
+    monkeypatch.setattr(fd, "film_payload", film_payload_with_path)
+
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -1177,6 +1186,15 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
                 assert ripple_response["status"] == 200, ripple_response
                 assert ripple_response["body"].get("ok") is True, ripple_response
                 assert ripple_response["body"].get("rev") != revision_before_ripple, ripple_response
+                assert ripple_response["request"].get("project_id") == project_id, ripple_response
+                assert ripple_response["body"].get("_debug_film_path") == str(fd._film_path(project_id)), ripple_response
+                disk_immediately_after_response = fd.read_project_film(project_id)
+                assert disk_immediately_after_response["rev"] == ripple_response["body"]["rev"], {
+                    "phase": "immediately after ripple response",
+                    "response": ripple_response,
+                    "disk_revision": disk_immediately_after_response["rev"],
+                    "disk_path": str(fd._film_path(project_id)),
+                }
 
                 page.wait_for_function("""async (pid) => {
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid), {cache:'no-store'});
