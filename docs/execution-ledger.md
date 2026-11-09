@@ -43,12 +43,12 @@ The baseline is `c221a0b4fe4eb8e572e85fc20bb7ec4afc2ab4f1`. Historical CI eviden
 | 19D-01 | `film.html` is the sole timeline authority once present; legacy CompositionIR writes/exports fail closed | PASS (documented implementation) | UNKNOWN | Verify current main code paths and authority tests; do not reintroduce a second timeline |
 | 19D-02 | Revision-pinned project context, stale-response rejection, project-switch isolation | PASS (documented implementation) | UNKNOWN | Re-run project-context, external-watch and project-switch tests on a hosted runner |
 | 19D-03 | AI proposal preview/reject/apply is revision-bound and does not write before approval | PASS (documented implementation) | UNKNOWN | Re-run proposal browser tests on current main |
-| 19D-04 | Multi-select and cross-track drag form one atomic transaction; Undo/Redo restore full affected state | UNKNOWN | UNKNOWN | Recent commits `cb366e36`, `4d866259`, `c221a0b4` adjust coverage; latest known full AI Director run before this baseline failed on `3a7ec258`. Verify exact failure and current tests |
+| 19D-04 | Multi-select and cross-track drag form one atomic transaction; Undo/Redo restore full affected state | UNKNOWN | IN PROGRESS — W2 hosted browser suite running on latest code SHA `7a04012423` | Recent commits `cb366e36`, `4d866259`, `c221a0b4` adjust coverage; latest known full AI Director run before this baseline failed on `3a7ec258`. Verify exact failure and current tests |
 | 19D-05 | Timeline gestures reject stale external revisions and project-switch responses | PASS (documented implementation) | UNKNOWN | Existing browser coverage is documented; re-run against exact current main |
-| 19D-06 | Generation job reservation, provider identity, ambiguous submission, download recovery and Manifest/Registry idempotency | PASS (implementation changes recorded; current behavior needs revalidation) | UNKNOWN | Nov 9 commits changed provider identity and recovery contracts; run generation recovery, provider matrix and manifest regressions |
-| 19D-07 | Manual generated-asset adoption; generation completion cannot overwrite a newer user revision | PASS (historical browser evidence) | UNKNOWN | Re-run manual-adoption browser E2E on current main |
-| 19D-08 | Project create/open/migrate/edit/reopen lifecycle uses one project and one FilmDocument revision | PASS (historical lifecycle E2E evidence) | UNKNOWN | Re-run the existing integrated lifecycle fixture; do not create a duplicate fixture without a coverage gap |
-| 19D-09 | Actual MP4 export and QC artifacts are bound to the exact FilmDocument revision | PASS (historical real FFmpeg evidence) | UNKNOWN | Re-run actual render/QC regression on hosted Ubuntu; verify output metadata, revision, artifact digest and failure behavior |
+| 19D-06 | Generation job reservation, provider identity, ambiguous submission, download recovery and Manifest/Registry idempotency | PASS | PASS — W1 hosted suite succeeded on latest code SHA `7a04012423`, run `42618988136` | Nov 9 commits changed provider identity and recovery contracts; run generation recovery, provider matrix and manifest regressions |
+| 19D-07 | Manual generated-asset adoption; generation completion cannot overwrite a newer user revision | PASS (implementation recorded) | IN PROGRESS — adoption regression is part of W3 run `42618988136` | Re-run manual-adoption browser E2E on current main |
+| 19D-08 | Project create/open/migrate/edit/reopen lifecycle uses one project and one FilmDocument revision | PASS (implementation recorded) | IN PROGRESS — W3 lifecycle suite running on code SHA `7a04012423` | Re-run the existing integrated lifecycle fixture; do not create a duplicate fixture without a coverage gap |
+| 19D-09 | Actual MP4 export and QC artifacts are bound to the exact FilmDocument revision | PASS (implementation recorded) | IN PROGRESS — W3 render/QC suite running on code SHA `7a04012423` | Re-run actual render/QC regression on hosted Ubuntu; verify output metadata, revision, artifact digest and failure behavior |
 | 19D-10 | Real model token streaming against a currently supported endpoint | MISSING | MISSING | Prior documented endpoint returned HTTP 410; mocks and historical runs do not count. Only explicit hosted opt-in with GitHub Secrets can close this |
 | 19D-11 | Arbitrary HTML/WebGL deterministic rendering and exhaustive edit-operation permutations | UNKNOWN / bounded support | MISSING | Preserve explicit unsupported boundaries; do not claim universal determinism or exhaustive permutation coverage |
 
@@ -58,12 +58,12 @@ The baseline is `c221a0b4fe4eb8e572e85fc20bb7ec4afc2ab4f1`. Historical CI eviden
 |---|---|---|---|---|
 | 07D-01 | Safe partial model-config updates preserve omitted roles/fields and keys | PASS (safe merge path recorded in 2026-11-07 audit closure) | UNKNOWN | Re-run config contract tests on hosted runner; do not inspect or modify a developer's local config |
 | 07D-02 | Existing create flow and browser/server draft recovery chain | PASS (existing lifecycle contract) | UNKNOWN | Preserve existing DOM hooks, draft key, server endpoint, upload and WorkflowRun contracts |
-| 07D-03 | Project-first home hierarchy and first-class create experience | MISSING | MISSING | Implement the UX over the existing project/create lifecycle; do not create a second backend/state machine |
-| 07D-04 | Full-work-area create flow with safe cancel/failure/resume | MISSING | MISSING | Depends on 07D-02 regression protection and exact create rollback contract |
-| 07D-05 | Categorized settings IA and progressive disclosure | MISSING | MISSING | Implement UI only; do not change ROLE_DEFS, provider IDs, secret semantics or settings endpoint contract |
-| 07D-06 | Shared shell navigation and in-app view contract | PARTIAL (three spaces exist; inspected route is in-page switch) | UNKNOWN | Coordinator owns `index.html` and `app.js`; do not introduce a router migration in this pass |
+| 07D-03 | Project-first home hierarchy and first-class create experience | PASS — project list is default pane and top-level create action is present | IN PROGRESS — W4 browser suite running on code SHA `7a04012423` | Implement the UX over the existing project/create lifecycle; do not create a second backend/state machine |
+| 07D-04 | Full-work-area create flow with safe cancel/failure/resume | PASS — `openCreate()` creates a full-viewport workspace over existing lifecycle | IN PROGRESS — W4 create/cancel/draft browser suite running on code SHA `7a04012423` | Depends on 07D-02 regression protection and exact create rollback contract |
+| 07D-05 | Categorized settings IA and progressive disclosure | PASS — categorized `<details>` sections and progressive disclosure exist | PASS — W5 browser + persistence tests succeeded on code SHA `7a04012423`, run `42618988066` | Implement UI only; do not change ROLE_DEFS, provider IDs, secret semantics or settings endpoint contract |
+| 07D-06 | Shared shell navigation and in-app view contract | PASS for current scope — three spaces are integrated through `switchTab`; no router migration required by this audit | UNKNOWN — no dedicated cross-space navigation E2E recorded | Coordinator owns `index.html` and `app.js`; do not introduce a router migration in this pass |
 | 07D-07 | Project-scoped output defaults with backward-compatible reads | UNKNOWN | MISSING | Audit existing project params/CompositionIR/FilmDocument dimensions first; add schema only with compatibility tests |
-| 07D-08 | Product E2E: home → create/cancel/resume → settings expand/save/import/export | MISSING | MISSING | Add/complete browser acceptance after A/B UI and shell integration |
+| 07D-08 | Product E2E: home → create/cancel/resume → settings expand/save/import/export | PARTIAL — W4/W5 cover the flows in separate isolated browser suites | IN PROGRESS — W4 pending; W5 including export redaction and partial import preservation PASS on `7a04012423` | Add/complete browser acceptance after A/B UI and shell integration |
 
 ## 3. Workstream partition — what can genuinely run in parallel
 
@@ -136,10 +136,10 @@ Execution order:
 |---:|---|---|---|---|
 | 1 | Disable self-hosted AI Director job; establish hosted-only runner rule | W6 | No future workflow path allocates a self-hosted runner | PASS — job-level `if: false` verified; run `42617062648` allocated no job |
 | 2 | Convert branch-gated workstream CI into hosted main-only lanes | W6 | W1/W2/W3 and W4/W5 run as independent GitHub-hosted jobs from main SHA | IMPLEMENTED; latest exact-main run in progress |
-| 3 | Re-run focused generation/provider recovery suite on hosted runner | W1 | Exact-main tests pass; provider submission and manifest invariants verified | IN PROGRESS — prior SHA cfbc893fa2 W1 PASS; latest SHA ab0454b568 run pending |
-| 4 | Re-run timeline multi-select/cross-track/Undo/Redo browser suite | W2 | Atomic transaction and full undo/redo behavior pass on exact SHA | IN PROGRESS — hosted jobs pending on latest SHA ab0454b568 |
-| 5 | Implement project-home/create UX over existing create lifecycle | W4 | Create/cancel/failure/resume browser scenarios pass | MISSING — current hosted regression running; no UX implementation evidence yet |
-| 6 | Implement categorized settings IA | W5 | Expand/save/import/export and secret preservation browser scenarios pass | MISSING — tests pass on prior SHA cfbc893fa2; latest SHA run pending; implementation still missing |
+| 3 | Re-run focused generation/provider recovery suite on hosted runner | W1 | Exact-main tests pass; provider submission and manifest invariants verified | PASS — code SHA `7a04012423`, run `42618988136` |
+| 4 | Re-run timeline multi-select/cross-track/Undo/Redo browser suite | W2 | Atomic transaction and full undo/redo behavior pass on exact SHA | IN PROGRESS — code SHA `7a04012423`, run `42618988136` |
+| 5 | Implement project-home/create UX over existing create lifecycle | W4 | Create/cancel/failure/resume browser scenarios pass | IMPLEMENTATION PASS; hosted W4 browser suite pending on code SHA `7a04012423` |
+| 6 | Implement categorized settings IA | W5 | Expand/save/import/export and secret preservation browser scenarios pass | PASS — code SHA `7a04012423`, run `42618988066`; includes new browser export-redaction/partial-import test |
 | 7 | Integrate shared shell serially | W7 | One route/view state; no duplicate project or settings state | BLOCKED on 5, 6 |
 | 8 | Run lifecycle/export/QC E2E and project defaults compatibility | W3 | One project/revision across create→edit→reopen→export/QC | BLOCKED on 3, 4, 7 |
 | 9 | Run final hosted full regression on exact main SHA | W6/W0 | All required hosted jobs pass; no local runner used | BLOCKED on business lanes 1–8 |
@@ -201,3 +201,22 @@ The historical self-hosted AI Director run `42616478439` is no longer active; it
 2. Do not count earlier-SHA PASS as current-main PASS.
 3. Once the hosted test matrix is stable, proceed with W1/W2 actual implementation gaps and W4/W5 UI implementation; tests alone do not close those deliverables.
 4. W7 shared shell integration remains serial and W3 integrated lifecycle acceptance remains downstream.
+
+
+## 10. Latest code acceptance update
+
+**Latest code/test SHA:** `7a0401242396cb68e86ac8f58e7762b602288860`.  
+A later ledger-only commit does not change application or test code.
+
+| Lane | Run | Latest result |
+|---|---:|---|
+| W1 generation | `42618988136` | PASS |
+| W2 timeline | `42618988136` | IN PROGRESS at last inspection |
+| W3 lifecycle/export/QC | `42618988136` | IN PROGRESS at last inspection |
+| W4 project/create | `42618988066` | IN PROGRESS at last inspection |
+| W5 settings IA/credentials | `42618988066` | PASS, including the new export-redaction and partial-import-preservation browser test |
+| Workflow YAML validation | `42618988105` | SUCCESS |
+
+W5's new browser regression uses synthetic fixture keys in an isolated temporary storage root. It verifies that export contains no API keys and that importing only the image role changes that role's model/base URL while preserving both local LLM and image keys.
+
+W4/W5 implementation was re-audited against current source rather than assumed missing: the project list is already the default home, the top-level create action exists, `openCreate()` opens a full-viewport create workspace, and settings already contain the six planned categories with progressive disclosure. The remaining question for W4 is current-SHA browser acceptance, not whether these UI structures exist.
