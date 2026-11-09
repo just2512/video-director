@@ -25,6 +25,7 @@ import stat
 import tempfile
 import time
 import uuid
+from urllib.parse import urlsplit, urlunsplit
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -109,6 +110,42 @@ def _fingerprint(data: bytes) -> str:
 def _role_cfg(role: str) -> dict:
     from video_director import model_config as vd_mc
     return vd_mc.get_role_config(role)
+
+
+def _video_provider_identity(cfg: dict, model_override: Optional[str] = None) -> dict:
+    """Canonical non-secret identity for the effective video provider route."""
+    from video_director import provider_matrix
+
+    raw_url = str((cfg or {}).get("base_url") or "").strip()
+    try:
+        parsed = urlsplit(raw_url)
+        scheme = parsed.scheme.lower()
+        hostname = (parsed.hostname or "").lower()
+        port = parsed.port
+    except ValueError as exc:
+        raise GenerationError("VIDEO_PROVIDER_IDENTITY_INVALID",
+                              "视频 Provider endpoint 格式无效；已停止生成") from exc
+    if scheme not in {"http", "https"} or not hostname:
+        raise GenerationError("VIDEO_PROVIDER_IDENTITY_INVALID",
+                              "视频 Provider endpoint 必须包含有效的 http/https scheme 和 host")
+    host = f"[{hostname}]" if ":" in hostname and not hostname.startswith("[") else hostname
+    default_port = (scheme == "https" and port == 443) or (scheme == "http" and port == 80)
+    authority = host if port is None or default_port else f"{host}:{port}"
+    endpoint = urlunsplit((scheme, authority, parsed.path.rstrip("/"), "", ""))
+    model_name = str(model_override or (cfg or {}).get("model") or "").strip()
+    provider_id = provider_matrix.infer_provider("video", cfg)
+    if not model_name:
+        raise GenerationError("VIDEO_PROVIDER_IDENTITY_INVALID",
+                              "视频 Provider 的有效模型名为空；已停止生成")
+    identity = {
+        "provider_id": provider_id,
+        "endpoint": endpoint,
+        "model": model_name,
+        "request_contract": "openai-compatible-video-generations-v1",
+    }
+    canonical = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    identity["fingerprint"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return identity
 
 
 def _image_size(width: int, height: int) -> str:
@@ -315,7 +352,9 @@ def _assert_no_legacy_dimensionless_video_jobs(
             )
 
 
-def _find_reusable_job(project_id: str, input_fp: str, variant: str) -> Optional[dict]:
+def _find_reusable_job(
+    project_id: str, input_fp: str, variant: str, provider_identity: Optional[dict] = None
+) -> Optional[dict]:
     """同 fingerprint+variant 且仍在跑的外部任务 → 复用轮询，不重复提交付费。"""
     for job in _load_jobs(project_id).values():
         reusable_status = job.get("status") in ("pending", "running", "downloading")
@@ -328,19 +367,23 @@ def _find_reusable_job(project_id: str, input_fp: str, variant: str) -> Optional
         )
         if (job.get("input_fingerprint") == input_fp
                 and job.get("variant") == variant
+                and (provider_identity is None or job.get("provider_identity") == provider_identity)
                 and (reusable_status or recovered_output)
                 and job.get("provider_task_id")):
             return job
     return None
 
 
-def _find_video_job(project_id: str, input_fp: str, variant: str) -> Optional[dict]:
+def _find_video_job(
+    project_id: str, input_fp: str, variant: str, provider_identity: Optional[dict] = None
+) -> Optional[dict]:
     """Return the newest durable provider job for one generated video variant."""
     matches = [
         job for job in _load_jobs(project_id).values()
         if job.get("gen_type") == "video"
         and job.get("input_fingerprint") == input_fp
         and job.get("variant") == variant
+        and (provider_identity is None or job.get("provider_identity") == provider_identity)
         and job.get("provider_task_id")
     ]
     return max(
@@ -356,12 +399,15 @@ def _find_video_job(project_id: str, input_fp: str, variant: str) -> Optional[di
     )
 
 
-def _find_unresolved_submission(project_id: str, input_fp: str, variant: str) -> Optional[dict]:
+def _find_unresolved_submission(
+    project_id: str, input_fp: str, variant: str, provider_identity: Optional[dict] = None
+) -> Optional[dict]:
     """Find a durable reservation whose provider submission outcome is unknown."""
     for job in _load_jobs(project_id).values():
         if (job.get("input_fingerprint") == input_fp
                 and job.get("variant") == variant
                 and job.get("status") in ("submitting", "submission_unknown")
+                and (provider_identity is None or job.get("provider_identity") == provider_identity)
                 and not job.get("provider_task_id")):
             return job
     return None
@@ -534,7 +580,9 @@ def _completed_video_output(project_id: str, job: dict) -> Path:
     return output
 
 
-def recover_pending_video_jobs(project_id: str) -> List[dict]:
+def recover_pending_video_jobs(
+    project_id: str, provider_identity: Optional[dict] = None, provider_cfg: Optional[dict] = None
+) -> List[dict]:
     """进程中断后的视频任务恢复（审计差距 2）。
 
     读 generation_jobs.json，对 status=running 且有 provider_task_id 的任务
@@ -543,13 +591,20 @@ def recover_pending_video_jobs(project_id: str) -> List[dict]:
     返回本次发生状态迁移的 job 列表（含最新状态）。
     """
     jobs = _load_jobs(project_id)
-    pending = [j for j in jobs.values()
-               if j.get("status") in ("running", "downloading")
-               and j.get("provider_task_id") and j.get("gen_type") == "video"]
+    cfg = provider_cfg if provider_cfg is not None else _role_cfg("video")
+    if provider_identity is not None:
+        pending = [j for j in jobs.values()
+                   if j.get("status") in ("running", "downloading")
+                   and j.get("provider_task_id") and j.get("gen_type") == "video"
+                   and j.get("provider_identity") == provider_identity]
+    else:
+        pending = [j for j in jobs.values()
+                   if j.get("status") in ("running", "downloading")
+                   and j.get("provider_task_id") and j.get("gen_type") == "video"]
     if not pending:
         return []
     try:
-        client = _video_client(_role_cfg("video"))
+        client = _video_client(cfg)
     except Exception as exc:
         logger.warning(f"generation: 视频任务恢复跳过（provider 不可用，保持 running）: {exc}")
         return []
@@ -835,8 +890,12 @@ def generate(
     if model:
         fp_src += "|model:" + str(model)
     legacy_input_fp = hashlib.sha256(fp_src.encode("utf-8")).hexdigest()[:16]
-    # Video dimensions are part of the paid provider request identity. Keep the
-    # pre-dimension fingerprint only for safe legacy manifest/job inspection.
+    video_cfg = _role_cfg("video") if gen_type == "video" else None
+    provider_identity = None
+    if gen_type == "video":
+        effective_model = model or (video_cfg or {}).get("model") or ""
+        provider_identity = _video_provider_identity(video_cfg or {}, effective_model)
+        fp_src += "|provider_identity:" + provider_identity["fingerprint"]
     input_fp = (
         hashlib.sha256(f"{fp_src}|dimensions:{width}x{height}".encode("utf-8")).hexdigest()[:16]
         if gen_type == "video" else legacy_input_fp
@@ -859,10 +918,29 @@ def generate(
         _assert_no_legacy_dimensionless_video_jobs(
             project_id, legacy_input_fp, variants, manifest
         )
+        legacy_provider_jobs = [
+            job for job in _load_jobs(project_id).values()
+            if job.get("gen_type") == "video"
+            and job.get("input_fingerprint") == legacy_input_fp
+            and job.get("variant") in variants
+            and job.get("status") in {
+                "pending", "submitting", "submission_unknown", "running",
+                "downloading", "done",
+            }
+            and job.get("provider_identity") is None
+        ]
+        if legacy_provider_jobs:
+            raise GenerationError(
+                "VIDEO_LEGACY_PROVIDER_IDENTITY_UNKNOWN",
+                "发现没有 Provider endpoint 身份的旧视频任务；不能仅凭模型名推断供应商，"
+                "已停止自动恢复和重新提交。请先人工核实旧任务归属。",
+            )
         # 审计差距 2：视频分支入口先恢复历史 running 任务（幂等；失败不阻塞
         # 本次生成——恢复失败只记警告，job 留待下次）。
         try:
-            recovered = recover_pending_video_jobs(project_id)
+            recovered = recover_pending_video_jobs(
+                project_id, provider_identity=provider_identity, provider_cfg=video_cfg
+            )
             if recovered:
                 logger.info(
                     f"generation: 恢复 {len(recovered)} 个历史视频任务: "
@@ -883,7 +961,8 @@ def generate(
                 ) from exc
         results = _generate_video(
             project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
-            model=model, legacy_input_fp=legacy_input_fp)
+            model=effective_model, legacy_input_fp=legacy_input_fp,
+            provider_cfg=video_cfg, provider_identity=provider_identity)
     elif gen_type == "motion":
         # §十八/§十四 Huashu 艺术动画：生成入口统一走 generation（与图片/视频
         # 同一 UI 面），产物由 procedural_motion 持久化（plans/motion + Asset
@@ -906,7 +985,7 @@ def generate(
         # Do not declare registration complete until the manifest merge is durable.
         for result in results:
             job = _find_video_job(
-                project_id, result.input_fingerprint, result.variant
+                project_id, result.input_fingerprint, result.variant, provider_identity
             )
             if job:
                 _update_job(project_id, job["job_id"], {
@@ -933,7 +1012,7 @@ def generate(
                 )
                 if gen_type == "video":
                     job = _find_video_job(
-                        project_id, result.input_fingerprint, result.variant
+                        project_id, result.input_fingerprint, result.variant, provider_identity
                     )
                     if job:
                         _update_job(project_id, job["job_id"], {
@@ -947,7 +1026,7 @@ def generate(
                 if gen_type == "video":
                     try:
                         job = _find_video_job(
-                            project_id, result.input_fingerprint, result.variant
+                            project_id, result.input_fingerprint, result.variant, provider_identity
                         )
                         if job:
                             _update_job(project_id, job["job_id"], {
@@ -970,6 +1049,7 @@ def generate(
 def _register_result(
     manifest, results, asset_id, asset_type, out_file, width, height, dur,
     model, provider_id, prompt, input_fp, variant, *, created_at=None,
+    provider_identity=None,
 ) -> None:
     out_fp = _fingerprint(Path(out_file).read_bytes())
     results.append(GenerationResult(
@@ -987,6 +1067,7 @@ def _register_result(
         "license_note": license_note, "prompt": prompt,
         "generation_request_id": f"genreq-{input_fp}",
         "provider_id": provider_id, "model": model,
+        **({"provider_identity": provider_identity} if provider_identity is not None else {}),
         "input_fingerprint": input_fp, "output_fingerprint": out_fp,
         "variant": variant,
         "created_at": created_at if created_at is not None else time.time(),
@@ -1108,8 +1189,10 @@ def _generate_image_or_fallback(project_id, prompt, width, height, variants,
                                  input_fp, manifest)
 
 
-def _generate_video(project_id, prompt, width, height, variants, assets_dir,
-                    input_fp, manifest, model=None, legacy_input_fp=None):
+def _generate_video(
+    project_id, prompt, width, height, variants, assets_dir, input_fp, manifest,
+    model=None, legacy_input_fp=None, provider_cfg=None, provider_identity=None,
+):
     """video → AI 生视频（roles["video"]，异步任务）；无 key 诚实报错（不 fake）。
 
     外部任务持久化（审计差距 2）：提交成功即落盘 provider_task_id 到
@@ -1121,9 +1204,23 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
     results: List[GenerationResult] = []
     pending_variants = []
     for v in variants:
+        legacy_rows = [
+            item for item in manifest
+            if item.get("input_fingerprint") == legacy_input_fp
+            and item.get("variant") == v
+            and item.get("type") == "video"
+            and item.get("source") == "generated"
+        ]
+        if any(item.get("provider_identity") is None for item in legacy_rows):
+            raise GenerationError(
+                "VIDEO_LEGACY_PROVIDER_IDENTITY_UNKNOWN",
+                "发现没有 Provider endpoint 身份的旧视频 Manifest；不能仅凭模型名推断供应商，"
+                "已停止自动复用和重新提交。请先人工核实旧素材来源。",
+            )
         existing = next((
             item for item in manifest
-            if item.get("input_fingerprint") in {input_fp, legacy_input_fp}
+            if item.get("input_fingerprint") == input_fp
+            and item.get("provider_identity") == provider_identity
             and item.get("variant") == v
             and item.get("type") == "video"
             and item.get("source") == "generated"
@@ -1164,7 +1261,7 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
         # caller marks the job terminal and the second then fails its write.
         asset_id = ""
         out_file = assets_dir / f"pending-{uuid.uuid4().hex[:12]}.mp4"
-        reusable = _find_reusable_job(project_id, input_fp, v)
+        reusable = _find_reusable_job(project_id, input_fp, v, provider_identity)
         recovered_file = None
         if reusable:
             stored_output = reusable.get("output_file")
@@ -1198,7 +1295,7 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
                 url = None
             else:
                 if client is None:
-                    cfg = _role_cfg("video")
+                    cfg = provider_cfg or _role_cfg("video")
                     try:
                         from video_director import provider_matrix
                         provider_matrix.require("video", "video.generate", cfg)
@@ -1224,7 +1321,7 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
                     client = _video_client(cfg)
                 url = _create_poll_and_persist_video(
                     client, project_id, model, prompt, width, height,
-                    input_fp, v, str(out_file)
+                    input_fp, v, str(out_file), provider_identity=provider_identity
                 )
         except GenerationError:
             # Preserve machine-readable safety states such as VIDEO_SUBMISSION_UNKNOWN.
@@ -1240,7 +1337,7 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
                 logger.warning(f"生视频配额耗尽，请充值或配置备用供应商: {err}")
             raise err from exc
         job = reusable if recovered_file is not None else _find_video_job(
-            project_id, input_fp, v
+            project_id, input_fp, v, provider_identity
         )
         if job is None:
             raise GenerationError(
@@ -1272,7 +1369,7 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
         _register_result(
             manifest, results, asset_id, "video", out_file, width, height,
             5.0, model, "video-llm", prompt, input_fp, v,
-            created_at=created_at,
+            created_at=created_at, provider_identity=provider_identity,
         )
         # The outer generate() persists the manifest atomically before marking
         # this job registered. A crash between those operations is idempotent:
@@ -1283,6 +1380,7 @@ def _generate_video(project_id, prompt, width, height, variants, assets_dir,
 def _create_poll_and_persist_video(
     client, project_id, model, prompt, width, height,
     input_fp: str, variant: str, out_file: str, timeout: float = 600.0,
+    provider_identity: Optional[dict] = None,
 ) -> Optional[str]:
     """提交 →（持久化）→ 轮询（每轮更新 jobs）→ 返回 mp4 url。
 
@@ -1296,7 +1394,9 @@ def _create_poll_and_persist_video(
     # POST. If the process dies or the response times out after provider
     # acceptance, the next caller fails closed instead of charging again.
     with _video_submission_lock(project_id, input_fp, variant):
-        unresolved = _find_unresolved_submission(project_id, input_fp, variant)
+        unresolved = _find_unresolved_submission(
+            project_id, input_fp, variant, provider_identity
+        )
         if unresolved:
             raise GenerationError(
                 "VIDEO_SUBMISSION_UNKNOWN",
@@ -1305,7 +1405,7 @@ def _create_poll_and_persist_video(
                 "请先核实供应商任务/账单，再人工处理该任务记录。",
             )
 
-        reusable = _find_reusable_job(project_id, input_fp, variant)
+        reusable = _find_reusable_job(project_id, input_fp, variant, provider_identity)
         if reusable and reusable.get("status") == "done":
             # A caller may have observed no reusable task just before another
             # caller committed the MP4. Re-check under the submission lock so
@@ -1320,7 +1420,9 @@ def _create_poll_and_persist_video(
         else:
             job_id = f"genjob-{uuid.uuid4().hex[:12]}"
             reservation = {
-                "provider": model or "video-llm",
+                "provider": (provider_identity or {}).get("provider_id", "video-llm"),
+                "provider_identity": provider_identity,
+                "model": model,
                 "gen_type": "video",
                 "prompt_fingerprint": _prompt_fingerprint(prompt, "video"),
                 "input_fingerprint": input_fp,
