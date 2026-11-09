@@ -383,6 +383,7 @@ def _entry(pid: str, row: Optional[dict]) -> dict:
     return {
         "project_id": pid,
         "name": _resolve_name(pid, row, params),
+        "project_type": str(params.get("project_type") or ""),
         "status": status,
         "progress": progress,
         "editable": editable,

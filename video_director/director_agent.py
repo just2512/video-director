@@ -1863,6 +1863,8 @@ def execute(spec: dict, run_id: str, plan: dict, update_node, emit) -> dict:
                 "bgm": spec.get("bgm") or "auto",
                 "subtitle_mode": spec.get("subtitle_mode") or "plain",
                 "creative_brief": bundle.get("brief") or "",
+                "name": str(spec.get("project_name") or "").strip(),
+                "project_type": str(spec.get("project_type") or "").strip(),
                 "style_id": style_contract.style_id,
                 "fit_mode": spec.get("fit_mode") or "cover",
                 "clip_duration": spec.get("clip_duration"),

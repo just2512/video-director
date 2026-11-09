@@ -610,7 +610,8 @@ def test_full_hosted_regression_gate_is_main_sha_pinned_and_uses_no_self_hosted_
     assert "python -m pytest" in workflow
     assert "junit.xml" in workflow
     assert "timeline-junit.xml" in workflow
-    assert "tests/test_generation_recovery.py" not in workflow or "full_regression" in workflow
+    assert "-p pytest_exit_diagnostics" in workflow
+    assert "env -u VD_LLM_API_KEY" in workflow
     assert "tests/test_film_studio_timeline_history_browser.py" in workflow
     assert "tests/test_film_studio_ai_proposal_browser.py" in workflow
     assert "tests/test_film_studio_project_switch_four_way_browser.py" in workflow

@@ -273,3 +273,11 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 ### Current implementation correction
 
 - `VIDEO_GENERATION_TIMEOUT` is already explicitly recoverable only by polling the persisted provider task. `tests/test_generation_recovery.py` contains both direct classification coverage and a full retry test asserting one provider POST. The earlier proposed follow-up to add this behavior is therefore not a missing implementation and must not be reintroduced as a duplicate change.
+
+
+### W4 project metadata implementation — 2026-11-09
+
+- Added free-text project name (80-character maximum) and project type (60-character maximum) to the existing create form; both use the existing local/server draft and conversation snapshot lifecycle.
+- The unified Director service validates and forwards both values. Director Agent stores them in the existing `projects.params_json` row; no SQLite schema migration or second create state machine is introduced.
+- Project index now returns `project_type`, and the project list displays it. Project prefill reads the current DB name/type (so a later rename wins over the original spec), falling back to the persisted `director_spec.json` for compatibility.
+- Added service-boundary validation, Director Agent persistence, project-index, draft persistence, and browser prefill/create-payload regressions. Exact-main W4 and full-regression evidence remains PENDING until the resulting commit's hosted jobs finish.

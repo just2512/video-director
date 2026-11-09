@@ -92,7 +92,7 @@ function renderProjectList(){
           onclick="event.stopPropagation()" onchange="pmToggleSelected('${esc(p.project_id)}',this.checked)">
       </span>
       <span class="pm-name" onclick="pmOpenDetail('${esc(p.project_id)}')"><b>${esc(name)}</b>
-        <span class="hint">${p.scene_count ? p.scene_count + ' 场景' : ''}${p.legacy ? ' · 旧版渲染项目' : (p.archived ? ' · 已归档' : '')}</span></span>
+        <span class="hint">${p.project_type ? esc(p.project_type) + ' · ' : ''}${p.scene_count ? p.scene_count + ' 场景' : ''}${p.legacy ? ' · 旧版渲染项目' : (p.archived ? ' · 已归档' : '')}</span></span>
       <span class="pm-st ${pmStatusCls(p)}"${p.active_job ? ` onclick="pmShowProgress('${esc(p.project_id)}')" style="cursor:pointer" title="点击查看创作过程"` : ''}>${busyAct ? (busyCn[busyAct] || '处理中……') : pmStatusCn(p)}</span>
       <span class="pm-dur">${dur}</span>
       <span class="pm-when">${when}</span>

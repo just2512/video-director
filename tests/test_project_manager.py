@@ -87,7 +87,7 @@ def _mk_legacy(pid):
 
 class TestListIndex:
     def test_index_fields_and_states(self):
-        _mk_project("web-done-01", stage="DONE", name="产品宣传片")
+        _mk_project("web-done-01", stage="DONE", name="产品宣传片", params={"project_type": "知识科普"})
         _mk_legacy("gfx-legacy-01")
         # 目录存在但 DB 无行 → UNKNOWN 也要列出（用户磁盘上看得到）
         from video_director import config
@@ -98,6 +98,7 @@ class TestListIndex:
 
         done = idx["web-done-01"]
         assert done["name"] == "产品宣传片"
+        assert done["project_type"] == "知识科普"
         assert done["status"] == "DONE"
         assert done["editable"] is True
         assert done["legacy"] is False

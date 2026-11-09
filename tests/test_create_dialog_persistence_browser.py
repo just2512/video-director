@@ -77,6 +77,10 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                       && script.closest('.panel')?.contains(scriptActions)
                       && !!scriptActions.querySelector('[onclick="createEnhance()"]');
                 }""")
+                assert page.locator("#cf-project-name").is_visible()
+                assert page.locator("#cf-project-type").is_visible()
+                page.locator("#cf-project-name").fill("复利知识科普")
+                page.locator("#cf-project-type").fill("知识科普")
                 page.locator("#cf-director-brief").fill("持久化测试：保留我的创作目标")
                 page.locator("#cf-input-context-details summary").click()
                 page.locator("#cf-script").fill("持久化测试：保留我的权威文案")
@@ -88,7 +92,9 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                   const response = await fetch('/api/director/drafts/active', {cache:'no-store'});
                   const result = await response.json();
                   const fields = result?.draft?.data?.fields || {};
-                  return fields['cf-director-brief'] === '持久化测试：保留我的创作目标'
+                  return fields['cf-project-name'] === '复利知识科普'
+                    && fields['cf-project-type'] === '知识科普'
+                    && fields['cf-director-brief'] === '持久化测试：保留我的创作目标'
                     && fields['cf-script'] === '持久化测试：保留我的权威文案'
                     && fields['cf-platform'] === 'xhs'
                     && result?.draft?.data?.explicit_fields?.includes('platform');
@@ -123,7 +129,9 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                 page.reload(wait_until="networkidle")
                 page.evaluate("openCreate()")
                 page.wait_for_function("""() =>
-                  document.getElementById('cf-director-brief')?.value === '持久化测试：保留我的创作目标'
+                  document.getElementById('cf-project-name')?.value === '复利知识科普'
+                  && document.getElementById('cf-project-type')?.value === '知识科普'
+                  && document.getElementById('cf-director-brief')?.value === '持久化测试：保留我的创作目标'
                   && document.getElementById('cf-script')?.value === '持久化测试：保留我的权威文案'
                 """, timeout=10000)
                 assert page.locator("#cf-input-context-details").evaluate("(node) => !node.open")
@@ -2491,6 +2499,119 @@ def test_restored_settings_only_draft_prompts_before_history_overwrite(tmp_path,
                 assert page.locator("#cf-confirm").input_value() == "direct"
                 assert page.locator("#cf-match-materials").is_checked() is False
                 assert "当前草稿保持不变" in (page.locator("#cf-draft-status").text_content() or "")
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_project_metadata_prefills_from_project_row_and_is_submitted_with_create(tmp_path, monkeypatch):
+    from video_director import director_inputs, store
+
+    server, thread = _start_server(tmp_path, monkeypatch)
+    project_id = "web-project-metadata"
+    try:
+        config.init_project_dirs(config.project_dir(project_id))
+        store.create_project(
+            project_id,
+            "项目原始文案",
+            {"name": "已重命名项目", "project_type": "知识科普"},
+        )
+        bundle = {
+            "brief": "制作一条解释复利的短视频",
+            "script": {
+                "text": "这是项目的权威文案",
+                "source": "user",
+                "authority": "authoritative",
+                "editable": True,
+            },
+            "assets": {"asset_refs": [], "policy": "user_first", "required": False},
+            "references": [],
+            "articles": [],
+            "software_project": {},
+            "constraints": {"visual_source": "auto", "allow_generation": True},
+            "platform": "",
+            "duration": "",
+            "style": "",
+        }
+        director_inputs.persist_bundle(project_id, bundle)
+        spec_path = config.project_dir(project_id) / "plans" / "director_spec.json"
+        spec_path.write_text(json.dumps({
+            "project_name": "最初的项目名称",
+            "project_type": "最初的类型",
+            "brief": bundle["brief"],
+            "script": bundle["script"]["text"],
+            "confirm_mode": "preview",
+        }, ensure_ascii=False), encoding="utf-8")
+
+        captured = {}
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="networkidle",
+                )
+                assert response and response.status == 200
+
+                def capture_conversation(route):
+                    if route.request.method != "POST":
+                        route.continue_()
+                        return
+                    captured["conversation"] = route.request.post_data_json
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps({"ok": True, "conversation_id": "conv-project-metadata"}),
+                    )
+
+                def capture_create(route):
+                    captured["create"] = route.request.post_data_json
+                    route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps({
+                            "ok": True,
+                            "run_id": "run-project-metadata",
+                            "project_id": "web-project-metadata-next",
+                        }),
+                    )
+
+                page.route("**/api/director/conversations", capture_conversation)
+                page.route("**/api/director/create", capture_create)
+                page.route(
+                    "**/api/director/conversations/*/link",
+                    lambda route: route.fulfill(
+                        status=200,
+                        content_type="application/json",
+                        body=json.dumps({"ok": True}),
+                    ),
+                )
+                page.evaluate(f"openCreate('{project_id}')")
+                page.wait_for_function(
+                    """() =>
+                      document.getElementById('cf-project-name')?.value === '已重命名项目'
+                      && document.getElementById('cf-project-type')?.value === '知识科普'
+                      && document.getElementById('cf-director-brief')?.value === '制作一条解释复利的短视频'
+                    """,
+                    timeout=10000,
+                )
+                page.locator("#cf-project-name").fill("复利入门系列")
+                page.locator("#cf-project-type").fill("财经知识科普")
+                page.evaluate("window.cfEnterProgressMode = runId => { window.__enteredRunId = runId; }")
+                page.evaluate("createProject()")
+
+                assert captured["conversation"]["title"] == "复利入门系列"
+                assert captured["conversation"]["snapshot"]["form"]["fields"]["cf-project-name"] == "复利入门系列"
+                assert captured["conversation"]["snapshot"]["form"]["fields"]["cf-project-type"] == "财经知识科普"
+                assert captured["conversation"]["snapshot"]["request_options"]["project_name"] == "复利入门系列"
+                assert captured["conversation"]["snapshot"]["request_options"]["project_type"] == "财经知识科普"
+                assert captured["create"]["project_name"] == "复利入门系列"
+                assert captured["create"]["project_type"] == "财经知识科普"
+                assert page.evaluate("window.__enteredRunId") == "run-project-metadata"
             finally:
                 browser.close()
     finally:

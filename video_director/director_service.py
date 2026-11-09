@@ -80,6 +80,12 @@ def create_director_run(payload: dict) -> dict:
     pid = _project_id(payload.get("project_id") or inputs.get("project_id"))
     if not pid:
         pid = f"web-{uuid.uuid4().hex[:8]}"
+    project_name = _text(payload.get("project_name"), "project_name")
+    project_type = _text(payload.get("project_type"), "project_type")
+    if len(project_name) > 80:
+        raise DirectorServiceError("INVALID_PROJECT_NAME", "项目名称不能超过 80 个字符")
+    if len(project_type) > 60:
+        raise DirectorServiceError("INVALID_PROJECT_TYPE", "项目类型不能超过 60 个字符")
 
     constraints = inputs.get("constraints") or {}
     if not isinstance(constraints, dict):
@@ -286,7 +292,10 @@ def create_director_run(payload: dict) -> dict:
     if clip_speed_value is not None and clip_speed_value <= 0:
         raise DirectorServiceError("INVALID_SETTINGS", "画面速度必须大于 0")
     spec = {
-        "project_id": pid, "script": script, "creative_brief": brief, "brief": brief,
+        "project_id": pid,
+        "project_name": project_name,
+        "project_type": project_type,
+        "script": script, "creative_brief": brief, "brief": brief,
         "conversation_id": str(payload.get("conversation_id") or ""),
         "_explicit_fields": sorted(explicit_fields),
         "mode": payload.get("mode") or "auto",

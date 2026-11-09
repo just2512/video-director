@@ -325,3 +325,56 @@ def test_create_rejects_graphics_provider_as_final_video_engine(monkeypatch):
     assert exc.value.status_code == 503
 
 
+
+
+def test_director_agent_persists_project_name_and_type_in_project_params(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from video_director import config, director_agent, director_inputs, store
+
+    storage = tmp_path / "composer"
+    monkeypatch.setattr(config, "composer_storage_root", lambda: storage)
+    project_id = "web-metadata-agent"
+    config.init_project_dirs(config.project_dir(project_id))
+    bundle = {
+        "brief": "制作知识科普视频",
+        "script": {"text": "权威文案"},
+        "assets": {"asset_refs": []},
+        "references": [],
+        "articles": [],
+        "software_project": {},
+        "constraints": {},
+    }
+    monkeypatch.setattr(director_inputs, "build_bundle", lambda _spec: bundle)
+    monkeypatch.setattr(director_inputs, "persist_bundle", lambda *_args: None)
+    monkeypatch.setattr(director_inputs, "persist_plan", lambda *_args: None)
+    monkeypatch.setattr(director_inputs, "attach_library_assets", lambda *_args: ([], []))
+    monkeypatch.setattr(director_inputs, "materialize_reference", lambda *_args: [])
+    monkeypatch.setattr(director_inputs, "materialize_software_project_artifacts", lambda *_args: [])
+    monkeypatch.setattr(director_agent, "_restore_checkpoint_state", lambda *_args: False)
+    monkeypatch.setattr(director_agent, "_ensure_reference_reports", lambda *_args: None)
+    monkeypatch.setattr(
+        director_agent.style_mod,
+        "select_style",
+        lambda *_args: (SimpleNamespace(style_id="fixture-style"), []),
+    )
+
+    director_agent.execute(
+        {
+            "project_id": project_id,
+            "project_name": "复利知识科普",
+            "project_type": "知识科普",
+            "brief": "制作知识科普视频",
+            "script": "权威文案",
+            "confirm_mode": "direct",
+        },
+        "run-metadata-agent",
+        {"nodes": []},
+        lambda *_args, **_kwargs: None,
+        lambda *_args, **_kwargs: None,
+    )
+
+    row = store.get_project(project_id)
+    params = json.loads(row["params_json"])
+    assert params["name"] == "复利知识科普"
+    assert params["project_type"] == "知识科普"

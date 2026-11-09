@@ -147,6 +147,8 @@ function cfResetProjectPrefillState(projectId){
   window._cfAspect='';
 
   const textFields={
+    'cf-project-name':'',
+    'cf-project-type':'',
     'cf-director-brief':'',
     'cf-script':'',
     'cf-article-url':'',
@@ -227,6 +229,8 @@ async function cfPrefillFromProject(pid){
     const spec = (brief && brief.ok && brief.spec_settings) || {};
     const restoredAspect = spec.width && spec.height ? String(spec.width)+'x'+String(spec.height) : '';
     const settingFields = {
+      'cf-project-name': spec.project_name,
+      'cf-project-type': spec.project_type,
       'cf-platform': spec.platform || '',
       'cf-resolution': restoredAspect || undefined,
       'cf-duration': spec.duration,
@@ -352,6 +356,19 @@ function _createPanelHtml(){
     <div><h1 style="font-size:26px;margin:0">创建视频项目</h1><div class="hint" style="margin-top:4px">设置本次创作目标与素材输入；模型和 API 配置沿用系统设置，不会在这里修改。</div></div>
     <span style="flex:1"></span>
     <button class="btn-secondary btn-sm" onclick="closeCreate()">收起</button>
+  </div>
+  <div class="panel" id="cf-project-metadata" style="margin-top:12px;padding:14px">
+    <div class="btn-row" style="gap:10px;align-items:flex-start;flex-wrap:wrap">
+      <div style="flex:1;min-width:220px">
+        <label for="cf-project-name">项目名称</label>
+        <input type="text" id="cf-project-name" maxlength="80" placeholder="例如：品牌介绍短片 / 复利知识科普">
+      </div>
+      <div style="flex:1;min-width:220px">
+        <label for="cf-project-type">项目类型</label>
+        <input type="text" id="cf-project-type" maxlength="60" placeholder="自由填写，例如：产品介绍、知识科普、纪录片">
+      </div>
+    </div>
+    <div class="hint" style="margin-top:6px">项目名称用于项目列表和后续检索；项目类型为自由文本，不限制固定分类。留空时沿用系统默认命名。</div>
   </div>
   <div class="panel" style="margin-top:12px;padding:14px">
     <div style="display:flex;align-items:center;gap:8px">
@@ -975,6 +992,8 @@ async function createProject(){
   const status = document.getElementById('cf-status');
   const script = (document.getElementById('cf-script') || {}).value || '';
   const brief = (document.getElementById('cf-director-brief') || {}).value || '';
+  const projectName = String((document.getElementById('cf-project-name') || {}).value || '').trim();
+  const projectType = String((document.getElementById('cf-project-type') || {}).value || '').trim();
   const assets = document.getElementById('cf-assets');
   const hasFiles = !!((assets && assets.files.length) || (window.CF_DRAFT_CONTEXT && window.CF_DRAFT_CONTEXT.assetRefs && window.CF_DRAFT_CONTEXT.assetRefs.length));
   const referenceEl = document.getElementById('cf-reference');
@@ -1092,6 +1111,8 @@ async function createProject(){
     style: (st || {}).value || ''
   };
   const requestOptions = {
+    project_name: projectName,
+    project_type: projectType,
     brief: directorBrief,
     script: script.trim(),
     creative_brief: directorBrief,
@@ -1130,7 +1151,7 @@ async function createProject(){
   };
   // 所有创建请求统一进入 AI Director；没有“文案模式 / 素材模式 / 参考模式 / 项目模式”。
   const conversation = await apiPost('/api/director/conversations', {
-    title: (directorBrief || script || 'AI 导演创作').slice(0,80),
+    title: (projectName || directorBrief || script || 'AI 导演创作').slice(0,80),
     initial_message: [directorBrief, script ? '\n\n【权威文案】\n' + script : ''].filter(Boolean).join('') || '请根据我提供的素材、参考资料和其他上下文完成导演创作。',
     snapshot: {form:{fields:(function(){const out={};document.querySelectorAll('#cf-form input[id],#cf-form textarea[id],#cf-form select[id]').forEach(el=>{if(el.type==='file')return;if(el.type==='checkbox')out[el.id]=el.checked;else if(el.type==='radio'){if(el.checked)out[el.name||el.id]=el.value;}else out[el.id]=el.value;});return out;})(),explicit_fields:Array.from(CF.explicitFields||[]),context:{asset_refs:assetRefs,reference:window._cfReference||null,article:window._cfArticle||null,repo:window._cfRepo||null,narration_upload:uploadedNarration}},director_inputs:directorInputs,request_options:requestOptions}
   });
@@ -2138,9 +2159,11 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const data=draft?.data||{},fields=data.fields||{},context=data.context||{};
     const brief=String(fields['cf-director-brief']||'').trim();
     const script=String(fields['cf-script']||'').trim();
+    const projectName=String(fields['cf-project-name']||'').trim();
+    const projectType=String(fields['cf-project-type']||'').trim();
     const refs=Array.isArray(context.asset_refs)?context.asset_refs:[];
     const projectId=String(context.project_id||'').trim();
-    const hasContext=!!(refs.length||context.reference||context.article||context.repo||context.narration_upload||projectId);
+    const hasContext=!!(refs.length||context.reference||context.article||context.repo||context.narration_upload||projectId||projectName||projectType);
     const explicitFields=Array.isArray(data.explicit_fields)?data.explicit_fields:[];
     const settingLabels={
       platform:'平台',duration:'时长',style:'风格',resolution:'分辨率',voice:'音色',
@@ -2153,11 +2176,13 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const changedSettings=explicitFields.map(field=>settingLabels[field]||'').filter(Boolean);
     const hasSettings=changedSettings.length>0;
     if(!draft||(!brief&&!script&&!hasContext&&!hasSettings)){host.innerHTML='';return;}
-    const detail=refs.length?'已保存 '+refs.length+' 个素材'
+    const detail=projectName?'项目：'+projectName+(projectType?' · '+projectType:'')
+      :projectType?'项目类型：'+projectType
+      :refs.length?'已保存 '+refs.length+' 个素材'
       :projectId?'关联项目：'+projectId
       :hasContext?'已保存补充资料'
       :hasSettings?'已调整：'+changedSettings.join('、'):'已保存补充资料';
-    const preview=(brief||script||detail).slice(0,160);
+    const preview=(projectName||projectType||brief||script||detail).slice(0,160);
     const updated=Number(draft.updated_at||0);
     const source=draft.local_only?'本机草稿':'已同步草稿';
     host.innerHTML='<div class="panel" style="padding:10px;margin:0 0 10px">'+

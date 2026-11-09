@@ -3799,6 +3799,16 @@ class Handler(BaseHTTPRequestHandler):
                 try:
                     if spec_path.is_file(): spec = json.loads(spec_path.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError): spec = {}
+                project_params = {}
+                try:
+                    from video_director import store as _project_store
+                    project_row = _project_store.get_project(pid)
+                    if project_row:
+                        project_params = json.loads(project_row.get("params_json") or "{}")
+                        if not isinstance(project_params, dict):
+                            project_params = {}
+                except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                    project_params = {}
                 if not bundle:
                     self._send_json(
                         {"ok": False, "error": "项目没有创作要求记录（可能来自旧流程）"},
@@ -3828,6 +3838,8 @@ class Handler(BaseHTTPRequestHandler):
                             "lower_third_name", "lower_third_role", "confirm_mode",
                             "visual_source", "platform", "width", "height", "_explicit_fields",
                         ) if key in spec},
+                        "project_name": project_params.get("name") or spec.get("project_name") or "",
+                        "project_type": project_params.get("project_type") or spec.get("project_type") or "",
                     },
                 })
             except Exception as exc:
