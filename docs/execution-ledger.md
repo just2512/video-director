@@ -458,7 +458,7 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 
 ### Current exact-main state
 
-- Main SHA: `68ab8bd9db7b432d36ee5c6fd960187eac5acfd2`.
+- Latest code/test SHA before this ledger-only update: `68ab8bd9db7b432d36ee5c6fd960187eac5acfd2`. Ledger-only follow-up: `2a7033cf5ce29d0395f0cd06592187e289336fc1`.
 - W1/W3/W4/W5/W7 have PASS evidence on `2f9aee27`; because the subsequent commits only changed W2 test code, project-switch test synchronization and this ledger, these results remain useful lane evidence but are not a substitute for a final exact-SHA integrated acceptance.
 - W2 remains OPEN pending new hosted evidence on the latest SHA. The original external-write/trim API-versus-disk discrepancy remains UNKNOWN until the corrected diagnostic reaches its assertions.
 - Full Python/browser regression, Studio release gate, Windows native, W1-W7, workflow validation and Product IA must all be checked again on the current exact main SHA.
