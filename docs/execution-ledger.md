@@ -815,3 +815,30 @@ The exact-SHA jobs have now all completed:
 2. Do not add operation permutations merely to increase test count. Add a W2 case only when a concrete shared-state interaction or invariant gap is identified; retain the finite matrix as the contract.
 3. Keep 19D-10 MISSING until a separately authorized `workflow_dispatch` with `run_live_nvidia=true`; ordinary pushes and green mocked SSE tests cannot close it.
 4. Re-run affected scoped lanes and the integrated hosted gates on a new exact code/workflow SHA after any executable or workflow change. Documentation-only changes do not replace that evidence.
+
+
+## 36. W1 resolved video-provider identity audit and W3 lane-scope reconciliation — 2026-11-10
+
+### W1 / Issue #121 audit
+
+- Audited the current `main` implementation of `video_director/generation.py`, `tests/test_generation_recovery.py`, `tests/test_generation_gap1.py`, and `tests/test_project_manifest.py`. Issue #121's production implementation is already present; no additional code change is justified by the current evidence.
+- `generate()` resolves the effective `roles.video` configuration before computing the video fingerprint. The canonical identity contains provider ID, normalized endpoint scheme/host/path, effective model, request-contract version, and a SHA-256 identity fingerprint.
+- API keys, URL userinfo, query strings and fragments are excluded. API-key rotation alone preserves identity; changing the effective model or endpoint changes identity.
+- The same non-secret identity is persisted to durable video reservations and manifest rows. Manifest reuse, reusable jobs, unresolved submissions and production recovery are identity-bound. Pre-identity legacy manifest rows/jobs fail closed rather than inferring provider identity from model name.
+- Timeout recovery reuses the existing provider task and preserves the one-POST invariant. Non-video fingerprint behavior remains unchanged.
+- Focused regressions for these conditions are present in `tests/test_generation_recovery.py`, including endpoint normalization/secret exclusion, model/endpoint separation, legacy fail-closed behavior, and timeout recovery without a second paid POST.
+- Exact-SHA evidence: W1 job `129756527270` on tested code/workflow SHA `cd1b909858f8857c30ae91af05d21dbf20122ee5` passed **89 tests**. The same SHA's full Python/browser regression passed **1,950 tests** (JUnit: 1,952 total, 0 failures, 0 errors, 2 skipped); Studio release gate passed **384 tests** (38 React smoke + 346 timeline/lifecycle/export/QC). This closes the code-level acceptance conditions in Issue #121. The issue remains open pending reconciliation of its historical live-provider acceptance note with the separately tracked 19D-10 gate; no real NVIDIA call is inferred from these mocked/provider-isolated regressions.
+- No API key or provider secret was read, logged, or changed during this audit.
+
+### W3 / parallel-lane contract correction
+
+- The W3 hosted job runs `tests/test_film_studio_generated_asset_adoption_browser.py`, but the parallel-workstreams scope table did not list it. The test verifies pending generation cannot overwrite a concurrent user FilmDocument edit, stale-revision adoption is rejected, explicit manual adoption commits, and the result survives full-page reload.
+- W3 also runs `tests/test_film_document_contract.py` as a shared lifecycle/serialization dependency check; W2 remains its primary owner for timeline operation semantics. The lane documentation now records this overlap explicitly.
+- Documentation correction commit: `0c28fdda34cbef55699d11a78ed0b09ccbf56337`. Documentation-only; executable code/workflow SHA and prior exact-SHA test evidence are unchanged.
+
+### Parallel execution / remaining gates
+
+- Latest exact-SHA hosted evidence remains: W1/W2/W3/W7 independent jobs PASS; W4/W5 independent jobs PASS; full Python/browser and Studio release gate PASS; workflow syntax and Windows-native publication PASS.
+- This conforms to the documented model: independent workstream ownership and GitHub-hosted CI jobs, integrated serially into `main`; no long-lived feature branches or PR handoff. W7 remains the sole serial owner of `index.html` and `app.js`.
+- 19D-10 remains **MISSING/OPEN** until an explicitly authorized `workflow_dispatch` with `run_live_nvidia=true`. The NVIDIA live job was SKIPPED in the default full-hosted run; no provider call or cost was incurred.
+- No other currently identified non-NVIDIA open issue requires a speculative code change. Continue with concrete W1–W7 acceptance gaps only; do not add tests or code solely to increase counts.
