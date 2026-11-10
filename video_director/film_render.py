@@ -1575,7 +1575,6 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
     finally:
         if temp_output is not None:
             temp_output.unlink(missing_ok=True)
-        snapshot_temp.cleanup()
         if browser is not None:
             try:
                 browser.close()
@@ -1587,6 +1586,7 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
                 media_server.server_close()
             except Exception:
                 pass
+        snapshot_temp.cleanup()
         try:
             # Keep prepared journals and backups when rollback did not complete;
             # the next server startup can recover them without guessing.
