@@ -1278,9 +1278,9 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 
 - Initial branch code/test SHA: `da44aadf77335f176036d86e49772c6a46d5e726`; W3 lane `42918465772`, job `130186897979`: **296 passed, 1 skipped**. Focused storage/watch `42918465717`, job `130186897961`: **165 passed, 1 skipped**.
 - The 64 MiB bounded-memory benchmark and GitHub job-summary metric publication passed on code/test SHA `4f7e7edeed0c1b252bc3b3b4e339186697928649`: W3 job `130188785319`, run `42918981288`, **296 passed, 1 skipped**.
-- Added a second native-platform regression that rewrites a pinned source with identical size and restored mtime, then requires SHA-256 source validation to reject publication while preserving pinned bytes. Latest branch SHA: `0cde3ff23fa1e22e694364867dae4848fdf9d055`; W3 run `42919753861`, job `130191312833`: **IN PROGRESS** at this update.
+- Added a second native-platform regression that rewrites a pinned source with identical size and restored mtime, then requires SHA-256 source validation to reject publication while preserving pinned bytes. Latest branch SHA: `0cde3ff23fa1e22e694364867dae4848fdf9d055`; W3 run `42919753861`, job `130191312833`: **297 passed, 1 skipped**. Focused storage/watch run `42919753705`, job `130191312521`: **165 passed, 1 skipped**.
 - W6 added that focused regression to `windows-native-publication.yml`; workflow syntax run `42919769519`: SUCCESS. The actual Windows-native execution requires integration to main and the resulting Windows runner job.
-- Status: OPEN pending latest W3 branch run and exact-main Windows execution.
+- Status: **SCOPED PASS** on the exact W3 branch SHA. The Windows-native workflow change is syntax-validated but the new native-platform test remains OPEN until it runs on `windows-latest` after main integration.
 
 ### Integration order
 
