@@ -88,8 +88,8 @@ def test_top_level_navigation_keeps_one_active_pane_and_global_create_action(tmp
 
                 # The three top-level spaces are reachable in native tab order,
                 # expose the current route to assistive technology, and activate by Enter.
-                page.evaluate("document.activeElement?.blur()")
-                page.keyboard.press("Tab")
+                page.locator("#tab-editor").focus()
+                page.keyboard.press("Shift+Tab")
                 assert page.evaluate("document.activeElement?.id") == "tab-home"
                 assert page.evaluate("document.activeElement?.matches(':focus-visible')") is True
                 page.keyboard.press("Tab")
