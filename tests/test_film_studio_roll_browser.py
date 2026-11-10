@@ -390,6 +390,15 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 assert source_range(clips["clip-a"])[1] == source_range(clips[right_id])[0]
                 roll_document_after = fd.read_project_film(project_id)
                 roll_bytes_after = film_path.read_bytes()
+                # The disk revision becomes visible before the browser's edit promise
+                # has necessarily completed its finally() transition. Do not issue Undo
+                # while the FilmStore still owns the roll transaction; the UI correctly
+                # rejects concurrent history actions during that interval.
+                page.wait_for_function("""expectedRevision => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!state && state.revision === expectedRevision
+                    && state.busy === false && state.pendingTransaction === null;
+                }""", arg=roll_document_after["rev"], timeout=5000)
 
                 # Roll is one history unit: undo restores the exact post-split document,
                 # then redo restores the same source boundary and right-clip position.

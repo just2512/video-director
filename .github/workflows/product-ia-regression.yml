@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   project-home-create:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/work/w4-')
     name: W4 project home and create lifecycle
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -46,6 +47,7 @@ jobs:
             tests/test_create_dialog_persistence_browser.py
 
   settings-information-architecture:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/work/w5-')
     name: W5 settings IA and credential safety
     runs-on: ubuntu-24.04
     timeout-minutes: 35

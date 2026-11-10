@@ -676,6 +676,8 @@ _SCENE_BRIDGE = r"""
 
 _ATTR_RE = re.compile(r"\b(src|href|poster|data-src)\s*=\s*(['\"])(.*?)\2", re.I | re.S)
 _CSS_URL_RE = re.compile(r"url\(\s*(['\"]?)(.*?)\1\s*\)", re.I | re.S)
+_STYLE_ATTR_RE = re.compile(r"\bstyle\s*=\s*(['\"])(.*?)\1", re.I | re.S)
+_CSS_IMPORT_RE = re.compile(r"(@import\s+)(?:url\(\s*)?(['\"])(.*?)\2\s*\)?", re.I | re.S)
 
 
 def _asset_url(value: str, project_id: str, page_src: str, route: str) -> str | None:
@@ -709,7 +711,15 @@ def rewrite_scene_css(source: str, project_id: str, src: str, route: str) -> str
         if target is None:
             return match.group(0)
         return "url('" + target.replace("'", "%27") + "')"
-    return _CSS_URL_RE.sub(replace_url, source)
+
+    def replace_import(match: re.Match) -> str:
+        target = _asset_url(match.group(3), project_id, src, route)
+        if target is None:
+            return match.group(0)
+        return match.group(1) + "url('" + target.replace("'", "%27") + "')"
+
+    result = _CSS_URL_RE.sub(replace_url, source)
+    return _CSS_IMPORT_RE.sub(replace_import, result)
 
 
 def inject_scene_runtime(source: str, project_id: str, src: str,
@@ -722,6 +732,16 @@ def inject_scene_runtime(source: str, project_id: str, src: str,
         return match.group(1) + "=" + match.group(2) + html.escape(target, quote=True) + match.group(2)
 
     result = _ATTR_RE.sub(replace_attr, source)
+    def replace_style_attr(match: re.Match) -> str:
+        quote = match.group(1)
+        rewritten = rewrite_scene_css(html.unescape(match.group(2)), project_id, src, route)
+        escaped = html.escape(rewritten, quote=False).replace(
+            quote, "&quot;" if quote == '"' else "&#x27;"
+        )
+        return "style=" + quote + escaped + quote
+
+    result = _STYLE_ATTR_RE.sub(replace_style_attr, result)
+
 
     def rewrite_style(match: re.Match) -> str:
         return match.group(1) + rewrite_scene_css(match.group(2), project_id, src, route) + match.group(3)

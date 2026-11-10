@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   generation-durability:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/work/w1-')
     name: W1 generation durability
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -45,6 +46,7 @@ jobs:
             tests/test_bulk_management.py
 
   timeline-transactions:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/work/w2-')
     name: W2 timeline transactions
     runs-on: ubuntu-24.04
     timeout-minutes: 55
@@ -100,6 +102,7 @@ jobs:
             tests/test_film_studio_roll_browser.py
 
   lifecycle-export:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/work/w3-')
     name: W3 lifecycle export and QC
     runs-on: ubuntu-24.04
     timeout-minutes: 55
@@ -135,6 +138,7 @@ jobs:
             tests/test_film_variant_migration_api.py
 
   shell-navigation:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/work/w7-')
     name: W7 shared shell navigation
     runs-on: ubuntu-24.04
     timeout-minutes: 30

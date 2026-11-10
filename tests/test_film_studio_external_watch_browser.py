@@ -2602,6 +2602,14 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert len(trim_requests[0].get("ops") or []) == 1, trim_requests
                 assert trim_requests[0]["ops"][0].get("op") == "trim", trim_requests
                 assert trim_requests[0]["ops"][0].get("edge") == "start", trim_requests
+                # The server's atomic disk write can become observable just before
+                # the browser's API promise releases the FilmStore transaction lock.
+                # Wait for the exact revision and idle store before issuing Undo.
+                page.wait_for_function("""expectedRevision => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return !!state && state.revision === expectedRevision
+                    && state.busy === false && state.pendingTransaction === null;
+                }""", arg=trim_document_after["rev"], timeout=5000)
                 with page.expect_request(
                     lambda request: request.method == "POST"
                     and request.url.endswith("/api/editor/film/undo"),

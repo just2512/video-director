@@ -58,6 +58,105 @@ window.film={duration:1,ready:document.fonts.ready,frame:function(t){
     return project_id, state["rev"]
 
 
+def test_render_resource_snapshot_pins_recursive_dependencies_and_rejects_changed_sources(tmp_path, monkeypatch):
+    import os
+    import threading
+    from urllib.error import HTTPError
+    from urllib.request import urlopen
+
+    from video_director import config, film_document as fd, film_render
+    from video_director.film_resource_snapshot import ResourceSnapshotError
+
+    project_id, _revision = _write_html_film_project(tmp_path, monkeypatch)
+    project = config.project_dir(project_id)
+    scene = project / "scenes" / "opening.html"
+    scene.write_text(
+        scene.read_text(encoding="utf-8").replace(
+            "</head>", '<link rel="stylesheet" href="theme.css"></head>'
+        ).replace(
+            "</body>", '<img src="../assets/palette.svg" alt="palette"></body>'
+        ),
+        encoding="utf-8",
+    )
+    css = project / "scenes" / "theme.css"
+    css.write_text("#background{background-image:url('../assets/palette.svg')}\n", encoding="utf-8")
+    palette = project / "assets" / "palette.svg"
+    original_svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="#111111" width="4" height="4"/></svg>'
+    changed_svg = original_svg.replace("#111111", "#222222")
+    assert len(original_svg) == len(changed_svg)
+    palette.write_text(original_svg, encoding="utf-8")
+
+    state = fd.read_project_film(project_id)
+    work_root = project / "render" / "snapshot-test.work"
+    work_root.mkdir(parents=True)
+    snapshot = film_render._snapshot_project_resources(project_id, state["doc"], work_root / "resources")
+
+    assert snapshot.path_for("scenes/opening.html").is_file()
+    assert snapshot.path_for("scenes/theme.css").is_file()
+    assert snapshot.path_for("assets/palette.svg").read_text(encoding="utf-8") == original_svg
+    report = snapshot.report()
+    assert report["resource_count"] >= 5
+    assert report["bytes_copied"] >= len(original_svg)
+    assert report["copy_elapsed_ms"] >= 0
+
+    server = film_render._RenderHTTPServer(("127.0.0.1", 0), project_id, snapshot)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        with urlopen(base + f"/media?project_id={project_id}&src=assets/palette.svg") as response:
+            assert response.status == 200
+            assert response.read().decode("utf-8") == original_svg
+        try:
+            urlopen(base + f"/media?project_id={project_id}&src=assets/not-pinned.svg")
+        except HTTPError as exc:
+            assert exc.code == 404
+        else:
+            raise AssertionError("unregistered dynamic resources must fail closed")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+    before = palette.stat()
+    palette.write_text(changed_svg, encoding="utf-8")
+    os.utime(palette, ns=(before.st_atime_ns, before.st_mtime_ns))
+    # The server continues to serve the immutable copied bytes, while publication
+    # rejects the source change even though size and mtime were restored.
+    assert snapshot.path_for("assets/palette.svg").read_text(encoding="utf-8") == original_svg
+    with pytest.raises(ResourceSnapshotError, match="changed before publication"):
+        snapshot.validate_sources()
+
+    output_dir = project / "render"
+    output_dir.mkdir(exist_ok=True)
+    output_temp = work_root / "final.mp4"
+    output_temp.write_bytes(b"candidate-mp4")
+    output = output_dir / "film-final-test-revision.mp4"
+    qc_report = {"source_revision": "test-revision", "status": "PASS"}
+    with pytest.raises(film_render.FilmRenderError) as error:
+        film_render._publish_render_artifacts(
+            project_id, "test-revision", output_temp, output, qc_report, work_root, snapshot
+        )
+    assert error.value.code == "RESOURCE_REVISION_CONFLICT"
+    assert not output.exists()
+    assert not (project / "qc" / "film-final-test-revision.json").exists()
+
+
+def test_render_snapshot_preflight_failure_cleans_partial_workdir(tmp_path, monkeypatch):
+    from video_director import config, film_render
+
+    project_id, revision = _write_html_film_project(tmp_path, monkeypatch)
+    project = config.project_dir(project_id)
+    (project / "assets" / "moving-red.png").unlink()
+
+    with pytest.raises(film_render.FilmRenderError) as error:
+        film_render.render_project_film(project_id, expected_revision=revision, fps=2)
+
+    assert error.value.code == "RESOURCE_SNAPSHOT_FAILED"
+    render_dir = project / "render"
+    assert not list(render_dir.glob(f".film-render-{revision}-*.work"))
+
+
 def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path, monkeypatch):
     pytest.importorskip("playwright.sync_api")
     from video_director import film_document as fd, film_render, prober, renderer
@@ -691,8 +790,8 @@ def test_film_render_aborts_when_document_changes_during_export(tmp_path, monkey
     original_audio_specs = film_render._audio_specs
     mutation = {"done": False, "revision": None}
 
-    def change_film_after_frames(pid, doc, duration):
-        specs = original_audio_specs(pid, doc, duration)
+    def change_film_after_frames(pid, doc, duration, resource_snapshot=None):
+        specs = original_audio_specs(pid, doc, duration, resource_snapshot)
         if not mutation["done"]:
             current = fd.read_project_film(project_id)
             assert current["rev"] == revision

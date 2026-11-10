@@ -27,6 +27,7 @@ from PIL import Image, ImageChops, ImageStat
 
 from video_director import config
 from video_director import film_document as fd
+from video_director.film_resource_snapshot import ResourceSnapshotError, SceneResourceSnapshot
 from video_director.storage_durability import fsync_directory, posix_atomic_replace, windows_atomic_replace
 
 def _is_windows_platform() -> bool:
@@ -578,8 +579,9 @@ class _RenderHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-    def __init__(self, server_address, project_id: str):
+    def __init__(self, server_address, project_id: str, resource_snapshot=None):
         self.project_id = fd.validate_project_id(project_id)
+        self.resource_snapshot = resource_snapshot
         super().__init__(server_address, _RenderHTTPHandler)
 
 
@@ -645,7 +647,13 @@ class _RenderHTTPHandler(BaseHTTPRequestHandler):
             return
         src = qs.get("src", [""])[0]
         try:
-            media_path = fd.media_path_for_src(project_id, src)
+            if self.server.resource_snapshot is not None:
+                media_path = self.server.resource_snapshot.path_for(src)
+                if media_path is None:
+                    self._send_error(404, "resource was not included in the immutable render snapshot")
+                    return
+            else:
+                media_path = fd.media_path_for_src(project_id, src)
         except fd.FilmError as exc:
             self._send_error(exc.status, str(exc))
             return
@@ -737,11 +745,33 @@ class _RenderHTTPHandler(BaseHTTPRequestHandler):
             return
 
 
-def _source_video_fps(project_id: str, raw_path: str) -> float:
+def _resource_path(project_id: str, raw_path: str, resource_snapshot=None) -> Path:
+    if resource_snapshot is not None:
+        path = resource_snapshot.path_for(raw_path)
+        if path is None:
+            raise FilmRenderError("RESOURCE_NOT_PINNED", f"资源未包含在本次导出快照中：{raw_path}", 422)
+        return path
+    return fd.media_path_for_src(project_id, raw_path)
+
+
+def _snapshot_project_resources(project_id: str, doc: dict, root: Path):
+    initial = []
+    for track in doc.get("tracks", []):
+        for clip in track.get("clips", []):
+            src = str((clip.get("attrs") or {}).get("src") or "").split("#", 1)[0]
+            if src:
+                initial.append(src)
+    try:
+        return SceneResourceSnapshot(project_id, root).build(initial)
+    except ResourceSnapshotError as exc:
+        raise FilmRenderError("RESOURCE_SNAPSHOT_FAILED", str(exc), 409) from exc
+
+
+def _source_video_fps(project_id: str, raw_path: str, resource_snapshot=None) -> float:
     """Return a verified source cadence; never silently substitute the composition FPS."""
     try:
         from video_director import prober
-        probe = prober.probe_media(str(fd.media_path_for_src(project_id, raw_path)))
+        probe = prober.probe_media(str(_resource_path(project_id, raw_path, resource_snapshot)))
         fps = float(probe.fps) if probe.fps is not None else 0.0
     except Exception as exc:
         raise FilmRenderError(
@@ -759,7 +789,7 @@ def _source_video_fps(project_id: str, raw_path: str) -> float:
     return fps
 
 
-def _runtime_payload(project_id: str, state: dict, base_url: str) -> dict:
+def _runtime_payload(project_id: str, state: dict, base_url: str, resource_snapshot=None) -> dict:
     payload = fd.film_payload(project_id, state)
     payload["head_html"] = state["doc"].get("head_html", "")
     for track in payload.get("tracks", []):
@@ -773,7 +803,7 @@ def _runtime_payload(project_id: str, state: dict, base_url: str) -> dict:
             )
             if clip.get("tag") == "video":
                 # Exact presented-frame verification requires the media's own cadence.
-                clip["source_fps"] = _source_video_fps(project_id, raw_path)
+                clip["source_fps"] = _source_video_fps(project_id, raw_path, resource_snapshot)
     payload["render_css"] = _style_blocks(payload.get("head_html", ""))
     return payload
 
@@ -792,10 +822,10 @@ def _atempo_filters(speed: float) -> list[str]:
     return values if abs(speed - 1.0) > 1e-9 else []
 
 
-def _source_file(project_id: str, clip: dict) -> tuple[Path, float, float, float, float]:
+def _source_file(project_id: str, clip: dict, resource_snapshot=None) -> tuple[Path, float, float, float, float]:
     attrs = clip["attrs"]
     src = str(attrs.get("src") or "")
-    path = fd.media_path_for_src(project_id, src)
+    path = _resource_path(project_id, src, resource_snapshot)
     src_in, src_out = fd._source_range(src)
     if src_out is None:
         raise FilmRenderError(
@@ -811,14 +841,14 @@ def _source_file(project_id: str, clip: dict) -> tuple[Path, float, float, float
     return path, src_in, src_out, speed, start
 
 
-def _validate_source_ranges(project_id: str, doc: dict) -> None:
+def _validate_source_ranges(project_id: str, doc: dict, resource_snapshot=None) -> None:
     from video_director import prober
 
     for track in doc.get("tracks", []):
         for clip in track.get("clips", []):
             if clip["tag"] not in {"video", "audio"}:
                 continue
-            path, src_in, src_out, _speed, _start = _source_file(project_id, clip)
+            path, src_in, src_out, _speed, _start = _source_file(project_id, clip, resource_snapshot)
             probe = prober.probe_media(str(path))
             if clip["tag"] == "video" and not probe.has_video_stream:
                 raise FilmRenderError("VIDEO_STREAM_MISSING", f"视频片段 {clip['id']} 指向的素材没有视频流：{path.name}", 422)
@@ -912,7 +942,7 @@ def _audio_fade_filters(fade_in: float, fade_out: float, duration: float) -> lis
     return filters
 
 
-def _audio_specs(project_id: str, doc: dict, duration: float) -> list[dict]:
+def _audio_specs(project_id: str, doc: dict, duration: float, resource_snapshot=None) -> list[dict]:
     from video_director import prober
 
     specs = []
@@ -929,7 +959,7 @@ def _audio_specs(project_id: str, doc: dict, duration: float) -> list[dict]:
             volume = float(attrs.get("volume", 1) or 0)
             if volume <= 0:
                 continue
-            path, src_in, src_out, speed, start = _source_file(project_id, clip)
+            path, src_in, src_out, speed, start = _source_file(project_id, clip, resource_snapshot)
             probe = prober.probe_media(str(path))
             if not probe.has_audio_stream:
                 if clip["tag"] == "audio":
@@ -1153,6 +1183,7 @@ def _publish_render_artifacts(
     output: Path,
     report: dict,
     temp_root: Path,
+    resource_snapshot=None,
 ) -> tuple[Path, dict]:
     """Publish MP4/QC as a revision transaction with crash-recoverable rollback."""
     project_root = config.project_dir(project_id)
@@ -1174,6 +1205,11 @@ def _publish_render_artifacts(
         _fsync_file(output_temp)
         _fsync_file(qc_temp)
         with fd.project_lock(project_id):
+            if resource_snapshot is not None:
+                try:
+                    resource_snapshot.validate_sources()
+                except ResourceSnapshotError as exc:
+                    raise FilmRenderError("RESOURCE_REVISION_CONFLICT", str(exc), 409) from exc
             after = fd.read_project_film(project_id)
             if after.get("rev") != revision:
                 raise FilmRenderError(
@@ -1308,7 +1344,6 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
         raise FilmRenderError("FRAME_LIMIT", f"需要渲染 {frame_count} 帧，超出单次导出上限 {MAX_RENDER_FRAMES} 帧。", 422)
 
     style_css = _style_blocks(doc.get("head_html", ""))
-    _validate_source_ranges(pid, doc)
     # Iframe pages are checked when a frame is requested: generated subtitle
     # pages use the legacy film-time acknowledgement; authored HTML scenes must
     # implement window.film.frame(t), otherwise the renderer reports the exact clip.
@@ -1334,18 +1369,24 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
         shutil.rmtree(temp_root, ignore_errors=True)
         raise
     frame_dir = temp_root / "frames"
-    frame_dir.mkdir()
     silent_video = temp_root / "silent.mp4"
     output_temp = temp_root / "final.mp4"
     media_server = None
     browser = None
+    resource_snapshot = None
 
     try:
-        media_server = _RenderHTTPServer(("127.0.0.1", 0), pid)
+        # Snapshot construction and source-range validation are inside the
+        # workdir cleanup scope: a missing/unsafe dependency must not leak a
+        # partially copied render directory.
+        frame_dir.mkdir()
+        resource_snapshot = _snapshot_project_resources(pid, doc, temp_root / "resources")
+        _validate_source_ranges(pid, doc, resource_snapshot)
+        media_server = _RenderHTTPServer(("127.0.0.1", 0), pid, resource_snapshot)
         server_thread = threading.Thread(target=media_server.serve_forever, name="film-render-media", daemon=True)
         server_thread.start()
         base_url = f"http://127.0.0.1:{media_server.server_address[1]}"
-        payload = _runtime_payload(pid, state, base_url)
+        payload = _runtime_payload(pid, state, base_url, resource_snapshot)
         payload["render_css"] = style_css
         from playwright.sync_api import sync_playwright
         with sync_playwright() as playwright:
@@ -1418,7 +1459,7 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
             "-movflags", "+faststart", str(silent_video),
         ], timeout=max(240, int(duration * 15 + 180))
         )
-        audio_specs = _audio_specs(pid, doc, duration)
+        audio_specs = _audio_specs(pid, doc, duration, resource_snapshot)
         _mux_audio(ffmpeg, silent_video, output_temp, audio_specs, duration, temp_root)
         if not output_temp.is_file() or output_temp.stat().st_size <= 0:
             raise FilmRenderError("OUTPUT_MISSING", "渲染结束后没有生成 MP4。", 500)
@@ -1509,11 +1550,12 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
                 "sample_frames": sample_frames,
             },
             "visual_samples": visual_samples,
+            "resource_snapshot": resource_snapshot.report(),
             "checks": qc_checks,
             "warnings": warnings,
         }
         qc_path, after = _publish_render_artifacts(
-            pid, revision, output_temp, output, qc_report, temp_root
+            pid, revision, output_temp, output, qc_report, temp_root, resource_snapshot
         )
         return {
             "ok": True, "project_id": pid, "mp4_path": str(output),
