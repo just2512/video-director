@@ -1026,3 +1026,12 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 
 - Once all pending jobs finish, record their exact test counts and inspect final logs for remaining runtime warnings.
 - If the action upgrade causes a failure, diagnose the incompatible action/input or runner requirement and fix it without weakening any product gate.
+
+
+## 46. Contract-level runner-policy contradiction identified — 2026-11-10
+
+- Read the current root `CONTRACT.md` in addition to the two required execution documents. Its §0 and §0.1 still prescribe a `[self-hosted, linux, x64]` runner for Studio build/test/publication and refer to the obsolete `.github/workflows/ai-director.yml`.
+- This directly contradicts `docs/parallel-workstreams.md` Runner policy, which requires GitHub-hosted `ubuntu-24.04` / `windows-latest` only, and the current executable workflow contract tests in `tests/test_studio_build_contract.py` (which explicitly reject self-hosted runners).
+- Current workflows and latest exact-SHA runs use GitHub-hosted runners. No workflow was changed to self-hosted and no local/WSL runner was used.
+- **Status: CONTRACT CONFLICT / BLOCKED for editing `CONTRACT.md`.** Root `CONTRACT.md` declares itself the highest engineering contract and says modifying it is an explicit Contract Change requiring impact analysis; §45 says a contract conflict must stop that task and be reported. I therefore did not silently edit it or weaken the existing hosted-runner gate.
+- Required controlled resolution: update §0 and §0.1 to the current GitHub-hosted CI policy, remove the obsolete self-hosted workflow references, and reconcile the stack table; then update the corresponding contract tests/docs if needed. This is a contract-level change and remains blocked pending explicit authorization. All unrelated W1–W7 work and CI monitoring may continue.
