@@ -1180,7 +1180,20 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                 assert fd.read_project_film(project_id)["rev"] == before["rev"], "drag preview must not write FilmDocument"
                 assert len(film_edit_requests) == request_count, film_edit_requests[request_count:]
 
-                page.mouse.up()
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/edit"),
+                    timeout=15000,
+                ) as edit_response_info:
+                    page.mouse.up()
+                edit_response = edit_response_info.value
+                edit_response_body = edit_response.json()
+                assert edit_response.status == 200, {
+                    "status": edit_response.status,
+                    "body": edit_response_body,
+                }
+                assert edit_response_body.get("ok") is True, edit_response_body
+                assert edit_response_body.get("rev") != before["rev"], edit_response_body
                 page.wait_for_function("""async ([pid, isMultiSelect]) => {
                   const response = await fetch('/api/editor/film?project_id=' + encodeURIComponent(pid));
                   if (!response.ok) return false;
@@ -1228,6 +1241,8 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                 target_track_doc = next(track for track in persisted["doc"]["tracks"] if track["id"] == "video-alt")
                 diagnostic = {
                     "api_snapshot": api_snapshot,
+                    "edit_response_status": edit_response.status,
+                    "edit_response_body": edit_response_body,
                     "disk_revision": persisted["rev"],
                     "film_path": str(fd._film_path(project_id)),
                     "transaction_journal_exists": fd._transaction_path(project_id).exists(),
