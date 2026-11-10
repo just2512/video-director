@@ -783,3 +783,35 @@ The exact-SHA jobs have now all completed:
 2. Inspect the new W2 React-required run's cross-track POST response body and the exact disk revision. If it exposes an interrupted FilmDocument transaction, fix the owning W2/FilmDocument persistence defect; do not weaken the persisted-source/target/history assertions.
 3. If W2 scoped and integrated gate disagree again, treat that as an orchestration or environment parity failure, not a reason to accept either result without diagnosis.
 4. Keep 19D-10 MISSING until separately authorized explicit hosted dispatch. No automatic or commit-marker provider invocation is permitted.
+
+
+## 35. React-parity hosted acceptance and bounded W2/W3 contract closure — 2026-11-10
+
+### Exact-SHA reconciliation
+
+- Tested code/workflow SHA: `cd1b909858f8857c30ae91af05d21dbf20122ee5`.
+- Current `main` HEAD after the documentation-only ledger update in section 34: `ce6a5f500c7a4ba544ff3c40c1c6291584fa6d78`. The latter changes only this ledger; it is not a new executable code/workflow SHA. All workflow jobs below checked out the immutable tested SHA `cd1b909...`.
+- Parallel workstream run `42794600705`: W1 job `129756527270` PASS (89 passed); W2 job `129756527669` PASS (355 passed, 1 warning); W3 job `129756527886` PASS (251 passed, 1 skipped, 1 warning); W7 job `129756528160` PASS (2 passed).
+- Product IA run `42794600593`: W4 job `129756521907` PASS (35 passed); W5 job `129756521768` PASS (13 passed).
+- Full hosted run `42794600956`: full Python/browser job `129756550422` PASS (1,950 passed, 2 skipped, 8 warnings; JUnit summary 1,952 tests, 0 failures, 0 errors, 2 skipped); Studio release gate job `129756550686` PASS (38 React smoke tests and 346 timeline/lifecycle/export/QC tests; 2 warnings).
+- Studio gate directly confirms `test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track` passes for valid target, locked target, overlap target and multi-select valid target. The W2 lane now builds React 19 Studio and sets `VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO=1`, so scoped and integrated tests exercise the same timeline implementation.
+- W6 workflow syntax run `42794600765`: PASS. Windows-native publication run `42794600862`: PASS. All jobs used GitHub-hosted Ubuntu/Windows; no local, WSL or self-hosted runner was used.
+- The explicit NVIDIA live job `129762881568` was SKIPPED. 19D-10 remains MISSING; no provider call was made and no cost incurred.
+
+### Bounded contract status
+
+- **19D-11a — PASS within the documented supported boundary.** W3 and the Studio release gate ran `tests/test_film_scene_runtime.py`; the exact-time primitive fingerprint test passed. The integrated gate also passed the serialized exact-frame/coalesced-preview regression. This validates only project-local HTML scenes implementing `window.film.frame(t)` and the primitives covered by the tests; it does not claim arbitrary HTML/WebGL or cross-device pixel determinism.
+- **19D-11b — PASS for the finite, documented interaction matrix.** W2 ran the marker/clip atomic-batch, invalid-operation rollback, track add/remove round-trip, clip/track lock, split/join, ripple, fade, volume-envelope and keyframe interaction regressions. The new marker/clip and track add/remove tests in section 32 passed on this exact SHA. This is not an exhaustive permutation claim for all 20 operation kinds.
+- **07D integrated journey — PASS.** W4 and W5 isolated suites passed, and W7's two browser tests passed, including the single-browser home → create/cancel → reload/draft recovery → settings save/import/export → navigation journey. The journey verifies model-key preservation and export redaction; isolated W4/W5 results are retained separately rather than substituted for the integrated test.
+
+### Diagnostics retained without weakening gates
+
+- The full suite emitted a 45-second faulthandler diagnostic while `test_chromium_loads_unified_editor_workspace` was waiting in Playwright's event loop; that same test passed approximately nine seconds later, and the complete suite finished with zero failures/errors. This is not recorded as a test failure or used to change a timeout. Keep it as a performance/startup observation for a future reproducible investigation.
+- Existing deprecation warnings remain warnings; no assertion, timeout threshold, skip rule or business acceptance condition was relaxed to obtain these results.
+
+### Next execution
+
+1. Keep W1–W6 independently owned and independently runnable on GitHub-hosted runners; W7 remains the sole serial writer for `index.html` and `app.js`.
+2. Do not add operation permutations merely to increase test count. Add a W2 case only when a concrete shared-state interaction or invariant gap is identified; retain the finite matrix as the contract.
+3. Keep 19D-10 MISSING until a separately authorized `workflow_dispatch` with `run_live_nvidia=true`; ordinary pushes and green mocked SSE tests cannot close it.
+4. Re-run affected scoped lanes and the integrated hosted gates on a new exact code/workflow SHA after any executable or workflow change. Documentation-only changes do not replace that evidence.
