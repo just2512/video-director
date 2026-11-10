@@ -1000,3 +1000,29 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - Existing W4/W7 browser tests cover mouse navigation, project creation/draft recovery, settings round trips, and integrated shell flow, but do not verify these keyboard/focus contracts with real Chromium keyboard input.
 - These are bounded fixes to existing W4/W7 ownership, not a new UI framework or a change to route behavior. Do not change the Create Project backdrop/Escape behavior: both intentionally preserve the draft and require explicit “收起”.
 - Acceptance: W4 verifies initial focus, Tab/Shift+Tab wrap, no keyboard escape behind the modal, and focus restoration after close/finalization; W7 verifies keyboard activation routes, active `aria-current`, inactive `aria-hidden`, and focus-visible state. Run independent W4/W7 jobs plus full hosted regression and Studio gate.
+
+
+## 45. W6 GitHub Actions runtime maintenance — 2026-11-10
+
+### Reason for change
+
+- The exact-SHA run on `c4c9c62237787ba968627c557a3152e309bda3f8` passed, but its hosted logs emitted GitHub's warning that multiple JavaScript actions still targeted Node.js 20 and were being forced onto Node.js 24.
+- This is maintenance debt rather than a product regression. The workflow action references were upgraded to the current compatible major releases: `actions/checkout@v7`, `actions/setup-python@v7`, `actions/setup-node@v7`, and `actions/upload-artifact@v7`.
+- Updated all seven workflow files and the Studio build contract assertion that checks artifact retention. No application code, test assertion strength, timeout, skip policy, runner class, or provider behavior was changed.
+
+### Exact revision and hosted verification
+
+- Code/workflow commit: `9d7208cc9818839ea2c9cc5965298e0998c28b68`.
+- Workflow syntax run `42821701924`: **PASS**.
+- Windows-native run `42821701904`: **PASS**, job `129848571129`, 2 tests passed.
+- Focused storage/external-edit run `42821701901`: **PASS**.
+- Independent parallel lanes run `42821701905`: W1 `129848571048` PASS (89 tests), W3 `129848571925` PASS, W7 `129848571350` PASS; W2 `129848571236` was still running at this ledger entry.
+- Product IA run `42821702016`: W4 `129848571674` PASS, W5 `129848571339` PASS.
+- Full hosted regression run `42821701972`: full Python/browser and Studio release-gate jobs were still running at this ledger entry.
+- Initial logs from the new checkout/setup actions show the Node.js 20 forced-runtime warning is no longer emitted. Final full-regression and Studio logs must still be inspected for any remaining action-runtime warnings.
+- Do not call this exact-SHA integrated acceptance complete until W2, full Python/browser, and Studio release gate finish successfully. Do not rerun the paid NVIDIA live test; 19D-10 remains PASS from its separately authorized manual dispatch.
+
+### Follow-up
+
+- Once all pending jobs finish, record their exact test counts and inspect final logs for remaining runtime warnings.
+- If the action upgrade causes a failure, diagnose the incompatible action/input or runner requirement and fix it without weakening any product gate.

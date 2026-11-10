@@ -82,3 +82,10 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
 - W7 owns top-level project/workspace/settings navigation semantics in the shared shell. Native keyboard activation must route correctly, the active navigation control must expose `aria-current="page"`, and inactive panes must be hidden from assistive technology as well as visually hidden.
 - W4 and W7 tests must use real Chromium keyboard input and DOM/focus assertions. Static presence of ARIA attributes alone is not sufficient.
 - Ownership boundaries remain unchanged: W4 owns create-dialog behavior; W7 alone edits shared `index.html` / `app.js`. W4/W7 retain their independent Product IA and Parallel workstream CI jobs respectively.
+
+
+## Hosted action runtime baseline (2026-11-10)
+
+- W6 maintains supported GitHub-hosted action majors: `actions/checkout@v7`, `actions/setup-python@v7`, `actions/setup-node@v7`, and `actions/upload-artifact@v7`.
+- These releases use the Node.js 24 action runtime, avoiding GitHub's Node.js 20 forced-runtime deprecation warning.
+- Action-version changes are W6-owned. They do not change W1–W7 product ownership or the requirement to rerun each independent lane and integrated release gates on the exact same code/workflow SHA.
