@@ -2724,6 +2724,18 @@ def test_create_dialog_contains_keyboard_focus_and_restores_invoker(tmp_path, mo
                   return !!active?.matches('[data-test-focus-invoker]') &&
                     active.textContent.includes('新建项目');
                 }""")
+
+                # Reopening the saved draft must capture the new invoker, and
+                # successful finalization must restore focus after removing the modal.
+                opener.click()
+                panel.wait_for(state="visible")
+                page.evaluate("window.cfFinalizeCreateDialog()")
+                page.wait_for_function("!document.getElementById('cf-mask')")
+                assert page.evaluate("""() => {
+                  const active = document.activeElement;
+                  return !!active?.matches('[data-test-focus-invoker]') &&
+                    active.textContent.includes('新建项目');
+                }""")
                 assert not errors, errors
             finally:
                 browser.close()
