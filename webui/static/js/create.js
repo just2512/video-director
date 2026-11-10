@@ -80,9 +80,15 @@ function cfFocusCreateDialog(){
 function cfRestoreCreateDialogFocus(){
   const target=_cfDialogReturnFocus;
   _cfDialogReturnFocus=null;
-  if(target&&target.isConnected&&typeof target.focus==='function'){
-    target.focus({preventScroll:true});
-    return true;
+  // Prefer the exact invoking element. If the shell replaced it while the
+  // dialog was open, restore to the stable top-bar create action instead.
+  const fallback=document.querySelector('header button[onclick="openCreate()"]');
+  const candidates=[target,fallback];
+  for(const candidate of candidates){
+    if(!candidate||!candidate.isConnected||typeof candidate.focus!=='function')continue;
+    if(candidate.disabled||getComputedStyle(candidate).visibility==='hidden')continue;
+    candidate.focus({preventScroll:true});
+    if(document.activeElement===candidate)return true;
   }
   return false;
 }
