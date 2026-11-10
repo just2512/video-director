@@ -159,11 +159,11 @@ The selector-based `overrides` subset supports text and bounded style properties
 
 常规 CI 的 `tests/test_film_studio_ai_stream_contract.py` 使用确定性上游替身，验证生产 HTTP/SSE 路由逐段转发 token、token 先于 result 到达以及提案生成不写盘；这不能证明真实提供方或代理没有缓冲。真实验收由 `tests/test_film_studio_live_ai_streaming.py` 完成：它调用当前配置的 OpenAI-compatible 模型，要求至少两个非空 token 片段在 result 前到达，检查首 token 与最终 result 的时间间隔，并核实提案 revision 和原始文档字节未变化。
 
-普通 CI 默认不调用真实模型，并且当前 workflow 中完整真实模型 token-stream acceptance 步骤固定为 `skipped`。较早历史记录里提到的 `run_live_llm=true` 和 `[live-stream-smoke]` 属于旧的 Actions 验收入口，不应再用它们声称本轮真实模型验收通过；不要为了更新状态而触发付费探测请求。当前真实模型验收只在本地执行：先确认本机 Studio 实际使用的 OpenAI-compatible endpoint/model 是预期配置，再按本节末尾的 PowerShell 命令设置 `VD_LLM_LIVE_STREAM_TEST=1`，只运行 `tests/test_film_studio_live_ai_streaming.py::test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film`。该测试应使用现有本地配置，不要把密钥写入命令参数、仓库或日志；运行结束只清除临时 opt-in 环境变量。缺少配置、额度、模型不可用或网络受阻时，结果必须为 `BLOCKED_PROVIDER`、`BLOCKED_MODEL`、`MISSING` 或 `UNKNOWN`，不得记为 PASS。模拟 SSE 契约通过不等于真实模型流式通过。完整目标与逐项通过标准见下方“Real-model token-stream acceptance (local opt-in)”。
+普通 CI 默认不调用真实模型。当前唯一允许的真实模型验收入口是 `.github/workflows/full-hosted-regression.yml` 的显式 `workflow_dispatch`：必须先满足全量回归与 Studio release gate，再由有权限的操作者显式设置 `run_live_nvidia=true`；作业只运行在 GitHub-hosted `ubuntu-24.04`，只读取专用 GitHub Actions Secret `NVIDIA_API_KEY`，目标模型为 `z-ai/glm-5.3-flash`。该请求可能产生 provider 费用，因此未经用户明确授权不得 dispatch，也不得添加会触发 live job 的 commit marker。禁止在本地、WSL、开发机或 self-hosted runner 上执行真实模型验收；禁止读取开发机模型配置或本地密钥。未触发 opt-in 时必须记为 `MISSING`/`SKIPPED`，不能记为 PASS；配置、额度、模型或网络阻塞分别按 `BLOCKED_PROVIDER`、`BLOCKED_MODEL` 或 `UNKNOWN` 记录。模拟 SSE 契约通过不等于真实模型流式通过。完整目标与逐项通过标准见下方“Real-model token-stream acceptance (hosted opt-in)”。
 
 ### 历史真实模型验收记录（2026-10-27；触发方式已过期）
 
-以下 Actions 记录仅用于追溯当时的 provider / 配置故障。它们不是当前执行步骤；当前唯一的真实模型验收命令见文末“Real-model token-stream acceptance (local opt-in)”。
+以下 Actions 记录仅用于追溯当时的 provider / 配置故障。它们不是当前执行步骤；当前唯一的真实模型验收命令见文末“Real-model token-stream acceptance (hosted opt-in)”。
 
 - 完整主线回归 `40489889122` 为 SUCCESS：`1357 passed, 1 skipped`，时间线浏览器发布门禁通过；但 `Configure opt-in live model token-stream smoke` 步骤是 SKIPPED，工作流报告 `LIVE_STREAM_ACCEPTANCE=MISSING`。这只证明普通回归通过，真实模型 token 流仍为 MISSING，不能记作 PASS。
 - 随后由提交 `5cab55793917b03b72f4e98d9134c9068461dbd9`（`[live-stream-smoke]`）显式触发的运行 `40493603938` 已执行配置检查，但 `Configure opt-in live model token-stream smoke` 在模型请求前失败。该次增加了读取 checkout 外持久存储 `model_config.json` 的回退路径，仍未取得完整配置；没有真实模型请求，也没有 token 增量传输证据。当前验收状态继续保持 `BLOCKED / MISSING`，不得记录为 PASS。只有真实模型步骤与 `test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film` 实际通过后才可验收。记录只保存 workflow URL、非敏感事件统计和错误类别，禁止保存 API key 或完整授权头。
@@ -230,30 +230,17 @@ Marker IDs are stable and unique; names are 1–120 characters and times are non
 - 本轮普通 CI 的 `LIVE_STREAM_ACCEPTANCE=MISSING` 是有意不发起付费模型请求；此前真实请求 `40689393487` 的上游返回 HTTP 410，指出配置模型 `z-ai/glm-5.3` 已退役。真实 token 流仍未通过当前配置的端点验收，需要运维侧更新当前受支持的模型/endpoint 并重新 opt-in；没有读取或修改 API key/保存配置。
 
 
-## Real-model token-stream acceptance (local opt-in)
+## Real-model token-stream acceptance (hosted opt-in)
 
-The real-provider acceptance is intentionally excluded from default CI. Mocked tests prove the SSE protocol and cancellation contract; only a local run against the configured NVIDIA endpoint can establish that the selected model actually streams generated text. Do not report mocked tests as evidence of real token streaming.
+The real-provider acceptance is intentionally excluded from default CI. Mocked tests prove the SSE protocol and cancellation contract; only the explicitly authorized GitHub-hosted live job can establish that the selected NVIDIA model actually streams generated text. Do not report mocked tests or skipped live jobs as evidence of real token streaming. Never run this acceptance from a developer checkout, local machine, WSL, or self-hosted runner.
 
 ### Run
 
-Run from the repository root in the same Python environment used by Studio. Confirm that the configured endpoint and model are the intended NVIDIA endpoint and `z-ai/glm-5.3-flash`. Do not paste API keys into command history, issue comments, logs, or this manual.
-
-PowerShell:
-
-```powershell
-$env:VD_LLM_LIVE_STREAM_TEST = "1"
-python -m pytest -q -vv --tb=short tests/test_film_studio_live_ai_streaming.py::test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film
-```
-
-After the run, clear only the opt-in flag; keep existing model settings intact:
-
-```powershell
-Remove-Item Env:VD_LLM_LIVE_STREAM_TEST -ErrorAction SilentlyContinue
-```
+The only supported trigger is the `workflow_dispatch` input `run_live_nvidia=true` on `.github/workflows/full-hosted-regression.yml`. Before dispatching, obtain explicit user authorization because the request may incur provider cost. The workflow itself requires the full Python/browser regression and Studio release gate to pass first, then runs on GitHub-hosted `ubuntu-24.04` and reads only the dedicated `NVIDIA_API_KEY` GitHub Actions Secret. It must not read local model configuration or local credentials. Confirm that the hosted secret is configured and that the intended endpoint/model is `z-ai/glm-5.3-flash`; never print or persist the key. Do not use historical `run_live_llm=true` instructions or old `[live-stream-smoke]` commit markers as the current trigger.
 
 ### Acceptance criteria — all required
 
-1. **Correct endpoint and model:** use the explicitly configured `VD_LLM_BASE_URL` and `VD_LLM_MODEL`; verify locally that these point to the intended NVIDIA endpoint and `z-ai/glm-5.3-flash`. Never print the API key.
+1. **Correct endpoint and model:** the hosted job must use the intended NVIDIA endpoint and `z-ai/glm-5.3-flash` through its configured provider path. The credential must come only from the dedicated GitHub Actions Secret; never print the API key.
 2. **HTTP/SSE contract:** HTTP 200 and `Content-Type: text/event-stream`; response framing is valid and parseable.
 3. **Real incremental output:** at least two non-empty `token` events arrive before terminal `result`. `progress`, keepalive, task lifecycle and status events do not count. Token events must contain generated model text, not echoed prompt or canned progress messages.
 4. **Ordering and completion:** first token precedes result; a valid `result` exists with `ok: true` and a proposal containing at least one valid operation. No `error` event may appear.
@@ -271,7 +258,7 @@ Remove-Item Env:VD_LLM_LIVE_STREAM_TEST -ErrorAction SilentlyContinue
 - **UNKNOWN:** evidence missing/uninterpretable, or run interrupted before assertions completed.
 - **MISSING:** opt-in flag was not set; no live-model claim may be made.
 
-A local PASS applies only to this provider/model/configuration and fixture. It does not replace browser regressions or render/export tests. Repeat after changing provider, model, proxy, streaming implementation, or proposal schema.
+A hosted PASS applies only to this provider/model/configuration and fixture. It does not replace browser regressions or render/export tests. Repeat after changing provider, model, proxy, streaming implementation, or proposal schema, with renewed explicit authorization before any cost-bearing run.
 
 
 ## Reconcile an ambiguous video submission
