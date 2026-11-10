@@ -1238,4 +1238,20 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - Before MP4/QC publication, original source dependencies are re-hashed under the project lock. Any removal/replacement/content change rejects both artifacts. This catches same-size/same-mtime rewrites.
 - QC records dependency count, copied bytes, copy elapsed time and per-resource SHA-256. Snapshot construction and source-range preflight are inside the render workdir cleanup scope.
 - Added regression coverage for recursive dependency discovery, immutable HTTP serving, unpinned 404, same-size/mtime-preserving mutation rejection, no MP4/QC publication, failed-preflight workdir cleanup, inline CSS and CSS imports.
-- **Remaining W3 follow-up:** `look_project_film` still reads live resources rather than an immutable snapshot. It must be brought onto the same snapshot resolver before claiming preview and export share one resource revision. This is OPEN and is not a blocker for the MP4/QC export gate just accepted above.
+- **W3 look follow-up:** implemented on `work/w3-look-resource-snapshot` at SHA `6dc2db89d0055e3c29e8b3e9ae3d16d81ea4fba5`; W3 branch suite passed 295 tests with 1 skip and focused storage/watch passed 165 with 1 skip. It is ready for direct main integration; final integrated main gates remain required.
+
+
+## 55. Preview look uses the same immutable resource revision — 2026-11-10
+
+- Branch: `work/w3-look-resource-snapshot`.
+- Implementation SHA: `6dc2db89d0055e3c29e8b3e9ae3d16d81ea4fba5`.
+- W3 lane: **295 passed, 1 skipped** (job `129958375331`, run `42852983184`).
+- Focused storage/watch: **165 passed, 1 skipped** (job `129958376487`, run `42852983722`).
+- Workflow YAML validation: SUCCESS (run `42852983011`).
+- `look_project_film` now creates the same immutable transitive dependency snapshot as MP4 export, serves pinned bytes to Chromium, uses pinned source media for FPS/range validation, re-hashes dependencies under the project lock before publishing the contact sheet, and includes snapshot hashes/bytes/copy-time in the result.
+- Temporary look snapshots and contact-sheet temp files are cleaned on success and failure; contact-sheet temp names are unique to concurrent look attempts.
+- Added a browser regression that changes a CSS-referenced SVG during reverse-order frame sampling while preserving size and mtime; the preview must reject publication with `RESOURCE_REVISION_CONFLICT`.
+- Updated the source-FPS contract test to assert the snapshot-aware resolver signature and included that test in the W3 lane.
+- The previous integrated main SHA `651262424d1a404ec1b1d930097686540f0a6ede` had all W1–W7/product/focused/Windows/YAML lanes green, but its Full Python/browser gate reported **1,955 passed, 2 skipped, 1 failed**, and Studio release gate reported **349 passed, 1 failed**. Both failures were the same stale source-FPS contract assertion expecting the pre-snapshot call signature; no runtime frame-wait assertion failed. This branch updates that contract.
+- Status: **READY FOR MAIN INTEGRATION; final exact-main full and Studio gates OPEN**.
+- Remaining non-blocking engineering task after acceptance: measure snapshot copy time and disk overhead against representative large media assets; current CI fixtures validate streaming and report byte/time metrics but are not a production-scale benchmark.
