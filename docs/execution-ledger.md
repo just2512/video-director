@@ -590,3 +590,30 @@ The exact-SHA jobs have now all completed:
 - On SHA `1c89eb5105e1512c2cb4fcd50cd8f5ac2f59321a`, verify W6 YAML syntax, W1/W2/W3/W7, W4/W5, Studio release gate, full Python/browser regression and Windows-native publication independently.
 - If any job fails, inspect its logs and preserve the lane's acceptance assertions; do not lower thresholds or substitute a different lane's result.
 - Only after Studio and full Python/browser gates pass may the separately opted-in NVIDIA real token-stream acceptance be considered, using the dedicated hosted secret and no local model configuration.
+
+
+## 29. Exact-SHA reconciliation of W1–W7 and hosted release gates — 2026-11-10
+
+### Source and evidence identity
+
+- Tested code/workflow SHA: `1c89eb5105e1512c2cb4fcd50cd8f5ac2f59321a`.
+- Current `main` HEAD at reconciliation: `0dd55580036a42a1aa12935e2e093a0adb8c5287`; this is a documentation-only ledger commit whose parent is the tested SHA. Do not describe the ledger HEAD as a separately tested code SHA.
+- All runs below report the same tested `head_sha` above.
+
+### Independent workstream outcomes
+
+- Parallel workstreams run `42778257417`: W1 Generation durability job `129701791198` PASS; W2 Timeline transactions job `129701791115` PASS; W3 Lifecycle/export/QC job `129701791131` PASS; W7 Shared shell navigation job `129701790824` PASS.
+- Product IA run `42778257445`: W4 Project home/create lifecycle job `129701791674` PASS; W5 Settings IA/credential safety job `129701791741` PASS.
+- W6 Hosted workflow syntax validation run `42778257402` PASS.
+- Windows-native publication run `42778257207` PASS.
+- Full hosted run `42778257129`: Full Python/browser regression job `129701786903` PASS; Studio build/timeline/lifecycle/export/QC release gate job `129701787115` PASS.
+- The NVIDIA real token-stream job `129709063478` was SKIPPED. This is not a PASS and leaves live-provider acceptance OPEN/MISSING.
+
+### Reconciliation and next gate
+
+- W1–W7's required independent lane jobs, workflow syntax validation, Studio release gate, full Python/browser regression and Windows-native publication are all PASS on the same exact code/workflow SHA `1c89eb5105e1512c2cb4fcd50cd8f5ac2f59321a`.
+- This closes the currently defined non-live hosted acceptance gates for that SHA. It does not prove real NVIDIA connectivity or token delivery.
+- The live NVIDIA job is guarded by successful full-regression and Studio jobs plus either explicit `workflow_dispatch` input `run_live_nvidia=true` or the required live-stream/provider/model commit markers. It consumes the dedicated `NVIDIA_API_KEY` GitHub Actions secret and may incur provider cost. Do not dispatch or add cost-bearing opt-in markers without explicit user authorization and the secret's availability.
+- Runner policy remains GitHub-hosted Ubuntu/Windows only. No self-hosted, local WSL, developer workspace or local model configuration was used.
+- No test assertion, threshold, or lane boundary was weakened to obtain these results.
+
