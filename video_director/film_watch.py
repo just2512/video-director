@@ -24,6 +24,7 @@ class FilmRevisionWatcher:
         interval_seconds: float = 0.05,
         scene_scan_interval_seconds: float = 0.2,
         content_audit_interval_seconds: float = 1.0,
+        scene_content_audit_interval_seconds: float = 10.0,
         stale_after_seconds: float = 600.0,
     ):
         self.publish = publish
@@ -34,6 +35,9 @@ class FilmRevisionWatcher:
         # Stat signatures catch normal writes cheaply. Periodic content audits
         # also catch in-place edits that preserve inode, size and mtime_ns.
         self.content_audit_interval_seconds = max(0.1, float(content_audit_interval_seconds))
+        # Scene trees may contain large media files. Keep stat polling cheap and
+        # stream a full content audit on a separately bounded, slower cadence.
+        self.scene_content_audit_interval_seconds = max(0.1, float(scene_content_audit_interval_seconds))
         self.stale_after_seconds = max(10.0, float(stale_after_seconds))
         self._lock = threading.RLock()
         self._projects: dict[str, dict] = {}
@@ -108,6 +112,79 @@ class FilmRevisionWatcher:
             json.dumps(stable, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
 
+    @staticmethod
+    def _scan_scene_file_contents(
+        root: Path,
+        *,
+        project_root: Path,
+        files: dict[str, tuple[int, int, int, int]],
+    ) -> dict[str, str] | None:
+        """Hash a stable, project-local scene snapshot without loading files into memory."""
+        try:
+            if root.is_symlink():
+                return {}
+            resolved_root = root.resolve()
+            resolved_project = project_root.resolve()
+            resolved_root.relative_to(resolved_project)
+            if resolved_root == resolved_project or not resolved_root.is_dir():
+                return {}
+        except (OSError, ValueError):
+            return {}
+
+        contents: dict[str, str] = {}
+        for relative_path, expected in sorted(files.items()):
+            candidate = resolved_root / relative_path
+            try:
+                if candidate.is_symlink():
+                    return None
+                resolved = candidate.resolve()
+                resolved.relative_to(resolved_root)
+                flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+                descriptor = os.open(str(candidate), flags)
+                with os.fdopen(descriptor, "rb") as stream:
+                    before = os.fstat(stream.fileno())
+                    before_signature = (
+                        int(before.st_dev), int(before.st_ino),
+                        int(before.st_size), int(before.st_mtime_ns),
+                    )
+                    if before_signature != expected:
+                        return None
+                    digest = hashlib.sha256()
+                    while True:
+                        chunk = stream.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        digest.update(chunk)
+                    after = os.fstat(stream.fileno())
+                    after_signature = (
+                        int(after.st_dev), int(after.st_ino),
+                        int(after.st_size), int(after.st_mtime_ns),
+                    )
+                    if after_signature != expected:
+                        return None
+                contents[relative_path] = digest.hexdigest()
+            except (OSError, ValueError):
+                return None
+        return contents
+
+    @staticmethod
+    def _scene_content_signature(contents: dict[str, str]) -> str:
+        stable = [[path, digest] for path, digest in sorted(contents.items())]
+        return hashlib.sha256(
+            json.dumps(stable, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
+    @staticmethod
+    def _scene_content_changes(before: dict[str, str], after: dict[str, str]) -> list[dict]:
+        changes = []
+        for relative_path in sorted(set(before) | set(after)):
+            previous, current = before.get(relative_path), after.get(relative_path)
+            if previous == current:
+                continue
+            kind = "added" if previous is None else ("removed" if current is None else "modified")
+            changes.append({"path": "scenes/" + relative_path, "kind": kind})
+        return changes
+
     def set_publisher(self, publish: Callable[[str, dict], None]) -> None:
         with self._lock:
             self.publish = publish
@@ -151,6 +228,9 @@ class FilmRevisionWatcher:
         # detect and reject scenes/ if it is replaced with a symlink afterwards.
         watched_scene_root = str(scene_root.absolute())
         scene_files = self._scan_scene_files(scene_root, project_root=project_root)
+        scene_content_files = self._scan_scene_file_contents(
+            scene_root, project_root=project_root, files=scene_files
+        ) or {}
         scene_signature = self._scene_tree_signature(scene_files)
         with self._lock:
             state = self._projects.get(pid)
@@ -173,6 +253,10 @@ class FilmRevisionWatcher:
                     "last_access": now,
                     "scene_root": watched_scene_root,
                     "scene_files": scene_files,
+                    "scene_content_files": scene_content_files,
+                    "scene_content_pending_files": None,
+                    "scene_content_changed_at": now,
+                    "scene_last_content_audit_at": now,
                     "scene_pending_signature": scene_signature,
                     "scene_processed_signature": scene_signature,
                     "scene_changed_at": now,
@@ -186,6 +270,10 @@ class FilmRevisionWatcher:
                     state.update({
                         "scene_root": watched_scene_root,
                         "scene_files": scene_files,
+                        "scene_content_files": scene_content_files,
+                        "scene_content_pending_files": None,
+                        "scene_content_changed_at": now,
+                        "scene_last_content_audit_at": now,
                         "scene_pending_signature": scene_signature,
                         "scene_processed_signature": scene_signature,
                         "scene_changed_at": now,
@@ -367,48 +455,107 @@ class FilmRevisionWatcher:
                 if signature != live.get("scene_pending_signature"):
                     live["scene_pending_signature"] = signature
                     live["scene_changed_at"] = current_time
-                    continue
-                if signature == live.get("scene_processed_signature"):
-                    continue
-                if current_time - float(live.get("scene_changed_at", current_time)) < self.settle_seconds:
+                    live["scene_content_pending_files"] = None
                     continue
 
-            # Read a second stable snapshot after the debounce. If an editor is still
-            # replacing files, restart the debounce rather than announcing a partial save.
-            settled_files = self._scan_scene_files(root, project_root=root.parent)
-            settled_signature = self._scene_tree_signature(settled_files)
+                stat_pending = signature != live.get("scene_processed_signature")
+                content_pending = live.get("scene_content_pending_files")
+                content_due = (
+                    current_time - float(live.get("scene_last_content_audit_at", current_time))
+                    >= self.scene_content_audit_interval_seconds
+                )
+                if stat_pending and current_time - float(live.get("scene_changed_at", current_time)) < self.settle_seconds:
+                    continue
+                if not stat_pending and content_pending is None and not content_due:
+                    continue
+
+            content_files = self._scan_scene_file_contents(
+                root, project_root=root.parent, files=current_files
+            )
+            if content_files is None:
+                with self._lock:
+                    live = self._projects.get(pid)
+                    if live is not None and live.get("scene_root") == root_value:
+                        live["scene_last_content_audit_at"] = current_time
+                continue
+
+            if stat_pending:
+                # Confirm both the file set and every file's content after the debounce.
+                settled_files = self._scan_scene_files(root, project_root=root.parent)
+                settled_signature = self._scene_tree_signature(settled_files)
+                if settled_signature != signature:
+                    with self._lock:
+                        live = self._projects.get(pid)
+                        if live is not None and live.get("scene_root") == root_value:
+                            live["scene_pending_signature"] = settled_signature
+                            live["scene_changed_at"] = current_time
+                    continue
+                settled_contents = self._scan_scene_file_contents(
+                    root, project_root=root.parent, files=settled_files
+                )
+                if settled_contents is None:
+                    continue
+                with self._lock:
+                    live = self._projects.get(pid)
+                    if (
+                        live is None
+                        or live.get("scene_root") != root_value
+                        or live.get("scene_pending_signature") != settled_signature
+                    ):
+                        continue
+                    before = live.get("scene_content_files") or {}
+                    changes = self._scene_content_changes(before, settled_contents)
+                    live["scene_files"] = settled_files
+                    live["scene_content_files"] = settled_contents
+                    live["scene_content_pending_files"] = None
+                    live["scene_content_changed_at"] = current_time
+                    live["scene_last_content_audit_at"] = current_time
+                    live["scene_pending_signature"] = settled_signature
+                    live["scene_processed_signature"] = settled_signature
+                    live["scene_changed_at"] = current_time
+                if changes:
+                    self.publish("film", {
+                        "phase": "scene_changed",
+                        "project_id": pid,
+                        "source": "external_file",
+                        "scene_revision": self._scene_content_signature(settled_contents),
+                        "paths": [item["path"] for item in changes],
+                        "changes": changes,
+                    })
+                continue
+
+            # Stat metadata can remain identical after an in-place rewrite. Periodically
+            # hash the scene tree; require the same content snapshot across the debounce
+            # before publishing a new scene_revision.
             with self._lock:
                 live = self._projects.get(pid)
                 if live is None or live.get("scene_root") != root_value:
                     continue
-                if signature != live.get("scene_pending_signature") or settled_signature != signature:
-                    live["scene_pending_signature"] = settled_signature
-                    live["scene_changed_at"] = current_time
-                    live["scene_last_scan_at"] = current_time
+                live["scene_last_content_audit_at"] = current_time
+                if live.get("scene_pending_signature") != signature:
                     continue
-
-                before = live.get("scene_files") or {}
-                paths = sorted(set(before) | set(settled_files))
-                changes = []
-                for relative_path in paths:
-                    previous = before.get(relative_path)
-                    current = settled_files.get(relative_path)
-                    if previous == current:
-                        continue
-                    kind = "added" if previous is None else ("removed" if current is None else "modified")
-                    changes.append({"path": "scenes/" + relative_path, "kind": kind})
-                live["scene_files"] = settled_files
-                live["scene_pending_signature"] = settled_signature
-                live["scene_processed_signature"] = settled_signature
-                live["scene_changed_at"] = current_time
-
+                before = live.get("scene_content_files") or {}
+                pending = live.get("scene_content_pending_files")
+                if content_files == before:
+                    live["scene_content_pending_files"] = None
+                    continue
+                if pending is None or content_files != pending:
+                    live["scene_content_pending_files"] = content_files
+                    live["scene_content_changed_at"] = current_time
+                    continue
+                if current_time - float(live.get("scene_content_changed_at", current_time)) < self.settle_seconds:
+                    continue
+                changes = self._scene_content_changes(before, content_files)
+                live["scene_files"] = current_files
+                live["scene_content_files"] = content_files
+                live["scene_content_pending_files"] = None
+                live["scene_content_changed_at"] = current_time
             if changes:
-                changes = changes[:200]
                 self.publish("film", {
                     "phase": "scene_changed",
                     "project_id": pid,
                     "source": "external_file",
-                    "scene_revision": settled_signature,
+                    "scene_revision": self._scene_content_signature(content_files),
                     "paths": [item["path"] for item in changes],
                     "changes": changes,
                 })
