@@ -1231,6 +1231,11 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                     "disk_revision": persisted["rev"],
                     "film_path": str(fd._film_path(project_id)),
                     "transaction_journal_exists": fd._transaction_path(project_id).exists(),
+                    "transaction_journal_payload": (
+                        json.loads(fd._transaction_path(project_id).read_text(encoding="utf-8"))
+                        if fd._transaction_path(project_id).is_file() else None
+                    ),
+                    "history_state": fd._history_read(project_id),
                     "source_clip_ids": [clip["id"] for clip in source_track["clips"]],
                     "target_clip_ids": [clip["id"] for clip in target_track_doc["clips"]],
                     "disk_film_html": persisted["text"],
