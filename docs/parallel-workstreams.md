@@ -89,3 +89,13 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
 - W6 maintains supported GitHub-hosted action majors: `actions/checkout@v7`, `actions/setup-python@v7`, `actions/setup-node@v7`, and `actions/upload-artifact@v7`.
 - These releases use the Node.js 24 action runtime, avoiding GitHub's Node.js 20 forced-runtime deprecation warning.
 - Action-version changes are W6-owned. They do not change W1–W7 product ownership or the requirement to rerun each independent lane and integrated release gates on the exact same code/workflow SHA.
+
+
+## W4/W7 accessibility exact-SHA closure (2026-11-10)
+
+- W4 Create Project dialog focus lifecycle and W7 shared-shell keyboard/ARIA semantics are implemented and verified with real Chromium input on executable/workflow SHA `9d7208cc9818839ea2c9cc5965298e0998c28b68`.
+- W4 project-home/create lane: **36 passed** (run `42821702016`). Coverage includes initial focus, Tab/Shift+Tab containment, background keyboard isolation, focus restoration after close/finalization, and stable invoker restoration after reopening a saved draft. Existing explicit-close/save-draft semantics remain unchanged; Escape and backdrop remain non-dismiss actions.
+- W7 shell-navigation lane: **2 passed** (run `42821701905`). Real Chromium keyboard activation verifies Project/Workspace/Settings navigation, active `aria-current="page"`, inactive-pane `aria-hidden`, exactly one visible pane, stable in-page URL and global create action.
+- Integrated full pytest: **1,952 passed, 2 skipped, 0 failures/errors**; Studio release gate: **346 passed**; both on the same SHA (run `42821701972`). W1/W2/W3/W5 and Windows-native evidence is recorded in `execution-ledger.md` §47.
+- W4 and W7 ownership boundaries are unchanged. W7 remains the only writer of `webui/static/index.html` and `webui/static/js/app.js`; no router migration or second project state machine was introduced.
+- These results close the accessibility acceptance extension for the tested tree. Any later code/workflow change requires the affected scoped lanes and integrated hosted gates to run against its exact SHA.
