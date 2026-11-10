@@ -1573,6 +1573,9 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
     except Exception as exc:
         raise FilmRenderError("FILM_RENDER_FAILED", f"影片渲染失败：{exc}", 500) from exc
     finally:
+        if temp_output is not None:
+            temp_output.unlink(missing_ok=True)
+        snapshot_temp.cleanup()
         if browser is not None:
             try:
                 browser.close()
@@ -1635,7 +1638,6 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
     duration = max(float(clip.get("end") or 0) for clip in clips)
     if not math.isfinite(duration) or duration <= 0 or duration > MAX_RENDER_SECONDS:
         raise FilmRenderError("DURATION_LIMIT", f"影片时长必须大于 0 且不超过 {MAX_RENDER_SECONDS} 秒。", 422)
-    _validate_source_ranges(pid, doc)
     for track in doc["tracks"]:
         for clip in track["clips"]:
             if clip["tag"] == "iframe":
@@ -1659,12 +1661,17 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
 
     media_server = None
     browser = None
+    temp_output = None
+    snapshot_temp = tempfile.TemporaryDirectory(prefix="film-look-resources-")
+    resource_snapshot = None
     try:
-        media_server = _RenderHTTPServer(("127.0.0.1", 0), pid)
+        resource_snapshot = _snapshot_project_resources(pid, doc, Path(snapshot_temp.name) / "resources")
+        _validate_source_ranges(pid, doc, resource_snapshot)
+        media_server = _RenderHTTPServer(("127.0.0.1", 0), pid, resource_snapshot)
         server_thread = threading.Thread(target=media_server.serve_forever, name="film-look-media", daemon=True)
         server_thread.start()
         base_url = f"http://127.0.0.1:{media_server.server_address[1]}"
-        runtime_payload = _runtime_payload(pid, state, base_url)
+        runtime_payload = _runtime_payload(pid, state, base_url, resource_snapshot)
         runtime_payload["render_css"] = _style_blocks(doc.get("head_html", ""))
         from playwright.sync_api import sync_playwright
         with sync_playwright() as playwright:
@@ -1750,7 +1757,7 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                                     y + (image_height - thumbnail.height) // 2))
             draw.text((x + 8, y + image_height + 6),
                       f"t={timestamp:.3f}s  revision={revision[:12]}", fill=(235, 235, 235))
-        temp_output = output.with_suffix(".tmp.png")
+        temp_output = output.with_name(f".{output.stem}.{os.getpid()}.{time.time_ns()}.tmp.png")
         sheet.save(temp_output, format="PNG")
         # A look result is a preview of one immutable film revision. Do not
         # publish its contact sheet if the authoritative document changed while
@@ -1758,6 +1765,10 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
         # Keep the revision check and contact-sheet publication in the same
         # project transaction as Studio/CLI edits.
         with fd.project_lock(pid):
+            try:
+                resource_snapshot.validate_sources()
+            except ResourceSnapshotError as exc:
+                raise FilmRenderError("RESOURCE_REVISION_CONFLICT", str(exc), 409) from exc
             after = fd.read_project_film(pid)
             if after.get("rev") != revision:
                 temp_output.unlink(missing_ok=True)
@@ -1774,6 +1785,7 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
             "duration": duration,
             "sample_times": samples,
             "image_path": str(output),
+            "resource_snapshot": resource_snapshot.report(),
             "determinism_status": "PASS",
             "determinism_samples": len(samples),
         }
