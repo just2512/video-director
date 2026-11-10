@@ -2575,7 +2575,8 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     for item in track["clips"] if item["id"] == "clip-a"
                 )
                 api_snapshot = page.request.get(
-                    base_url + "/api/editor/film?project_id=" + quote_for_test(project_id, safe=""),
+                    f"http://127.0.0.1:{server.server_port}/api/editor/film?project_id="
+                    + quote_for_test(project_id, safe=""),
                     headers={"Cache-Control": "no-cache"},
                 ).json()
                 api_clip_after = next(
@@ -3596,6 +3597,7 @@ def test_legacy_director_controls_remain_available_only_without_film_document(tm
                   let option = [...select.options].find(item => item.value === pid);
                   if (!option) { option = new Option(pid, pid); select.add(option); }
                   select.value = pid;
+                  select.dispatchEvent(new Event("change", {bubbles:true}));
                 }""", project_id)
                 page.locator("#film-studio-toggle").click()
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
