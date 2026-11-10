@@ -117,7 +117,7 @@ def test_film_runtime_interpolates_mask_keyframes_on_forward_and_backward_seek()
                     )
                     return page.eval_on_selector(
                         "#mask-clip",
-                        """el => ({
+                        r"""el => ({
                           mask: (el.style.clipPath.match(/\d+(?:\.\d+)?%/g) || [])
                             .map(value => Number.parseFloat(value)),
                           left: Number.parseFloat(el.style.left),

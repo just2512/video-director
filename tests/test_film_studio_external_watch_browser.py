@@ -4319,7 +4319,7 @@ def test_shotbook_and_creative_plan_loads_ignore_late_previous_project_responses
                 )
                 first_project = "sidecar-race-project-a"
                 second_project = "sidecar-race-project-b"
-                outcome = page.evaluate("""async ({firstProject, secondProject}) => {
+                outcome = page.evaluate(r"""async ({firstProject, secondProject}) => {
                   const select = document.querySelector('#editor-project');
                   for (const pid of [firstProject, secondProject]) {
                     if (![...select.options].some(item => item.value === pid)) {

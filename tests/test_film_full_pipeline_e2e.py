@@ -294,8 +294,10 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
         )
         title_crop = frame.crop((35, 5, 155, 40))
         bright_pixels = sum(
-            1 for pixel in title_crop.getdata()
-            if min(pixel) > 220
+            1
+            for y in range(title_crop.height)
+            for x in range(title_crop.width)
+            if min(title_crop.getpixel((x, y))) > 220
         )
         assert bright_pixels >= 5, "title-card text was not visible in the encoded frame"
 

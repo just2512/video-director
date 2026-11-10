@@ -24,7 +24,7 @@ from video_director.editor import (
     load_composition,
     save_composition,
 )
-from video_director.models import CompositionIR
+from video_director.models import AssetRef, AudioTrack, CompositionIR, VisualOverlayClip
 
 
 def _project(tmp_path, project_id="proj-adhoc"):
@@ -83,11 +83,11 @@ class TestHigh2AtomicCut:
     def test_batch_operations_paste_then_remove_single_revision(self, tmp_path):
         """batch operations 顺序执行 paste+remove（单 revision 由上层保证）。"""
         pid, ir = _project(tmp_path)
-        ir.assets.append({"id": "img-a", "type": "image", "file": "x.png", "duration": 5.0})
-        ir.visual_overlays.append({
+        ir.assets.append(AssetRef.model_validate({"id": "img-a", "type": "image", "file": "x.png", "duration": 5.0}))
+        ir.visual_overlays.append(VisualOverlayClip.model_validate({
             "id": "overlay-src", "asset_id": "img-a", "track_id": "overlay-main",
             "start": 1.0, "duration": 2.0, "source_in": 0.0,
-        })
+        }))
         save_composition(pid, ir)
         visual_clip = {
             "id": "overlay-src", "asset_id": "img-a", "track_id": "overlay-main",
@@ -115,7 +115,7 @@ class TestHigh2AtomicCut:
 class TestMedium3NarrationPasteGuard:
     def test_paste_narration_rejected(self, tmp_path):
         pid, ir = _project(tmp_path)
-        ir.assets.append({"id": "nar-a", "type": "audio", "file": "n.mp3", "duration": 5.0})
+        ir.assets.append(AssetRef.model_validate({"id": "nar-a", "type": "audio", "file": "n.mp3", "duration": 5.0}))
         save_composition(pid, ir)
         cur = load_composition(pid)
         clip = {
@@ -177,15 +177,15 @@ class TestP0RippleDelete:
     def test_visual_ripple_shifts_later_clips(self, tmp_path):
         from video_director.editor import _cmd_remove_visual_overlay
         pid, ir = _project(tmp_path)
-        ir.assets.append({"id": "img-a", "type": "image", "file": "x.png", "duration": 30.0})
-        ir.visual_overlays.append({
+        ir.assets.append(AssetRef.model_validate({"id": "img-a", "type": "image", "file": "x.png", "duration": 30.0}))
+        ir.visual_overlays.append(VisualOverlayClip.model_validate({
             "id": "ov-first", "asset_id": "img-a", "track_id": "overlay-main",
             "start": 1.0, "duration": 2.0, "source_in": 0.0,
-        })
-        ir.visual_overlays.append({
+        }))
+        ir.visual_overlays.append(VisualOverlayClip.model_validate({
             "id": "ov-later", "asset_id": "img-a", "track_id": "overlay-main",
             "start": 5.0, "duration": 2.0, "source_in": 0.0,
-        })
+        }))
         save_composition(pid, ir)
         cur = load_composition(pid)
         _cmd_remove_visual_overlay(cur, "overlay#0", {"ripple": True})
@@ -212,10 +212,10 @@ class TestP0RippleDelete:
     def test_audio_ripple_shifts_later_clips_same_lane(self, tmp_path):
         from video_director.editor import _cmd_remove_audio_clip
         pid, ir = _project(tmp_path)
-        ir.audio.append({
+        ir.audio.append(AudioTrack.model_validate({
             "id": "sfx-1", "type": "sfx", "asset_id": "bgm-a",
             "start": 2.0, "duration": 1.0, "source_in": 0.0, "source_out": 1.0,
-        })
+        }))
         save_composition(pid, ir)
         cur = load_composition(pid)
         # cur.audio[0]=bgm(0-10) [1]=sfx(2-3)；删 sfx#1 波纹不影响 bgm（不同 lane 由 track_id 决定）
