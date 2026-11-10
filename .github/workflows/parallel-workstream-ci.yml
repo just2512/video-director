@@ -135,6 +135,7 @@ jobs:
             tests/test_film_runtime_video_frame_wait.py \
             tests/test_film_document_contract.py \
             tests/test_film_studio_generated_asset_adoption_browser.py \
+            tests/test_film_studio_canvas_history_browser.py \
             tests/test_asset_catalog.py \
             tests/test_film_variant_migration_api.py
 
