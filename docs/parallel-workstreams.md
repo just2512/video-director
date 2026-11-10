@@ -1,6 +1,6 @@
 # Parallel delivery workstreams
 
-**Integration target:** `main` only. No long-lived work branches and no PR-based handoff.  
+**Integration target:** `main` only. Use short-lived, task-scoped work branches from one frozen main SHA; integrate directly to `main` without PR-based handoff. Delete branches after exact-SHA acceptance and integration.  
 **Operational status:** see [execution-ledger.md](execution-ledger.md) for the live task/dependency ledger and evidence.
 
 ## Operating model
@@ -12,7 +12,7 @@ Parallelize independent ownership lanes and GitHub-hosted CI jobs, not competing
 - a no-touch list;
 - a named dependency before integration.
 
-Source changes are integrated directly into `main`, serially, after review against the current main SHA. Where isolated workspaces are used for preparation, they must not become long-lived branches or PRs. The single coordinator owns shared contracts and the final integration.
+Create independent short-lived branches from one frozen `main` SHA for workstreams with disjoint file ownership. Each branch runs scoped GitHub-hosted CI against its own exact SHA. No PR/manual-review handoff is required: the coordinator integrates completed branches directly into `main` in dependency order, preserving intervening main fixes and resolving conflicts explicitly. Branches are temporary execution units, not long-lived release lines. The single coordinator owns shared contracts and final integration. Never allow two branches to write the same protected/shared file concurrently.
 
 ## Workstream lanes
 
@@ -28,8 +28,8 @@ Source changes are integrated directly into `main`, serially, after review again
 
 ## Parallelism and integration
 
-- W1 and W2 can work concurrently: generation persistence and timeline interaction have separate primary file ownership.
-- W3 can prepare lifecycle fixtures and acceptance assertions concurrently, but final integrated lifecycle execution waits for W1 and W2 contracts.
+- W1 and W2 can work concurrently on separate short-lived branches: generation persistence and timeline interaction have separate primary file ownership.
+- W3 can implement resource snapshot/export consistency and prepare lifecycle fixtures concurrently with W1/W2, but final integrated lifecycle execution waits for W1 and W2 contracts.
 - W4 and W5 can develop isolated JS/CSS modules concurrently. They must not edit `index.html` or `app.js`; W7 integrates those shared files in a reserved serial window.
 - W6 can migrate and validate hosted CI concurrently with read-only audits and isolated test preparation.
 - W7 is serial: one writer owns shared shell files and integrates only after W4/W5 contracts are stable. Its browser suite includes the integrated home → create/cancel/resume → settings save/import/export journey, not just isolated route checks.
@@ -39,7 +39,7 @@ Source changes are integrated directly into `main`, serially, after review again
 
 **GitHub-hosted runners only.** Use `ubuntu-24.04` for Linux/browser/media suites and `windows-latest` for Windows-native publication tests. No workflow may target `self-hosted`, local WSL, developer workspaces, or local model configuration. The obsolete self-hosted AI Director workflow has been removed; `full-hosted-regression.yml` is the canonical release gate. Live NVIDIA acceptance is a separately gated, explicit opt-in using only the dedicated GitHub Actions secret on a hosted runner.
 
-Documentation-only commits do not rerun the expensive full test suite. Every code/workflow change does; the ledger records the exact tested code SHA. Per-branch concurrency cancels superseded main runs so CI capacity is spent on the latest source revision.
+Documentation-only commits do not rerun the expensive full test suite. Every code/workflow change does; the ledger records the exact tested code SHA. Each short-lived branch has independent concurrency and exact-SHA scoped CI; superseded runs on that branch may be cancelled, but runs on other branches must not cancel one another. After direct integration, rerun affected lanes and the integrated full gates on the resulting exact `main` SHA.
 
 ## Acceptance rule
 
@@ -99,3 +99,16 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
 - Integrated full pytest: **1,952 passed, 2 skipped, 0 failures/errors**; Studio release gate: **346 passed**; both on the same SHA (run `42821701972`). W1/W2/W3/W5 and Windows-native evidence is recorded in `execution-ledger.md` §47.
 - W4 and W7 ownership boundaries are unchanged. W7 remains the only writer of `webui/static/index.html` and `webui/static/js/app.js`; no router migration or second project state machine was introduced.
 - These results close the accessibility acceptance extension for the tested tree. Any later code/workflow change requires the affected scoped lanes and integrated hosted gates to run against its exact SHA.
+
+## Short-lived branch execution protocol (restored 2026-11-10)
+
+- Freeze one base `main` SHA before creating task branches.
+- Create one branch per independent deliverable; do not create branches merely to duplicate CI jobs.
+- Branches must have non-overlapping write ownership. Current active execution branches:
+  - `work/w2-roll-trim-studio-regression`: W2 roll-trim commit/undo history regression and browser acceptance.
+  - `work/w3-render-resource-snapshot`: W3 immutable HTML-scene dependency snapshot, pinned media serving, source-change rejection and publication tests.
+  - `work/w6-parallel-branch-policy`: W6 branch protocol and execution-ledger synchronization.
+- W2 and W3 may progress concurrently because their primary write scopes are disjoint. W6 is documentation/workflow policy only and must not edit W2/W3 production files.
+- Run branch-scoped hosted tests on each branch SHA. Do not treat branch PASS as integrated PASS.
+- Integrate W2 and W3 serially to `main` after scoped acceptance, then run W1–W7 affected lanes, Studio release gate, full Python/browser, Windows-native and YAML validation on the same final main SHA.
+- No PR/manual reviewer handoff; the coordinator performs direct integration and conflict resolution. Delete each short-lived branch only after its commits are integrated and exact-main acceptance is recorded.
