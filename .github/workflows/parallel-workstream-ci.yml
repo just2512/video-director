@@ -130,7 +130,7 @@ jobs:
             tests/test_film_render_scene_e2e.py \
             tests/test_film_scene_runtime.py \
             tests/test_film_document_contract.py \
-            tests/test_film_studio_generated_asset_adoption_browser.py
+            tests/test_film_studio_generated_asset_adoption_browser.py \
             tests/test_asset_catalog.py
 
   shell-navigation:
