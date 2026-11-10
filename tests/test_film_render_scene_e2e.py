@@ -775,8 +775,8 @@ def test_film_render_aborts_when_document_changes_during_export(tmp_path, monkey
     original_audio_specs = film_render._audio_specs
     mutation = {"done": False, "revision": None}
 
-    def change_film_after_frames(pid, doc, duration):
-        specs = original_audio_specs(pid, doc, duration)
+    def change_film_after_frames(pid, doc, duration, resource_snapshot=None):
+        specs = original_audio_specs(pid, doc, duration, resource_snapshot)
         if not mutation["done"]:
             current = fd.read_project_film(project_id)
             assert current["rev"] == revision
