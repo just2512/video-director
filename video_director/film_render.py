@@ -1573,8 +1573,6 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
     except Exception as exc:
         raise FilmRenderError("FILM_RENDER_FAILED", f"影片渲染失败：{exc}", 500) from exc
     finally:
-        if temp_output is not None:
-            temp_output.unlink(missing_ok=True)
         if browser is not None:
             try:
                 browser.close()
@@ -1586,7 +1584,6 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
                 media_server.server_close()
             except Exception:
                 pass
-        snapshot_temp.cleanup()
         try:
             # Keep prepared journals and backups when rollback did not complete;
             # the next server startup can recover them without guessing.
@@ -1794,6 +1791,11 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
     except Exception as exc:
         raise FilmRenderError("FILM_LOOK_FAILED", f"look 检查失败：{exc}", 500) from exc
     finally:
+        if temp_output is not None:
+            try:
+                temp_output.unlink(missing_ok=True)
+            except OSError:
+                pass
         if browser is not None:
             try:
                 browser.close()
@@ -1805,4 +1807,5 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                 media_server.server_close()
             except Exception:
                 pass
+        snapshot_temp.cleanup()
 
