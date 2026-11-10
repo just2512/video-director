@@ -679,3 +679,40 @@ The exact-SHA jobs have now all completed:
 - Source audit found two concurrent calls to `refreshLLMBadge()`: one unconditional call during application startup and another when `switchTab('settings')` opens the settings pane. Both asynchronously fetch model roles and re-render the settings form. The late response can overwrite an in-progress field edit before `saveModelConfig()` reads the form. The test's server log confirms the endpoint wrote six roles and returned success, but the target model value remained old.
 - Corrective commit `dff1b42c05110a920250f04147799c5bf4f32c83` removes the unnecessary startup refresh. Model roles are now fetched when the settings pane is opened, avoiding the duplicate startup/route render race. The existing integrated W7 journey remains the acceptance test; no assertion was relaxed.
 - Exact-SHA verification for `dff1b42c05110a920250f04147799c5bf4f32c83`: W6 syntax run `42783250937` PASS; Windows-native run `42783251068` PASS; W1 job `129718119351` PASS; W7 job `129718118539` PASS. W2 job `129718119043`, W3 job `129718118946`, W4 job `129718235040`, W5 job `129718234468`, full Python/browser job `129718237986`, and Studio release gate job `129718238142` were still IN_PROGRESS at the latest refresh. NVIDIA live acceptance remains separately opt-in and is not inferred from these jobs.
+
+
+## 32. Parallel next-stage execution and exact-SHA verification — 2026-11-10
+
+### Prior integrated baseline
+
+- Code SHA `dff1b42c05110a920250f04147799c5bf4f32c83` has independently completed W1 generation durability, W2 timeline transactions, W3 lifecycle/export/QC, W7 shared-shell navigation, W4 project/create, W5 settings/credential safety, W6 workflow syntax, Studio release gate, full Python/browser regression and Windows-native publication. All jobs were GitHub-hosted Ubuntu/Windows and PASS.
+- Run IDs: parallel `42783251038`; Product IA `42783251023`; full hosted `42783251069`; Windows native `42783251068`; workflow syntax `42783250937`.
+- The NVIDIA real token-stream job `129722711516` was SKIPPED. 19D-10 remains MISSING/OPEN; no provider call is authorized by this ledger update.
+
+### New independent lane work
+
+- W2 added two operation-interaction regressions:
+  - `test_marker_and_clip_mutations_share_one_atomic_revision_and_undo_redo_history` and `test_marker_then_invalid_clip_operation_leaves_input_document_unchanged` in `tests/test_film_timeline_markers.py`.
+  - `test_track_add_then_remove_is_a_reversible_operation_pair` in `tests/test_film_document_contract.py`.
+- W2 documented the finite, risk-based operation interaction contract in `docs/film-operation-interaction-matrix.md`. This is not an exhaustive 20×20 permutation claim; it identifies coupled operation pairs and their required invariants.
+- W3 documented supported and rejected deterministic HTML-scene capabilities in `docs/film-scene-capability-matrix.md`. The documented boundary remains project-local HTML implementing `window.film.frame(t)`; arbitrary HTML/WebGL and cross-device pixel identity are not claimed.
+- W0 corrected `docs/FILM_AGENT_MANUAL.md`: real NVIDIA acceptance is hosted-only, explicitly dispatched after the Studio and full-regression gates, and uses only the dedicated GitHub Actions Secret on `ubuntu-24.04`. Local/WSL/self-hosted execution and local model-config reads are prohibited. The workflow was not dispatched and no provider cost was incurred.
+
+### Exact tested code SHA and live CI state
+
+- New tested code SHA: `5f1f0b3f3924eb6233adf5ea2bca8fb98b987c2f`.
+- Current `main` HEAD after documentation-only matrix commit: `72df2a04eec2c69babe2228405ffe5140940dde0`. The documentation-only commit does not alter executable code and is not a new tested code SHA.
+- Workflow syntax run `42786616558`: PASS.
+- Windows-native publication run `42786616614`: PASS.
+- Parallel workstreams run `42786616459`: W1 job `129729436096` PASS; W2 `129729436032`, W3 `129729435949`, and W7 `129729435451` were IN_PROGRESS at the last inspection.
+- Product IA run `42786616536`: W4 `129729431719` and W5 `129729431387` were IN_PROGRESS at the last inspection.
+- Full hosted run `42786616833`: full Python/browser job `129729448679` and Studio release gate `129729448389` were IN_PROGRESS at the last inspection.
+- Earlier runs on intermediate code SHA `c5170451d18a13f4189ef0eff9517f10a20c098e` were superseded/cancelled by the next main commit. Do not carry results from those runs forward.
+
+### Next reconciliation
+
+1. Refresh every W1–W7 job, full Python/browser regression, Studio release gate, W6 syntax and Windows-native result for exact code SHA `5f1f0b3f3924eb6233adf5ea2bca8fb98b987c2f`.
+2. If W2 fails, inspect the new marker/clip and track add/remove assertions; preserve atomicity, history and canonical round-trip assertions.
+3. If any lane fails, diagnose the failing job and fix the owning lane without weakening its acceptance conditions. Re-run affected lanes and integrated gates on the new exact SHA.
+4. Keep 19D-10 live NVIDIA acceptance MISSING until separately and explicitly authorized. A green default hosted run or SKIPPED live job is not a PASS.
+5. Continue W2's finite operation-interaction matrix and W3's bounded scene capability inventory as separate lanes. W7 remains the sole serial owner of shared shell files; W4/W5 remain independent module owners.
