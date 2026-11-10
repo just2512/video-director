@@ -1277,8 +1277,10 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 ### W3 scoped evidence
 
 - Initial branch code/test SHA: `da44aadf77335f176036d86e49772c6a46d5e726`; W3 lane `42918465772`, job `130186897979`: **296 passed, 1 skipped**. Focused storage/watch `42918465717`, job `130186897961`: **165 passed, 1 skipped**.
-- A follow-up commit added GitHub Actions job-summary publication for measured snapshot metrics; latest code/test SHA: `4f7e7edeed0c1b252bc3b3b4e339186697928649`. W3 lane `42918981288`, job `130188785319`: **296 passed, 1 skipped**. The 64 MiB test records source bytes, copy time, copy-plus-validation time and Python heap peak in the GitHub Actions job summary; the test asserts the heap peak is below 8 MiB.
-- Status: **SCOPED PASS**; integrate test-only change to main, then require exact-main W3 and full release gates.
+- The 64 MiB bounded-memory benchmark and GitHub job-summary metric publication passed on code/test SHA `4f7e7edeed0c1b252bc3b3b4e339186697928649`: W3 job `130188785319`, run `42918981288`, **296 passed, 1 skipped**.
+- Added a second native-platform regression that rewrites a pinned source with identical size and restored mtime, then requires SHA-256 source validation to reject publication while preserving pinned bytes. Latest branch SHA: `0cde3ff23fa1e22e694364867dae4848fdf9d055`; W3 run `42919753861`, job `130191312833`: **IN PROGRESS** at this update.
+- W6 added that focused regression to `windows-native-publication.yml`; workflow syntax run `42919769519`: SUCCESS. The actual Windows-native execution requires integration to main and the resulting Windows runner job.
+- Status: OPEN pending latest W3 branch run and exact-main Windows execution.
 
 ### Integration order
 
