@@ -617,3 +617,31 @@ The exact-SHA jobs have now all completed:
 - Runner policy remains GitHub-hosted Ubuntu/Windows only. No self-hosted, local WSL, developer workspace or local model configuration was used.
 - No test assertion, threshold, or lane boundary was weakened to obtain these results.
 
+
+
+## 30. Post-acceptance remaining scope audit — 2026-11-10
+
+### Exact-SHA acceptance remains closed for non-live gates
+
+- Latest verified code/workflow SHA remains `1c89eb5105e1512c2cb4fcd50cd8f5ac2f59321a`; all W1–W7 scoped jobs, W6 YAML validation, Studio release gate, full Python/browser regression and Windows-native publication passed on that exact SHA (Section 29).
+- Current main HEAD before this ledger-only update: `f2f318e31c0a2cc6226f1eaba928a2ca0f191258`. It only adds the Section 29 evidence reconciliation; it does not change executable code. Do not claim a new code test SHA.
+
+### Remaining 19D boundaries — source audit
+
+- Reviewed `docs/openfilm-film-editor-refactor.md` current boundaries, `docs/openfilm-gap-and-target-architecture.md`, `docs/FILM_AGENT_MANUAL.md`, `tests/test_film_scene_runtime.py`, `tests/test_film_render_scene_e2e.py`, `tests/test_film_runtime_video_frame_wait.py`, `video_director/film_scene_runtime.py` and `video_director/film_render.py`.
+- Bounded deterministic scene support has direct coverage for the `frame(t)` protocol, ready/resource waits, controlled RAF limits, exact-frame serialization, missing local resources, external-network rejection, reverse-order sample comparison, revision pinning and clip-ID-specific frame failure reporting.
+- This evidence does not establish deterministic rendering for arbitrary HTML, arbitrary WebGL, hidden asynchronous state, every codec/media combination or exhaustive edit-operation permutations. Those remain UNKNOWN / explicitly unsupported where the source contract says so; do not expand the claim or weaken fail-closed behavior.
+- No production or test change is justified by this read-only audit. The next 19D-11 task is a bounded capability inventory: enumerate supported scene/resource/runtime classes and their explicit reject conditions before adding any new rendering capability. It must remain separate from the already-passing W1/W2/W3/W7 lanes and must not silently widen the renderer contract.
+
+### Live NVIDIA acceptance — gated, not executed
+
+- Current hosted workflow supports an explicit `workflow_dispatch` input `run_live_nvidia=true` after full regression and Studio gates pass; it uses only the dedicated `NVIDIA_API_KEY` GitHub Actions secret and can incur provider cost.
+- The current manual `docs/FILM_AGENT_MANUAL.md` still describes the complete live test as local-only, while `parallel-workstreams.md` and this ledger require hosted-runner-only provider acceptance. This is a documentation/policy inconsistency; no local credentials, local model config or local runner may be used to resolve it.
+- The live job remains MISSING/OPEN because the exact-SHA run skipped it. Do not dispatch it, add live commit markers or incur provider cost without explicit user authorization. A hosted live PASS must satisfy all eight criteria in the manual, including at least two real non-empty token fragments before result, correct revision-bound proposal, byte-identical `film.html` before approval and no credential leakage.
+- Next action: reconcile the manual's local-only wording with the hosted-only runner policy, then wait for explicit authorization before any cost-bearing live call. No secret availability is assumed.
+
+### Lane discipline for the next iteration
+
+- W1/W2/W3/W4/W5/W7 remain independently owned and independently evidenced; no shared-shell edits are authorized by this audit.
+- W6 owns any workflow/policy correction. W7 remains serial owner of `index.html` and `app.js`; W4/W5 retain their module boundaries.
+- Any executable code/workflow change creates a new tested SHA and must rerun the affected independent lanes plus integrated gates. Documentation-only reconciliation does not substitute for or invalidate the existing code SHA evidence.
