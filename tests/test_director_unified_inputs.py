@@ -362,7 +362,12 @@ def test_create_form_tracks_explicit_fields_without_nonexistent_dom_guard():
     source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "create.js").read_text(encoding="utf-8")
     assert "function cfMarkExplicitControl(event)" in source
     assert "if (CF.state !== 'editing') return;" in source
-    assert "getElementById('cf-panel')" not in source
+    # Modal focus management legitimately queries #cf-panel in its own helpers.
+    # The explicit-field tracker must remain independent of that modal DOM.
+    tracker = source.split("function cfMarkExplicitControl(event)", 1)[1].split(
+        "document.addEventListener('input', cfMarkExplicitControl", 1
+    )[0]
+    assert "getElementById('cf-panel')" not in tracker
     assert "_explicit_fields: Array.from(CF.explicitFields || [])" in source
     for control in (
         "cf-platform", "cf-resolution", "cf-duration", "cf-voice-rate",
