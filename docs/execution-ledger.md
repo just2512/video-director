@@ -909,3 +909,18 @@ The exact-SHA jobs have now all completed:
 2. Verify the new W3 Asset Library test count in the W3 job log, not only the workflow's green summary.
 3. Keep the Windows-native process-lock result separate from the POSIX W3 result; both platform branches must pass.
 4. After this exact-SHA reconciliation, audit the next concrete product-contract gap. Do not create speculative work or broaden the task into a wholesale React rewrite without an explicit, testable gap in the source plan.
+
+
+## 39. W3 command-line continuation failure diagnosed and corrected — 2026-11-10
+
+- The first W3 run after adding `tests/test_asset_catalog.py` on SHA `b1616671789dd7944c030625e9afd068248c3276` ran the pre-existing W3 tests (**251 passed, 1 skipped**) but then attempted to execute `tests/test_asset_catalog.py` as a shell command and failed with exit code 126 / `Permission denied`.
+- Root cause: the preceding final pytest path in the YAML multiline shell command lacked a trailing continuation backslash. The new test file was therefore outside the pytest invocation. This was a workflow command-construction defect, not an Asset Library test failure.
+- Corrected `.github/workflows/parallel-workstream-ci.yml` so the Asset Catalog path is part of the same `python -m pytest` invocation. No test assertion, timeout, skip, or acceptance threshold was changed.
+- Corrected workflow commit: `d1e93ed86a8750b2c5b6b6cadbd40db04518a5b7`.
+- Workflow YAML validation for this SHA: run `42808558317` **PASS**.
+- New exact-SHA hosted verification is running:
+  - Parallel W1–W3/W7: run `42808558365`.
+  - Product IA W4/W5: run `42808558337`.
+  - Full Python/browser + Studio release gate: run `42808558382`.
+  - Windows native lock + MoveFileExW: run `42808558319`.
+- The Windows-native test on preceding SHA `b161667` already directly executed both test targets and passed **2 tests in 1.40s**; the latest `d1e93ed` run must still be reconciled before recording final exact-SHA platform acceptance.
