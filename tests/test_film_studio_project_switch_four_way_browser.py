@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib
 from http.server import ThreadingHTTPServer
 import threading
+import time
 
 from playwright.sync_api import sync_playwright
 
@@ -44,7 +45,15 @@ def test_project_switch_reconciles_request_response_store_and_disk(tmp_path, mon
             page_errors: list[str] = []
             film_requests: list[str] = []
             film_responses: list[dict] = []
+            project_index_responses: list[str] = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on(
+                "response",
+                lambda response: project_index_responses.append(response.url)
+                if response.request.method == "GET"
+                and "/api/projects?filter=all&limit=500" in response.url
+                and response.status == 200 else None,
+            )
             page.on("request", lambda request: film_requests.append(request.url)
                     if request.method == "GET" and "/api/editor/film?project_id=" in request.url else None)
 
@@ -82,13 +91,14 @@ def test_project_switch_reconciles_request_response_store_and_disk(tmp_path, mon
                 page.wait_for_function(
                     "() => !!document.querySelector('#editor-project')"
                 )
-                # Wait until the server's initial project-list population has completed.
-                # Otherwise a later async refresh can replace these two fixture options
-                # between insertion and select_option(), making the browser test race itself.
-                page.wait_for_function(
-                    "() => { const select = document.querySelector('#editor-project'); "
-                    "return !!select && select.options.length > 0; }"
-                )
+                # The editor's project selector is populated by this explicit API request.
+                # Wait for that response rather than merely observing the placeholder option;
+                # otherwise the async response can overwrite fixture options after insertion.
+                deadline = time.monotonic() + 10
+                while not project_index_responses and time.monotonic() < deadline:
+                    page.wait_for_timeout(25)
+                assert project_index_responses, "editor project-index request did not complete"
+                assert page.locator("#editor-project").count() == 1
                 page.evaluate("""() => {
                   const select = document.querySelector('#editor-project');
                   for (const value of ['film-studio-switch-four-way-a', 'film-studio-switch-four-way-b']) {
