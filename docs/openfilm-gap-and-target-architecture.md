@@ -25,7 +25,7 @@
 |---|---|---|
 | 影片文档 | **已具备主要骨架**；HTML/轨道/片段/ID 与可编辑 overrides 已落地 | 固化版本化格式契约与迁移门禁；未知能力明确 warning/reject，不能“看似转成功” |
 | 文件协作 | **已部分实现**：稳定快照 watcher、SSE、revision 检查、外部修改历史 | 明确区分 Studio 操作、CLI 操作、原始文件改写；在 UI 显示外部变更和操作来源；不宣称多人并发 CRDT |
-| React Studio | **单一 React root；AI 与 Inspector 并排；轨道开关、时码尺 seek、片段/音量包络 pointer 生命周期、波形/包络绘制、右键菜单、剪辑瞬态几何与关键帧跳转由 React/FilmStore 拥有**；操作上下文现在是 FilmStore 的 ID-only gesture context，剪辑数学与 revision-checked FilmDocument 写入仍经共享适配器。 | Studio 构建使用 self-hosted `[self-hosted, linux, x64]` runner 与独立 `studio_ui/` 包；React/Tailwind 构建、选定 Chromium 回归、JS 语法检查与产物发布均通过最新 CI，但不是全部剪辑组合或逐帧渲染一致性的证明 |
+| React Studio | **单一 React root；AI 与 Inspector 并排；轨道开关、时码尺 seek、片段/音量包络 pointer 生命周期、波形/包络绘制、右键菜单、剪辑瞬态几何与关键帧跳转由 React/FilmStore 拥有**；操作上下文现在是 FilmStore 的 ID-only gesture context，剪辑数学与 revision-checked FilmDocument 写入仍经共享适配器。 | Studio 构建使用 GitHub-hosted `ubuntu-24.04` runner 与独立 `studio_ui/` 包；React/Tailwind 构建、选定 Chromium 回归、JS 语法检查与产物发布均通过精确 SHA 的 CI，但不是全部剪辑组合或逐帧渲染一致性的证明 |
 | 页面元素编辑 | selector、文本、位置/尺寸、文字/背景色、不透明度、字重、对齐、字号、旋转、行高与字间距均可编辑；React 与无 bundle fallback 共用字段契约 | 继续覆盖剩余受限属性；Inspector 只提交实际变化字段，不物化未改文本/位置/样式；字段校验保持与服务端 allowlist 同步 |
 | 剪辑数学 | 已具备多个 source-aware 操作，但部分 roll/slide 条件严格；时间仍以秒浮点在许多接口流转 | 把帧吸附收敛到统一边界；长期评估整数 Tick/采样单位，而非全库冒险替换浮点 |
 | 动画 | 音量包络可编辑；通用视觉关键帧可在 Inspector 编辑、在片段本体显示时间标记；split/trim/roll/slide 会按片段相对时间切片并保留 easing 曲线；自定义 Bezier 控制柄已通过保存/重载的真实 Chromium 回归（Studio #211 / b9b0adf4） | 完整预览与最终导出的逐帧一致性仍须在可运行的浏览器/渲染环境里验收；控制柄的交互与持久化测试不等于逐帧渲染一致性的证明 |
@@ -33,13 +33,13 @@
 | 确定性与导出 | `frame(t)`、本地资源边界、look 重复抽样、Revision 绑定导出均已有；采样检查不是全帧证明 | 对每个场景验证资源 ready 和帧回执；导出错误定位到 clip ID；明确运行时支持边界，不宣称任意网页/任意 WebGL 都确定 |
 | 产品入口 | **核心路径已收敛到同一全屏 Studio 壳**：项目选择器、素材库/片段/导演规划模式、预览、时间线、Inspector、AI 提案和导出共用同一工作环境。旧 Composition 项目先显示校验后的候选预览，显式初始化后继续在同一 Studio 手工编辑；导演侧旧计划保留为只读参考，可转交成绑定当前 revision 的提案。 | 并非所有 CompositionIR 旧动作都能直接在活动影片上执行：未明确映射为 FilmDocument 操作的能力仍须转为可审查提案或标记不支持，不能恢复竞争写入路径；项目间迁移仍需分别验证 |
 
-## 真实模型 Token 流验收的执行方式（当前仅本地执行）
+## 真实模型 Token 流验收的执行方式（GitHub-hosted 显式 opt-in）
 
 - 真实模型测试不是普通 SSE mock 测试的别名。只有 `tests/test_film_studio_live_ai_streaming.py` 收到至少两个真实 `token` 事件，并确认这些事件在 `result` 事件之前到达、生成提案前后 `film.html` 字节与 revision 不变，才可记录为 PASS。
-- 当前 AI Director workflow 的完整真实模型 token-stream acceptance 步骤固定为 `skipped`；普通 CI 的结果应为 `LIVE_STREAM_ACCEPTANCE=MISSING`。这只表示本次没有执行完整真实模型验收，不是 PASS，也不应阻断与模型无关的真实浏览器和导出回归。
+- 当前 `full-hosted-regression.yml` 将真实模型 token-stream acceptance 放在独立 GitHub-hosted job；普通 push 默认 `skipped`，并报告 `LIVE_STREAM_ACCEPTANCE=MISSING`。这只表示本次没有执行完整真实模型验收，不是 PASS，也不应阻断与模型无关的真实浏览器和导出回归。
 - 旧记录中的 `run_live_llm=true` 和 `[live-stream-smoke]` 是早期 Actions 入口，不是当前完整验收入口；旧入口可能触发一次最小 provider probe，但不会执行被禁用的完整验收，因此不能用它来声称真实 token 流通过。
-- 当前唯一完整真实验收入口是本地 PowerShell：先确认当前 Studio 配置指向预期的 OpenAI-compatible endpoint/model，再设置 `$env:VD_LLM_LIVE_STREAM_TEST = "1"`，运行 `tests/test_film_studio_live_ai_streaming.py::test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film`。完整命令、8 条通过标准和 `PASS / REJECT / BLOCKED_PROVIDER / BLOCKED_MODEL / UNKNOWN / MISSING` 的含义见 `docs/FILM_AGENT_MANUAL.md` 的“Real-model token-stream acceptance (local opt-in)”。
-- 2026-10-28 的真实 token 流 PASS 是针对当时配置与旧提交的历史单项证据，不能替代当前本地端点复验，也不能替代同一次提交的全量回归、时间线、MP4 与 QC 验收。
+- 当前唯一完整真实验收入口是 `.github/workflows/full-hosted-regression.yml` 的显式 `workflow_dispatch`：有权限的操作者在全量回归和 Studio gate 通过后显式设置 `run_live_nvidia=true`，作业使用 GitHub-hosted `ubuntu-24.04` 与专用 GitHub Actions Secret `NVIDIA_API_KEY`，目标模型为 `z-ai/glm-5.3-flash`。不得从本地、WSL、开发机或 self-hosted runner 执行，也不得读取本机模型配置。完整命令、8 条通过标准和状态定义见 `docs/FILM_AGENT_MANUAL.md` 的 hosted opt-in 小节。
+- 2026-10-28 的真实 token 流 PASS 是针对当时配置与旧提交的历史单项证据，不能替代当前配置的 hosted opt-in 复验，也不能替代同一次提交的全量回归、时间线、MP4 与 QC 验收。
 
 ## 已落地的 React 时间线交互契约（持续回归）
 
@@ -167,9 +167,9 @@
 
 ## 本轮落地记录
 
-- 将 Studio UI 构建切换到仓库已有的 self-hosted WSL runner 标签（与 AI Director 工作流共用 runner 约定），不再请求 GitHub-hosted runner。
+- **历史记录（已被后续 Runner Contract Change 取代）：** 当时曾将 Studio UI 构建切换到 self-hosted WSL runner；该执行方式已废止，当前唯一允许的 CI 环境是 GitHub-hosted Actions runner。
 - 构建使用 Python 3.11 固定环境；Studio UI 有独立的 `studio_ui/` package，只安装 React、esbuild、TypeScript 与 Tailwind，不安装 Remotion renderer；渲染端依赖仍在 `remotion_runtime/` 单独安装。两条自托管工作流共用 `tools/bootstrap_python_socks.sh`，先修复 SOCKS5 下 pip 不可用的冷启动，再安装 Python/Playwright 依赖。首次 UI 构建生成 `studio_ui/package-lock.json`，后续走 `npm ci`，并将 lockfile 纳入与 bundle/CSS 相同的版本保护发布流程。
-- 新增构建契约测试，要求工作流使用自托管 runner、保留依赖锁文件，且实际 JS/CSS 不能是占位输出。
+- **历史记录：** 当时新增的构建契约测试曾要求自托管 runner；该断言已由当前测试替换为 GitHub-hosted runner 硬闸门，同时保留依赖锁文件和真实 JS/CSS 产物检查。
 - React Studio 的工具栏、时间线、素材列表、AI 面板、片段检查器和画布检查器改为通过一个 `createRoot()` 管理，并以 portals 挂载到既有布局槽位；这保留了现有 DOM 布局和事件桥接，但消除了多个 React root 独立管理同一个 Studio 的情况。
 - 右侧属性检查器和 AI 导演不再通过 tab 互斥隐藏；二者常驻同一工作区，新增可用鼠标/上下方向键调整比例的分隔条，选择比例存入 `localStorage`。
 - **历史验收状态（2026-10-22，已被后续主线实测覆盖）：** 当前 `main` 的 React Studio bundle/CSS 已由自托管工作流构建并发布；定向 Studio 工作流和完整 AI Director 回归均通过（1256 passed、0 failed）。验证范围仍不包含所有媒体编解码组合、所有时间线操作排列、自定义 cubic Bezier 手柄与任意 HTML/WebGL 场景的逐帧确定性。
@@ -242,7 +242,7 @@
 - The explicit request in [Actions run 40794716941](https://github.com/just2512/video-director/actions/runs/40794716941) returned `LLM_PLAN_FAILED` / `Request timed out.` after approximately 130.7 seconds. No qualifying token stream was observed, so the result is **REJECT**, not PASS. The workflow's SDK request timeout was 120 seconds; the next isolated attempt raises that timeout to 240 seconds while keeping the outer test process bounded to 6 minutes.
 - The request uses the existing NVIDIA key from the runner/secret configuration. Credentials are not logged, and the timeout change affects only this isolated smoke request. The test still requires at least two non-empty real token events before the result event, and verifies the FilmDocument bytes/revision remain unchanged before proposal confirmation.
 - Explicitly requested live-model configuration failures, request timeouts, or missing qualifying tokens now block release publication: the reporter step itself is blocking and both downstream release gates require its success. Only an unrequested default run may report `LIVE_STREAM_ACCEPTANCE=MISSING` without blocking an otherwise valid build.
-- On this self-hosted runner the optional Node-based `actions/upload-artifact@v4` diagnostic archive hits an invalid proxy URL because the runner's proxy uses SOCKS. Archive upload is allowed to fail without masking the regression/release result; test summaries and failure details remain in the Actions logs.
+- **Historical runner incident:** On the former self-hosted runner the optional Node-based `actions/upload-artifact@v4` diagnostic archive hit an invalid proxy URL because that runner's proxy used SOCKS. This is retained as historical evidence only; current hosted workflows use supported artifact actions and do not depend on that runner.
 
 
 
@@ -252,7 +252,7 @@
 - The real-browser regression keeps project A's upload request pending, opens project B, verifies B's brief/context/empty asset list, then releases A's response and verifies both the in-memory context and persisted active draft still belong to B.
 - Three synchronous Playwright evaluation traps were found in the test driver and corrected without weakening the scenario: (1) starting `openCreate(projectId)` must not return its pending promise from `page.evaluate`; (2) observing the settled old upload promise must use browser-side settlement state plus a bounded `wait_for_function`; (3) capturing the old promise must use a block-bodied evaluation that returns `undefined`, because an assignment expression returns the promise and Playwright automatically awaits it. The final correction is in `86971350`.
 - On source revision `42c4111`, React/TypeScript, Tailwind, Studio integration smoke and JavaScript syntax passed. The separate timeline/migration/AI-proposal/export gate passed **300 tests with 1 warning**. The six-test create-dialog gate hit its five-minute timeout on the delayed-upload test because the third evaluation trap remained; the full suite and bundle publication were correctly skipped. This is a test-driver deadlock, not evidence that the FilmDocument timeline gate failed.
-- Revalidation must use the current main revision after `86971350`. A green result requires all six create-dialog tests to finish, followed by the full suite, syntax and timeline/export gates; only then may the workflow publish the checked-in React bundle/CSS. Default CI continues to report `LIVE_STREAM_ACCEPTANCE=MISSING` because actual provider-token validation remains an explicit local-only step.
+- Revalidation must use the current main revision. A green result requires the create-dialog tests, full suite, syntax and timeline/export gates; only then may the workflow publish checked-in React bundle/CSS. Default CI reports `LIVE_STREAM_ACCEPTANCE=MISSING` unless the separately gated hosted provider-token validation is explicitly opted in.
 
 ### Single-flight film initialization per project view (2026-10-30)
 
@@ -272,7 +272,7 @@
 ### Latest mainline acceptance (2026-11-02, source `18fd137c`)
 
 - [AI Director run #2031 / attempt 2](https://github.com/just2512/video-director/actions/runs/41408386186) completed **SUCCESS** against the exact main revision `18fd137cede53586abc6df08562008f3ceffce07`.
-- The self-hosted runner recovered the exact source revision, verified Python 3.11, installed Python/Playwright and Chromium dependencies, compiled application and test modules, installed the Remotion runtime, passed React 19/TypeScript and Tailwind 4 builds, passed React Studio integration smoke, passed the Create Dialog lifecycle browser gate, passed the full pytest suite, passed JavaScript syntax and timeline/export publication gates, and completed the guarded React bundle/CSS publication step.
+- **Historical acceptance (2026-11-02, former runner policy):** The then-self-hosted runner recovered the exact source revision and passed the listed build and regression gates. This historical run is not evidence for the current GitHub-hosted-only runner contract; current acceptance is recorded in `docs/execution-ledger.md` against exact hosted SHAs.
 - The current `tests/test_create_dialog_persistence_browser.py` contains 32 browser test cases. The latest workflow's focused Create Dialog step completed successfully, including project-only draft visibility/resume, cancellation of pending project prefill, project-switch isolation, history restore, and persisted-draft conflict protection.
 - The latest successful workflow deliberately skipped all three opt-in NVIDIA live-model steps. Therefore the current run's real-provider evidence remains **MISSING**, not PASS. This is separate from the successful offline regression and build gates; no mock result is presented as real-model evidence.
 - No open PR was present at verification time; changes are on `main`. The earlier source-recovery retry was resolved by attempt 2; it did not require disabling proxy, transport, or security checks.
@@ -284,7 +284,7 @@
 - #2040 was marked FAILURE only at the final checked-in asset publication step. Its GitHub Git Blobs POST lost the connection (http.client.RemoteDisconnected) after the test gates had passed. Therefore the source regression gates are PASS for 5fdd5c7, but publication of the bundle/CSS from that run is **NOT VERIFIED**.
 - The publisher retry handler did not catch http.client.HTTPException; commit cbc77c5dacae87834d8988d9cd34b3b088ff3d98 adds that exception family (including RemoteDisconnected), socket timeout handling, and bounded seven-attempt exponential retries. A fresh mainline workflow must still prove the repaired publisher and verify the published bundle hashes before this release gate is marked PASS.
 - The preceding run [#2038](https://github.com/just2512/video-director/actions/runs/41431013791) was SUCCESS on older source 9aa9b185; it does not validate the later trackpad-pan implementation. Run #2040 is the relevant source regression evidence.
-- The real NVIDIA token-stream test remains **MISSING / local-only** in default CI; no real-provider PASS is claimed for this run. Arbitrary HTML/WebGL frame determinism, universal lossless CompositionIR migration, and exhaustive edit-operation permutations remain separate UNKNOWN/MISSING acceptance boundaries.
+- The real NVIDIA token-stream test remains **MISSING / not opted in** in default CI; no real-provider PASS is claimed for this run. Arbitrary HTML/WebGL frame determinism, universal lossless CompositionIR migration, and exhaustive edit-operation permutations remain separate UNKNOWN/MISSING acceptance boundaries.
 
 ### Next implementation gate after the publisher is revalidated
 

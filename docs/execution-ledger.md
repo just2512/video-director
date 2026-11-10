@@ -140,8 +140,8 @@ All active workflow files use GitHub-hosted runners. W6 has upgraded checkout/se
 | 1 | Create-dialog keyboard focus containment/restoration and shared-shell keyboard/ARIA semantics | W4/W7 | Real Chromium verifies initial focus, Tab/Shift+Tab trap, focus restoration, keyboard navigation, active `aria-current` and inactive `aria-hidden` | PASS — W4 36 passed; W7 2 passed on exact tree `9d7208cc` |
 | 2 | Reconcile all parallel lanes and integrated hosted release gates | W0/W1–W7 | All scoped lanes, full pytest, Studio gate, YAML and Windows-native tests pass on one executable/workflow SHA | PASS — W1 89; W2 355; W3 287/1 skipped; W4 36; W5 13; W7 2; full pytest 1,952/2 skipped; Studio 346; Windows 2; YAML PASS on `9d7208cc` |
 | 3 | Maintain GitHub Actions Node.js 24 runtime baseline | W6 | Supported action versions and workflow syntax remain valid without Node.js 20 forced-runtime warnings | PASS — exact tree `9d7208cc`; YAML run `42821701924` |
-| 4 | Classify and resolve remaining test diagnostics without suppressing them | W0 + owning test lane | Determine whether Pydantic serializer warnings are fixture-only or reveal a real validation/serialization gap; clean invalid-escape and Pillow deprecation warnings without changing business assertions | OPEN — non-blocking; see §47 |
-| 5 | Resolve root runner-policy contradiction in `CONTRACT.md` §§0–0.1 | W0 | Explicit impact analysis and controlled Contract Change align the highest-level contract with GitHub-hosted-only execution, while preserving hosted-runner tests | BLOCKED — contract conflict requires explicit authorization; do not edit `CONTRACT.md`, re-enable self-hosted runners or weaken tests before that decision |
+| 4 | Classify and resolve remaining test diagnostics without suppressing them | W0 + owning test lane | Determine whether Pydantic serializer warnings are fixture-only or reveal a real validation/serialization gap; clean invalid-escape and Pillow deprecation warnings without changing business assertions | IMPLEMENTED — fixture root cause corrected in `cd99d98`; exact-SHA CI pending |
+| 5 | Resolve root runner-policy contradiction in `CONTRACT.md` §§0–0.1 | W0 | Explicit impact analysis and controlled Contract Change align the highest-level contract with GitHub-hosted-only execution, while preserving hosted-runner tests | IMPLEMENTED — user-authorized Contract Change in `cd99d98`; exact-SHA CI pending |
 
 **Live-provider boundary:** 19D-10 is already PASS from the separately authorized hosted NVIDIA manual dispatch in §37. The latest ordinary push correctly skipped the live job. Do not incur another provider call merely to refresh documentation; only a separately authorized manual opt-in may run it.
 
@@ -637,9 +637,7 @@ The exact-SHA jobs have now all completed:
 ### Live NVIDIA acceptance — gated, not executed
 
 - Current hosted workflow supports an explicit `workflow_dispatch` input `run_live_nvidia=true` after full regression and Studio gates pass; it uses only the dedicated `NVIDIA_API_KEY` GitHub Actions secret and can incur provider cost.
-- The current manual `docs/FILM_AGENT_MANUAL.md` still describes the complete live test as local-only, while `parallel-workstreams.md` and this ledger require hosted-runner-only provider acceptance. This is a documentation/policy inconsistency; no local credentials, local model config or local runner may be used to resolve it.
-- The live job remains MISSING/OPEN because the exact-SHA run skipped it. Do not dispatch it, add live commit markers or incur provider cost without explicit user authorization. A hosted live PASS must satisfy all eight criteria in the manual, including at least two real non-empty token fragments before result, correct revision-bound proposal, byte-identical `film.html` before approval and no credential leakage.
-- Next action: reconcile the manual's local-only wording with the hosted-only runner policy, then wait for explicit authorization before any cost-bearing live call. No secret availability is assumed.
+- The manual's live acceptance procedure has since been reconciled to hosted-only execution (see §48 and `docs/FILM_AGENT_MANUAL.md`). The live job remains MISSING/OPEN because ordinary exact-SHA runs intentionally skip it. Do not dispatch it or incur provider cost without separate explicit authorization. A hosted live PASS must satisfy all eight criteria in the manual, including at least two real non-empty token fragments before result, correct revision-bound proposal, byte-identical `film.html` before approval and no credential leakage. No secret availability is assumed.
 
 ### Lane discipline for the next iteration
 
@@ -1028,13 +1026,12 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - If the action upgrade causes a failure, diagnose the incompatible action/input or runner requirement and fix it without weakening any product gate.
 
 
-## 46. Contract-level runner-policy contradiction identified — 2026-11-10
+## 46. Contract-level runner-policy contradiction identified — 2026-11-10 (resolved in §48)
 
 - Read the current root `CONTRACT.md` in addition to the two required execution documents. Its §0 and §0.1 still prescribe a `[self-hosted, linux, x64]` runner for Studio build/test/publication and refer to the obsolete `.github/workflows/ai-director.yml`.
 - This directly contradicts `docs/parallel-workstreams.md` Runner policy, which requires GitHub-hosted `ubuntu-24.04` / `windows-latest` only, and the current executable workflow contract tests in `tests/test_studio_build_contract.py` (which explicitly reject self-hosted runners).
 - Current workflows and latest exact-SHA runs use GitHub-hosted runners. No workflow was changed to self-hosted and no local/WSL runner was used.
-- **Status: CONTRACT CONFLICT / BLOCKED for editing `CONTRACT.md`.** Root `CONTRACT.md` declares itself the highest engineering contract and says modifying it is an explicit Contract Change requiring impact analysis; §45 says a contract conflict must stop that task and be reported. I therefore did not silently edit it or weaken the existing hosted-runner gate.
-- Required controlled resolution: update §0 and §0.1 to the current GitHub-hosted CI policy, remove the obsolete self-hosted workflow references, and reconcile the stack table; then update the corresponding contract tests/docs if needed. This is a contract-level change and remains blocked pending explicit authorization. All unrelated W1–W7 work and CI monitoring may continue.
+- **Resolved:** the user explicitly authorized the Contract Change. §48 records the controlled update to `CONTRACT.md` §§0–0.2, matching the existing GitHub-hosted workflows and test gates. The authorization removes the former decision block; it does not authorize restoring self-hosted/WSL execution or weakening CI.
 
 
 ## 47. Exact-SHA accessibility, CI runtime and integrated acceptance reconciliation — 2026-11-10
