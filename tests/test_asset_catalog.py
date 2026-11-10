@@ -637,3 +637,59 @@ def test_library_subdirectories_reject_symlinks_before_following_them(monkeypatc
         ac._ensure_dirs()
     assert exc.value.code == "ASSET_PATH_INVALID"
     assert list(outside.iterdir()) == []
+
+
+def _catalog_lock_process_worker(storage_root, acquired, release=None, attempting=None):
+    """Spawn-safe worker for the native per-platform Asset Library lock test."""
+    import os
+
+    os.environ["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(storage_root)
+    from video_director import asset_catalog as ac
+
+    if attempting is not None:
+        attempting.set()
+    with ac._catalog_lock():
+        acquired.set()
+        if release is not None and not release.wait(timeout=15):
+            raise RuntimeError("timed out waiting to release Asset Library lock")
+
+
+def test_catalog_file_lock_serializes_independent_processes(tmp_path):
+    """Exercise the actual msvcrt branch on Windows, not only MoveFileExW."""
+    import multiprocessing
+
+    context = multiprocessing.get_context("spawn")
+    storage = tmp_path / "composer"
+    first_acquired = context.Event()
+    release_first = context.Event()
+    second_attempting = context.Event()
+    second_acquired = context.Event()
+
+    first = context.Process(
+        target=_catalog_lock_process_worker,
+        args=(storage, first_acquired, release_first, None),
+    )
+    second = context.Process(
+        target=_catalog_lock_process_worker,
+        args=(storage, second_acquired, None, second_attempting),
+    )
+
+    first.start()
+    try:
+        assert first_acquired.wait(timeout=15), "first process did not acquire catalog lock"
+        second.start()
+        assert second_attempting.wait(timeout=15), "second process did not attempt catalog lock"
+        assert not second_acquired.wait(timeout=0.5), (
+            "second process entered the catalog transaction while first process held the lock"
+        )
+        release_first.set()
+        assert second_acquired.wait(timeout=15), "second process did not acquire released catalog lock"
+    finally:
+        release_first.set()
+        if first.is_alive():
+            first.join(timeout=15)
+        if second.pid is not None and second.is_alive():
+            second.join(timeout=15)
+
+    assert first.exitcode == 0
+    assert second.exitcode == 0
