@@ -2574,10 +2574,28 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     item for track in trim_document_after["doc"]["tracks"]
                     for item in track["clips"] if item["id"] == "clip-a"
                 )
+                api_snapshot = page.request.get(
+                    base_url + "/api/editor/film?project_id=" + quote_for_test(project_id, safe=""),
+                    headers={"Cache-Control": "no-cache"},
+                ).json()
+                api_clip_after = next(
+                    item for track in api_snapshot["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-a"
+                )
+                diagnostic = {
+                    "api_revision": api_snapshot.get("rev"),
+                    "store_revision": page.evaluate("window.filmStudioStore?.getSnapshot()?.revision"),
+                    "disk_revision": trim_document_after["rev"],
+                    "film_path": str(fd._film_path(project_id)),
+                    "transaction_journal_exists": fd._transaction_path(project_id).exists(),
+                    "api_clip_at": api_clip_after["attrs"].get("at"),
+                    "disk_clip_at": trim_clip_after["attrs"].get("at"),
+                    "disk_film_html": trim_document_after["text"],
+                }
                 assert float(trim_clip_after["attrs"]["at"]) > float(next(
                     item for track in trim_document_before["doc"]["tracks"]
                     for item in track["clips"] if item["id"] == "clip-a"
-                )["attrs"]["at"]) + 0.1, trim_clip_after
+                )["attrs"]["at"]) + 0.1, diagnostic
                 trim_requests = film_edit_requests[trim_edit_count_before:]
                 assert len(trim_requests) == 1, trim_requests
                 assert len(trim_requests[0].get("ops") or []) == 1, trim_requests

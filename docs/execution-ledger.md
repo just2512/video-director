@@ -417,3 +417,19 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - NVIDIA real token-stream acceptance: MISSING/OPEN; live job was skipped.
 - User physical-machine local model-config preservation: UNKNOWN; not inspected and must not be accessed by CI.
 - Runner policy remains GitHub-hosted Ubuntu/Windows only; no self-hosted or local runner was used.
+
+
+## 22. Exact-main recheck and W2 coverage/diagnostic hardening — 2026-11-10
+
+### Exact SHA `fc6d1fc72093abdd2b6a344d2d6b76240d7065c3`
+
+- Full hosted run `42739424896`: PASS. Full pytest: 1,948 tests, 0 failures, 0 errors, 2 skipped.
+- Studio build/timeline/lifecycle/export/QC release gate in the same run: PASS; JUnit: 344 passed, 0 failed, 0 skipped. This includes all four cross-track drag scenarios from `tests/test_film_studio_roll_browser.py`; the diagnostic instrumentation is now green on this SHA.
+- Windows-native publication run `42739424860`: PASS.
+- Product IA run `42739424668`: PASS.
+- Parallel workstream run `42739424671`: FAIL only in W2. W1, W3 and W7 passed. W2: 333 passed, 1 failed in `test_external_agent_write_hot_reloads_and_recovers_after_broken_document`.
+- W2 failure occurs after a browser/API-visible clip trim: the API/FilmStore observes a changed revision and clip position, but the subsequent direct `read_project_film()` assertion sees the old `at=0`. The assertion is not to be relaxed. This is a second API-versus-disk observation mismatch; root cause remains UNKNOWN pending captured API revision, Store revision, disk revision, resolved path, transaction journal and exact disk HTML.
+- The W2 workflow command currently omitted `tests/test_film_studio_roll_browser.py`, despite W2's documented cross-track ownership. Add it to the W2 hosted lane and align the W2 scope table.
+- The cross-track diagnostic test passed on this SHA; it proves the observed behavior passed this run, not that the earlier intermittent mismatch has a proven root cause.
+- NVIDIA real token-stream acceptance remains MISSING/OPEN: the explicit job was skipped because this SHA lacked all three opt-in markers. User-machine model-config preservation remains UNKNOWN and is not accessible to CI.
+- Runner policy remains GitHub-hosted Ubuntu/Windows only.
