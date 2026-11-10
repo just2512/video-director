@@ -30,8 +30,9 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install isolated test dependencies
-        run: python -m pip install --disable-pip-version-check pytest pillow
+        run: python -m pip install --disable-pip-version-check pytest pillow loguru
       - name: Exercise real MoveFileExW write-through replace and durable delete
         run: >-
           python -m pytest -q
           tests/test_film_render_publication_transaction.py::test_windows_write_through_replace_and_delete_round_trip
+          tests/test_asset_catalog.py::test_catalog_file_lock_serializes_independent_processes
