@@ -106,8 +106,8 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
 - Create one branch per independent deliverable; do not create branches merely to duplicate CI jobs.
 - Branches must have non-overlapping write ownership. Current active execution branches, all frozen from main SHA `5627243bf9cb0847cf78c9093a90732351a18aaf`:
   - `work/w1-generation-recovery-race-audit`: W1 cross-process ledger regression **integrated** to main in `b5dd5900acd0d3ac290d24f24611685ace36d1b2`; scoped lane passed 90 tests. Its branch is no longer an active writer and is retained pending final exact-main acceptance/cleanup.
-  - `work/w3-resource-snapshot-scale-benchmark`: W3 64 MiB resource-snapshot bounded-heap and copy-cost regression; owns only `tests/test_film_render_scene_e2e.py`; latest exact-branch CI is running.
-  - `work/w6-active-branch-register`: W6 synchronization of this active-branch register; owns only `docs/parallel-workstreams.md`, `docs/execution-ledger.md` and `docs/openfilm-gap-and-target-architecture.md`.
+  - `work/w3-resource-snapshot-scale-benchmark`: W3 64 MiB resource-snapshot bounded-heap/copy-cost benchmark plus metadata-preserving source-rewrite guard intended for Windows-native CI; owns only `tests/test_film_render_scene_e2e.py`; latest exact-branch CI is running.
+  - `work/w6-active-branch-register`: W6 synchronization of this active-branch register; owns only `.github/workflows/windows-native-publication.yml`, `docs/parallel-workstreams.md`, `docs/execution-ledger.md` and `docs/openfilm-gap-and-target-architecture.md`.
 - W1's completed change is integrated; W3 remains active. W6 is documentation-only and does not edit W1/W3 production or test files. No branch is allowed to write another branch's owned path.
 - Run branch-scoped hosted tests on each branch SHA. Do not treat branch PASS as integrated PASS.
 
