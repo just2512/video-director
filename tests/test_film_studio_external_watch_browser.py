@@ -3592,13 +3592,22 @@ def test_legacy_director_controls_remain_available_only_without_film_document(tm
                 page.locator("#tab-editor").click()
                 page.locator("#pane-editor").wait_for(state="visible")
                 page.locator("#editor-project").wait_for(state="visible")
-                page.evaluate("""pid => {
+                page.wait_for_function(
+                    "window.__filmStudioEditorAuthorityWrapperInstalled === true",
+                    timeout=10000,
+                )
+                load_result = page.evaluate("""async pid => {
                   const select = document.querySelector('#editor-project');
                   let option = [...select.options].find(item => item.value === pid);
                   if (!option) { option = new Option(pid, pid); select.add(option); }
                   select.value = pid;
-                  select.dispatchEvent(new Event("change", {bubbles:true}));
+                  // Await the same editorLoad handler used by the selector's
+                  // inline onchange; a fire-and-forget change event hides the
+                  // authority transition's actual result from this browser test.
+                  return await window.editorLoad();
                 }""", project_id)
+                assert load_result.get("ok") is True, load_result
+                assert load_result.get("mode") == "migration", load_result
                 # Selecting a legacy project intentionally opens the same Studio
                 # in its read-only migration/planning mode. The launcher is hidden
                 # while Studio owns the editor; do not click it a second time.
