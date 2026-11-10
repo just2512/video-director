@@ -58,8 +58,8 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert "function timeout(){" in event_wait
     timeout_body = event_wait[event_wait.index("function timeout(){"):]
     assert timeout_body.index("if(eventAlreadySatisfied(element,eventName))") < timeout_body.index("fail('等待媒体事件 '+eventName+' 超时：');")
-    assert 'clip["source_fps"] = _source_video_fps(project_id, raw_path)' in render
-    assert "def _source_video_fps(project_id: str, raw_path: str)" in render
+    assert 'clip["source_fps"] = _source_video_fps(project_id, raw_path, resource_snapshot)' in render
+    assert "def _source_video_fps(project_id: str, raw_path: str, resource_snapshot=None)" in render
     assert "Promise.race" not in prepare
     assert "setTimeout(resolve,12000)" not in prepare
 
