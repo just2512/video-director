@@ -1197,7 +1197,17 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                     && !!third && (third.clips || []).some(clip =>
                       clip.id === 'clip-c' && Math.abs(Number(clip.attrs.at) - 5) < 0.001
                     );
-                  return sourceMoved && targetMoved && (!isMultiSelect || secondMoved);
+                  const complete = sourceMoved && targetMoved && (!isMultiSelect || secondMoved);
+                  if (complete) {
+                    window.__crossTrackPostCommit = {
+                      rev: doc.rev,
+                      tracks: tracks.map(track => ({
+                        id: track.id,
+                        clips: (track.clips || []).map(clip => clip.id)
+                      }))
+                    };
+                  }
+                  return complete;
                 }""", arg=[project_id, multi_select], timeout=15000)
 
                 committed_requests = film_edit_requests[request_count:]
@@ -1212,10 +1222,20 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
                     })
                 assert operations == expected_operations, committed_requests
 
+                api_snapshot = page.evaluate("window.__crossTrackPostCommit")
                 persisted = fd.read_project_film(project_id)
                 source_track = next(track for track in persisted["doc"]["tracks"] if track["id"] == "video-main")
                 target_track_doc = next(track for track in persisted["doc"]["tracks"] if track["id"] == "video-alt")
-                assert not any(clip["id"] == "clip-a" for clip in source_track["clips"])
+                diagnostic = {
+                    "api_snapshot": api_snapshot,
+                    "disk_revision": persisted["rev"],
+                    "film_path": str(fd._film_path(project_id)),
+                    "transaction_journal_exists": fd._transaction_path(project_id).exists(),
+                    "source_clip_ids": [clip["id"] for clip in source_track["clips"]],
+                    "target_clip_ids": [clip["id"] for clip in target_track_doc["clips"]],
+                    "disk_film_html": persisted["text"],
+                }
+                assert not any(clip["id"] == "clip-a" for clip in source_track["clips"]), diagnostic
                 moved = next(clip for clip in target_track_doc["clips"] if clip["id"] == "clip-a")
                 assert abs(float(moved["attrs"]["at"]) - 5) < 0.001, moved
                 if multi_select:
