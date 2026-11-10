@@ -842,3 +842,33 @@ The exact-SHA jobs have now all completed:
 - This conforms to the documented model: independent workstream ownership and GitHub-hosted CI jobs, integrated serially into `main`; no long-lived feature branches or PR handoff. W7 remains the sole serial owner of `index.html` and `app.js`.
 - 19D-10 remains **MISSING/OPEN** until an explicitly authorized `workflow_dispatch` with `run_live_nvidia=true`. The NVIDIA live job was SKIPPED in the default full-hosted run; no provider call or cost was incurred.
 - No other currently identified non-NVIDIA open issue requires a speculative code change. Continue with concrete W1–W7 acceptance gaps only; do not add tests or code solely to increase counts.
+
+
+## 37. Explicit NVIDIA live-model acceptance completed — 2026-11-10
+
+### Exact hosted run
+
+- Manual dispatch run: [42802192086](https://github.com/just2512/video-director/actions/runs/42802192086), event `workflow_dispatch`, triggered by the repository owner.
+- Tested code/workflow SHA: `295b0acf08ce2a38d384a23b69eaa55fa354de86`.
+- The run completed successfully. Its independent GitHub-hosted jobs all passed:
+  - Full Python/browser regression job `129782406908`: **1,950 passed, 2 skipped, 8 warnings**; JUnit summary: 1,952 tests, 0 failures, 0 errors, 2 skipped.
+  - Studio build/timeline/lifecycle/export/QC job `129782407256`: **346 passed, 2 warnings**.
+  - Explicit NVIDIA real token-stream job `129788232026`: **PASS**, not skipped.
+- The live job first called NVIDIA's official endpoint `https://integrate.api.nvidia.com/v1` using model `z-ai/glm-5.3-flash`; provider probe returned `LIVE_PROVIDER_PROBE=PASS` with first token at 107.50 seconds.
+- The application-level live test returned HTTP 200 with `text/event-stream`, 44 SSE events and 28 non-empty token chunks. The event sequence was progress → token → result; first token to final result was 1.1777 seconds.
+- Dedicated test `test_configured_film_ai_stream_delivers_tokens_before_result_without_writing_film`: **1 passed** (141.43 seconds).
+- The test validated the complete real-model proposal lifecycle:
+  - proposal uses the exact requested base FilmDocument revision and contains exactly one move of `clip-b` to 8.5 seconds;
+  - proposal generation does not change FilmDocument revision or rewrite `film.html`;
+  - explicit approval applies the registered proposal, not client-supplied replacement operations;
+  - replaying the same approval is rejected with HTTP 409 / `PROPOSAL_NOT_FOUND_OR_STALE`;
+  - replay does not create another document write.
+- The live job logs record only token-fragment lengths/timing, not token contents; API credentials are masked in Actions logs and redacted from test error details. No credential value is recorded in this ledger.
+- Dedicated JUnit artifact: `nvidia-live-stream-295b0acf08ce2a38d384a23b69eaa55fa354de86` (artifact ID `13756719238`, retained until 2026-12-10). Full regression and Studio artifacts are also retained by run `42802192086`.
+
+### Status correction and SHA provenance
+
+- **19D-10: PASS.** The prior section 36 statement that 19D-10 remained MISSING/OPEN is superseded by this completed explicit dispatch and its live JUnit evidence.
+- The current `main` head is `1312b6776b8bfc97f321ecb2648e9bddea1fbc68`. It descends from tested SHA `295b0acf08ce2a38d384a23b69eaa55fa354de86` through documentation-only commits `0c28fdda34cbef55699d11a78ed0b09ccbf56337` and `1312b6776b8bfc97f321ecb2648e9bddea1fbc68`; no executable code or workflow changed after the tested SHA.
+- The previous MISSING statement was a stale-ledger error: the manually dispatched run existed and had completed. Do not repeat the MISSING status.
+- This live-model acceptance proves the LLM streaming/proposal/approval path. It is not evidence that the separate video-generation provider was called; keep those provider identities and acceptance scopes distinct.
