@@ -528,3 +528,37 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - W6: workflow tree comparison between syntax-validation SHA `2f9aee27f63dc2d1547ed203b6347b9fd6591589` (run `42743155327`, PASS) and current tested code SHA `67c17a2929b852b9adb2bce278ff0f2a022808f0` found all seven `.github/workflows/` files byte-identical (same Git blob SHAs). No workflow dispatch action is available in the connected GitHub operations. The prior syntax PASS therefore still validates the unchanged workflow content; a new exact-SHA syntax run is not available without a workflow change/dispatch capability.
 - NVIDIA live token-stream acceptance remains SKIPPED/MISSING until the current-SHA Studio and full hosted gates pass and the dedicated explicit opt-in/secret conditions are satisfied.
 - Runner policy remains GitHub-hosted Ubuntu/Windows only; no self-hosted/local runner was used.
+
+
+
+## 27. W2 legacy-project migration contract correction and exact-main rerun — 2026-11-10
+
+### Corrected root cause
+
+- The previous section 26's diagnosis that the test should wait for Studio to close and the launcher to become visible was incorrect.
+- The implementation in `webui/static/js/film-studio.js` explicitly routes a legacy project (confirmed `exists:false`) into the unified Film Studio's migration/planning mode. `editorLoad()` calls `filmStudioToggle(state)` when Studio is not open; `filmStudioToggle()` adds `fs-studio-open`, hides `.film-studio-launch`, and loads the migration preview.
+- Therefore the failing test's expectation that `fs-studio-open` disappear and the launcher become visible contradicted the actual product contract. The subsequent attempt to click the hidden launcher was also invalid for this flow.
+- Corrective commit `7865a15840090c71aa6808b2f70818618a1eaccf` changes only `tests/test_film_studio_external_watch_browser.py`: after selecting the legacy project, it waits for the expanded Studio, `fs-studio-open`, the `迁移预览` marker and the hidden launcher. It then continues to exercise the legacy director-planning controls within Studio. No production code, business assertion, threshold or runner policy was changed.
+
+### Exact-SHA parallel acceptance in progress
+
+Code/test SHA: `7865a15840090c71aa6808b2f70818618a1eaccf`.
+
+- Parallel workstreams run `42775637350`: W1 generation durability PASS; W7 shared shell navigation PASS; W2 timeline transactions and W3 lifecycle/export/QC were still running at the last inspection.
+- Product IA run `42775637428`: W4 project home/create and W5 settings IA/credential safety were still running at the last inspection.
+- Windows-native publication run `42775637347`: PASS.
+- Full hosted run `42775637705`: Studio release gate and full Python/browser regression were still running at the last inspection.
+- These are separate hosted jobs for W1/W2/W3/W7, W4/W5, Windows-native and full release acceptance. Do not infer a lane PASS from another lane or from the mainline commit.
+- W7's browser test file includes both the route/pane contract and the integrated home → create → close/reload/resume draft → settings save/export/partial-import → navigation journey. The W7 job runs the complete file; its PASS therefore covers that integrated journey on this SHA.
+
+### W6 workflow syntax evidence
+
+- The latest syntax-validation run still predates this code SHA. The seven workflow files were unchanged since the prior successful YAML parse, so their content is unchanged; however, exact-SHA W6 syntax validation remains MISSING until a current workflow-validation run is available.
+- The current `validate-workflows.yml` push trigger only includes `.github/workflows/**`; it does not run on ordinary code/test commits. The next W6 improvement is to make the inexpensive YAML parse run on main code/test changes as well, excluding docs-only changes, so exact-SHA syntax evidence is generated alongside the independent lanes.
+
+### Remaining gates
+
+- W2 and the Studio release gate must complete on this exact SHA before the timeline/Studio release is considered closed.
+- Full Python/browser regression, W1–W3/W7, W4/W5 and Windows-native evidence must be reconciled by exact SHA; no historical PASS is substituted.
+- NVIDIA real token-stream acceptance remains MISSING/OPEN. It is not to run until full Python and Studio gates pass and the commit carries the explicit opt-in markers with the dedicated hosted secret.
+- No self-hosted/local runner was used.
