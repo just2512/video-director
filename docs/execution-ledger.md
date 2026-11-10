@@ -924,3 +924,11 @@ The exact-SHA jobs have now all completed:
   - Full Python/browser + Studio release gate: run `42808558382`.
   - Windows native lock + MoveFileExW: run `42808558319`.
 - The Windows-native test on preceding SHA `b161667` already directly executed both test targets and passed **2 tests in 1.40s**; the latest `d1e93ed` run must still be reconciled before recording final exact-SHA platform acceptance.
+
+
+## 40. W3 Asset Library acceptance and Windows lock branch verified — 2026-11-10
+
+- Corrected exact-SHA `d1e93ed86a8750b2c5b6b6cadbd40db04518a5b7` W3 job `129803982546` in run `42808558365`: **287 passed, 1 skipped, 1 warning**. Its log confirms `tests/test_asset_catalog.py` was included in the same pytest invocation; this covers the POSIX `fcntl.flock` process-lock branch plus catalog deduplication, semantic updates, reference-safe deletion and fail-closed catalog handling.
+- Exact-SHA Windows-native job `129803866735`, run `42808558319`: **2 passed in 1.94s**. The log explicitly shows both `test_windows_write_through_replace_and_delete_round_trip` and `test_catalog_file_lock_serializes_independent_processes` were executed. This directly exercises the Windows `msvcrt.locking` branch and `MoveFileExW` write-through replacement.
+- W1 job `129803982431`: PASS. W7 job `129803982323`: PASS. W5 job `129803986878`: PASS.
+- At this update W2 job `129803982490`, W4 job `129803986421`, Studio release gate job `129804003079`, and full Python/browser job `129804004016` were still running. No final integrated PASS is claimed until those jobs complete.
