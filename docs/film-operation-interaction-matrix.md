@@ -34,10 +34,10 @@ The current `film_document.apply_ops()` dispatches these 20 operation kinds:
 | Interaction | Required assertion | Existing evidence / state |
 |---|---|---|
 | `marker_add → marker_set` | One revision; final marker canonical; undo/redo restores marker state | `test_film_markers_commit_as_one_revision_and_share_undo_redo_history` |
-| `marker_add → set(clip)` | Marker and clip attribute commit in one revision and one history entry | New W2 regression in `test_film_timeline_markers.py`; exact-SHA CI pending |
-| `marker_add → invalid set(clip)` | Whole batch rejects; no marker leaks into input state | New W2 atomicity regression; exact-SHA CI pending |
+| `marker_add → set(clip)` | Marker and clip attribute commit in one revision and one history entry | PASS — W2 job `129876675736`, run `42829833193`, 355 passed on code SHA `cd99d98dd0eb6649592a7086c6cc87f55e2984de` |
+| `marker_add → invalid set(clip)` | Whole batch rejects; no marker leaks into input state | PASS — W2 job `129876675736`, run `42829833193`, 355 passed on code SHA `cd99d98dd0eb6649592a7086c6cc87f55e2984de` |
 | `track_add → insert` | New track and clip are committed together with stable IDs | `test_new_track_and_insert_are_one_stable_id_operation_batch` |
-| `track_add → track_remove` | Temporary empty track leaves no semantic residue; canonical round trip remains equal | New W2 regression in `test_film_document_contract.py`; exact-SHA CI pending |
+| `track_add → track_remove` | Temporary empty track leaves no semantic residue; canonical round trip remains equal | PASS — W2 job `129876675736`, run `42829833193`, 355 passed on code SHA `cd99d98dd0eb6649592a7086c6cc87f55e2984de` |
 | `clip_lock(false) → set` | Explicit unlock permits the following edit in the same batch | `test_clip_lock_can_be_explicitly_removed_then_normal_edits_resume` |
 | locked clip → `set/move/remove/split/trim/slip` | Each direct mutation is rejected | Parameterized `test_clip_level_lock_rejects_direct_timeline_mutations` |
 | `ripple_delete` affecting locked clip | Indirect shift is rejected and input remains unchanged | `test_ripple_delete_refuses_to_shift_a_locked_clip_and_keeps_input_unchanged` |
@@ -52,4 +52,4 @@ This is a deliberately finite set of coupled contracts, not a claim that every p
 
 ## Exact-SHA acceptance
 
-The new W2 tests are not PASS merely because they were committed. The lane must pass on the exact code SHA containing both regressions. After any subsequent code/workflow change, rerun the affected W2 job and integrated release gates. Do not weaken assertions, skip cases, or infer current evidence from older SHAs.
+The marker batch, invalid-batch atomicity and track add/remove interaction cases listed above passed in W2 job `129876675736`, run `42829833193`: **355 passed** on exact code SHA `cd99d98dd0eb6649592a7086c6cc87f55e2984de`. This closes only the listed finite interactions. It does not claim exhaustive ordered pairs among all 20 operation kinds. Any later code/workflow change requires the affected W2 lane and integrated release gates to run against the new exact code SHA. Do not weaken assertions or skip cases.
