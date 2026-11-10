@@ -872,3 +872,40 @@ The exact-SHA jobs have now all completed:
 - The current `main` head is `1312b6776b8bfc97f321ecb2648e9bddea1fbc68`. It descends from tested SHA `295b0acf08ce2a38d384a23b69eaa55fa354de86` through documentation-only commits `0c28fdda34cbef55699d11a78ed0b09ccbf56337` and `1312b6776b8bfc97f321ecb2648e9bddea1fbc68`; no executable code or workflow changed after the tested SHA.
 - The previous MISSING statement was a stale-ledger error: the manually dispatched run existed and had completed. Do not repeat the MISSING status.
 - This live-model acceptance proves the LLM streaming/proposal/approval path. It is not evidence that the separate video-generation provider was called; keep those provider identities and acceptance scopes distinct.
+
+
+## 38. W1 issue closure and W3 Asset Library platform-lock acceptance — 2026-11-10
+
+### W1 / Issue #121 closed on explicit acceptance conditions
+
+- Issue [#121](https://github.com/just2512/video-director/issues/121) is now **CLOSED / completed**. Its own stated closure conditions are focused generation recovery tests plus full pytest; both have direct hosted evidence.
+- W1 exact code/workflow SHA `cd1b909858f8857c30ae91af05d21dbf20122ee5`: 89 passed, job `129756527270`, run `42794600705`.
+- Full Python/browser regression: 1,950 passed, 2 skipped, 0 failures/errors on SHA `295b0acf08ce2a38d384a23b69eaa55fa354de86`, job `129782406908`, run `42802192086`. The compare `cd1b909...295b0acf` confirms the intervening five commits changed only `docs/execution-ledger.md` and `docs/parallel-workstreams.md`; executable code and workflow files are identical.
+- Studio release gate: 346 passed, job `129782407256`, same run.
+- Issue closure comment explicitly distinguishes video-generation provider identity (Issue #121) from the NVIDIA LLM token-stream/proposal path (19D-10). The NVIDIA live test is not misrepresented as a real video-generation call.
+
+### W3 / Asset Library lock coverage gap found and addressed
+
+- The Asset Library uses `msvcrt.locking` on Windows and `fcntl.flock` on POSIX. Before this update, the Windows-native workflow tested `MoveFileExW` durability only; the Windows-specific catalog process-lock branch was not exercised by that workflow.
+- Added `test_catalog_file_lock_serializes_independent_processes` to `tests/test_asset_catalog.py`. It starts two independent spawned Python processes against the same storage root, proves the second cannot enter the catalog transaction while the first holds the lock, then proves it enters after release.
+- Added `tests/test_asset_catalog.py` to the W3 lifecycle/export hosted lane so the Asset Library catalog invariants are an explicit W3 responsibility, not only incidental coverage in the full suite.
+- Extended `windows-native-publication.yml` to run the new process-lock test on `windows-latest`, alongside the existing native write-through replace/delete test. This invokes the real Windows `msvcrt.locking` implementation.
+- Updated `parallel-workstreams.md` to record W3 Asset Library ownership and distinguish Linux `fcntl.flock` evidence from Windows `msvcrt.locking` evidence.
+
+### Exact code/workflow SHA and CI
+
+- Code/workflow SHA: `b1616671789dd7944c030625e9afd068248c3276`.
+- Windows native run `42808073283`: **PASS**; log confirms both native tests ran, **2 passed in 1.40s**.
+- Parallel workstream run `42808073287`: W1 and W7 completed PASS; W2 and W3 were still running at ledger update time. W3 now includes the Asset Library suite.
+- Product IA run `42808073344`: W5 completed PASS; W4 still running.
+- Full hosted run `42808073308`: full Python/browser and Studio release-gate jobs were still running.
+- Workflow YAML validation run `42808073280`: PASS.
+- Superseded intermediate runs for `6a290f2` and `8cdf1d8` were cancelled by the repository's configured per-branch concurrency after the later main commits; they are not counted as acceptance.
+- Documentation-only commits after `b161667` do not alter the tested code/workflow tree.
+
+### Next reconciliation
+
+1. Wait for W2/W3/W4 and full Python/browser + Studio gates on `b161667...`; inspect any failure logs and repair only the owning lane.
+2. Verify the new W3 Asset Library test count in the W3 job log, not only the workflow's green summary.
+3. Keep the Windows-native process-lock result separate from the POSIX W3 result; both platform branches must pass.
+4. After this exact-SHA reconciliation, audit the next concrete product-contract gap. Do not create speculative work or broaden the task into a wholesale React rewrite without an explicit, testable gap in the source plan.
