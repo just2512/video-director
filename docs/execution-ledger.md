@@ -358,3 +358,31 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - The hosted migration now splits responsibilities across full-hosted-regression.yml, parallel-workstream-ci.yml, product-ia-regression.yml, studio-ui-build.yml, validate-workflows.yml and windows-native-publication.yml. Tests are updated to assert the actual hosted runners, exact full pytest/compileall/JS syntax coverage, W1 inclusion, Studio release gate, isolated NVIDIA secret, and the deliberate docs-only paths-ignore policy.
 - The UI action audit now normalizes a leading `window.` before matching its existing UI-only handler allowlist; this recognizes the explicit global authority call without permitting unknown handlers. A targeted unit test keeps `window.unknownAction()` rejected.
 - The NVIDIA live job did not run on this SHA because both full regression and Studio release gates failed. No real NVIDIA token-stream result exists from this run. The next push must re-run W1, Studio and full pytest; only if both full and Studio gates pass may the explicit NVIDIA probe and full app stream execute.
+
+## 20. Exact-main audit and hosted regression repair — 2026-11-10
+
+### Code SHA and scoped acceptance
+
+- Latest code/test commit at the start of this audit: `02459402aa10d2a2314adba5e65b2ddb10389ec9`.
+- On that exact SHA, W1 generation durability, W2 timeline transactions, W3 lifecycle/export/QC, W7 shared-shell navigation, W4 project-home/create, W5 settings IA, Windows-native persistence and the Studio release gate all completed successfully:
+  - Parallel workstreams: run `42646601266` — W1/W2/W3/W7 all SUCCESS.
+  - Product IA: run `42646601406` — W4/W5 both SUCCESS.
+  - Windows native: run `42646601264` — SUCCESS.
+  - Studio release gate within full hosted run `42646601093` — SUCCESS.
+- The integrated W7 browser journey covers home navigation, create-form project name/type and brief, server draft persistence, close/reload/resume, settings view/save, secret-redacted export, partial import preserving existing keys, and return navigation. This is test evidence on SHA `02459402aa10d2a2314adba5e65b2ddb10389ec9`, not yet an exact-`c8cca904` acceptance result.
+- The W4 form and Director service now carry free-text project name/type through request and project metadata; W4 scoped browser suite passed on the above SHA.
+
+### Full regression failure and correction
+
+- Full hosted run `42646601093` on SHA `02459402aa10d2a2314adba5e65b2ddb10389ec9` failed only at `tests/test_live_stream_acceptance.py::test_nvidia_live_workflow_uses_dedicated_secret_and_official_endpoint`.
+- Exact failure: `NameError: name 'Path' is not defined`; suite summary: 1,945 passed, 1 failed, 2 skipped. Compile, Studio build, Studio release gate and JavaScript syntax steps succeeded.
+- Corrective commit on `main`: `c8cca904e0dada7a6ecca7beffd5fb94af12049e`; added the missing `from pathlib import Path` import. No test assertion, threshold, product code or runner policy was changed.
+- The changed file is confirmed on main with blob SHA `c0b4034b3c188792a97a489a9d3519750d949925`.
+- Exact-main hosted revalidation for `c8cca904` must still be observed and its full regression logs checked before this correction is marked PASS.
+
+### Remaining gates
+
+- NVIDIA real token-stream acceptance remains MISSING/OPEN. Run `42646601093` skipped the live job because the full regression prerequisite failed; the earlier real request timeout is not a PASS. The follow-up must explicitly opt in and prove real token fragments, revision-bound proposal, no FilmDocument mutation before approval, and single-use approval/replay rejection.
+- The correction commit `c8cca904` did not carry the three NVIDIA opt-in markers. Do not infer that its live job will run; a later explicit opt-in is required after the hosted prerequisites pass.
+- The user's physical machine's local model-config file has not been inspected. Existing preservation evidence is from isolated temporary fixtures only; do not claim machine-level backup or byte-preservation acceptance.
+- No self-hosted/local runner was used for the above runs. Keep all future CI on GitHub-hosted Ubuntu/Windows runners.
