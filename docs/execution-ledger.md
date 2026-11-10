@@ -950,3 +950,42 @@ The exact-SHA jobs have now all completed:
 - W4 job `129803986421`: PASS. W5 job `129803986878`: PASS, run `42808558337`.
 - Studio release gate job `129804003079`: **346 passed, 2 warnings**, PASS, run `42808558382`.
 - Full Python/browser job `129804004016` in run `42808558382` remained in progress at this update. Final overall acceptance is pending that result.
+
+
+## 43. Exact-SHA W1–W7, Windows, Studio and full regression reconciled — 2026-11-10
+
+### Tested code/workflow SHA
+
+`d1e93ed86a8750b2c5b6b6cadbd40db04518a5b7`.
+
+The current `main` HEAD at ledger update is `52c8d8bcd2c265388e1d020d46bb0accc3756289`. GitHub compare confirms the four commits after the tested SHA changed **only** `docs/execution-ledger.md`; no executable code or workflow changed after testing.
+
+### Independent parallel lanes
+
+- W1 generation durability: **89 passed**, job `129806510077`.
+- W2 timeline transactions: same-SHA rerun **355 passed, 1 warning**, job `129806508387`. The first attempt had one external-watch trim-start failure; the rerun passed without code or test changes. The full suite below also passed. Preserve this as an intermittent first-attempt observation; do not weaken the assertion.
+- W3 lifecycle/export/QC + Asset Library: **287 passed, 1 skipped, 1 warning**, job `129806511566`. The corrected command executed `tests/test_asset_catalog.py` inside pytest.
+- W7 shared shell navigation: **2 passed**, job `129806550703`.
+- Product IA W4 project home/create: **35 passed**, job `129803986421`.
+- Product IA W5 settings/credential safety: **13 passed**, job `129803986878`.
+
+Runs:
+- Parallel workstreams: [42808558365](https://github.com/just2512/video-director/actions/runs/42808558365) — **SUCCESS**.
+- Product IA workstreams: [42808558337](https://github.com/just2512/video-director/actions/runs/42808558337) — **SUCCESS**.
+
+### Integrated release gates and native platform
+
+- Studio release gate job `129804003079`: **38 React integration tests passed** and **346 timeline/lifecycle/render/QC tests passed, 2 warnings**.
+- Full Python/browser job `129804004016`: **1,951 passed, 2 skipped, 0 failures, 0 errors, 8 warnings**; JUnit summary: 1,953 tests, 0 failures, 0 errors, 2 skipped.
+- Windows-native job `129803866735`: **2 passed in 1.94s**; both the `MoveFileExW` write-through replace/delete test and the actual Windows `msvcrt.locking` cross-process Asset Library lock test executed.
+- Workflow syntax: run `42808558317` — PASS.
+- Full hosted regression: [42808558382](https://github.com/just2512/video-director/actions/runs/42808558382) — **SUCCESS**.
+- Windows native: [42808558319](https://github.com/just2512/video-director/actions/runs/42808558319) — **SUCCESS**.
+
+### Final state
+
+- W1–W7 independent ownership jobs are green on the tested tree; W4/W5 are separate Product IA jobs and W7 remains the sole owner of shared `index.html` / `app.js`.
+- POSIX and Windows Asset Library locking now each have native implementation evidence; they are not inferred from one another.
+- 19D-10 NVIDIA live-model acceptance remains PASS from manual dispatch run `42802192086`; this current run used the normal no-provider-credential full regression and did not repeat paid live calls.
+- Issue #121 is closed with explicit acceptance evidence. There are currently no open GitHub issues.
+- The current exact-SHA CI acceptance set is PASS. Existing two skips and eight warnings remain visible; none were suppressed or converted to PASS.
