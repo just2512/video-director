@@ -514,3 +514,17 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - W4/W5 isolated PASS records on earlier SHAs remain historical evidence only. Current-SHA Product IA jobs must complete before those lanes are carried forward.
 - W3 lifecycle/export/QC and W1 generation durability are not considered complete on the diagnostic SHA until their current-SHA scoped jobs complete.
 - NVIDIA real token-stream acceptance remains MISSING/OPEN and must not run until the Studio and full hosted gates pass; only the explicit hosted opt-in with the dedicated GitHub Actions secret is permitted.
+
+
+## 26. W2 legacy-project transition synchronization and parallel rerun — 2026-11-10
+
+### Exact tested code SHA `67c17a2929b852b9adb2bce278ff0f2a022808f0`
+
+- On preceding code SHA `83c585e37bd42efb1115fa40f649c20e3360a396`, the independent parallel workflow completed with W1 PASS, W3 PASS, W7 PASS and W2 FAIL (337 passed, 1 failed). Product IA completed with W4 PASS and W5 PASS. Windows-native publication PASS.
+- W2's only failure was `test_legacy_director_controls_remain_available_only_without_film_document`. The diagnostic showed `html.fs-studio-open` still present and the launcher parent still `display:none` immediately after the test dispatched the project selector change. The selector change is routed through the asynchronous `editorLoad` authority wrapper; the test attempted the launcher click before that transition had completed.
+- The same W2 run passed the remaining 337 tests, including the cross-track multi-select drag/commit scenario. The Studio release gate reported 343 passed and the same one launcher failure. No transaction implementation change is justified by this run.
+- Commit `67c17a2929b852b9adb2bce278ff0f2a022808f0` changes only the failing browser test: after selecting the legacy project it waits for the Studio-open document class to clear and the launcher to become visible before performing the original real click. The migration-preview and legacy-director behavior assertions remain intact. No force click, skipped assertion, production change or threshold reduction.
+- Current-SHA reruns created: parallel `42759478338`, full hosted `42759478347`, Product IA `42759478532`, Windows native `42759478331`. At this ledger update, all four workflows were in progress; their scoped jobs are separately enumerated in GitHub Actions. Do not carry forward PASS until each current-SHA job completes.
+- W6: workflow tree comparison between syntax-validation SHA `2f9aee27f63dc2d1547ed203b6347b9fd6591589` (run `42743155327`, PASS) and current tested code SHA `67c17a2929b852b9adb2bce278ff0f2a022808f0` found all seven `.github/workflows/` files byte-identical (same Git blob SHAs). No workflow dispatch action is available in the connected GitHub operations. The prior syntax PASS therefore still validates the unchanged workflow content; a new exact-SHA syntax run is not available without a workflow change/dispatch capability.
+- NVIDIA live token-stream acceptance remains SKIPPED/MISSING until the current-SHA Studio and full hosted gates pass and the dedicated explicit opt-in/secret conditions are satisfied.
+- Runner policy remains GitHub-hosted Ubuntu/Windows only; no self-hosted/local runner was used.
