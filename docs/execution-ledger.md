@@ -1182,3 +1182,31 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - The next task remains immutable snapshotting of the HTML scene dependency closure (HTML, CSS url(), images, fonts and media), serving those pinned bytes during frame capture, and rejecting publication if any source dependency changed before commit. The dependency closure must include referenced project assets outside scenes/; hashing the entire project asset library indiscriminately is not acceptable.
 - Preserve the existing offline-network, symlink/path boundary, deterministic-frame, FilmDocument revision, QC and rollback contracts. Use streaming copy/hash for large media; measure bytes and elapsed time in the regression rather than inventing a cost estimate.
 - Until that end-to-end resource snapshot regression passes on an exact hosted SHA, W3 export consistency remains OPEN / NOT ACCEPTED.
+
+
+## 53. Short-lived multi-branch execution restored; exact-SHA Studio failure isolated — 2026-11-10
+
+### Branch policy correction
+
+- Historical accepted execution design is restored as short-lived task branches plus one `main` integration target. This supersedes the earlier wording that prohibited all work branches; `main` remains the only release/integration branch and PR/manual-review handoff remains disabled.
+- Frozen branch base: `e27a53ad75f3ce6df7c76287865189667a1182a5` (main at branch creation).
+- Created independent branches:
+  - `work/w2-roll-trim-studio-regression` — W2 Roll Trim commit/Undo/Redo history behavior.
+  - `work/w3-render-resource-snapshot` — W3 immutable HTML-scene dependency snapshot and MP4/QC publication consistency.
+  - `work/w6-parallel-branch-policy` — W6 branch policy and ledger synchronization.
+- W2 and W3 own disjoint production/test files and may proceed concurrently. W6 is docs/workflow-only. Each branch must run scoped hosted CI against its own SHA; branch PASS is not integrated PASS. Completed branches are integrated directly and serially into main, then affected lanes and integrated gates rerun on one exact main SHA.
+
+### Latest hosted evidence on code SHA bcb333088ca9a3dc4e072cd602b0882b14c12c8a
+
+- Full Python/browser job `129918490494`, run `42841732897`: **1,953 passed, 2 skipped, 0 failures, 0 errors**.
+- Studio release gate job `129918491267`, same run: **346 passed, 1 failed**. Failure: `tests/test_film_studio_roll_browser.py::test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline`; Playwright timed out waiting for the `POST /api/editor/film/undo` response at the Undo history assertion. Roll source-boundary persistence assertions had already completed. This remains W2 FAIL / OPEN until the missing Undo request is explained and the real browser regression passes; do not merely increase timeout or weaken the assertion.
+- Independent lanes on the same code SHA: W1, W2, W3, W4, W5, W7, focused storage/watch, Windows-native and YAML all completed successfully. These do not override the integrated Studio failure.
+- Explicit NVIDIA live token-stream job was correctly skipped. Existing real-provider acceptance is not repeated.
+
+### Remaining execution order
+
+1. W2: diagnose why Undo is not dispatched after the roll transaction despite persisted roll state; inspect history stack/store capability and browser trace. Fix product behavior or the precise test race based on evidence, then rerun the dedicated roll browser test and Studio gate on the branch SHA.
+2. W3: implement immutable dependency closure snapshotting for HTML/CSS/images/fonts/media including referenced project assets outside scenes/, serve only snapshot bytes, verify source hashes before publication, and atomically reject MP4/QC when dependencies changed. Add deterministic mutation-during-render tests, symlink/path-boundary and cleanup coverage, and measured copy bytes/time.
+3. W6: ensure branch-scoped GitHub-hosted CI and per-branch concurrency preserve independent branch runs; keep all runners hosted-only.
+4. Integrate W2 and W3 directly to main in dependency order; rerun all affected lanes, Studio gate, full Python/browser, Windows-native and YAML against the exact resulting main SHA.
+5. Keep W3 resource snapshot and W2 integrated Studio acceptance OPEN until their explicit gates pass.

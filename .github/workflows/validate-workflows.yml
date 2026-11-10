@@ -2,7 +2,7 @@ name: Validate GitHub Actions workflow syntax
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'work/**']
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
