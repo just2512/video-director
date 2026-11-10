@@ -12,7 +12,7 @@
 | 原文条款 | 本仓库执行口径 |
 |---|---|
 | 后端 `composer/` 目录结构 | `video_director/` 包（registries/ 子包已按方案落位） |
-| 前端 UI 与构建 | Studio UI 使用 React 19 + Tailwind 4，构建产物由仓库既有 self-hosted Linux/WSL runner 编译、测试和发布；`webui/server.py` 仍使用 Python 标准库提供本地服务。禁止维护第二套可见编辑 UI 或第二份权威影片状态。 |
+| 前端 UI 与构建 | Studio UI 使用 React 19 + Tailwind 4；构建、浏览器回归与发布验证仅使用 GitHub-hosted Actions runner（Linux `ubuntu-24.04`，Windows 原生测试 `windows-latest`）。`webui/server.py` 仍使用 Python 标准库提供本地服务。禁止维护第二套可见编辑 UI 或第二份权威影片状态。 |
 | `npm run typecheck / test / build` | `python -m pytest tests/ -q`（单测/契约）+ `python tools/test_webui_*.py`（Playwright DOM 断言 E2E） |
 | 验收证据 "screenshot" | **禁止截图**（Jerry 全局规则）。UI Gate 证据 = Playwright DOM 断言输出（断言文本 + 元素存在性） |
 | frontend/src/api/client.ts | WebUI 内 `fetch()` 统一走 `webui/server.py` 端点；前端不直接拼第三方 URL |
@@ -24,11 +24,20 @@
 
 - React 19 是 Studio 正常运行时的可见 UI 所有者；Tailwind 4 只在构建时生成 CSS，不要求终端用户安装 Node.js。静态 fallback 仅用于构建/运行故障时恢复同一 FilmDocument 服务，不具备独立影片状态或写盘通道，正常 React 构建运行时必须隐藏。
 - Python 标准库 WebUI 服务与现有 FilmDocument/渲染能力保留；React 不建立第二份影片状态、剪辑时间线或独立写盘路径。
-- Studio UI 构建与浏览器回归使用项目已存在的 self-hosted runner 标签 `[self-hosted, linux, x64]`，与 `.github/workflows/ai-director.yml` 一致，不再依赖 GitHub-hosted runner 计费额度。
+- Studio UI 构建、浏览器回归、媒体/导出验收和发布验证统一使用 GitHub-hosted Actions runner：Linux 使用固定镜像 `ubuntu-24.04`，Windows 原生文件替换/进程锁测试使用 `windows-latest`。禁止使用 `self-hosted`、本地 WSL、开发者工作区或本机模型配置作为仓库 CI 执行环境。
 - 构建依赖通过 `package-lock.json` 固定；只有 typecheck、bundle/CSS 非占位检查和指定浏览器测试通过，构建产物才允许由工作流发布回 `main`。
 - 原生 `film-studio.js` 在迁移阶段仅作为编辑服务/运行时桥接与兼容路径；后续工作必须持续收敛 UI 与手势所有权，不能以“React 已有组件”为由宣称完成接管。
 
 该变更影响前端构建、Studio DOM 所有权、React 与 fallback 的交互契约及 CI：由本次工作流测试新增 `tests/test_studio_build_contract.py` 固定 runner、锁文件和真实构建产物约束。未由实际 runner 验收的能力仍标记为待验证。
+
+
+### 0.2 CI Runner 契约统一（2026-11-10）
+
+- 本节与 §0 栈适配表共同构成唯一 Runner 规则：所有仓库 CI、构建、浏览器/媒体回归、Windows 原生验证均运行于 GitHub-hosted Actions runner。
+- Linux/browser/media/build jobs 固定使用 `ubuntu-24.04`；Windows 原生文件持久化与进程锁验证使用 `windows-latest`。具体 job 可按测试所需拆分，但不得更换为自托管或本地执行环境。
+- 禁止 `self-hosted` runner、WSL runner、开发者工作区、本机凭据/模型配置进入仓库 CI。工作流不得依赖已删除或已废弃的 `ai-director.yml`。
+- 正常 push 回归与真实 NVIDIA provider acceptance 分离。真实 provider 调用仅允许在独立 GitHub-hosted job 中，由显式 `workflow_dispatch` opt-in 控制，并仅从 GitHub Actions Secret 读取凭据；不得因普通 push 自动调用或读取本地配置。
+- 此规则与 `docs/parallel-workstreams.md` 的 Runner policy、现行工作流及 `tests/test_studio_build_contract.py` 的硬性断言保持一致。修改 Runner 类别必须按 Contract Change 重新进行影响分析并更新测试与执行文档。
 
 其余条款按原文执行，逐条如下。
 

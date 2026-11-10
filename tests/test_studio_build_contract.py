@@ -1,4 +1,4 @@
-"""Hard gates for the real React Studio build and its self-hosted runner contract."""
+"""Hard gates for the real React Studio build and GitHub-hosted runner contract."""
 import json
 from pathlib import Path
 
@@ -70,6 +70,10 @@ def test_studio_build_uses_isolated_hosted_runner_and_lockfile():
     assert "@remotion/renderer" in remotion_package["dependencies"]
     assert "React 19 + Tailwind 4" in contract
     assert "第二份权威影片状态" in contract
+    assert "GitHub-hosted Actions runner" in contract
+    assert "禁止使用 `self-hosted`" in contract
+    assert "windows-latest" in contract
+    assert "0.2 CI Runner 契约统一" in contract
 
 def test_studio_published_assets_are_real_build_outputs():
     root = Path(__file__).resolve().parents[1]

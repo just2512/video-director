@@ -1081,3 +1081,25 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 2. Clean the two invalid-escape warnings and the Pillow deprecation as narrow test-maintenance changes, then rerun the owning lanes and exact-SHA integrated hosted gates for the resulting code SHA.
 3. The root `CONTRACT.md` runner-policy contradiction remains BLOCKED under the contract's own change-control rule. It must not be silently rewritten or bypassed; all unrelated W1–W7 work may continue.
 4. No new paid NVIDIA call is required; the live LLM acceptance is already PASS under §37.
+
+## 48. GitHub-hosted Runner 契约统一与 warning 根因修复 — 2026-11-10
+
+### 已授权 Contract Change
+
+- 用户明确授权修改根目录 `CONTRACT.md`。本次修改 §0 栈适配表、§0.1 Studio runner 条款，并新增 §0.2，统一规定仓库 CI 只能使用 GitHub-hosted Actions runner：Linux `ubuntu-24.04`，Windows 原生测试 `windows-latest`。
+- 明确禁止 self-hosted、WSL、开发者工作区和本机模型配置进入 CI；普通 push 回归与 NVIDIA 真实 provider 调用继续隔离，后者只允许独立 hosted job + 显式 workflow_dispatch opt-in + GitHub Actions Secret。
+- 与 `docs/parallel-workstreams.md` Runner policy、现行 workflows 和测试硬闸门一致；不更改 runner class、不放宽验收，也不恢复旧 `ai-director.yml`。
+
+### ca2da6a 的 exact-SHA CI 结果
+
+- Tested code/workflow SHA: `ca2da6ae2eebf71956b5cdd0095fe76d177182d5`。
+- W1: 89 passed；W2: 355 passed；W3: 287 passed, 1 skipped；W7: 2 passed。
+- W4: 36 passed；W5: 13 passed。
+- Full pytest: 1,952 passed, 2 skipped, 0 failures/errors；Studio release gate: 346 passed；Windows native publication: 2 passed；workflow syntax: success。
+- W2、full pytest、Studio gate 的无效转义和 Pillow deprecation warnings 已消失。Full pytest 仍有 1 条 Pydantic serializer warning，根因已定位为 `tests/test_adversarial_fixes.py::TestP0RippleDelete::test_visual_plain_delete_leaves_gap` 在测试夹具中向类型化 `CompositionIR.assets/visual_overlays` 追加原始 dict；不属于生产数据路径。此提交将夹具改为 `AssetRef.model_validate` / `VisualOverlayClip.model_validate`，保留原行为断言。
+- NVIDIA job 正常 push 时 SKIPPED；既有手动授权真实 LLM token-stream 验收仍单独记录在 §37，不代表视频生成 provider 验收。
+
+### 当前变更及待验证
+
+- 本节记录的 Runner Contract Change、对应测试断言和 warning fixture 修复作为一个 main commit 集成；必须等待新 SHA 的完整 hosted CI 结果，不能沿用 `ca2da6a` 作为新树验收证据。
+- Contract 与测试通过后，下一阶段按 19D 继续审计 FilmDocument revision/operation history、项目切换与外部文件变更交错、生成任务与资产目录一致性、revision-pinned MP4/QC 失败恢复。每项必须先从源码和既有测试证明具体缺口，再新增行为验收；不得以增加测试数量代替交付。

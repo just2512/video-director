@@ -195,15 +195,15 @@ class TestP0RippleDelete:
     def test_visual_plain_delete_leaves_gap(self, tmp_path):
         from video_director.editor import _cmd_remove_visual_overlay
         pid, ir = _project(tmp_path)
-        ir.assets.append({"id": "img-a", "type": "image", "file": "x.png", "duration": 30.0})
-        ir.visual_overlays.append({
+        ir.assets.append(AssetRef.model_validate({"id": "img-a", "type": "image", "file": "x.png", "duration": 30.0}))
+        ir.visual_overlays.append(VisualOverlayClip.model_validate({
             "id": "ov-first", "asset_id": "img-a", "track_id": "overlay-main",
             "start": 1.0, "duration": 2.0, "source_in": 0.0,
-        })
-        ir.visual_overlays.append({
+        }))
+        ir.visual_overlays.append(VisualOverlayClip.model_validate({
             "id": "ov-later", "asset_id": "img-a", "track_id": "overlay-main",
             "start": 5.0, "duration": 2.0, "source_in": 0.0,
-        })
+        }))
         save_composition(pid, ir)
         cur = load_composition(pid)
         _cmd_remove_visual_overlay(cur, "overlay#0", {})
