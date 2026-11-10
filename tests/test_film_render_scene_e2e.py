@@ -142,6 +142,21 @@ def test_render_resource_snapshot_pins_recursive_dependencies_and_rejects_change
     assert not (project / "qc" / "film-final-test-revision.json").exists()
 
 
+def test_render_snapshot_preflight_failure_cleans_partial_workdir(tmp_path, monkeypatch):
+    from video_director import config, film_render
+
+    project_id, revision = _write_html_film_project(tmp_path, monkeypatch)
+    project = config.project_dir(project_id)
+    (project / "assets" / "moving-red.png").unlink()
+
+    with pytest.raises(film_render.FilmRenderError) as error:
+        film_render.render_project_film(project_id, expected_revision=revision, fps=2)
+
+    assert error.value.code == "RESOURCE_SNAPSHOT_FAILED"
+    render_dir = project / "render"
+    assert not list(render_dir.glob(f".film-render-{revision}-*.work"))
+
+
 def test_film_render_accepts_frame_driven_html_scene_and_pins_revision(tmp_path, monkeypatch):
     pytest.importorskip("playwright.sync_api")
     from video_director import film_document as fd, film_render, prober, renderer
