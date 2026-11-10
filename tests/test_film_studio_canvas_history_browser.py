@@ -422,7 +422,8 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     "() => window.filmStudioHasCurrentFilmAuthority?.() === true",
                     timeout=15000,
                 )
-                page.evaluate("window.filmStudioToggle()")
+                # Loading a film.html project through editorLoad auto-opens Studio;
+                # toggling here would immediately close the panel again.
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="scene-clip"]').wait_for(state="visible")
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").wait_for(
