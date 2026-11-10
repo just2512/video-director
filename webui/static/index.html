@@ -25,10 +25,10 @@
        然后定位到 Scene/Layer/Pair，不需要第二套页面与第二套 Selection）。 -->
   <header class="topbar">
     <span class="brand">创作中心</span>
-    <nav class="tab-row">
-      <button class="tab tab-active" id="tab-home" onclick="switchTab('home')">项目</button>
-      <button class="tab" id="tab-editor" onclick="switchTab('editor')">工作台</button>
-      <button class="tab" id="tab-settings" onclick="switchTab('settings')">设置</button>
+    <nav class="tab-row" aria-label="主导航">
+      <button class="tab tab-active" id="tab-home" aria-controls="pane-home" aria-current="page" onclick="switchTab('home')">项目</button>
+      <button class="tab" id="tab-editor" aria-controls="pane-editor" onclick="switchTab('editor')">工作台</button>
+      <button class="tab" id="tab-settings" aria-controls="pane-settings" onclick="switchTab('settings')">设置</button>
     </nav>
     <span class="topbar-spacer"></span>
     <!-- 收集抽屉（顶栏 + 收集，不占首页主体） -->
