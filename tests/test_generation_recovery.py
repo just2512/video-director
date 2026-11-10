@@ -21,6 +21,28 @@ from pathlib import Path
 
 import pytest
 
+import multiprocessing
+
+
+def _generation_process_update(project_id, job_id, ready_queue, start_event, result_queue):
+    from video_director import generation as generation_module
+
+    ready_queue.put(job_id)
+    if not start_event.wait(timeout=15):
+        result_queue.put((job_id, "barrier-timeout"))
+        return
+    try:
+        updated = generation_module._update_job(
+            project_id,
+            job_id,
+            {"status": "running", "provider_task_id": f"provider-{job_id}"},
+        )
+        result_queue.put((job_id, updated.get("provider_task_id")))
+    except Exception as exc:  # surfaced in the parent assertion
+        result_queue.put((job_id, f"{type(exc).__name__}: {exc}"))
+
+
+
 
 def _isolate(tmp_path, monkeypatch):
     """标准隔离：存储根 + LLM 层 + model_config 缓存。"""
@@ -2114,3 +2136,48 @@ class TestVideoProviderIdentity:
         assert {identity["endpoint"] for identity in identities} == {
             "https://provider-one.example/v1", "https://provider-two.example/v1"
         }
+
+
+def test_generation_job_ledger_merge_is_safe_across_independent_processes(tmp_path, monkeypatch):
+    """Separate OS processes must not lose each other's read/modify/write updates."""
+    from video_director import config, generation as generation_module
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "generation-multiprocess-ledger"
+    config.project_dir(project_id).mkdir(parents=True, exist_ok=True)
+    generation_module._save_jobs(project_id, {})
+
+    context = multiprocessing.get_context("fork")
+    ready_queue = context.Queue()
+    result_queue = context.Queue()
+    start_event = context.Event()
+    job_ids = [f"worker-{index}" for index in range(8)]
+    workers = [
+        context.Process(
+            target=_generation_process_update,
+            args=(project_id, job_id, ready_queue, start_event, result_queue),
+        )
+        for job_id in job_ids
+    ]
+    for worker in workers:
+        worker.start()
+
+    ready = {ready_queue.get(timeout=15) for _ in workers}
+    assert ready == set(job_ids)
+    start_event.set()
+
+    results = {}
+    for _ in workers:
+        job_id, result = result_queue.get(timeout=20)
+        results[job_id] = result
+    for worker in workers:
+        worker.join(timeout=20)
+        assert not worker.is_alive(), "generation ledger writer did not exit"
+        assert worker.exitcode == 0
+
+    assert results == {job_id: f"provider-{job_id}" for job_id in job_ids}
+    persisted = generation_module._load_jobs(project_id)
+    assert set(persisted) == set(job_ids)
+    assert {
+        job_id: persisted[job_id]["provider_task_id"] for job_id in job_ids
+    } == {job_id: f"provider-{job_id}" for job_id in job_ids}
