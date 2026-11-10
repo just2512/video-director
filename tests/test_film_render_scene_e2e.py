@@ -867,6 +867,55 @@ def test_look_aborts_before_publishing_when_film_changes_during_sampling(tmp_pat
     assert not list(output.parent.glob(f"contact-{original_revision}.tmp.png")) if output.parent.exists() else True
 
 
+def test_look_aborts_when_scene_dependency_changes_during_sampling(tmp_path, monkeypatch):
+    """Look serves pinned bytes and rejects a contact sheet if a dependency changes."""
+    pytest.importorskip("playwright.sync_api")
+    import os
+
+    from video_director import config, film_render
+
+    project_id, revision = _write_html_film_project(tmp_path, monkeypatch)
+    project = config.project_dir(project_id)
+    scene = project / "scenes" / "opening.html"
+    scene.write_text(
+        scene.read_text(encoding="utf-8").replace(
+            "</head>", '<link rel="stylesheet" href="theme.css"></head>'
+        ),
+        encoding="utf-8",
+    )
+    (project / "scenes" / "theme.css").write_text(
+        "#background{background-image:url('../assets/palette.svg')}\n", encoding="utf-8"
+    )
+    palette = project / "assets" / "palette.svg"
+    original_svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="#111111" width="4" height="4"/></svg>'
+    changed_svg = original_svg.replace("#111111", "#222222")
+    assert len(original_svg) == len(changed_svg)
+    palette.write_text(original_svg, encoding="utf-8")
+
+    original_diff = film_render._frame_diff_stats
+    mutation = {"count": 0}
+
+    def change_dependency_after_final_sample(*args, **kwargs):
+        result = original_diff(*args, **kwargs)
+        mutation["count"] += 1
+        if mutation["count"] == 2:
+            before = palette.stat()
+            palette.write_text(changed_svg, encoding="utf-8")
+            os.utime(palette, ns=(before.st_atime_ns, before.st_mtime_ns))
+        return result
+
+    monkeypatch.setattr(film_render, "_frame_diff_stats", change_dependency_after_final_sample)
+    with pytest.raises(film_render.FilmRenderError) as error:
+        film_render.look_project_film(project_id, expected_revision=revision, times=[0.0, 0.5])
+
+    assert mutation["count"] == 2
+    assert error.value.code == "RESOURCE_REVISION_CONFLICT"
+    assert error.value.status == 409
+    output = project / ".film" / "cache" / "look" / f"contact-{revision}.png"
+    assert not output.exists()
+    assert not list(output.parent.glob(f".contact-{revision}.*.tmp.png")) if output.parent.exists() else True
+
+
 @pytest.mark.parametrize("expected_revision", ["", "   ", None])
 def test_film_render_rejects_missing_or_blank_expected_revision_before_side_effects(
     tmp_path, monkeypatch, expected_revision,
