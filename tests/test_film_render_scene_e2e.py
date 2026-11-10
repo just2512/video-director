@@ -1127,3 +1127,96 @@ def test_migrated_project_external_revision_reopen_look_and_mp4_qc_share_one_rev
     assert archive.read_bytes() == archive_bytes
     assert __import__("hashlib").sha256(archive.read_bytes()).hexdigest() == archive_digest
 
+
+
+def test_resource_snapshot_large_media_copy_is_streaming_and_reports_cost(tmp_path, monkeypatch, record_property):
+    """Exercise a production-sized media object without loading it into Python memory."""
+    import hashlib
+    import time
+    import tracemalloc
+
+    from video_director import config
+    from video_director.film_resource_snapshot import SceneResourceSnapshot
+
+    project_id, _revision = _write_html_film_project(tmp_path, monkeypatch)
+    project = config.project_dir(project_id)
+    source = project / "assets" / "large-media-fixture.bin"
+    block = bytes((index % 251 for index in range(1024 * 1024)))
+    expected = hashlib.sha256()
+    size_bytes = 64 * 1024 * 1024
+    with source.open("wb") as handle:
+        for _ in range(size_bytes // len(block)):
+            handle.write(block)
+            expected.update(block)
+
+    snapshot_root = project / ".film" / "cache" / "resource-snapshot-scale"
+    snapshot_root.parent.mkdir(parents=True, exist_ok=True)
+    tracemalloc.start()
+    started = time.perf_counter()
+    snapshot = SceneResourceSnapshot(project_id, snapshot_root).build(
+        ["assets/large-media-fixture.bin"]
+    )
+    snapshot.validate_sources()
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    _current, peak_bytes = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    copied = snapshot.path_for("assets/large-media-fixture.bin")
+    assert copied is not None and copied.stat().st_size == size_bytes
+    assert hashlib.sha256(copied.read_bytes()).hexdigest() == expected.hexdigest()
+    report = snapshot.report()
+    assert report["bytes_copied"] == size_bytes
+    assert report["resource_count"] == 1
+    assert report["copy_elapsed_ms"] >= 0
+    # The implementation reads fixed 1 MiB chunks; heap usage must not scale with
+    # the 64 MiB source object. This is a Python-heap bound, not an RSS claim.
+    assert peak_bytes < 8 * 1024 * 1024
+    record_property("snapshot_fixture_bytes", size_bytes)
+    record_property("snapshot_copy_elapsed_ms", report["copy_elapsed_ms"])
+    record_property("snapshot_copy_plus_validation_elapsed_ms", round(elapsed_ms, 3))
+    record_property("snapshot_python_heap_peak_bytes", peak_bytes)
+    summary_path = __import__("os").environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        with open(summary_path, "a", encoding="utf-8") as summary:
+            summary.write(
+                "| Resource snapshot fixture | Result |\n"
+                "|---|---:|\n"
+                f"| Source bytes | {size_bytes} |\n"
+                f"| Copy time (ms) | {report['copy_elapsed_ms']} |\n"
+                f"| Copy + source validation (ms) | {elapsed_ms:.3f} |\n"
+                f"| Python heap peak (bytes) | {peak_bytes} |\n"
+            )
+
+
+def test_resource_snapshot_rejects_metadata_preserving_rewrite_on_native_platform(tmp_path, monkeypatch):
+    """The snapshot's content guard must not depend on POSIX-only file metadata."""
+    import os
+
+    from video_director import config
+    from video_director.film_resource_snapshot import ResourceSnapshotError, SceneResourceSnapshot
+
+    project_id, _revision = _write_html_film_project(tmp_path, monkeypatch)
+    project = config.project_dir(project_id)
+    source = project / "assets" / "portable-resource.bin"
+    original = b"A" * 4096
+    replacement = b"B" * 4096
+    source.write_bytes(original)
+
+    snapshot_root = project / ".film" / "cache" / "resource-snapshot-platform"
+    snapshot_root.parent.mkdir(parents=True, exist_ok=True)
+    snapshot = SceneResourceSnapshot(project_id, snapshot_root).build(
+        ["assets/portable-resource.bin"]
+    )
+    pinned = snapshot.path_for("assets/portable-resource.bin")
+    assert pinned is not None and pinned.read_bytes() == original
+
+    before = source.stat()
+    source.write_bytes(replacement)
+    os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+    after = source.stat()
+    assert after.st_size == before.st_size
+    assert after.st_mtime_ns == before.st_mtime_ns
+
+    with pytest.raises(ResourceSnapshotError, match="changed before publication"):
+        snapshot.validate_sources()
+    assert pinned.read_bytes() == original
