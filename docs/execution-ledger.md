@@ -748,3 +748,38 @@ The exact-SHA jobs have now all completed:
 - Refresh every independent job and integrated gate for exact SHA `18769c9b5e3d175b0af443ffe1f0e9aa653fa22b`. Do not carry W2/W3 evidence from the incomplete `180e` run.
 - If the awaited W2 transition still fails, inspect the returned `load_result` and browser DOM/authority state; do not add forced clicks, skips or relaxed assertions.
 - Confirm the NVIDIA live job is SKIPPED on this push. 19D-10 remains MISSING/OPEN until a separate, explicitly authorized `workflow_dispatch` with `run_live_nvidia=true`.
+
+
+## 34. React timeline parity, W2 integrated failure and hosted revalidation — 2026-11-10
+
+### Exact-SHA result reconciliation
+
+- Code SHA `e75d075b4205a8c4a84de876810c3903f3dcc4b1`:
+  - W1/W2/W3/W7 independent parallel jobs: PASS (run `42788985010`).
+  - W4/W5 Product IA jobs: PASS (run `42788984901`).
+  - Workflow syntax: PASS (run `42788984906`).
+  - Windows-native publication: PASS (run `42788985219`).
+  - Full Python/browser regression: PASS (job `129737436341`, full run `42788985381`).
+  - Studio release gate: FAIL (job `129737436447`): 345 passed, 1 failed, 2 warnings. Failure: `tests/test_film_studio_roll_browser.py::test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track[valid-target]`. The failure diagnostic shows the transaction journal and history contain the expected move of `clip-a` to `video-alt` at 5s, while the final `film.html` read still contains `clip-a` on `video-main`. This is a real persistence/observation inconsistency, not an assertion to relax.
+  - NVIDIA live job was SKIPPED; 19D-10 remains MISSING/OPEN.
+- The earlier W2 scoped job was not configured with `VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO=1` and did not build the React Studio bundle. Therefore its PASS on `e75d075` did not establish React timeline behavior. This CI parity defect explains why the scoped W2 lane did not catch the integrated React-only failure.
+
+### Corrections committed
+
+- Test diagnostic commit `aba3b648b60de59952ae87c32e697d29e0394532` adds an explicit wait for the cross-track `/api/editor/film/edit` response and records its status/body before checking persisted `film.html`. Existing operation, revision, source/target track, history and cleanup assertions remain intact.
+- W6 workflow correction commit `cd1b909858f8857c30ae91af05d21dbf20122ee5` makes W2 build React 19 Studio (typecheck, JS bundle and Tailwind CSS) and sets `VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO=1`. W2's scoped browser tests now run against the same React timeline implementation as the integrated Studio release gate.
+- Parallel-workflow contract documentation commit `4e329c8623ede507bcf88c1cab08f02284bac6ea` records this parity requirement. This is documentation-only and does not alter the tested code/workflow SHA.
+
+### Hosted verification started
+
+- Tested code/workflow SHA: `cd1b909858f8857c30ae91af05d21dbf20122ee5`.
+- Parallel workstream run `42794600705`; Product IA run `42794600593`; full hosted run `42794600956`; workflow syntax run `42794600765`; Windows-native run `42794600862`.
+- At the time of this ledger entry these runs were queued/pending. The earlier `aba3b648` run's W1 and Windows-native checks had completed successfully; remaining jobs were superseded by the W6 correction and must not be carried forward as exact-SHA acceptance.
+- All workflows remain GitHub-hosted Ubuntu/Windows only. No self-hosted, local, WSL or developer runner was used. No NVIDIA provider call was dispatched.
+
+### Required reconciliation
+
+1. Refresh all W1/W2/W3/W7 and W4/W5 jobs plus full Python/browser, Studio release gate, YAML and Windows publication for exact SHA `cd1b909858f8857c30ae91af05d21dbf20122ee5`.
+2. Inspect the new W2 React-required run's cross-track POST response body and the exact disk revision. If it exposes an interrupted FilmDocument transaction, fix the owning W2/FilmDocument persistence defect; do not weaken the persisted-source/target/history assertions.
+3. If W2 scoped and integrated gate disagree again, treat that as an orchestration or environment parity failure, not a reason to accept either result without diagnosis.
+4. Keep 19D-10 MISSING until separately authorized explicit hosted dispatch. No automatic or commit-marker provider invocation is permitted.
