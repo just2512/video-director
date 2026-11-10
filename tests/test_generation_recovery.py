@@ -2140,8 +2140,6 @@ class TestVideoProviderIdentity:
 
 def test_generation_job_ledger_merge_is_safe_across_independent_processes(tmp_path, monkeypatch):
     """Separate OS processes must not lose each other's read/modify/write updates."""
-    import queue
-
     from video_director import config, generation as generation_module
 
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
