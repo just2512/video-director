@@ -31,11 +31,11 @@ jobs:
       VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO: "1"
     steps:
       - name: Check out exact source revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -108,7 +108,7 @@ jobs:
           PY
       - name: Retain full regression logs and JUnit
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: full-regression-${{ github.sha }}
           path: |
@@ -125,17 +125,17 @@ jobs:
       VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO: "1"
     steps:
       - name: Check out exact source revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
       - name: Set up Node 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: studio_ui/package-lock.json
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -228,7 +228,7 @@ jobs:
           node --check third_party/huashu/huashu_motion_bundle.js
       - name: Retain Studio release-gate diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: studio-release-gate-${{ github.sha }}
           path: |
@@ -248,11 +248,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out exact source revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Install application dependencies
@@ -382,7 +382,7 @@ jobs:
           python -m video_director.live_stream_acceptance --junit live-stream-junit.xml
       - name: Retain real NVIDIA JUnit evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nvidia-live-stream-${{ github.sha }}
           path: live-stream-junit.xml

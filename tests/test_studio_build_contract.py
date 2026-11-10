@@ -120,7 +120,7 @@ def test_studio_release_gate_and_live_acceptance_are_separate_hosted_jobs():
     assert "needs: [full_regression, studio_release_gate]" in live_job
     assert "if: steps.live_provider_probe.outcome == 'success'" in live_job
     assert "python -m video_director.live_stream_acceptance --junit live-stream-junit.xml" in live_job
-    assert "actions/upload-artifact@v4" in full_workflow
+    assert "actions/upload-artifact@v7" in full_workflow
     assert "GITHUB_STEP_SUMMARY" in full_workflow
     assert "git push" not in full_workflow
     assert "LIVE_STREAM_ACCEPTANCE=MISSING" in live_job
@@ -471,7 +471,7 @@ def test_full_hosted_workflow_retains_regression_diagnostics():
     assert "timeline-junit.xml" in workflow
     assert "pytest-output.log" in workflow
     assert "junit.xml" in workflow
-    assert "actions/upload-artifact@v4" in workflow
+    assert "actions/upload-artifact@v7" in workflow
 
 def test_film_ai_progress_events_are_distinct_from_model_tokens():
     root = Path(__file__).resolve().parent.parent
