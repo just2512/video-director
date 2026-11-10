@@ -110,5 +110,7 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
   - `work/w6-parallel-branch-policy`: W6 branch protocol and execution-ledger synchronization.
 - W2 and W3 may progress concurrently because their primary write scopes are disjoint. W6 is documentation/workflow policy only and must not edit W2/W3 production files.
 - Run branch-scoped hosted tests on each branch SHA. Do not treat branch PASS as integrated PASS.
+
+- Branch-scoped workflow filters execute only the owning lane on `work/w1-*` through `work/w7-*`; the `main` integration target still executes all applicable lanes. This prevents every task branch from paying for unrelated W1/W2/W3/W7 suites.
 - Integrate W2 and W3 serially to `main` after scoped acceptance, then run W1–W7 affected lanes, Studio release gate, full Python/browser, Windows-native and YAML validation on the same final main SHA.
 - No PR/manual reviewer handoff; the coordinator performs direct integration and conflict resolution. Delete each short-lived branch only after its commits are integrated and exact-main acceptance is recorded.
