@@ -384,3 +384,67 @@ def test_override_metadata_failures_are_reported_instead_of_silently_dropped():
     assert "styleValueAllowed(key, value)" in apply
     assert "'film-override-warning':'film-runtime:override-warning'" in outer_runtime
     assert "HTML 镜头 overrides 提示：" in studio
+
+
+def test_scene_frame_primitives_repeat_for_the_same_requested_time():
+    """A repeated exact frame must see the same controlled clock and random stream."""
+    from playwright.sync_api import sync_playwright
+
+    scene = inject_scene_runtime(
+        """<!doctype html><html><head></head><body><script>
+        window.film = {frame:function(t) {
+          var fingerprint = {
+            time:t,
+            dateNow:Date.now(),
+            dateValue:new Date().getTime(),
+            performanceNow:performance.now(),
+            random:[Math.random(),Math.random(),Math.random()]
+          };
+          document.body.dataset.fingerprint = JSON.stringify(fingerprint);
+          parent.postMessage({type:'scene-drew',fingerprint:fingerprint}, '*');
+        }};
+        </script></body></html>""",
+        "film-test",
+        "scenes/repeatable.html",
+    )
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True, args=["--no-sandbox"])
+        page = browser.new_page()
+        page.set_content("""<!doctype html><html><body>
+          <iframe id="scene" sandbox="allow-scripts"></iframe>
+          <script>
+            window.__draws = [];
+            window.__acks = [];
+            var frame = document.getElementById('scene');
+            window.addEventListener('message', function(event) {
+              if (event.source !== frame.contentWindow || !event.data) return;
+              if (event.data.type === 'scene-drew') window.__draws.push(event.data.fingerprint);
+              if (event.data.type === 'film-frame:ready') window.__acks.push(event.data);
+            });
+            frame.addEventListener('load', function() {
+              frame.contentWindow.postMessage({type:'film-frame',time:2.75,frame:1}, '*');
+            });
+          </script>
+        </body></html>""")
+        page.locator("#scene").evaluate("(frame, source) => { frame.srcdoc = source; }", scene)
+        page.wait_for_function("window.__acks.some(item => item.frame === 1)", timeout=15000)
+        first_ack = page.evaluate("window.__acks.find(item => item.frame === 1)")
+        assert first_ack["supported"] is True
+        assert first_ack["error"] is None
+
+        page.evaluate("""() => document.getElementById('scene').contentWindow.postMessage(
+          {type:'film-frame',time:2.75,frame:2}, '*')""")
+        page.wait_for_function("window.__acks.some(item => item.frame === 2)", timeout=15000)
+        second_ack = page.evaluate("window.__acks.find(item => item.frame === 2)")
+        assert second_ack["supported"] is True
+        assert second_ack["error"] is None
+
+        draws = page.evaluate("window.__draws")
+        assert len(draws) == 2
+        assert draws[0] == draws[1]
+        assert draws[0]["time"] == 2.75
+        assert draws[0]["dateNow"] == 1767225600000 + 2750
+        assert draws[0]["dateValue"] == draws[0]["dateNow"]
+        assert draws[0]["performanceNow"] == 2750
+        assert len(set(draws[0]["random"])) == 3
+        browser.close()
