@@ -1107,3 +1107,11 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - 对照 `video_director/film_document.py::build_film_from_composition` 与 `tests/test_film_variant_migration_api.py`，确认迁移行为：无 variants 时使用顶层 scenes/audio；单一 variant 可自动选用；多个 variants 未指定时返回 `ACTIVE_VARIANT_REQUIRED`；显式指定不存在的 ID 返回 `ACTIVE_VARIANT_NOT_FOUND`。后两种情况不得静默回退到顶层内容。
 - 发现 `docs/composition-ir-migration-field-audit.md` 的顶层与递归重复条目把“无有效 ID 时回退到顶层”写得过于宽泛，可能误导多个候选版本的迁移决策。已修正文案，明确分支条件；这是文档纠错，不改变代码行为。
 - 当前 HTTP 回归已验证多 variants 缺少选择时返回 `ACTIVE_VARIANT_REQUIRED`，并验证显式选择的版本只迁移所选 variant。下一步补充显式未知 variant ID 返回 `ACTIVE_VARIANT_NOT_FOUND` 且不创建 `film.html` 的 HTTP 级回归；在该断言进入精确 SHA hosted CI 前，不把未知 ID 的 HTTP 端到端拒绝路径标为已验收。
+
+
+## 50. 19D-11 bounded scene capability matrix reconciled — 2026-11-10
+
+- The bounded HTML-scene capability inventory is already present in `docs/film-scene-capability-matrix.md`; it explicitly separates supported `window.film.frame(t)` scenes, local resource handling, external-network rejection, unsupported arbitrary HTML/WebGL, uncontrolled asynchronous state and cross-device pixel identity claims.
+- The W3 lane on exact code SHA `cd99d98dd0eb6649592a7086c6cc87f55e2984de`, job `129876675459` in run `42829833193`, completed **287 passed, 1 skipped**. Its regression set includes scene runtime, resource readiness, render/look revision pinning, missing-resource rejection and clip-ID-specific frame failure tests.
+- This closes the documentation/inventory task; it does not broaden renderer support. Arbitrary HTML/WebGL determinism and exhaustive edit-operation permutations remain explicitly outside the contract.
+- The next narrow W3 acceptance item is the explicit unknown `selected_variant_id` HTTP rejection test recorded in §49. No new renderer feature is justified until that boundary and the current integrated release rerun are closed.
