@@ -590,6 +590,9 @@ def test_chromium_loads_unified_editor_workspace(tmp_path: Path):
 
                 # Browser-level contract for lifting a main video clip into the same
                 # independently editable global visual track shown in the timeline.
+                # W7 correctly hides inactive panes from assistive technology.
+                # Activate the editor before querying its Inspector by accessible role.
+                page.locator("#tab-editor").click()
                 promotion_setup = page.evaluate("""() => {
                     ED.comp.visual_tracks = [{id: 'overlay-main', name: '画面叠加', order: 0}];
                     ED.comp.scenes[0].layers[0] = {
