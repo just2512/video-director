@@ -932,3 +932,12 @@ The exact-SHA jobs have now all completed:
 - Exact-SHA Windows-native job `129803866735`, run `42808558319`: **2 passed in 1.94s**. The log explicitly shows both `test_windows_write_through_replace_and_delete_round_trip` and `test_catalog_file_lock_serializes_independent_processes` were executed. This directly exercises the Windows `msvcrt.locking` branch and `MoveFileExW` write-through replacement.
 - W1 job `129803982431`: PASS. W7 job `129803982323`: PASS. W5 job `129803986878`: PASS.
 - At this update W2 job `129803982490`, W4 job `129803986421`, Studio release gate job `129804003079`, and full Python/browser job `129804004016` were still running. No final integrated PASS is claimed until those jobs complete.
+
+
+## 41. W2 exact-SHA regression failure and same-SHA rerun — 2026-11-10
+
+- W2 job `129803982490` in run `42808558365` on code/workflow SHA `d1e93ed86a8750b2c5b6b6cadbd40db04518a5b7` completed **354 passed, 1 failed**.
+- Sole failure: `tests/test_film_studio_external_watch_browser.py::test_external_agent_write_hot_reloads_and_recovers_after_broken_document`. The failure is specifically the real React trim-start gesture: after pointerup, the test expected `clip-a.attrs.at` to advance by more than 0.1s, but the persisted/API-observed value remained `0.0`. It is not an audio-volume assertion.
+- The test's transient preview geometry changed and the FilmDocument/API/Store revisions agreed, but the final persisted trim start did not satisfy the expected movement. Existing assertions were not relaxed.
+- Triggered a rerun of only the failed W2 job at the same exact SHA. Rerun job ID: `129806508387`; status was in progress at this ledger update.
+- W1, W3, W7 and W4/W5 are independently green on this SHA. Studio release gate is green. Full Python/browser regression is still running. Do not call integrated acceptance PASS until the W2 rerun and full regression are reconciled.
