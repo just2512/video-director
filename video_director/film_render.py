@@ -1369,15 +1369,19 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
         shutil.rmtree(temp_root, ignore_errors=True)
         raise
     frame_dir = temp_root / "frames"
-    frame_dir.mkdir()
-    resource_snapshot = _snapshot_project_resources(pid, doc, temp_root / "resources")
-    _validate_source_ranges(pid, doc, resource_snapshot)
     silent_video = temp_root / "silent.mp4"
     output_temp = temp_root / "final.mp4"
     media_server = None
     browser = None
+    resource_snapshot = None
 
     try:
+        # Snapshot construction and source-range validation are inside the
+        # workdir cleanup scope: a missing/unsafe dependency must not leak a
+        # partially copied render directory.
+        frame_dir.mkdir()
+        resource_snapshot = _snapshot_project_resources(pid, doc, temp_root / "resources")
+        _validate_source_ranges(pid, doc, resource_snapshot)
         media_server = _RenderHTTPServer(("127.0.0.1", 0), pid, resource_snapshot)
         server_thread = threading.Thread(target=media_server.serve_forever, name="film-render-media", daemon=True)
         server_thread.start()
