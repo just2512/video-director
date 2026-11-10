@@ -46,6 +46,12 @@ Documentation-only commits do not rerun the expensive full test suite. Every cod
 A workstream PASS is not an integrated PASS. After each integration commit, rerun affected hosted scoped tests. Final acceptance requires all required workstream tests, browser E2E and full hosted regression to pass on the exact same `main` SHA. Never weaken or skip a gate to make the workflow green.
 
 
+## React Studio lane parity correction (2026-11-10)
+
+- W2's hosted lane must exercise the same React 19 timeline surface as the Studio release gate. It now builds `studio_ui` (typecheck, React bundle and Tailwind CSS) and sets `VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO=1` before running timeline browser regressions.
+- A W2 PASS from the earlier fallback-only lane is not evidence for React timeline behavior. Exact-SHA W2 and integrated Studio release-gate results remain separate acceptance records.
+- W7 remains the only serial owner of shared shell files. This W2 CI correction is owned by W6 and does not change W2 production ownership or shared-shell boundaries.
+
 ## Acceptance coverage refinements (2026-11-09)
 
 - W2 includes the revision-bound AI proposal preview/reject/apply and stream contract browser tests; these are part of the 19D AI editing contract, not a separate timeline authority.
