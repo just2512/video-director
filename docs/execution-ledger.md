@@ -941,3 +941,12 @@ The exact-SHA jobs have now all completed:
 - The test's transient preview geometry changed and the FilmDocument/API/Store revisions agreed, but the final persisted trim start did not satisfy the expected movement. Existing assertions were not relaxed.
 - Triggered a rerun of only the failed W2 job at the same exact SHA. Rerun job ID: `129806508387`; status was in progress at this ledger update.
 - W1, W3, W7 and W4/W5 are independently green on this SHA. Studio release gate is green. Full Python/browser regression is still running. Do not call integrated acceptance PASS until the W2 rerun and full regression are reconciled.
+
+
+## 42. W2 same-SHA rerun passed; W4/W5 and Studio gate reconciled — 2026-11-10
+
+- W2 initial job `129803982490` had one transient failure in the external-watch trim-start browser test; see section 41. Re-running the same W2 job on the same code/workflow SHA produced job `129806508387`: **355 passed, 1 warning in 99.59s**. No code, test, assertion, timeout, or workflow change was made between the failed attempt and this rerun.
+- This is recorded as an intermittent first-attempt failure followed by a clean exact-SHA rerun, not as proof that the original failure never happened. Keep the test and its >0.1s persisted trim assertion unchanged. The full regression below is still required as the independent integrated check.
+- W4 job `129803986421`: PASS. W5 job `129803986878`: PASS, run `42808558337`.
+- Studio release gate job `129804003079`: **346 passed, 2 warnings**, PASS, run `42808558382`.
+- Full Python/browser job `129804004016` in run `42808558382` remained in progress at this update. Final overall acceptance is pending that result.
