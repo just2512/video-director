@@ -2174,6 +2174,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     }
     mask.style.display='none';mask.setAttribute('aria-hidden','true');
     if(window.CF)window.CF.state='idle';
+    cfRestoreCreateDialogFocus();
     return true;
   };
   async function clearSavedDraft(){
@@ -2197,6 +2198,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(timer){clearTimeout(timer);timer=null;}
     document.getElementById('cf-mask')?.remove();
     for(const id of ['sg-mask','tg-mask'])document.getElementById(id)?.remove();
+    cfRestoreCreateDialogFocus();
     try{await clearSavedDraft();}catch(_){}
     if(window.CF)window.CF.state='idle';restored=false;restorePromise=null;restoredDraftAvailable=false;defaultFieldsSnapshot=null;dirtyFields.clear();
   };
