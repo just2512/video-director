@@ -59,11 +59,11 @@ The baseline is `c221a0b4fe4eb8e572e85fc20bb7ec4afc2ab4f1`. Historical CI eviden
 | 07D-01 | Safe partial model-config updates preserve omitted roles/fields and keys | PASS (safe merge path recorded in 2026-11-07 audit closure) | UNKNOWN | Re-run config contract tests on hosted runner; do not inspect or modify a developer's local config |
 | 07D-02 | Existing create flow and browser/server draft recovery chain | PASS (existing lifecycle contract) | UNKNOWN | Preserve existing DOM hooks, draft key, server endpoint, upload and WorkflowRun contracts |
 | 07D-03 | Project-first home hierarchy and first-class create experience | PASS — project list is default pane and top-level create action is present | IN PROGRESS — W4 browser suite running on code SHA `7a04012423` | Implement the UX over the existing project/create lifecycle; do not create a second backend/state machine |
-| 07D-04 | Full-work-area create flow with safe cancel/failure/resume | PARTIAL — full-viewport workspace and existing draft/cancel lifecycle exist; required project name and project type inputs are absent | W4 browser coverage passes on `ac1fbf5558`; metadata implementation remains MISSING | Depends on 07D-02 regression protection and exact create rollback contract |
+| 07D-04 | Full-work-area create flow with safe cancel/failure/resume | PASS — full-work-area flow includes project name and project type inputs; `create.js` restores them from project metadata and submits them through `requestOptions` | PASS on code SHA `68ab8bd9db7b432d36ee5c6fd960187eac5acfd2`, Product IA run `42744407811` (W4 job success) | Continue checking rename/retry/legacy-row compatibility in the W4 lifecycle suite; do not report metadata fields as missing |
 | 07D-05 | Categorized settings IA and progressive disclosure | PASS — categorized `<details>` sections and progressive disclosure exist | PASS — W5 browser + persistence tests succeeded on code SHA `471800ca2d`, run `42620911467` | Implement UI only; do not change ROLE_DEFS, provider IDs, secret semantics or settings endpoint contract |
 | 07D-06 | Shared shell navigation and in-app view contract | PASS for current scope — three spaces are integrated through `switchTab`; no router migration required by this audit | UNKNOWN — no dedicated cross-space navigation E2E recorded | Coordinator owns `index.html` and `app.js`; do not introduce a router migration in this pass |
 | 07D-07 | Project-scoped output defaults with backward-compatible reads | PASS — project width/height/FPS are stored in `plans/director_spec.json`; `/api/director/brief` reads them back; legacy platform-only projects derive a compatible aspect ratio | PASS — W4 browser regression verifies width/height/FPS restore, clean defaults on project switch and legacy platform fallback on code SHA `471800ca2d`, run `42620911467` | Audit existing project params/CompositionIR/FilmDocument dimensions first; add schema only with compatibility tests |
-| 07D-08 | Product E2E: home → create/cancel/resume → settings expand/save/import/export | PARTIAL — W4/W5 cover separate flows; create metadata fields remain missing | W5 PASS on `471800ca2d`; W4 lifecycle PASS, but project name/type workflow not yet implemented | Add/complete browser acceptance after A/B UI and shell integration |
+| 07D-08 | Product E2E: home → create/cancel/resume → settings expand/save/import/export | PARTIAL — W4 and W5 are independently covered; integrated shell journey remains a separate W7 acceptance concern | W4/W5 PASS on code SHA `68ab8bd9db7b432d36ee5c6fd960187eac5acfd2`, Product IA run `42744407811`; W7 PASS on same SHA, Parallel run `42744407839` | Keep isolated W4/W5 results distinct from the integrated W7 journey; verify metadata through create, reopen and rename |
 
 ## 3. Workstream partition — what can genuinely run in parallel
 
@@ -464,3 +464,29 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - Full Python/browser regression, Studio release gate, Windows native, W1-W7, workflow validation and Product IA must all be checked again on the current exact main SHA.
 - NVIDIA real token-stream acceptance remains MISSING/OPEN; no real-model test completed in this cycle. User-machine model-config preservation remains UNKNOWN and must not be accessed by CI.
 - Runner policy remains GitHub-hosted Ubuntu/Windows only.
+
+
+## 24. Exact-main parallel-lane rerun and unresolved W2 transaction failure — 2026-11-10
+
+### Code/test SHA `68ab8bd9db7b432d36ee5c6fd960187eac5acfd2`
+
+- Main currently points to `29b8656bc07d3c672b13424a507b46c4451ab037`, a ledger-only follow-up; the tested code SHA remains `68ab8bd9db7b432d36ee5c6fd960187eac5acfd2`.
+- Parallel run `42744407839`, attempt 2: W1 SUCCESS, W3 SUCCESS, W7 SUCCESS; W2 FAILURE (337 passed, 1 failed). W2 failure: `test_legacy_director_controls_remain_available_only_without_film_document`, Playwright cannot click `#film-studio-toggle` because the element is not visible after selecting the legacy project. The roll/cross-track test file is included in the W2 command.
+- Product IA run `42744407811`: W4 project home/create SUCCESS; W5 settings IA/credential safety SUCCESS.
+- Windows-native run `42744407857`: SUCCESS.
+- Full hosted run `42744407982`, attempt 2: Studio release gate FAILURE (344 collected, 342 passed, 2 failed). Failures are the same legacy Studio launcher visibility issue and `test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track[multi-select-valid-target]`.
+- The multi-select cross-track diagnostic shows `api_snapshot=None`, disk revision still `2c99b2c47c22c326`, `.film-transaction.json` still present, source track still contains `clip-a`, and target track still contains `clip-c`. This proves the transaction did not reach the expected durable document state; it does not yet prove why `_commit_film_transaction` stopped. Preserve the assertion and journal; root cause remains UNKNOWN.
+- Full Python/browser regression collected 1,948 tests but the process exited with code 139 before JUnit summary generation. One legacy launcher test had already failed. This is a process-level failure; do not convert it into a complete pytest count or treat the job as a normal one-test failure.
+- NVIDIA live acceptance was SKIPPED because both full regression and Studio release gate failed. Real model token-stream acceptance remains MISSING.
+- W4 metadata correction: `webui/static/js/create.js` contains `cf-project-name` and `cf-project-type`, restores `spec.project_name`/`spec.project_type`, and carries them into `requestOptions`. W4's independent hosted job passed on this SHA. Rows 07D-04 and 07D-08 above are corrected; this does not imply every create/reopen/rename lifecycle edge is closed.
+- W6 workflow YAML validation last passed on SHA `2f9aee27f63dc2d1547ed203b6347b9fd6591589` (run `42743155327`). No workflow file changed between that validation and this tested code SHA; exact-SHA W6 validation is still not recorded.
+- Runner policy remains GitHub-hosted Ubuntu/Windows only. No self-hosted/local runner was used.
+
+### Next lane-owned actions
+
+- W2: capture the failed request's HTTP status/body, exception and journal payload at the point of failure; compare API response revision, disk revision and journal before changing production transaction code. Diagnose the legacy launcher visibility from computed style and ancestor visibility; preserve the behavior assertion.
+- W1/W3/W7: no speculative code edits; retain their same-SHA PASS evidence and re-run after any shared-contract change.
+- W4/W5: keep independent lane ownership; W4 metadata is implemented, but continue full lifecycle edge coverage.
+- W6: run hosted workflow syntax validation after the next workflow/code integration and retain YAML/JUnit/artifact provenance.
+- W7: shared-shell changes remain serial and only follow W4/W5 module contracts; do not treat main integration as a substitute for the lane gates.
+- Final acceptance remains blocked until W2, Studio release gate and full hosted regression pass on one exact code SHA; only then consider the explicitly opted-in NVIDIA real-model gate.
