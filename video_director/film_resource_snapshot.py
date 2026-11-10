@@ -121,7 +121,8 @@ class SceneResourceSnapshot:
             self.bytes_copied += copied
             if source.suffix.lower() in {".html", ".htm", ".css"}:
                 try:
-                    text = source.read_text(encoding="utf-8")
+                    # Discover from the exact copied bytes, never from a later live read.
+                    text = destination.read_text(encoding="utf-8")
                 except UnicodeDecodeError as exc:
                     raise ResourceSnapshotError(f"scene resource must be UTF-8: {key}") from exc
                 return self._discover(key, key, source.suffix.lower(), text)
