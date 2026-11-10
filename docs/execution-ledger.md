@@ -490,3 +490,27 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - W6: run hosted workflow syntax validation after the next workflow/code integration and retain YAML/JUnit/artifact provenance.
 - W7: shared-shell changes remain serial and only follow W4/W5 module contracts; do not treat main integration as a substitute for the lane gates.
 - Final acceptance remains blocked until W2, Studio release gate and full hosted regression pass on one exact code SHA; only then consider the explicitly opted-in NVIDIA real-model gate.
+
+## 25. W2 evidence capture and current-main hosted revalidation — 2026-11-10
+
+### Diagnostic-only commits
+
+- aad2e728311beeb4e4c22f478e6b681ced821439: the legacy Studio launcher browser regression now captures the target and ancestor DOM chain when the real click fails, including computed display/visibility/opacity, bounding boxes, hidden flags, active tab and editor-pane state. The original Playwright click and business assertions remain unchanged.
+- 83c585e37bd42efb1115fa40f649c20e3360a396: the cross-track mismatch diagnostic now includes the full transaction journal payload and history state alongside API snapshot, disk revision, resolved film.html path, source/target clip IDs and disk HTML.
+- Both commits modify tests only. No production behavior, transaction implementation, acceptance assertion, runner policy or test threshold was changed.
+- Current tested code SHA: 83c585e37bd42efb1115fa40f649c20e3360a396. The current main head may advance through documentation-only commits; always distinguish the tested code SHA from the ledger head.
+
+### Hosted runs on the diagnostic commits
+
+- SHA aad2e728: runs 42756944624 (parallel), 42756944568 (Product IA), and 42756944598 (full hosted) were superseded by the follow-up W2 diagnostic commit. Some jobs were cancelled; the in-progress W3 and full Python jobs are useful only for the exact SHA shown on those runs and do not constitute final acceptance.
+- SHA 83c585e: runs 42756949648 (parallel), 42756949368 (Product IA), 42756949263 (full hosted), and 42756949301 (Windows native) were created. At ledger update time, the first three were queued/pending with no job records yet; Windows native completed successfully.
+- Previous W2 evidence remains FAIL until the new diagnostic reaches the failing assertions and exposes the actual DOM visibility chain and transaction journal contents. No production fix is authorized by the currently available evidence.
+
+### Lane ownership remains unchanged
+
+- W1, W3, W4 and W5 continue to run in their independent hosted jobs; W7 remains its own navigation job and does not own W2 behavior.
+- W2 owns both timeline transaction diagnostics and the legacy launcher regression because both are in its declared regression suite. The cross-track journal failure must be fixed from the captured payload and exception path, not by relaxing the persisted-state assertion.
+- W6 still needs exact-current-workflow validation evidence; the latest workflow syntax PASS remains run 42743155327 on SHA 2f9aee27. The workflow files have not been edited by these two test-only commits.
+- W4/W5 isolated PASS records on earlier SHAs remain historical evidence only. Current-SHA Product IA jobs must complete before those lanes are carried forward.
+- W3 lifecycle/export/QC and W1 generation durability are not considered complete on the diagnostic SHA until their current-SHA scoped jobs complete.
+- NVIDIA real token-stream acceptance remains MISSING/OPEN and must not run until the Studio and full hosted gates pass; only the explicit hosted opt-in with the dedicated GitHub Actions secret is permitted.
