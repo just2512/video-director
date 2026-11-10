@@ -1179,10 +1179,10 @@ def test_resource_snapshot_large_media_copy_is_streaming_and_reports_cost(tmp_pa
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as summary:
             summary.write(
-                "| Resource snapshot fixture | Result |\\n"
-                "|---|---:|\\n"
-                f"| Source bytes | {size_bytes} |\\n"
-                f"| Copy time (ms) | {report['copy_elapsed_ms']} |\\n"
-                f"| Copy + source validation (ms) | {elapsed_ms:.3f} |\\n"
-                f"| Python heap peak (bytes) | {peak_bytes} |\\n"
+                "| Resource snapshot fixture | Result |\n"
+                "|---|---:|\n"
+                f"| Source bytes | {size_bytes} |\n"
+                f"| Copy time (ms) | {report['copy_elapsed_ms']} |\n"
+                f"| Copy + source validation (ms) | {elapsed_ms:.3f} |\n"
+                f"| Python heap peak (bytes) | {peak_bytes} |\n"
             )
