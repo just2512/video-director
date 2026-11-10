@@ -82,6 +82,13 @@ def test_project_switch_reconciles_request_response_store_and_disk(tmp_path, mon
                 page.wait_for_function(
                     "() => !!document.querySelector('#editor-project')"
                 )
+                # Wait until the server's initial project-list population has completed.
+                # Otherwise a later async refresh can replace these two fixture options
+                # between insertion and select_option(), making the browser test race itself.
+                page.wait_for_function(
+                    "() => { const select = document.querySelector('#editor-project'); "
+                    "return !!select && select.options.length > 0; }"
+                )
                 page.evaluate("""() => {
                   const select = document.querySelector('#editor-project');
                   for (const value of ['film-studio-switch-four-way-a', 'film-studio-switch-four-way-b']) {
