@@ -1157,3 +1157,28 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - The render server currently serves project-local scene HTML/CSS/media from live project paths. The final publication transaction rechecks `film.html` revision only; it does not bind the scene-resource revision to the MP4/QC transaction. A scene resource can therefore change during multi-frame export without changing the FilmDocument revision.
 - Add a deterministic regression that mutates a scene HTML/CSS/image/media resource during export and proves that a mixed/stale MP4 and QC report are not published. Inspect the existing scene watcher revision signal and its event-loss/same-size-same-mtime behavior before choosing immutable resource snapshotting or a fail-closed resource revision check. Cover project-root/symlink boundaries and quantify the streaming-hash cost for large resources.
 - This is a confirmed source-level coverage gap but not yet a demonstrated failing export. Keep the implementation state UNKNOWN until a reproducible test fails before the fix and passes after it on an exact GitHub-hosted SHA. Do not weaken the existing render/QC or publication rollback assertions.
+
+
+## 52. Scene watcher metadata-preserving write detection — 2026-11-10
+
+### Confirmed source gap and correction
+
+- video_director/film_watch.py previously tracked scenes/ files using only (device, inode, size, mtime_ns). Unlike film.html, scene files had no periodic content audit. An in-place rewrite that restored size and mtime could therefore be missed by the separate scene_revision event path.
+- Code commit 21ebeb8020bfa6cb691c4a3a1fffa7a42e368330 adds a separate 10-second scene-content audit interval and streams SHA-256 over the scene tree. It verifies stable file identity before/after each read, does not follow symlink roots or nested symlink directories, and derives scene_revision from sorted path/content hashes rather than stat metadata alone.
+- Test commit bcb333088ca9a3dc4e072cd602b0882b14c12c8a adds an in-place rewrite regression that preserves device, inode, size and mtime_ns but requires a scene_changed event with a content-based revision.
+- The audit is streaming (bounded memory, 1 MiB chunks) but its I/O cost is O(total bytes under scenes/) per content audit. The default audit interval is 10 seconds. This is an explicit tradeoff for the rare metadata-preserving case; ordinary metadata changes still use the fast stat/debounce path.
+
+### Exact-SHA evidence in progress
+
+- Tested code SHA: bcb333088ca9a3dc4e072cd602b0882b14c12c8a.
+- Focused storage/watch regression run 42841732836, job 129919098828: 165 passed, 1 skipped.
+- W2 timeline transactions run 42841732724, job 129918482698: 356 passed.
+- W1 job 129918482843, W7 job 129918482858, W5 job 129918473957, Windows-native job 129918492207 and workflow YAML job 129918448440 have completed successfully.
+- W3 job 129918482338, W4 job 129918474492, full Python/browser job 129918490494 and Studio release-gate job 129918491267 were still running at this update. Do not mark integrated exact-SHA acceptance complete until all required jobs finish and their logs are inspected.
+
+### Remaining W3 export-consistency work — OPEN
+
+- The watcher correction covers files beneath scenes/, but it does not by itself bind the resource bytes used by Chromium to the MP4/QC publication transaction. The renderer still serves live project paths and final publication still checks only film.html revision.
+- The next task remains immutable snapshotting of the HTML scene dependency closure (HTML, CSS url(), images, fonts and media), serving those pinned bytes during frame capture, and rejecting publication if any source dependency changed before commit. The dependency closure must include referenced project assets outside scenes/; hashing the entire project asset library indiscriminately is not acceptable.
+- Preserve the existing offline-network, symlink/path boundary, deterministic-frame, FilmDocument revision, QC and rollback contracts. Use streaming copy/hash for large media; measure bytes and elapsed time in the regression rather than inventing a cost estimate.
+- Until that end-to-end resource snapshot regression passes on an exact hosted SHA, W3 export consistency remains OPEN / NOT ACCEPTED.
