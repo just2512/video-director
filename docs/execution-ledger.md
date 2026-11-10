@@ -386,3 +386,34 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - The correction commit `c8cca904` did not carry the three NVIDIA opt-in markers. Do not infer that its live job will run; a later explicit opt-in is required after the hosted prerequisites pass.
 - The user's physical machine's local model-config file has not been inspected. Existing preservation evidence is from isolated temporary fixtures only; do not claim machine-level backup or byte-preservation acceptance.
 - No self-hosted/local runner was used for the above runs. Keep all future CI on GitHub-hosted Ubuntu/Windows runners.
+
+
+## 21. Exact-main cross-track release-gate failure — 2026-11-10
+
+### Exact SHA and hosted CI
+
+- Code/test SHA: `c8cca904e0dada7a6ecca7beffd5fb94af12049e`.
+- Parallel workstreams run `42735621845`: W1 generation durability, W2 timeline transactions, W3 lifecycle/export/QC, and W7 shared-shell navigation all SUCCESS.
+- Product IA run `42735621936`: W4 project home/create and W5 settings IA both SUCCESS.
+- Windows-native publication run `42735621814`: SUCCESS.
+- Full hosted run `42735621934`:
+  - Full Python/browser regression: SUCCESS; JUnit reports 1,948 collected, 1,946 passed, 0 failed, 2 skipped.
+  - Studio build/timeline/lifecycle/export/QC release gate: FAILURE; JUnit reports 344 collected, 343 passed, 1 failed.
+  - Explicit NVIDIA real token-stream job: SKIPPED because this SHA does not carry the explicit three-marker opt-in.
+- Retained artifacts: full regression artifact `13728460009`; Studio release-gate artifact `13728175683`.
+
+### Reproducible failure
+
+- Failing test: `tests/test_film_studio_roll_browser.py::test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track[valid-target]`.
+- Failure assertion: line 1218 expects `clip-a` to be absent from source track `video-main` after the API read has already observed the clip on destination track `video-alt`.
+- Preview, target row, drop validity, single `move` operation, and the API-visible destination move all pass before the final direct persisted read assertion.
+- This is not a missing `Path` import, not a pytest suite failure, and not a reason to weaken the acceptance test. The discrepancy is between the API-observed post-commit document and the subsequent direct `read_project_film()` observation. The underlying cause is not yet proven.
+- Next action: instrument the failing browser regression to capture the API response revision/document, direct-read revision/document, resolved `film.html` path and bytes, and transaction-journal state at the mismatch; then fix the proven cause and rerun the exact Studio gate plus all affected hosted lanes.
+
+### Remaining gates
+
+- Integrated 19D release gate: FAIL on `c8cca904`; do not mark cross-track drag/Studio release as PASS.
+- Full Python suite and W1-W5/W7/Windows scoped workflows: PASS on `c8cca904`, but this does not override the Studio failure.
+- NVIDIA real token-stream acceptance: MISSING/OPEN; live job was skipped.
+- User physical-machine local model-config preservation: UNKNOWN; not inspected and must not be accessed by CI.
+- Runner policy remains GitHub-hosted Ubuntu/Windows only; no self-hosted or local runner was used.
