@@ -3599,7 +3599,31 @@ def test_legacy_director_controls_remain_available_only_without_film_document(tm
                   select.value = pid;
                   select.dispatchEvent(new Event("change", {bubbles:true}));
                 }""", project_id)
-                page.locator("#film-studio-toggle").click()
+                try:
+                    page.locator("#film-studio-toggle").click()
+                except Exception as exc:
+                    visibility = page.evaluate("""() => {
+                      const target = document.querySelector("#film-studio-toggle");
+                      const chain = [];
+                      for (let node = target; node && chain.length < 8; node = node.parentElement) {
+                        const style = getComputedStyle(node);
+                        const rect = node.getBoundingClientRect();
+                        chain.push({
+                          tag: node.tagName, id: node.id, className: String(node.className || ""),
+                          inlineStyle: node.getAttribute("style"),
+                          display: style.display, visibility: style.visibility, opacity: style.opacity,
+                          rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
+                          hidden: node.hidden
+                        });
+                      }
+                      return {
+                        activeTab: document.querySelector(".tab.active")?.id || null,
+                        paneDisplay: getComputedStyle(document.querySelector("#pane-editor")).display,
+                        paneClass: document.querySelector("#pane-editor")?.className || "",
+                        chain
+                      };
+                    }""")
+                    raise AssertionError({"launcher_visibility": visibility}) from exc
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.wait_for_function(
                     "() => document.querySelector('#fs-timeline-meta')?.textContent === '迁移预览'",
