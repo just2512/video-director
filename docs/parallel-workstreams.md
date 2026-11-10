@@ -74,3 +74,11 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
 - W3 owns the Asset Library's persistent catalog lifecycle alongside project assets: content-hash deduplication, cross-process read/modify/write serialization, semantic updates, project-reference-safe deletion, and corrupt/symlinked catalog fail-closed behavior. The scoped W3 job now runs `tests/test_asset_catalog.py` (in addition to the full regression suite).
 - The Windows-native publication workflow now separately runs `test_catalog_file_lock_serializes_independent_processes` against the actual Windows `msvcrt.locking` branch. The existing `MoveFileExW` durability test alone did not exercise this distinct lock implementation.
 - W3's Linux lane exercises the POSIX `fcntl.flock` branch; the Windows-native lane exercises `msvcrt.locking`. These are separate platform-specific acceptance results, not interchangeable evidence.
+
+
+## Frontend accessibility acceptance extension (2026-11-10)
+
+- W4 owns keyboard focus containment/restoration for the full-screen Create Project dialog. The dialog must receive initial focus, keep Tab/Shift+Tab inside its modal boundary, preserve the existing explicit-close/save-draft behavior, and return focus to the invoking control after close/finalization. Escape and backdrop must remain non-dismiss actions as already specified by the create workflow.
+- W7 owns top-level project/workspace/settings navigation semantics in the shared shell. Native keyboard activation must route correctly, the active navigation control must expose `aria-current="page"`, and inactive panes must be hidden from assistive technology as well as visually hidden.
+- W4 and W7 tests must use real Chromium keyboard input and DOM/focus assertions. Static presence of ARIA attributes alone is not sufficient.
+- Ownership boundaries remain unchanged: W4 owns create-dialog behavior; W7 alone edits shared `index.html` / `app.js`. W4/W7 retain their independent Product IA and Parallel workstream CI jobs respectively.
