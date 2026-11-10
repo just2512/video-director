@@ -1210,3 +1210,32 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 3. W6: ensure branch-scoped GitHub-hosted CI and per-branch concurrency preserve independent branch runs; keep all runners hosted-only.
 4. Integrate W2 and W3 directly to main in dependency order; rerun all affected lanes, Studio gate, full Python/browser, Windows-native and YAML against the exact resulting main SHA.
 5. Keep W3 resource snapshot and W2 integrated Studio acceptance OPEN until their explicit gates pass.
+
+
+## 54. W2/W3 short-lived branch acceptance and integration readiness — 2026-11-10
+
+### Exact branch evidence
+
+- W2 branch `work/w2-roll-trim-studio-regression`, code/test SHA `055e9f4552965d98f03384129631b45e67b5318f`:
+  - W2 timeline transaction suite: **356 passed** (job `129944866978`, run `42849197117`).
+  - W1, W3 and W7 branch-run jobs also completed successfully.
+  - The Studio Roll Trim regression now waits for the FilmStore transaction to become idle at the exact persisted revision before calling Undo. The external-watch browser regression applies the same synchronization. This addresses the test's race between disk visibility and completion of the browser request/finally transition; it does not weaken the undo assertion or extend the response timeout.
+- W3 branch `work/w3-render-resource-snapshot`, code/test SHA `9491219aabcf55ce66f55319cbe31581fb54f1c8`:
+  - W3 lifecycle/export/QC suite: **292 passed, 1 skipped** (job `129949494612`, run `42850477661`).
+  - Focused storage/watch suite: **165 passed, 1 skipped** (job `129949933054`, run `42850477609`).
+  - W1 and W7 branch jobs completed successfully. W2 is not a W3 acceptance gate and remains owned by the W2 branch.
+- W6 branch `work/w6-parallel-branch-policy`, workflow SHA `262aba62477e6a89f47e47129d33b2a7e9170ebf`: workflow syntax validation **SUCCESS** (run `42850326617`). W1–W7 and W4/W5 jobs were intentionally skipped by owner-lane filters on a W6-only branch.
+- Main baseline SHA `805067a29f821d1daa3d0cb49abd555a5c613e6c`, before W2/W3 code integration:
+  - Full Python/browser: **1,953 passed, 2 skipped, 0 failures, 0 errors** (job `129942383729`, run `42848498712`).
+  - Studio release gate: **347 passed** (job `129942385133`, same run).
+  - W1/W2/W3/W7, W4/W5, focused storage/watch, Windows-native and workflow syntax gates all succeeded on this SHA.
+- Branch PASS is scoped evidence only. The W2/W3 changes remain **NOT INTEGRATED** until merged into main and the resulting exact main SHA passes the integrated gates.
+
+### W3 resource snapshot implementation
+
+- Added `video_director/film_resource_snapshot.py`: recursive, streaming SHA-256 snapshot of clip media plus referenced HTML/CSS dependencies; includes linked stylesheets, CSS `url()`, CSS `@import`, inline style attributes, images, fonts and nested scene HTML.
+- Export Chromium media requests and FFmpeg source probes/audio reads now use pinned snapshot files. Unknown/unpinned project-local media requests fail closed.
+- Before MP4/QC publication, original source dependencies are re-hashed under the project lock. Any removal/replacement/content change rejects both artifacts. This catches same-size/same-mtime rewrites.
+- QC records dependency count, copied bytes, copy elapsed time and per-resource SHA-256. Snapshot construction and source-range preflight are inside the render workdir cleanup scope.
+- Added regression coverage for recursive dependency discovery, immutable HTTP serving, unpinned 404, same-size/mtime-preserving mutation rejection, no MP4/QC publication, failed-preflight workdir cleanup, inline CSS and CSS imports.
+- **Remaining W3 follow-up:** `look_project_film` still reads live resources rather than an immutable snapshot. It must be brought onto the same snapshot resolver before claiming preview and export share one resource revision. This is OPEN and is not a blocker for the MP4/QC export gate just accepted above.
