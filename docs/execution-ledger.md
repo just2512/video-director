@@ -716,3 +716,35 @@ The exact-SHA jobs have now all completed:
 3. If any lane fails, diagnose the failing job and fix the owning lane without weakening its acceptance conditions. Re-run affected lanes and integrated gates on the new exact SHA.
 4. Keep 19D-10 live NVIDIA acceptance MISSING until separately and explicitly authorized. A green default hosted run or SKIPPED live job is not a PASS.
 5. Continue W2's finite operation-interaction matrix and W3's bounded scene capability inventory as separate lanes. W7 remains the sole serial owner of shared shell files; W4/W5 remain independent module owners.
+
+
+## 33. W2 asynchronous authority-test correction and W6 live-trigger hardening — 2026-11-10
+
+### W2 failure diagnosis and correction
+
+- On code SHA `5f1f0b3f3924eb6233adf5ea2bca8fb98b987c2f`, W2 job `129729436032` ran 354 tests successfully and failed one existing browser test: `test_legacy_director_controls_remain_available_only_without_film_document`.
+- The failure was at the legacy-project transition: the test dispatched a fire-and-forget selector `change` event and waited indirectly for the Studio panel. The application uses the async `window.editorLoad` authority wrapper, so the test did not observe the transition's actual result.
+- Test-only correction commit `180e9850a058ee4ee5edbc4a6c8935ccd926fa18`: wait until `window.__filmStudioEditorAuthorityWrapperInstalled` is true, invoke and await the same `window.editorLoad()` handler used by the selector, and assert the returned `mode === "migration"`. No production code, migration behavior, acceptance assertion or timeout threshold was weakened.
+- The `180e` rerun's W1 and W7 passed; W4 and W5 passed; Studio release gate passed. W2/W3 scoped jobs were still in dependency installation when superseded by the W6 workflow correction below. Do not treat the incomplete parallel run as a W2/W3 PASS.
+
+### W6 live-provider trigger hardening
+
+- Workflow commit `18769c9b5e3d175b0af443ffe1f0e9aa653fa22b` removes the push/commit-message marker path from `full-hosted-regression.yml`.
+- The NVIDIA real-model job now requires all of: full Python/browser regression PASS, Studio release gate PASS, `workflow_dispatch`, and `inputs.run_live_nvidia == true`. A normal push cannot trigger a provider call by commit-message marker.
+- This matches the manual's hosted-only policy. No dispatch was performed, no provider call was made, and no cost was incurred.
+
+### Current exact-SHA hosted verification
+
+- Tested code/workflow SHA: `18769c9b5e3d175b0af443ffe1f0e9aa653fa22b`.
+- W6 workflow syntax run `42788229646`: PASS.
+- Windows-native publication run `42788229601`: PASS.
+- Parallel run `42788229575`: W1 job `129734864674` PASS; W2 `129734864353`, W3 `129734864907`, and W7 `129734864838` were IN_PROGRESS at last inspection.
+- Product IA run `42788229607`: W4 `129734746929` and W5 `129734746349` were IN_PROGRESS at last inspection.
+- Full hosted run `42788229597`: full Python/browser job `129734875133` and Studio release gate `129734875521` were IN_PROGRESS at last inspection.
+- These jobs are independent GitHub-hosted runners. The parallel run uses four separate Ubuntu jobs; Product IA uses two separate Ubuntu jobs; full regression uses separate full-suite and Studio-gate jobs. No self-hosted, WSL or developer runner was allocated.
+
+### Required next reconciliation
+
+- Refresh every independent job and integrated gate for exact SHA `18769c9b5e3d175b0af443ffe1f0e9aa653fa22b`. Do not carry W2/W3 evidence from the incomplete `180e` run.
+- If the awaited W2 transition still fails, inspect the returned `load_result` and browser DOM/authority state; do not add forced clicks, skips or relaxed assertions.
+- Confirm the NVIDIA live job is SKIPPED on this push. 19D-10 remains MISSING/OPEN until a separate, explicitly authorized `workflow_dispatch` with `run_live_nvidia=true`.
