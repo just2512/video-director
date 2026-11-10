@@ -2633,3 +2633,101 @@ def test_project_metadata_prefills_from_project_row_and_is_submitted_with_create
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_create_dialog_contains_keyboard_focus_and_restores_invoker(tmp_path, monkeypatch):
+    server, thread = _start_server(tmp_path, monkeypatch)
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page(viewport={"width": 1440, "height": 1000})
+            errors: list[str] = []
+            page.on("pageerror", lambda error: errors.append(str(error)))
+            try:
+                response = page.goto(
+                    f"http://127.0.0.1:{server.server_port}/",
+                    wait_until="networkidle",
+                )
+                assert response and response.status == 200
+                opener = page.locator(".topbar button").filter(has_text="新建项目")
+                opener.evaluate("(element) => element.setAttribute('data-test-focus-invoker', 'true')")
+                opener.click()
+                panel = page.locator("#cf-panel")
+                panel.wait_for(state="visible")
+                assert panel.get_attribute("role") == "dialog"
+                assert panel.get_attribute("aria-modal") == "true"
+                assert page.evaluate("document.activeElement?.id") == "cf-director-brief"
+
+                first_last = panel.evaluate("""panel => {
+                  const selector = 'a[href], area[href], input:not([disabled]):not([type="hidden"]), ' +
+                    'select:not([disabled]), textarea:not([disabled]), button:not([disabled]), ' +
+                    '[contenteditable="true"], [tabindex]:not([tabindex="-1"])';
+                  const nodes = [...panel.querySelectorAll(selector)].filter(element =>
+                    element.getAttribute('aria-hidden') !== 'true' &&
+                    getComputedStyle(element).visibility !== 'hidden' &&
+                    element.getClientRects().length > 0
+                  );
+                  if (nodes.length < 2) throw new Error('Create dialog has fewer than two tabbable controls');
+                  return {first: nodes[0].id, last: nodes[nodes.length - 1].id, count: nodes.length};
+                }""")
+                assert first_last["count"] >= 2
+
+                panel.evaluate("""panel => {
+                  const selector = 'a[href], area[href], input:not([disabled]):not([type="hidden"]), ' +
+                    'select:not([disabled]), textarea:not([disabled]), button:not([disabled]), ' +
+                    '[contenteditable="true"], [tabindex]:not([tabindex="-1"])';
+                  const nodes = [...panel.querySelectorAll(selector)].filter(element =>
+                    element.getAttribute('aria-hidden') !== 'true' &&
+                    getComputedStyle(element).visibility !== 'hidden' &&
+                    element.getClientRects().length > 0
+                  );
+                  nodes[nodes.length - 1].focus();
+                }""")
+                page.keyboard.press("Tab")
+                assert page.evaluate("""() => ({
+                  inside: !!document.activeElement?.closest('#cf-panel'),
+                  wrappedToFirst: document.activeElement === [...document.querySelector('#cf-panel').querySelectorAll(
+                    'a[href], area[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
+                  )].filter(element => element.getAttribute('aria-hidden') !== 'true' &&
+                    getComputedStyle(element).visibility !== 'hidden' && element.getClientRects().length > 0)[0],
+                  focusVisible: document.activeElement?.matches(':focus-visible') === true
+                })""") == {"inside": True, "wrappedToFirst": True, "focusVisible": True}
+
+                panel.evaluate("""panel => {
+                  const selector = 'a[href], area[href], input:not([disabled]):not([type="hidden"]), ' +
+                    'select:not([disabled]), textarea:not([disabled]), button:not([disabled]), ' +
+                    '[contenteditable="true"], [tabindex]:not([tabindex="-1"])';
+                  const nodes = [...panel.querySelectorAll(selector)].filter(element =>
+                    element.getAttribute('aria-hidden') !== 'true' &&
+                    getComputedStyle(element).visibility !== 'hidden' &&
+                    element.getClientRects().length > 0
+                  );
+                  nodes[0].focus();
+                }""")
+                page.keyboard.press("Shift+Tab")
+                assert page.evaluate("""() => {
+                  const panel = document.querySelector('#cf-panel');
+                  const selector = 'a[href], area[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
+                  const nodes = [...panel.querySelectorAll(selector)].filter(element =>
+                    element.getAttribute('aria-hidden') !== 'true' &&
+                    getComputedStyle(element).visibility !== 'hidden' && element.getClientRects().length > 0
+                  );
+                  return document.activeElement === nodes[nodes.length - 1] &&
+                    !!document.activeElement.closest('#cf-panel') &&
+                    document.activeElement.matches(':focus-visible');
+                }""")
+
+                page.get_by_role("button", name="收起").click()
+                page.wait_for_function("document.getElementById('cf-mask')?.style.display === 'none'")
+                assert page.evaluate("""() => {
+                  const active = document.activeElement;
+                  return !!active?.matches('[data-test-focus-invoker]') &&
+                    active.textContent.includes('新建项目');
+                }""")
+                assert not errors, errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
