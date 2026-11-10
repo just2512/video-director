@@ -47,11 +47,27 @@ jobs:
   timeline-transactions:
     name: W2 timeline transactions
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 55
+    env:
+      VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO: "1"
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: studio_ui/package-lock.json
+      - name: Build the React 19 Studio used by timeline browser tests
+        working-directory: studio_ui
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm run build:studio
+          npm run build:studio:css
+          test -s ../webui/static/js/film-studio-react.js
+          test -s ../webui/static/css/film-studio-tailwind.css
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
