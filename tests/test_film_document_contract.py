@@ -3655,3 +3655,18 @@ def test_apply_proposal_concurrent_http_requests_commit_exactly_once(tmp_path, m
         thread.join(timeout=5)
 
 
+
+
+def test_track_add_then_remove_is_a_reversible_operation_pair():
+    doc = fd.parse_film(SAMPLE)
+    original = fd.copy.deepcopy(doc)
+
+    edited, normalized = fd.apply_ops(doc, [
+        {"op": "track_add", "track_id": "temporary-track", "label": "临时轨道", "index": 1},
+        {"op": "track_remove", "track_id": "temporary-track"},
+    ])
+
+    assert [item["op"] for item in normalized] == ["track_add", "track_remove"]
+    assert edited == original
+    reparsed = fd.parse_film(fd.serialize_film(edited))
+    assert fd._film_document_roundtrip_matches(original, reparsed)
