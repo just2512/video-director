@@ -2068,6 +2068,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     }
     const existing=document.getElementById('cf-mask');
     if(existing){
+      if(existing.style.display==='none'||existing.getAttribute('aria-hidden')==='true'){
+        const active=document.activeElement;
+        _cfDialogReturnFocus=active instanceof HTMLElement?active:null;
+      }
       existing.style.display='flex';existing.setAttribute('aria-hidden','false');
       if(window.CF&&document.getElementById('cf-form')?.style.display!=='none')window.CF.state='editing';
       cfFocusCreateDialog();
@@ -2130,8 +2134,13 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(projectId)return openProjectWithDraftGuard(projectId);
     const existing=document.getElementById('cf-mask');
     if(existing){
+      if(existing.style.display==='none'||existing.getAttribute('aria-hidden')==='true'){
+        const active=document.activeElement;
+        _cfDialogReturnFocus=active instanceof HTMLElement?active:null;
+      }
       existing.style.display='flex';existing.setAttribute('aria-hidden','false');
       if(window.CF&&document.getElementById('cf-form')?.style.display!=='none')window.CF.state='editing';
+      cfFocusCreateDialog();
       if(window._cfArticle&&typeof cfRestoreArticleSourceUI==='function')cfRestoreArticleSourceUI();
       installHandlers();
       _cfProjectPrefillRequest++;
