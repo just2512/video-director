@@ -790,7 +790,7 @@ The exact-SHA jobs have now all completed:
 ### Exact-SHA reconciliation
 
 - Tested code/workflow SHA: `cd1b909858f8857c30ae91af05d21dbf20122ee5`.
-- Current `main` HEAD after this documentation-only reconciliation: `3c41421f9f41ce4c1a4baa503cbb16b2d8ce68ca`. The preceding documentation-only ledger commit was `ce6a5f500c7a4ba544ff3c40c1c6291584fa6d78`; neither changes executable code/workflow. All workflow jobs below checked out the immutable tested SHA `cd1b909858f8857c30ae91af05d21dbf20122ee5`.
+- After the tested code/workflow SHA, `main` advanced only through documentation-only ledger commits `ce6a5f500c7a4ba544ff3c40c1c6291584fa6d78` and `3c41421f9f41ce4c1a4baa503cbb16b2d8ce68ca` (followed by this provenance correction). These commits do not change executable code/workflow. All workflow jobs below checked out the immutable tested SHA `cd1b909858f8857c30ae91af05d21dbf20122ee5`.
 - Parallel workstream run `42794600705`: W1 job `129756527270` PASS (89 passed); W2 job `129756527669` PASS (355 passed, 1 warning); W3 job `129756527886` PASS (251 passed, 1 skipped, 1 warning); W7 job `129756528160` PASS (2 passed).
 - Product IA run `42794600593`: W4 job `129756521907` PASS (35 passed); W5 job `129756521768` PASS (13 passed).
 - Full hosted run `42794600956`: full Python/browser job `129756550422` PASS (1,950 passed, 2 skipped, 8 warnings; JUnit summary 1,952 tests, 0 failures, 0 errors, 2 skipped); Studio release gate job `129756550686` PASS (38 React smoke tests and 346 timeline/lifecycle/export/QC tests; 2 warnings).
