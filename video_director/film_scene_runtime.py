@@ -733,8 +733,12 @@ def inject_scene_runtime(source: str, project_id: str, src: str,
 
     result = _ATTR_RE.sub(replace_attr, source)
     def replace_style_attr(match: re.Match) -> str:
+        quote = match.group(1)
         rewritten = rewrite_scene_css(html.unescape(match.group(2)), project_id, src, route)
-        return "style=" + match.group(1) + html.escape(rewritten, quote=True) + match.group(1)
+        escaped = html.escape(rewritten, quote=False).replace(
+            quote, "&quot;" if quote == '"' else "&#x27;"
+        )
+        return "style=" + quote + escaped + quote
 
     result = _STYLE_ATTR_RE.sub(replace_style_attr, result)
 
