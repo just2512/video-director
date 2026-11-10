@@ -54,9 +54,46 @@ document.addEventListener('click', function(event) {
   }
 });
 
+let _cfDialogReturnFocus = null;
+const CF_DIALOG_FOCUSABLE = [
+  'a[href]', 'area[href]',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])', 'textarea:not([disabled])', 'button:not([disabled])',
+  '[contenteditable="true"]', '[tabindex]:not([tabindex="-1"])'
+].join(',');
+function cfDialogFocusableElements(panel){
+  if(!panel)return [];
+  return Array.from(panel.querySelectorAll(CF_DIALOG_FOCUSABLE)).filter(element=>
+    element.getAttribute('aria-hidden')!=='true' &&
+    getComputedStyle(element).visibility!=='hidden' &&
+    element.getClientRects().length>0
+  );
+}
+function cfFocusCreateDialog(){
+  const panel=document.getElementById('cf-panel');
+  if(!panel)return false;
+  const preferred=panel.querySelector('#cf-director-brief');
+  const target=preferred||cfDialogFocusableElements(panel)[0]||panel;
+  target.focus({preventScroll:true});
+  return true;
+}
+function cfRestoreCreateDialogFocus(){
+  const target=_cfDialogReturnFocus;
+  _cfDialogReturnFocus=null;
+  if(target&&target.isConnected&&typeof target.focus==='function'){
+    target.focus({preventScroll:true});
+    return true;
+  }
+  return false;
+}
+
 /** 打开创建面板（顶栏「+ 新建项目」唯一入口 §3.1）。 */
 function openCreate(projectId){
-  closeCreate();
+  if(!document.getElementById('cf-mask')){
+    const active=document.activeElement;
+    _cfDialogReturnFocus=active instanceof HTMLElement?active:null;
+  }
+  closeCreate({restoreFocus:false});
   const mask = document.createElement('div');
   mask.id = 'cf-mask';
   mask.style.cssText = 'position:fixed;inset:0;background:var(--bg,#111);z-index:12000;display:flex;align-items:stretch;justify-content:stretch;pointer-events:auto';
@@ -74,11 +111,31 @@ function openCreate(projectId){
     mask.addEventListener(type,blockBackdropDismiss,true);
   }
   mask.addEventListener('keydown',event=>{
-    if(event.key!=='Escape')return;
-    event.preventDefault();
-    event.stopPropagation();
-    const status=document.getElementById('cf-status');
-    if(status)status.textContent='创作窗口不会因点击遮罩或按 Escape 关闭；请使用右上角「收起」保存草稿。';
+    if(event.key==='Escape'){
+      event.preventDefault();
+      event.stopPropagation();
+      const status=document.getElementById('cf-status');
+      if(status)status.textContent='创作窗口不会因点击遮罩或按 Escape 关闭；请使用右上角「收起」保存草稿。';
+      return;
+    }
+    if(event.key!=='Tab')return;
+    const focusable=cfDialogFocusableElements(panel);
+    if(!focusable.length){
+      event.preventDefault();
+      panel.focus({preventScroll:true});
+      return;
+    }
+    const first=focusable[0],last=focusable[focusable.length-1],active=document.activeElement;
+    if(!panel.contains(active)||active===panel){
+      event.preventDefault();
+      (event.shiftKey?last:first).focus();
+    }else if(event.shiftKey&&active===first){
+      event.preventDefault();
+      last.focus();
+    }else if(!event.shiftKey&&active===last){
+      event.preventDefault();
+      first.focus();
+    }
   },true);
   const panel = document.createElement('div');
   panel.id = 'cf-panel';
@@ -86,6 +143,7 @@ function openCreate(projectId){
   panel.setAttribute('role','dialog');
   panel.setAttribute('aria-modal','true');
   panel.setAttribute('aria-label','创建视频项目工作区');
+  panel.tabIndex=-1;
   panel.style.cssText = 'width:100%;max-width:none;height:100vh;max-height:100vh;min-height:100vh;overflow:auto;padding:clamp(18px,3vw,36px);border-radius:0;box-sizing:border-box';
   panel.innerHTML = _createPanelHtml();
   mask.appendChild(panel);
@@ -98,8 +156,7 @@ function openCreate(projectId){
   // 2026-10-25 用户裁决：随时可回到新建项目对话框——带 projectId 时回填
   // 该项目的创作要求/文案（素材在项目里保留，file input 无法回填但清单提示）。
   if (projectId) cfPrefillFromProject(projectId);
-  const ta = document.getElementById('cf-director-brief');
-  if (ta) ta.focus();
+  cfFocusCreateDialog();
 }
 
 /** 从已有项目回填表单（修改要求重新创作的入口）。 */
@@ -336,7 +393,8 @@ async function cfPrefillFromProject(pid){
   }
   return {ok:true,project_id:pid};
 }
-function closeCreate(){
+function closeCreate(options){
+  const restoreFocus=!options||options.restoreFocus!==false;
   if (_cfProgressTimer) { clearInterval(_cfProgressTimer); _cfProgressTimer = null; }
   const m = document.getElementById('cf-mask');
   if (m) m.remove();
@@ -347,6 +405,7 @@ function closeCreate(){
     if (child) child.remove();
   }
   CF.state = 'idle';
+  if(restoreFocus)cfRestoreCreateDialogFocus();
 }
 
 function _createPanelHtml(){
@@ -2011,6 +2070,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(existing){
       existing.style.display='flex';existing.setAttribute('aria-hidden','false');
       if(window.CF&&document.getElementById('cf-form')?.style.display!=='none')window.CF.state='editing';
+      cfFocusCreateDialog();
       installHandlers();
     }else{
       restored=false;restorePromise=null;restoredDraftAvailable=false;defaultFieldsSnapshot=null;dirtyFields.clear();
