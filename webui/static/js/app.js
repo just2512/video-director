@@ -26,10 +26,18 @@ function _rebuildSelect(id, opts){
 function switchTab(tab){
   window.UI.route = tab;
   for (const p of ['home','editor','settings']) {
+    const active = tab === p;
     const el = document.getElementById('pane-' + p);
-    if (el) el.style.display = (tab === p) ? '' : 'none';
+    if (el) {
+      el.style.display = active ? '' : 'none';
+      el.setAttribute('aria-hidden', String(!active));
+    }
     const tb = document.getElementById('tab-' + p);
-    if (tb) tb.classList.toggle('tab-active', tab === p);
+    if (tb) {
+      tb.classList.toggle('tab-active', active);
+      if (active) tb.setAttribute('aria-current', 'page');
+      else tb.removeAttribute('aria-current');
+    }
   }
   if (tab === 'home') { loadProjects(); loadSeries(); loadInbox(); }
   if (tab === 'editor') { editorInit(); devShowBuildId(); }
