@@ -1277,13 +1277,13 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 ### W3 scoped evidence
 
 - Initial branch code/test SHA: `da44aadf77335f176036d86e49772c6a46d5e726`; W3 lane `42918465772`, job `130186897979`: **296 passed, 1 skipped**. Focused storage/watch `42918465717`, job `130186897961`: **165 passed, 1 skipped**.
-- A follow-up commit added GitHub Actions job-summary publication for measured snapshot metrics; latest code/test SHA: `4f7e7edeed0c1b252bc3b3b4e339186697928649`. W3 lane `42918981288`, job `130188785319`: **IN PROGRESS** at this ledger update. Its result is required because it is the exact branch head with the summary reporting change.
-- Status: OPEN pending latest exact-branch result and metric inspection.
+- A follow-up commit added GitHub Actions job-summary publication for measured snapshot metrics; latest code/test SHA: `4f7e7edeed0c1b252bc3b3b4e339186697928649`. W3 lane `42918981288`, job `130188785319`: **296 passed, 1 skipped**. The 64 MiB test records source bytes, copy time, copy-plus-validation time and Python heap peak in the GitHub Actions job summary; the test asserts the heap peak is below 8 MiB.
+- Status: **SCOPED PASS**; integrate test-only change to main, then require exact-main W3 and full release gates.
 
 ### Integration order
 
 1. W1 scoped test passed (90 tests) and its test-only change is already integrated to main; await the exact-main gates on `b5dd5900acd0d3ac290d24f24611685ace36d1b2`.
-2. Wait for the latest W3 lifecycle/export/QC run to complete; inspect the 64 MiB test result and the GitHub job summary containing copy bytes, copy time, copy-plus-validation time and Python heap peak.
+2. W3 latest exact-branch lifecycle/export/QC run completed: 296 passed, 1 skipped. The 64 MiB test publishes its measured copy and heap metrics to the GitHub Actions job summary.
 3. Integrate W3 test-only changes to main without dropping the already-integrated W1 test; integrate W6 documentation changes serially after code integration.
 4. Run W1/W3 affected lanes, focused storage/watch, Studio release gate, full Python/browser, Windows-native and YAML on the exact resulting main SHA.
 5. Update this ledger with exact final SHA and evidence. Do not treat scoped branch PASS as integrated PASS.
