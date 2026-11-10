@@ -1115,3 +1115,33 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - The W3 lane on exact code SHA `cd99d98dd0eb6649592a7086c6cc87f55e2984de`, job `129876675459` in run `42829833193`, completed **287 passed, 1 skipped**. Its regression set includes scene runtime, resource readiness, render/look revision pinning, missing-resource rejection and clip-ID-specific frame failure tests.
 - This closes the documentation/inventory task; it does not broaden renderer support. Arbitrary HTML/WebGL determinism and exhaustive edit-operation permutations remain explicitly outside the contract.
 - The next narrow W3 acceptance item is the explicit unknown `selected_variant_id` HTTP rejection test recorded in §49. No new renderer feature is justified until that boundary and the current integrated release rerun are closed.
+
+
+## 51. Variant migration fail-closed HTTP acceptance and Studio reload harness repair — 2026-11-10
+
+### Code changes
+
+- Executable/workflow SHA: `36f83ed0ac0e8ac0eec677866556f7b8248b79b5` (based on `805db7b` plus the browser harness correction).
+- `tests/test_film_variant_migration_api.py` now sends an explicit unknown `selected_variant_id` through the real HTTP preview route and asserts `ACTIVE_VARIANT_NOT_FOUND`, `migration_available=false`, and that `film.html` remains absent. The route must not fall back to top-level scenes/audio.
+- W3's scoped hosted command now includes `tests/test_film_variant_migration_api.py`; the new HTTP contract is not left to the full-suite-only path.
+- The Studio canvas history browser test now re-enters the normal project selection/change lifecycle after a full page reload. The existing project selector's change handler invokes `editorLoad`, which auto-opens Studio for a project with authoritative `film.html`; the test waits for that authority and auto-open instead of toggling the already-open panel closed.
+
+### Exact-SHA hosted evidence
+
+- W1 generation durability: **89 passed**.
+- W2 React timeline transactions: **355 passed**.
+- W3 lifecycle/export/QC: **289 passed, 1 skipped**; includes the explicit unknown-variant HTTP rejection test.
+- W4 project home/create: **36 passed**.
+- W5 settings/credential safety: **13 passed**.
+- W7 shared-shell navigation: **2 passed**.
+- Windows-native publication: **2 passed**.
+- Workflow YAML validation: **PASS**.
+- Studio React integration smoke: **38 passed**.
+- Studio timeline/revision/project-switch/lifecycle/render/QC gate: **346 passed**.
+- Full Python/browser regression run `42835448250` was still running at this ledger update. Do not mark integrated exact-SHA acceptance complete until its JUnit summary and job conclusion are available.
+- NVIDIA live provider job remains skipped on ordinary push. Do not repeat the paid live call; 19D-10 remains PASS from the separately authorized run recorded in §37.
+
+### Next source-audit item
+
+- A read-only audit found a separate W3 boundary not covered by the current FilmDocument revision tests: the render media server reads project-local scene files from their live paths, while final publication rechecks only the `film.html` revision. The scene watcher emits a separate `scene_revision`, but `film_render.py` does not bind that revision to the MP4/QC transaction. An external edit to an HTML scene or its local resources during a multi-frame render could therefore leave a render composed from different resource states while the FilmDocument revision remains unchanged.
+- This is a candidate W3 correctness gap, not yet a confirmed failing regression. Next step: add a deterministic render test that changes a project-local scene resource during export and asserts that stale/mixed output is not published; then choose between immutable render-input snapshotting and a fail-closed scene-resource revision check. Include resource scope (HTML/CSS/images/media), symlink boundary, and the cost of hashing large files in the design. Do not claim this is fixed until the test passes on an exact hosted SHA.
