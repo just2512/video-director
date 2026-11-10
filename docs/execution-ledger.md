@@ -433,3 +433,34 @@ On code SHA `471800ca2dfecc7dea04ed23d7dbf833d0ba7691`:
 - The cross-track diagnostic test passed on this SHA; it proves the observed behavior passed this run, not that the earlier intermittent mismatch has a proven root cause.
 - NVIDIA real token-stream acceptance remains MISSING/OPEN: the explicit job was skipped because this SHA lacked all three opt-in markers. User-machine model-config preservation remains UNKNOWN and is not accessible to CI.
 - Runner policy remains GitHub-hosted Ubuntu/Windows only.
+
+
+## 23. Exact-main parallel-lane recheck and W2 test harness repair — 2026-11-10
+
+### SHA `2f9aee27f63dc2d1547ed203b6347b9fd6591589`
+
+- Parallel workstream run `42743155339`: W1 generation durability PASS; W3 lifecycle/export/QC PASS; W7 shared-shell navigation PASS; W2 FAIL.
+- Product IA run `42743155486`: W4 project home/create PASS; W5 settings IA and credential safety PASS.
+- Windows-native run `42743155333`: PASS. Workflow YAML validation run `42743155327`: PASS.
+- Studio release gate in full-hosted run `42743155410`: FAIL, 344 collected, 341 passed, 3 failed. Four cross-track drag scenarios in `tests/test_film_studio_roll_browser.py` all passed.
+- W2 run `42743155339`: 338 collected, 336 passed, 2 failed:
+  1. `test_external_agent_write_hot_reloads_and_recovers_after_broken_document` stopped at the new diagnostic request with `NameError: base_url is not defined`. Therefore the API/Store/disk diagnostic was not executed and the underlying persistence mismatch remains UNKNOWN.
+  2. `test_legacy_director_controls_remain_available_only_without_film_document` timed out waiting for the migration-preview marker. The test inserted the project into the selector but did not dispatch the selector's change event before opening Studio.
+- The Studio release-gate third failure was `test_project_switch_reconciles_request_response_store_and_disk`: `select_option()` could not find the injected fixture option because the asynchronous project-index refresh could replace the selector options after fixture insertion.
+- Full Python/browser job `129588897142` was cancelled when later main commits superseded this SHA. The dependent NVIDIA job was also cancelled; no full-regression or live-model PASS is claimed.
+
+### Test-harness corrections integrated directly into main
+
+- `c983ad251357abe23736f69a49fe29642475010c`: diagnostic API URL now derives from the test server's actual port; the legacy planning test dispatches the real selector change event before opening Studio.
+- `e07ca32bc08fe9a0607842431acd2be616b4f0ca`: initial attempt to wait for selector population before injecting project-switch fixtures.
+- `68ab8bd9db7b432d36ee5c6fd960187eac5acfd2`: strengthened the project-switch test to wait for the authoritative `/api/projects?filter=all&limit=500` response, not merely a non-empty selector that may contain only a placeholder.
+- These are test synchronization/diagnostic corrections only. No production persistence behavior was changed, and no assertion or acceptance threshold was weakened.
+
+### Current exact-main state
+
+- Main SHA: `68ab8bd9db7b432d36ee5c6fd960187eac5acfd2`.
+- W1/W3/W4/W5/W7 have PASS evidence on `2f9aee27`; because the subsequent commits only changed W2 test code, project-switch test synchronization and this ledger, these results remain useful lane evidence but are not a substitute for a final exact-SHA integrated acceptance.
+- W2 remains OPEN pending new hosted evidence on the latest SHA. The original external-write/trim API-versus-disk discrepancy remains UNKNOWN until the corrected diagnostic reaches its assertions.
+- Full Python/browser regression, Studio release gate, Windows native, W1-W7, workflow validation and Product IA must all be checked again on the current exact main SHA.
+- NVIDIA real token-stream acceptance remains MISSING/OPEN; no real-model test completed in this cycle. User-machine model-config preservation remains UNKNOWN and must not be accessed by CI.
+- Runner policy remains GitHub-hosted Ubuntu/Windows only.
