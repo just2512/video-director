@@ -25,7 +25,7 @@
 | `subtitle_track` | MAPPED | cue 时间与文本进入 Film 字幕轨道；style registry 引用、非 sentence mode、非 tts_word_boundary 来源等 lineage 不执行或不完整保留，发出 warning。 |
 | `origin_template_id` | ARCHIVED_ONLY | 写入来源 lineage 属性，不反向修改模板，也不作为渲染行为。 |
 | `origin_template_version` | ARCHIVED_ONLY | 写入来源 lineage 属性，不反向修改模板，也不作为渲染行为。 |
-| `active_variant_id` | MAPPED | 只选择当前有效 variant；无有效 ID 时按顶层 scenes/audio 迁移并告警，不合并候选变体。 |
+| `active_variant_id` | MAPPED | 无 variants 时使用顶层 scenes/audio；单一 variant 可直接选用；存在多个 variants 且未提供 active_variant_id 时返回 `ACTIVE_VARIANT_REQUIRED`，显式 ID 不存在时返回 `ACTIVE_VARIANT_NOT_FOUND`，两者均禁止回退到顶层 scenes/audio。 |
 | `variants` | MAPPED | 仅选中的 variant scenes/tracks/style 参与本次迁移；其他 variants 不并入最终时间线，完整原始 IR 由源快照保存。 |
 | `references` | ARCHIVED_ONLY | ReferenceGraph 保存为 `data-source-reference-graph`；不会自动生成或插入未在时间线中的素材。 |
 | `style_contract` | MAPPED | motion_temper、safe_zone、部分 palette/typography 仅在白名单和条件满足时应用；未识别的调色板/字体字段仍只保留来源数据并告警。 |
@@ -121,7 +121,7 @@
 | `CameraTrack.id` | ARCHIVED_ONLY | 用于迁移诊断/warning 标识，不作为 Film track 或 clip identity；来源快照保留原 ID。 |
 | `CameraTrack.keyframes` | MAPPED | 单条、正交、固定俯视方向、线性缓动的关键帧轨映射为 Film `camera_x/camera_y` channels；多轨或不支持条件整轨 warning。 |
 | `CameraTrack.projection` | ARCHIVED_ONLY | 仅作为迁移能力门槛：orthographic 才继续处理，perspective 产生明确 warning；投影模型本身未进入 2D FilmRuntime。 |
-| `CompositionIR.active_variant_id` | MAPPED | 只选择当前有效 variant；无有效 ID 时按顶层 scenes/audio 迁移并告警，不合并候选变体。 |
+| `CompositionIR.active_variant_id` | MAPPED | 无 variants 时使用顶层 scenes/audio；单一 variant 可直接选用；存在多个 variants 且未提供 active_variant_id 时返回 `ACTIVE_VARIANT_REQUIRED`，显式 ID 不存在时返回 `ACTIVE_VARIANT_NOT_FOUND`，两者均禁止回退到顶层 scenes/audio。 |
 | `CompositionIR.assets` | MAPPED | 被选中时间线引用的素材用于资源解析；未被引用但带来源/版权/提示词/描述元数据的素材只在源快照保留，不自动插入成片。 |
 | `CompositionIR.audio` | MAPPED | 音频片段按类型、asset、时间及支持的参数转换；必须结合下方 audio_tracks 说明，不能推断原始分组完全保留。 |
 | `CompositionIR.audio_tracks` | MAPPED | ID/name/order 参与轨道生成；locked 映射 Film 轨道锁定，muted 与片段 muted 合并为运行时静音；hidden 只保存折叠状态 provenance；多片段 lane 会拆成物理 Film 轨道，原分组关系不保留。 |

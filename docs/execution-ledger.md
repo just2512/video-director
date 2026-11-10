@@ -1100,3 +1100,10 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 
 - 本节记录的 Runner Contract Change、对应测试断言和 warning fixture 修复作为一个 main commit 集成；必须等待新 SHA 的完整 hosted CI 结果，不能沿用 `ca2da6a` 作为新树验收证据。
 - Contract 与测试通过后，下一阶段按 19D 继续审计 FilmDocument revision/operation history、项目切换与外部文件变更交错、生成任务与资产目录一致性、revision-pinned MP4/QC 失败恢复。每项必须先从源码和既有测试证明具体缺口，再新增行为验收；不得以增加测试数量代替交付。
+
+
+## 49. CompositionIR variant fallback 边界复核 — 2026-11-10
+
+- 对照 `video_director/film_document.py::build_film_from_composition` 与 `tests/test_film_variant_migration_api.py`，确认迁移行为：无 variants 时使用顶层 scenes/audio；单一 variant 可自动选用；多个 variants 未指定时返回 `ACTIVE_VARIANT_REQUIRED`；显式指定不存在的 ID 返回 `ACTIVE_VARIANT_NOT_FOUND`。后两种情况不得静默回退到顶层内容。
+- 发现 `docs/composition-ir-migration-field-audit.md` 的顶层与递归重复条目把“无有效 ID 时回退到顶层”写得过于宽泛，可能误导多个候选版本的迁移决策。已修正文案，明确分支条件；这是文档纠错，不改变代码行为。
+- 当前 HTTP 回归已验证多 variants 缺少选择时返回 `ACTIVE_VARIANT_REQUIRED`，并验证显式选择的版本只迁移所选 variant。下一步补充显式未知 variant ID 返回 `ACTIVE_VARIANT_NOT_FOUND` 且不创建 `film.html` 的 HTTP 级回归；在该断言进入精确 SHA hosted CI 前，不把未知 ID 的 HTTP 端到端拒绝路径标为已验收。
