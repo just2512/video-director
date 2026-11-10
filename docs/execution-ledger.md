@@ -1272,19 +1272,18 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - Branch code/test SHA: `2f5181ceb15c1b27b5b28670a938ba573e7cb666`.
 - W1 generation durability run `42918520098`, job `130187104548`: **90 passed**.
 - Workflow YAML run `42918519951`: SUCCESS.
-- Status: scoped PASS; integrated main acceptance remains pending until W1/W3 branch integration and exact-main gates.
+- Status: scoped PASS and test-only change directly integrated to main by merge commit `b5dd5900acd0d3ac290d24f24611685ace36d1b2`. The resulting exact-main CI run `42919019951` (full/Studio), `42919019942` (W1–W3/W7), `42919019898` (focused storage), `42919019992` (W4/W5), and `42919019914` (Windows) was still running at this ledger update.
 
 ### W3 scoped evidence
 
-- Branch code/test SHA: `da44aadf77335f176036d86e49772c6a46d5e726`.
-- Focused storage/watch run `42918465717`, job `130186897961`: **165 passed, 1 skipped**.
-- W3 lifecycle/export/QC run `42918465772`, job `130186897979`: **IN PROGRESS** at this ledger update. Do not claim the scale test or W3 branch is accepted until its job completes and its logs are inspected.
-- Status: OPEN pending W3 exact-branch result.
+- Initial branch code/test SHA: `da44aadf77335f176036d86e49772c6a46d5e726`; W3 lane `42918465772`, job `130186897979`: **296 passed, 1 skipped**. Focused storage/watch `42918465717`, job `130186897961`: **165 passed, 1 skipped**.
+- A follow-up commit added GitHub Actions job-summary publication for measured snapshot metrics; latest code/test SHA: `4f7e7edeed0c1b252bc3b3b4e339186697928649`. W3 lane `42918981288`, job `130188785319`: **IN PROGRESS** at this ledger update. Its result is required because it is the exact branch head with the summary reporting change.
+- Status: OPEN pending latest exact-branch result and metric inspection.
 
 ### Integration order
 
-1. Accept W1 after the scoped W1 result above and inspect the new multiprocess test result in the job log.
-2. Wait for W3 lifecycle/export/QC to complete; inspect the 64 MiB test's recorded metrics and confirm bounded heap assertion.
-3. Integrate W1 and W3 test-only changes serially to main, preserving the frozen main production tree.
+1. W1 scoped test passed (90 tests) and its test-only change is already integrated to main; await the exact-main gates on `b5dd5900acd0d3ac290d24f24611685ace36d1b2`.
+2. Wait for the latest W3 lifecycle/export/QC run to complete; inspect the 64 MiB test result and the GitHub job summary containing copy bytes, copy time, copy-plus-validation time and Python heap peak.
+3. Integrate W3 test-only changes to main without dropping the already-integrated W1 test; integrate W6 documentation changes serially after code integration.
 4. Run W1/W3 affected lanes, focused storage/watch, Studio release gate, full Python/browser, Windows-native and YAML on the exact resulting main SHA.
 5. Update this ledger with exact final SHA and evidence. Do not treat scoped branch PASS as integrated PASS.
