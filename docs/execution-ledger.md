@@ -50,7 +50,8 @@ The baseline is `c221a0b4fe4eb8e572e85fc20bb7ec4afc2ab4f1`. Historical CI eviden
 | 19D-08 | Project create/open/migrate/edit/reopen lifecycle uses one project and one FilmDocument revision | PASS (implementation recorded) | PASS — W3 lifecycle suite succeeded on code SHA `471800ca2d`, run `42620911400` | Re-run the existing integrated lifecycle fixture; do not create a duplicate fixture without a coverage gap |
 | 19D-09 | Actual MP4 export and QC artifacts are bound to the exact FilmDocument revision | PASS (implementation recorded) | PASS — W3 render/QC suite succeeded on code SHA `471800ca2d`, run `42620911400` | Re-run actual render/QC regression on hosted Ubuntu; verify output metadata, revision, artifact digest and failure behavior |
 | 19D-10 | Real model token streaming against a currently supported endpoint | MISSING | MISSING | Prior documented endpoint returned HTTP 410; mocks and historical runs do not count. Only explicit hosted opt-in with GitHub Secrets can close this |
-| 19D-11 | Arbitrary HTML/WebGL deterministic rendering and exhaustive edit-operation permutations | UNKNOWN / bounded support | MISSING | Preserve explicit unsupported boundaries; do not claim universal determinism or exhaustive permutation coverage |
+| 19D-11a | Supported project-local HTML scene deterministic frame contract (`window.film.frame(t)`) | IMPLEMENTED — controlled clock/random seed, animation synchronization, serialized exact frames, resource readiness and bounded RAF flushing | IN_PROGRESS — exact-SHA W3/full hosted verification pending for code/workflow SHA `17ed00978adf6d9d6224710e040cd85aa2ba9efb` | Browser regression now includes repeated same-time frame fingerprints; only the documented local HTML contract is in scope. No universal arbitrary-DOM guarantee |
+| 19D-11b | Arbitrary HTML/WebGL determinism and exhaustive edit-operation permutations | UNKNOWN / outside current deterministic contract | MISSING | Do not claim arbitrary WebGL/GPU determinism or exhaustive permutations. Define supported-content exclusions and a finite operation-interaction matrix with state invariants; keep this separate from 19D-11a |
 
 ### 2.2 07D — Product information architecture
 
@@ -645,3 +646,25 @@ The exact-SHA jobs have now all completed:
 - W1/W2/W3/W4/W5/W7 remain independently owned and independently evidenced; no shared-shell edits are authorized by this audit.
 - W6 owns any workflow/policy correction. W7 remains serial owner of `index.html` and `app.js`; W4/W5 retain their module boundaries.
 - Any executable code/workflow change creates a new tested SHA and must rerun the affected independent lanes plus integrated gates. Documentation-only reconciliation does not substitute for or invalidate the existing code SHA evidence.
+
+
+## 30. Bounded deterministic HTML-scene contract and W3 ownership — 2026-11-10
+
+### Audit finding
+
+- The existing scene runtime is not a universal HTML/WebGL renderer. It injects a versioned `window.film.frame(t)` bridge for project-local HTML scenes and rewrites project-local media references. A scene must implement the frame contract to be accepted for deterministic offline rendering.
+- The bridge controls `Date.now()` / zero-argument `Date`, `performance.now()`, a time-seeded `Math.random()`, CSS animation current time, and queued `requestAnimationFrame` callbacks. Exact frame requests are serialized; preview seeks are coalesced; unbounded RAF flushing is rejected. It waits for declared visual resources before acknowledging a frame.
+- This does not normalize WebGL/GPU driver behavior, arbitrary browser APIs, uncontrolled timers, remote resource contents, or arbitrary DOM scripts that do not implement the frame contract. Those cases must not be represented as deterministically supported.
+- Existing browser coverage verifies frame protocol, controlled primitives, RAF-loop rejection, exact-frame serialization, preview coalescing, resource readiness and error propagation. The previous coverage did not compare repeated exact requests at the same timestamp.
+
+### Bounded regression added
+
+- Commit `44afcba7ecb1bfb6e2d8fa1ca022596fd49dfeef` adds a real Chromium test that requests the same exact local HTML frame twice and compares the resulting `Date`, `performance.now()` and seeded random fingerprints.
+- Commit `17ed00978adf6d9d6224710e040cd85aa2ba9efb` assigns `tests/test_film_scene_runtime.py` to W3's lifecycle/render/QC job. This avoids treating a full-suite-only test as independent Lane evidence.
+- Exact-SHA workflow syntax run `42782367675` PASS; Windows-native publication run `42782367651` PASS. Parallel W1/W2/W3/W7, Product IA W4/W5 and full hosted Studio/full-regression jobs were IN_PROGRESS at the time of this entry. Do not infer their outcomes.
+
+### Remaining bounded work
+
+- 19D-11a is pending exact-SHA W3 and full-hosted results on `17ed00978adf6d9d6224710e040cd85aa2ba9efb`. A successful same-time fingerprint test only proves the controlled primitives exercised by that fixture; it does not prove pixel-identical output across browsers, GPUs or arbitrary scene code.
+- 19D-11b remains MISSING. “Exhaustive permutations” is not a useful unbounded acceptance target. The next W2 task is to enumerate the supported FilmDocument edit operations and define a finite pairwise/order-interaction matrix with invariants for revision monotonicity, canonical serialization, undo/redo restoration, stale-revision rejection and transaction atomicity. Preserve the existing operation limits and validation; do not claim all mathematical permutations are covered.
+- 19D-10 real NVIDIA token-stream acceptance remains MISSING/OPEN and requires explicit user opt-in to a cost-bearing hosted run with the dedicated `NVIDIA_API_KEY` secret.
