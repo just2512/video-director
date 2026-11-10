@@ -60,6 +60,12 @@ def test_top_level_navigation_keeps_one_active_pane_and_global_create_action(tmp
                       activeTabs: ['home', 'editor', 'settings'].filter((name) =>
                         document.getElementById('tab-' + name)?.classList.contains('tab-active')
                       ),
+                      currentTabs: ['home', 'editor', 'settings'].filter((name) =>
+                        document.getElementById('tab-' + name)?.getAttribute('aria-current') === 'page'
+                      ),
+                      hiddenPanes: ['home', 'editor', 'settings'].filter((name) =>
+                        document.getElementById('pane-' + name)?.getAttribute('aria-hidden') === 'true'
+                      ),
                       visiblePanes: ['home', 'editor', 'settings'].filter((name) => {
                         const node = document.getElementById('pane-' + name);
                         return node && getComputedStyle(node).display !== 'none';
@@ -73,10 +79,33 @@ def test_top_level_navigation_keeps_one_active_pane_and_global_create_action(tmp
                     })""")
                     assert state["route"] == target
                     assert state["activeTabs"] == [target]
+                    assert state["currentTabs"] == [target]
+                    assert state["hiddenPanes"] == [name for name in ("home", "editor", "settings") if name != target]
                     assert state["visiblePanes"] == [target]
                     assert state["createVisible"]
                     assert (state["pathname"], state["search"], state["hash"]) == ("/", "", "")
                     assert page.url == initial_url
+
+                # The three top-level spaces are reachable in native tab order,
+                # expose the current route to assistive technology, and activate by Enter.
+                page.evaluate("document.activeElement?.blur()")
+                page.keyboard.press("Tab")
+                assert page.evaluate("document.activeElement?.id") == "tab-home"
+                assert page.evaluate("document.activeElement?.matches(':focus-visible')") is True
+                page.keyboard.press("Tab")
+                assert page.evaluate("document.activeElement?.id") == "tab-editor"
+                page.keyboard.press("Enter")
+                page.wait_for_function("window.UI?.route === 'editor'")
+                assert page.locator("#tab-editor").get_attribute("aria-current") == "page"
+                assert page.locator("#pane-home").get_attribute("aria-hidden") == "true"
+                assert page.locator("#pane-editor").get_attribute("aria-hidden") == "false"
+                page.keyboard.press("Tab")
+                assert page.evaluate("document.activeElement?.id") == "tab-settings"
+                page.keyboard.press("Enter")
+                page.wait_for_function("window.UI?.route === 'settings'")
+                assert page.locator("#tab-settings").get_attribute("aria-current") == "page"
+                assert page.locator("#pane-editor").get_attribute("aria-hidden") == "true"
+                assert page.locator("#pane-settings").get_attribute("aria-hidden") == "false"
 
                 assert not page_errors, page_errors
             finally:
