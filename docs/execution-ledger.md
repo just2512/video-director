@@ -1138,10 +1138,22 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - Workflow YAML validation: **PASS**.
 - Studio React integration smoke: **38 passed**.
 - Studio timeline/revision/project-switch/lifecycle/render/QC gate: **346 passed**.
-- Full Python/browser regression run `42835448250` was still running at this ledger update. Do not mark integrated exact-SHA acceptance complete until its JUnit summary and job conclusion are available.
+- Full Python/browser regression run `42835448250`, job `129896459496`: **1,952 passed, 2 skipped, 0 failures, 0 errors** (1,954 collected; 704.39 s); job conclusion SUCCESS. The JUnit summary reports 1,954 tests, 0 failures, 0 errors and 2 skips. This closes the full Python/browser gate on exact SHA `36f83ed0ac0e8ac0eec677866556f7b8248b79b5`.
 - NVIDIA live provider job remains skipped on ordinary push. Do not repeat the paid live call; 19D-10 remains PASS from the separately authorized run recorded in §37.
 
 ### Next source-audit item
 
 - A read-only audit found a separate W3 boundary not covered by the current FilmDocument revision tests: the render media server reads project-local scene files from their live paths, while final publication rechecks only the `film.html` revision. The scene watcher emits a separate `scene_revision`, but `film_render.py` does not bind that revision to the MP4/QC transaction. An external edit to an HTML scene or its local resources during a multi-frame render could therefore leave a render composed from different resource states while the FilmDocument revision remains unchanged.
 - This is a candidate W3 correctness gap, not yet a confirmed failing regression. Next step: add a deterministic render test that changes a project-local scene resource during export and asserts that stale/mixed output is not published; then choose between immutable render-input snapshotting and a fail-closed scene-resource revision check. Include resource scope (HTML/CSS/images/media), symlink boundary, and the cost of hashing large files in the design. Do not claim this is fixed until the test passes on an exact hosted SHA.
+
+
+### Exact-SHA integrated regression completion
+
+- Full hosted run `42835448250` on code SHA `36f83ed0ac0e8ac0eec677866556f7b8248b79b5`: full Python/browser job `129896459496` SUCCESS — 1,952 passed, 2 skipped, 0 failures/errors (1,954 collected); Studio release gate job `129896458848` SUCCESS — 346 passed. The W3 scoped job on this SHA completed 289 passed, 1 skipped; W1 89, W2 355, W4 36, W5 13, W7 2, Windows-native 2 and YAML validation PASS as separately recorded in the current lane evidence. NVIDIA live job `129908516701` was SKIPPED by default; no provider call occurred.
+- The latest `main` documentation commit `8e902808f82cc828e36fed7dfa1cb4b23761ceb8` does not change the tested executable/workflow tree. Do not claim it is a new application-code test SHA.
+
+### Next W3 export-consistency task — OPEN
+
+- The render server currently serves project-local scene HTML/CSS/media from live project paths. The final publication transaction rechecks `film.html` revision only; it does not bind the scene-resource revision to the MP4/QC transaction. A scene resource can therefore change during multi-frame export without changing the FilmDocument revision.
+- Add a deterministic regression that mutates a scene HTML/CSS/image/media resource during export and proves that a mixed/stale MP4 and QC report are not published. Inspect the existing scene watcher revision signal and its event-loss/same-size-same-mtime behavior before choosing immutable resource snapshotting or a fail-closed resource revision check. Cover project-root/symlink boundaries and quantify the streaming-hash cost for large resources.
+- This is a confirmed source-level coverage gap but not yet a demonstrated failing export. Keep the implementation state UNKNOWN until a reproducible test fails before the fix and passes after it on an exact GitHub-hosted SHA. Do not weaken the existing render/QC or publication rollback assertions.
