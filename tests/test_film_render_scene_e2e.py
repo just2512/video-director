@@ -1186,3 +1186,37 @@ def test_resource_snapshot_large_media_copy_is_streaming_and_reports_cost(tmp_pa
                 f"| Copy + source validation (ms) | {elapsed_ms:.3f} |\n"
                 f"| Python heap peak (bytes) | {peak_bytes} |\n"
             )
+
+
+def test_resource_snapshot_rejects_metadata_preserving_rewrite_on_native_platform(tmp_path, monkeypatch):
+    """The snapshot's content guard must not depend on POSIX-only file metadata."""
+    import os
+
+    from video_director import config
+    from video_director.film_resource_snapshot import ResourceSnapshotError, SceneResourceSnapshot
+
+    project_id, _revision = _write_html_film_project(tmp_path, monkeypatch)
+    project = config.project_dir(project_id)
+    source = project / "assets" / "portable-resource.bin"
+    original = b"A" * 4096
+    replacement = b"B" * 4096
+    source.write_bytes(original)
+
+    snapshot_root = project / ".film" / "cache" / "resource-snapshot-platform"
+    snapshot_root.parent.mkdir(parents=True, exist_ok=True)
+    snapshot = SceneResourceSnapshot(project_id, snapshot_root).build(
+        ["assets/portable-resource.bin"]
+    )
+    pinned = snapshot.path_for("assets/portable-resource.bin")
+    assert pinned is not None and pinned.read_bytes() == original
+
+    before = source.stat()
+    source.write_bytes(replacement)
+    os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+    after = source.stat()
+    assert after.st_size == before.st_size
+    assert after.st_mtime_ns == before.st_mtime_ns
+
+    with pytest.raises(ResourceSnapshotError, match="changed before publication"):
+        snapshot.validate_sources()
+    assert pinned.read_bytes() == original
