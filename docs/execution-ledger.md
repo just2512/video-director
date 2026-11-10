@@ -1253,5 +1253,38 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - Added a browser regression that changes a CSS-referenced SVG during reverse-order frame sampling while preserving size and mtime; the preview must reject publication with `RESOURCE_REVISION_CONFLICT`.
 - Updated the source-FPS contract test to assert the snapshot-aware resolver signature and included that test in the W3 lane.
 - The previous integrated main SHA `651262424d1a404ec1b1d930097686540f0a6ede` had all W1–W7/product/focused/Windows/YAML lanes green, but its Full Python/browser gate reported **1,955 passed, 2 skipped, 1 failed**, and Studio release gate reported **349 passed, 1 failed**. Both failures were the same stale source-FPS contract assertion expecting the pre-snapshot call signature; no runtime frame-wait assertion failed. This branch updates that contract.
-- Status: **READY FOR MAIN INTEGRATION; final exact-main full and Studio gates OPEN**.
+- Status: **INTEGRATED AND ACCEPTED on main SHA `5627243bf9cb0847cf78c9093a90732351a18aaf`**. Exact-SHA integrated gates: Full Python/browser 1,959 passed, 2 skipped, 0 failures/errors; Studio release gate 351 passed; W1 89, W2 356, W3 295 passed/1 skipped, W4 36, W5 13, W7 2, focused storage/watch 165 passed/1 skipped, Windows-native 2, YAML PASS. NVIDIA live acceptance was skipped by default.
 - Remaining non-blocking engineering task after acceptance: measure snapshot copy time and disk overhead against representative large media assets; current CI fixtures validate streaming and report byte/time metrics but are not a production-scale benchmark.
+
+
+## 56. W1/W3 parallel audit branches and current exact-SHA acceptance — 2026-11-11
+
+### Frozen baseline and ownership
+
+- Frozen main baseline: `5627243bf9cb0847cf78c9093a90732351a18aaf` (all integrated gates green; see §55).
+- `work/w1-generation-recovery-race-audit` owns only `tests/test_generation_recovery.py`: independent OS-process read/modify/write test for generation_jobs.json. It starts eight processes together and requires all eight distinct job updates to survive.
+- `work/w3-resource-snapshot-scale-benchmark` owns only `tests/test_film_render_scene_e2e.py`: 64 MiB synthetic media snapshot, verifies copied bytes and SHA-256, re-validates source, records copy and validation time, and asserts Python heap peak remains below 8 MiB. This is a Python-heap bound, not an RSS claim.
+- `work/w6-active-branch-register` owns documentation only: synchronizes this ledger and the active branch register in `parallel-workstreams.md`.
+- W1 and W3 are running independently from the same frozen main SHA with disjoint file ownership. W6 does not edit either code/test path.
+
+### W1 scoped evidence
+
+- Branch code/test SHA: `2f5181ceb15c1b27b5b28670a938ba573e7cb666`.
+- W1 generation durability run `42918520098`, job `130187104548`: **90 passed**.
+- Workflow YAML run `42918519951`: SUCCESS.
+- Status: scoped PASS; integrated main acceptance remains pending until W1/W3 branch integration and exact-main gates.
+
+### W3 scoped evidence
+
+- Branch code/test SHA: `da44aadf77335f176036d86e49772c6a46d5e726`.
+- Focused storage/watch run `42918465717`, job `130186897961`: **165 passed, 1 skipped**.
+- W3 lifecycle/export/QC run `42918465772`, job `130186897979`: **IN PROGRESS** at this ledger update. Do not claim the scale test or W3 branch is accepted until its job completes and its logs are inspected.
+- Status: OPEN pending W3 exact-branch result.
+
+### Integration order
+
+1. Accept W1 after the scoped W1 result above and inspect the new multiprocess test result in the job log.
+2. Wait for W3 lifecycle/export/QC to complete; inspect the 64 MiB test's recorded metrics and confirm bounded heap assertion.
+3. Integrate W1 and W3 test-only changes serially to main, preserving the frozen main production tree.
+4. Run W1/W3 affected lanes, focused storage/watch, Studio release gate, full Python/browser, Windows-native and YAML on the exact resulting main SHA.
+5. Update this ledger with exact final SHA and evidence. Do not treat scoped branch PASS as integrated PASS.
