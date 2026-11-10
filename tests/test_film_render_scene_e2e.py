@@ -867,7 +867,6 @@ def test_look_aborts_before_publishing_when_film_changes_during_sampling(tmp_pat
     assert not list(output.parent.glob(f"contact-{original_revision}.tmp.png")) if output.parent.exists() else True
 
 
-@pytest.mark.parametrize("expected_revision", ["", "   ", None])
 def test_look_aborts_when_scene_dependency_changes_during_sampling(tmp_path, monkeypatch):
     """Look serves pinned bytes and rejects a contact sheet if a dependency changes."""
     pytest.importorskip("playwright.sync_api")
@@ -917,6 +916,7 @@ def test_look_aborts_when_scene_dependency_changes_during_sampling(tmp_path, mon
     assert not list(output.parent.glob(f".contact-{revision}.*.tmp.png")) if output.parent.exists() else True
 
 
+@pytest.mark.parametrize("expected_revision", ["", "   ", None])
 def test_film_render_rejects_missing_or_blank_expected_revision_before_side_effects(
     tmp_path, monkeypatch, expected_revision,
 ):
