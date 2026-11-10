@@ -211,10 +211,12 @@ def test_live_model_stream_smoke_is_explicit_ci_opt_in_and_fails_closed():
     assert "workflow_dispatch:" in workflow
     assert "run_live_nvidia:" in workflow
     assert "default: false" in workflow
-    assert "contains(github.event.head_commit.message, '[live-stream-smoke]')" in live_job
-    assert "contains(github.event.head_commit.message, '[live-provider=nvidia]')" in live_job
-    assert "contains(github.event.head_commit.message, '[live-model=z-ai/glm-5.3-flash]')" in live_job
-    assert "github.event_name == 'workflow_dispatch' && inputs.run_live_nvidia" in live_job
+    assert "github.event_name == 'workflow_dispatch' &&" in live_job
+    assert "inputs.run_live_nvidia" in live_job
+    assert "github.event_name == 'push'" not in live_job
+    assert "[live-stream-smoke]" not in live_job
+    assert "[live-provider=nvidia]" not in live_job
+    assert "[live-model=z-ai/glm-5.3-flash]" not in live_job
     assert "needs: [full_regression, studio_release_gate]" in live_job
     assert "NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}" in live_job
     assert "https://integrate.api.nvidia.com/v1" in live_job
@@ -524,10 +526,12 @@ def test_full_hosted_regression_gate_is_main_sha_pinned_and_uses_no_self_hosted_
     assert "video_director/" not in ignored
     assert ".github/workflows/" not in ignored
 
-    assert "contains(github.event.head_commit.message, '[live-stream-smoke]')" in workflow
-    assert "contains(github.event.head_commit.message, '[live-provider=nvidia]')" in workflow
-    assert "contains(github.event.head_commit.message, '[live-model=z-ai/glm-5.3-flash]')" in workflow
+    assert "[live-stream-smoke]" not in workflow
+    assert "[live-provider=nvidia]" not in workflow
+    assert "[live-model=z-ai/glm-5.3-flash]" not in workflow
     live_job = workflow.split("  nvidia_live_stream:", 1)[1]
+    assert "github.event_name == 'workflow_dispatch' &&" in live_job
+    assert "inputs.run_live_nvidia" in live_job
     assert "needs: [full_regression, studio_release_gate]" in live_job
     assert "NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}" in live_job
     assert 'export VD_LLM_API_KEY="$NVIDIA_API_KEY"' in live_job
