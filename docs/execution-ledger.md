@@ -562,3 +562,31 @@ Code/test SHA: `7865a15840090c71aa6808b2f70818618a1eaccf`.
 - Full Python/browser regression, W1–W3/W7, W4/W5 and Windows-native evidence must be reconciled by exact SHA; no historical PASS is substituted.
 - NVIDIA real token-stream acceptance remains MISSING/OPEN. It is not to run until full Python and Studio gates pass and the commit carries the explicit opt-in markers with the dedicated hosted secret.
 - No self-hosted/local runner was used.
+
+
+
+## 28. Exact-SHA parallel acceptance closure and W6 trigger repair — 2026-11-10
+
+### Code/test SHA `7865a15840090c71aa6808b2f70818618a1eaccf`
+
+The exact-SHA jobs have now all completed:
+
+- Parallel workstreams run `42775637350`: W1 generation durability PASS; W2 timeline transactions PASS; W3 lifecycle/export/QC PASS; W7 shared shell navigation PASS.
+- Product IA run `42775637428`: W4 project home/create lifecycle PASS; W5 settings IA/credential safety PASS.
+- Full hosted run `42775637705`: Studio build/timeline/lifecycle/export/QC release gate PASS; full Python/browser regression PASS. Explicit NVIDIA real token-stream acceptance was SKIPPED, not passed.
+- Windows-native publication run `42775637347`: PASS.
+- All these runs target the same code/test SHA `7865a15840090c71aa6808b2f70818618a1eaccf`. This closes the previously pending W1–W5/W7, Studio, full-regression and Windows gates for that SHA. It does not close NVIDIA live acceptance.
+
+### W6 trigger repair
+
+- Commit `1c89eb5105e1512c2cb4fcd50cd8f5ac2f59321a` updates only `.github/workflows/validate-workflows.yml`.
+- The workflow now runs on main pushes except documentation-only changes, using `paths-ignore` for `docs/**`, `**/*.md` and `**/*.mdx`. Workflow/source/test changes therefore trigger the YAML parser, while docs-only ledger updates do not launch the expensive CI suite.
+- Exact-SHA W6 validation and the affected regression workflows were triggered for `1c89eb5105e1512c2cb4fcd50cd8f5ac2f59321a`: syntax run `42778257402`, full hosted `42778257129`, Product IA `42778257445`, Windows native `42778257207`. At the time of this ledger entry these were queued/in progress; no result is inferred. Refresh each workflow and each independent job before marking it PASS.
+- Because the trigger change itself is a workflow-file change, it correctly triggers the YAML validation workflow. Docs-only ledger updates are excluded.
+- Runner policy remains GitHub-hosted Ubuntu/Windows only. NVIDIA live acceptance remains separately gated and must not be inferred from ordinary full regression.
+
+### Next required reconciliation
+
+- On SHA `1c89eb5105e1512c2cb4fcd50cd8f5ac2f59321a`, verify W6 YAML syntax, W1/W2/W3/W7, W4/W5, Studio release gate, full Python/browser regression and Windows-native publication independently.
+- If any job fails, inspect its logs and preserve the lane's acceptance assertions; do not lower thresholds or substitute a different lane's result.
+- Only after Studio and full Python/browser gates pass may the separately opted-in NVIDIA real token-stream acceptance be considered, using the dedicated hosted secret and no local model configuration.
