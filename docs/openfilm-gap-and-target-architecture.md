@@ -2,7 +2,7 @@
 
 ## 结论
 
-**执行顺序已确定：先恢复真实 Studio 构建，再统一 React UI 所有权，然后收敛 AI 提案/人机编辑事务，最后进行真实浏览器与导出验收。当前操作直接提交到 main，不开新分支或 PR。**
+**执行治理以 `docs/execution-ledger.md` 与 `docs/parallel-workstreams.md` 为准：独立任务从冻结的 main SHA 创建短生命周期分支，按文件所有权并行开发和执行 hosted scoped CI，完成后由协调者直接、串行集成到 main；不使用 PR/人工审核交接。**
 
 目标不是把 OpenFilm 的代码逐文件复制进来，而是吸收它的**工程契约**：可读的影片文件、稳定 ID、文件系统作为 agent 与 Studio 的连接层、可验证的时间函数、按 ID 操作、确定性预览/导出。Video Director 已经有 FilmDocument、`film.html`、场景 `frame(t)` 契约、版本化操作、undo/redo、外部文件 watcher、AI 提案预览/确认和渲染验收，不能再另建一套平行影片模型。
 
@@ -291,7 +291,7 @@
 1. **CompositionIR field inventory — implemented, bounded claim:** `docs/composition-ir-migration-field-audit.md` now inventories all current top-level CompositionIR fields and recursively lists 241 reachable nested Pydantic fields. `tests/test_composition_ir_migration_field_audit.py` rejects inventory drift, duplicate/contradictory rows and any field still marked UNKNOWN. This is a complete disposition inventory, not proof that every MAPPED field is semantically lossless; each mapped subset retains its stated warning/reject boundary.
 2. **Project lifecycle end-to-end — implemented:** `tests/test_film_studio_migration_preview_browser.py::test_workspace_open_previews_migration_in_studio_before_creating_film_html` exercises create/open, non-writing migration preview, source archive digest, explicit initialization, project switch during an in-flight initialization, manual edit, external file revision, reload, AI proposal rejection and export from the same Studio project. `tests/test_film_render_scene_e2e.py::test_migrated_project_external_revision_reopen_look_and_mp4_qc_share_one_revision` independently binds reopen/look/render/QC to one revision.
 3. **MP4/QC release contract — implemented for the tested fixture:** the migrated-project render E2E verifies MP4 existence and metadata, revision pin, current-revision status, output hash/size, visual samples, deterministic look and QC checks. It does not certify every codec, source format or arbitrary HTML/WebGL scene.
-4. **Next narrow acceptance gap:** add an HTTP-level regression for an explicitly supplied unknown `selected_variant_id`: preview must return `ACTIVE_VARIANT_NOT_FOUND`, must not fall back to top-level scenes/audio, and must not create `film.html`. The existing API test already covers `ACTIVE_VARIANT_REQUIRED` for multiple variants without a selection and successful persistence of an explicitly selected variant.
+4. **Unknown selected-variant fail-closed contract — CLOSED:** `tests/test_film_variant_migration_api.py::test_film_migration_api_requires_and_persists_explicit_variant_selection` exercises an unknown explicit `selected_variant_id`, requires `ACTIVE_VARIANT_NOT_FOUND`, forbids fallback to top-level scenes/audio and verifies `film.html` is not created. This test ran in W3 lifecycle/export/QC on main SHA `5627243bf9cb0847cf78c9093a90732351a18aaf` (295 passed, 1 skipped).
 5. The bounded HTML scene capability matrix remains authoritative for supported/rejected runtime classes. Arbitrary HTML/WebGL determinism and exhaustive edit-operation permutations remain unsupported/UNKNOWN; no new rendering capability should be introduced without a separate, testable contract. Real provider streaming remains a separately gated hosted opt-in, not a CI mock substitute.
 
 
