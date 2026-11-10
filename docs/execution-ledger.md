@@ -1,8 +1,8 @@
 # Execution ledger — dual-plan delivery
 
 **Repository:** `just2512/video-director`  
-**Baseline main SHA:** `c221a0b4fe4eb8e572e85fc20bb7ec4afc2ab4f1`  
-**Updated:** 2026-11-09  
+**Audit starting main SHA:** `99142d0887fa771bea7c3bd3e5bafd27ee435a1b`  
+**Updated:** 2026-11-10  
 **Purpose:** operational status and dependency ledger only. This file does not replace, merge, or rewrite either source plan.
 
 ## 0. Non-negotiable execution rules
@@ -34,37 +34,37 @@ A constraint may be shared (for example, one FilmDocument authority), but a task
 
 ## 2. Current delivery ledger
 
-The baseline is `c221a0b4fe4eb8e572e85fc20bb7ec4afc2ab4f1`. Historical CI evidence is not automatically evidence for this SHA. The active AI Director run recorded during this audit is listed separately in section 5.
+At the start of this reconciliation, `main` was `99142d0887fa771bea7c3bd3e5bafd27ee435a1b`. The exact executable/workflow tree verified here is `9d7208cc9818839ea2c9cc5965298e0998c28b68`; GitHub compare confirms the two intervening commits changed only these two documentation files. All acceptance evidence below is tied to that exact executable/workflow SHA. Subsequent edits to this ledger and the parallel-workflow document are documentation-only and do not require rerunning the product suite.
 
 ### 2.1 19D — Film Studio / OpenFilm delivery
 
 | ID | Deliverable | Implementation status | Current exact-main acceptance | Evidence / next action |
 |---|---|---|---|---|
-| 19D-01 | `film.html` is the sole timeline authority once present; legacy CompositionIR writes/exports fail closed | PASS (documented implementation) | UNKNOWN | Verify current main code paths and authority tests; do not reintroduce a second timeline |
-| 19D-02 | Revision-pinned project context, stale-response rejection, project-switch isolation | PASS (documented implementation) | UNKNOWN | Re-run project-context, external-watch and project-switch tests on a hosted runner |
-| 19D-03 | AI proposal preview/reject/apply is revision-bound and does not write before approval | PASS (documented implementation) | UNKNOWN | Re-run proposal browser tests on current main |
-| 19D-04 | Multi-select and cross-track drag form one atomic transaction; Undo/Redo restore full affected state | PASS (implementation recorded) | PASS — W2 timeline transaction + AI proposal suites passed on code SHA `471800ca2d`, run `42620911400` | Recent commits `cb366e36`, `4d866259`, `c221a0b4` adjust coverage; latest known full AI Director run before this baseline failed on `3a7ec258`. Verify exact failure and current tests |
-| 19D-05 | Timeline gestures reject stale external revisions and project-switch responses | PASS (documented implementation) | UNKNOWN | Existing browser coverage is documented; re-run against exact current main |
-| 19D-06 | Generation job reservation, provider identity, ambiguous submission, download recovery and Manifest/Registry idempotency | PASS | PASS — W1 hosted suite succeeded on latest code SHA `7a04012423`, run `42618988136` | Nov 9 commits changed provider identity and recovery contracts; run generation recovery, provider matrix and manifest regressions |
-| 19D-07 | Manual generated-asset adoption; generation completion cannot overwrite a newer user revision | PASS (implementation recorded) | PASS — W3 adoption regression succeeded on code SHA `471800ca2d`, run `42620911400` | Re-run manual-adoption browser E2E on current main |
-| 19D-08 | Project create/open/migrate/edit/reopen lifecycle uses one project and one FilmDocument revision | PASS (implementation recorded) | PASS — W3 lifecycle suite succeeded on code SHA `471800ca2d`, run `42620911400` | Re-run the existing integrated lifecycle fixture; do not create a duplicate fixture without a coverage gap |
-| 19D-09 | Actual MP4 export and QC artifacts are bound to the exact FilmDocument revision | PASS (implementation recorded) | PASS — W3 render/QC suite succeeded on code SHA `471800ca2d`, run `42620911400` | Re-run actual render/QC regression on hosted Ubuntu; verify output metadata, revision, artifact digest and failure behavior |
-| 19D-10 | Real model token streaming against a currently supported endpoint | MISSING | MISSING | Prior documented endpoint returned HTTP 410; mocks and historical runs do not count. Only explicit hosted opt-in with GitHub Secrets can close this |
-| 19D-11a | Supported project-local HTML scene deterministic frame contract (`window.film.frame(t)`) | IMPLEMENTED — controlled clock/random seed, animation synchronization, serialized exact frames, resource readiness and bounded RAF flushing | IN_PROGRESS — exact-SHA W3/full hosted verification pending for code/workflow SHA `17ed00978adf6d9d6224710e040cd85aa2ba9efb` | Browser regression now includes repeated same-time frame fingerprints; only the documented local HTML contract is in scope. No universal arbitrary-DOM guarantee |
-| 19D-11b | Arbitrary HTML/WebGL determinism and exhaustive edit-operation permutations | UNKNOWN / outside current deterministic contract | MISSING | Do not claim arbitrary WebGL/GPU determinism or exhaustive permutations. Define supported-content exclusions and a finite operation-interaction matrix with state invariants; keep this separate from 19D-11a |
+| 19D-01 | `film.html` is the sole timeline authority once present; legacy CompositionIR writes/exports fail closed | PASS | PASS — exact tree `9d7208cc`; full hosted regression run `42821701972` (1,952 passed, 2 skipped) and Studio gate (346 passed) | `test_project_manager_film_authority.py`, `test_film_document_contract.py` and Studio release-gate coverage passed on the same executable/workflow SHA |
+| 19D-02 | Revision-pinned project context, stale-response rejection, project-switch isolation | PASS | PASS — W2 355 passed and full hosted regression 1,952 passed on exact tree `9d7208cc` | External-watch, pending-revision, project-switch and project-context regressions ran in hosted lanes; preserve stale-response and project-isolation assertions |
+| 19D-03 | AI proposal preview/reject/apply is revision-bound and does not write before approval | PASS | PASS — W2 355 passed; Studio gate 346 passed on exact tree `9d7208cc` | W2 and Studio release gate both include `test_film_studio_ai_proposal_browser.py` and `test_film_studio_ai_stream_contract.py`; live-model acceptance is tracked separately under 19D-10 |
+| 19D-04 | Multi-select and cross-track drag form one atomic transaction; Undo/Redo restore full affected state | PASS | PASS — W2 355 passed; Studio gate 346 passed on exact tree `9d7208cc` | React 19 timeline is built in W2; transaction, history, marker, lock, ripple and proposal suites passed without weakening assertions |
+| 19D-05 | Timeline gestures reject stale external revisions and project-switch responses | PASS | PASS — W2 355 passed; full hosted regression 1,952 passed on exact tree `9d7208cc` | External-watch, pending-revision and project-switch browser regressions passed; retain the existing persisted-revision checks |
+| 19D-06 | Generation job reservation, provider identity, ambiguous submission, download recovery and Manifest/Registry idempotency | PASS | PASS — W1 89 passed on exact tree `9d7208cc`, run `42821701905` | Generation recovery and manifest invariants passed; video-generation provider identity remains distinct from the LLM streaming path |
+| 19D-07 | Manual generated-asset adoption; generation completion cannot overwrite a newer user revision | PASS | PASS — W3 287 passed, 1 skipped on exact tree `9d7208cc`, run `42821701905` | Generated-asset adoption browser regression passed as part of lifecycle coverage; explicit adoption and stale-revision rejection remain required |
+| 19D-08 | Project create/open/migrate/edit/reopen lifecycle uses one project and one FilmDocument revision | PASS | PASS — W3 287 passed, 1 skipped; full hosted regression 1,952 passed on exact tree `9d7208cc` | Existing integrated lifecycle fixtures passed; no duplicate lifecycle fixture was introduced |
+| 19D-09 | Actual MP4 export and QC artifacts are bound to the exact FilmDocument revision | PASS | PASS — W3 287 passed, 1 skipped; Studio gate 346 passed on exact tree `9d7208cc` | Render/publication transaction, actual render, revision provenance and QC regressions passed in hosted acceptance |
+| 19D-10 | Real model token streaming against a currently supported endpoint | PASS | PASS — explicit hosted NVIDIA manual-dispatch run `42802192086` on tested SHA `295b0acf`; completed live JUnit evidence is recorded in §37 | This closes the LLM token-stream/proposal/approval path only; it is not evidence of a real video-generation provider call. Do not repeat paid calls without explicit opt-in |
+| 19D-11a | Supported project-local HTML scene deterministic frame contract (`window.film.frame(t)`) | IMPLEMENTED | PASS within the documented boundary — W3 287 passed and Studio gate 346 passed on exact tree `9d7208cc` | `test_film_scene_runtime.py` and exact-time primitive fingerprint coverage passed; no arbitrary HTML/WebGL or cross-device pixel-identity claim |
+| 19D-11b | Finite edit-operation interaction matrix and state invariants (not arbitrary WebGL determinism or exhaustive permutations) | IMPLEMENTED | PASS for the finite documented matrix — W2 355 passed and Studio gate 346 passed on exact tree `9d7208cc` | Marker/clip atomic batch, rollback, track add/remove, lock, split/join, ripple, fade, volume-envelope and keyframe interactions passed; no exhaustive-permutation claim |
 
 ### 2.2 07D — Product information architecture
 
 | ID | Deliverable | Implementation status | Current exact-main acceptance | Evidence / next action |
 |---|---|---|---|---|
-| 07D-01 | Safe partial model-config updates preserve omitted roles/fields and keys | PASS (safe merge path recorded in 2026-11-07 audit closure) | UNKNOWN | Re-run config contract tests on hosted runner; do not inspect or modify a developer's local config |
-| 07D-02 | Existing create flow and browser/server draft recovery chain | PASS (existing lifecycle contract) | UNKNOWN | Preserve existing DOM hooks, draft key, server endpoint, upload and WorkflowRun contracts |
-| 07D-03 | Project-first home hierarchy and first-class create experience | PASS — project list is default pane and top-level create action is present | IN PROGRESS — W4 browser suite running on code SHA `7a04012423` | Implement the UX over the existing project/create lifecycle; do not create a second backend/state machine |
-| 07D-04 | Full-work-area create flow with safe cancel/failure/resume | PASS — full-work-area flow includes project name and project type inputs; `create.js` restores them from project metadata and submits them through `requestOptions` | PASS on code SHA `68ab8bd9db7b432d36ee5c6fd960187eac5acfd2`, Product IA run `42744407811` (W4 job success) | Continue checking rename/retry/legacy-row compatibility in the W4 lifecycle suite; do not report metadata fields as missing |
-| 07D-05 | Categorized settings IA and progressive disclosure | PASS — categorized `<details>` sections and progressive disclosure exist | PASS — W5 browser + persistence tests succeeded on code SHA `471800ca2d`, run `42620911467` | Implement UI only; do not change ROLE_DEFS, provider IDs, secret semantics or settings endpoint contract |
-| 07D-06 | Shared shell navigation and in-app view contract | PASS for current scope — three spaces are integrated through `switchTab`; no router migration required by this audit | UNKNOWN — no dedicated cross-space navigation E2E recorded | Coordinator owns `index.html` and `app.js`; do not introduce a router migration in this pass |
-| 07D-07 | Project-scoped output defaults with backward-compatible reads | PASS — project width/height/FPS are stored in `plans/director_spec.json`; `/api/director/brief` reads them back; legacy platform-only projects derive a compatible aspect ratio | PASS — W4 browser regression verifies width/height/FPS restore, clean defaults on project switch and legacy platform fallback on code SHA `471800ca2d`, run `42620911467` | Audit existing project params/CompositionIR/FilmDocument dimensions first; add schema only with compatibility tests |
-| 07D-08 | Product E2E: home → create/cancel/resume → settings expand/save/import/export | PARTIAL — W4 and W5 are independently covered; integrated shell journey remains a separate W7 acceptance concern | W4/W5 PASS on code SHA `68ab8bd9db7b432d36ee5c6fd960187eac5acfd2`, Product IA run `42744407811`; W7 PASS on same SHA, Parallel run `42744407839` | Keep isolated W4/W5 results distinct from the integrated W7 journey; verify metadata through create, reopen and rename |
+| 07D-01 | Safe partial model-config updates preserve omitted roles/fields and keys | PASS | PASS — W5 13 passed on exact tree `9d7208cc`, run `42821702016`; full regression also passed | Safe merge, partial import and export-secret-redaction contracts passed; no local config or credentials were read |
+| 07D-02 | Existing create flow and browser/server draft recovery chain | PASS | PASS — W4 36 passed on exact tree `9d7208cc`, run `42821702016` | Real Chromium create/cancel/resume and browser/server draft persistence tests passed; existing lifecycle hooks and storage keys remain intact |
+| 07D-03 | Project-first home hierarchy and first-class create experience | PASS | PASS — W4 36 passed on exact tree `9d7208cc`, run `42821702016` | Project-first home and create workspace are covered by the W4 browser suite; no second backend or state machine introduced |
+| 07D-04 | Full-work-area create flow with safe cancel/failure/resume and persisted project name/type | PASS | PASS — W4 36 passed on exact tree `9d7208cc`, run `42821702016` | Name/type persist through draft, project params, project index, prefill, rename and retry; keyboard focus lifecycle is now included |
+| 07D-05 | Categorized settings IA and progressive disclosure | PASS | PASS — W5 13 passed on exact tree `9d7208cc`, run `42821702016` | Settings browser and model-config persistence contracts passed, including credential preservation and export redaction |
+| 07D-06 | Shared shell navigation and in-app view contract | PASS | PASS — W7 2 passed on exact tree `9d7208cc`, run `42821701905` | Keyboard navigation, active `aria-current`, inactive-pane `aria-hidden`, stable URL and one-visible-pane behavior passed |
+| 07D-07 | Project-scoped output defaults with backward-compatible reads | PASS | PASS — W4 36 passed on exact tree `9d7208cc`, run `42821702016` | Width/height/FPS restore, clean project-switch defaults and legacy platform fallback passed |
+| 07D-08 | Product E2E: home → create/cancel/resume → settings expand/save/import/export | PASS | PASS — W7 2 passed on exact tree `9d7208cc`, run `42821701905`; W4/W5 isolated lanes also passed | Integrated browser journey passed alongside separate W4 36 / W5 13 results; keyboard shell semantics are additionally verified |
 
 ## 3. Workstream partition — what can genuinely run in parallel
 
@@ -118,33 +118,33 @@ Execution order:
 6. **Integrated lifecycle:** W3 runs create/open/migrate/edit/reopen/export/QC after W1/W2 and shell contracts stabilize.
 7. **Final acceptance:** all relevant hosted jobs and browser E2E run against the exact same main SHA. Historical evidence is not carried forward after code changes.
 
-## 5. CI and runner policy — current state
+## 5. CI and runner policy — current verified state
 
 | Workflow | Current configuration | Decision |
 |---|---|---|
-| `ai-director.yml` | Previously targeted `[self-hosted, linux, x64]` and accessed local WSL storage/model config | Disabled at the job level pending a full GitHub-hosted migration; do not dispatch or rerun |
-| `parallel-workstream-ci.yml` | GitHub-hosted Ubuntu, but branch-name gated to `work/**` and PRs | Needs conversion to main-only logical lanes before it can serve this main-only plan |
-| `product-ia-regression.yml` | GitHub-hosted Ubuntu, but only `work/product-*` branches | Reuse its test commands in hosted main lanes; do not create branches just to trigger it |
-| `focused-storage-watch.yml` | GitHub-hosted Ubuntu on selected main paths | Safe to use |
-| `studio-ui-build.yml` | GitHub-hosted Ubuntu, manual dispatch | Safe to use when explicitly needed |
-| `windows-native-publication.yml` | GitHub-hosted Windows | Safe to use for Windows-native tests |
+| Legacy `ai-director.yml` | Removed from `.github/workflows/` | No self-hosted workflow remains in the active workflow directory; do not recreate it |
+| `parallel-workstream-ci.yml` | Main push + manual dispatch; W1/W2/W3/W7 independent jobs on `ubuntu-24.04` | PASS — exact tree `9d7208cc`, run `42821701905` |
+| `product-ia-regression.yml` | Main push + manual dispatch; W4/W5 independent jobs on `ubuntu-24.04` | PASS — exact tree `9d7208cc`, run `42821702016` |
+| `full-hosted-regression.yml` | Canonical exact-SHA full pytest/browser + Studio release gate; NVIDIA live test is explicit manual opt-in | PASS for non-live gates — run `42821701972`; live job correctly SKIPPED on push |
+| `focused-storage-watch.yml` | GitHub-hosted Ubuntu on selected main paths | PASS — run `42821701901` |
+| `studio-ui-build.yml` | GitHub-hosted Ubuntu, manual dispatch | Available for targeted manual validation |
+| `windows-native-publication.yml` | GitHub-hosted `windows-latest` | PASS — 2 native tests, run `42821701904` |
+| `validate-workflows.yml` | GitHub-hosted Ubuntu YAML validation | PASS — run `42821701924` |
 
-**Important:** the active run `42616478439` was already in progress on the self-hosted runner when this audit began. It was not started by this change. The available GitHub controls in this session did not expose a cancel action, so this ledger does not claim it was cancelled. No new self-hosted run is to be started.
+All active workflow files use GitHub-hosted runners. W6 has upgraded checkout/setup/upload actions to the v7 majors using the Node.js 24 action runtime; the exact-SHA logs contain no Node.js 20 forced-runtime warning. Never read developer-local model configuration, secrets or storage from CI.
 
-## 6. Next executable queue
+## 6. Current executable queue
 
 | Order | Task | Lane | Exit condition | State |
 |---:|---|---|---|---|
-| 1 | Disable self-hosted AI Director job; establish hosted-only runner rule | W6 | No future workflow path allocates a self-hosted runner | PASS — AI Director job-level `if: false`; current main run `42637922618` skipped |
-| 2 | Convert branch-gated workstream CI into hosted main-only lanes | W6 | W1/W2/W3/W4/W5 execute independently on GitHub-hosted runners from main SHA | PASS — latest completed SHA `84886d7487`, runs `42635166724` and `42635166694`; SHA `6ba62841bd` revalidation running |
-| 3 | Generation/provider recovery suite | W1 | Provider identity, retry reservation and manifest invariants pass | PASS — SHA `84886d7487`, 89 passed, run `42635166724` |
-| 4 | Timeline transactions, stale revisions, Undo/Redo and AI proposal contracts | W2 | Atomic transaction and revision-bound proposal behavior pass | PASS — SHA `84886d7487`, 333 passed, run `42635166724` |
-| 5 | Project home/create, cancel/resume, metadata and project defaults | W4 | Existing create lifecycle and metadata fields pass without a second backend state machine | PASS — SHA `84886d7487`, 35 passed, run `42635166694` |
-| 6 | Settings IA, safe save/import/export and secret preservation | W5 | Categorized UI and credential safety pass | PASS — SHA `84886d7487`, 13 passed, run `42635166694` |
-| 7 | Shared shell navigation contract | W7 | Home/editor/settings switch with one active pane, stable URL and global create action | IMPLEMENTED; dedicated browser job pending on next main SHA |
-| 8 | Integrated product journey across create lifecycle and settings | W7/W3 | One browser journey covers home → create/cancel/resume → settings expand/save/import/export | PARTIAL — W4 and W5 separate browser suites pass; single cross-workflow journey still missing |
-| 9 | Exact-main full hosted regression | W6/W0 | Full pytest, Studio release gate, all scoped lanes and Windows native check pass on exact main SHA | PASS for non-live gates on `84886d7487`; full run `42635166809` live NVIDIA job failed before network access; SHA `6ba62841bd` rerun in progress |
-| 10 | Real NVIDIA token-stream and FilmDocument immutability acceptance | W6/W0 | Real model emits token fragments before result; proposal is revision-bound; document unchanged before approval; approval single-use | BLOCKED — prior run `42635166809` failed before network access due missing `httpx`; dependency fix committed in `6ba62841bd`, live run pending |
+| 1 | Create-dialog keyboard focus containment/restoration and shared-shell keyboard/ARIA semantics | W4/W7 | Real Chromium verifies initial focus, Tab/Shift+Tab trap, focus restoration, keyboard navigation, active `aria-current` and inactive `aria-hidden` | PASS — W4 36 passed; W7 2 passed on exact tree `9d7208cc` |
+| 2 | Reconcile all parallel lanes and integrated hosted release gates | W0/W1–W7 | All scoped lanes, full pytest, Studio gate, YAML and Windows-native tests pass on one executable/workflow SHA | PASS — W1 89; W2 355; W3 287/1 skipped; W4 36; W5 13; W7 2; full pytest 1,952/2 skipped; Studio 346; Windows 2; YAML PASS on `9d7208cc` |
+| 3 | Maintain GitHub Actions Node.js 24 runtime baseline | W6 | Supported action versions and workflow syntax remain valid without Node.js 20 forced-runtime warnings | PASS — exact tree `9d7208cc`; YAML run `42821701924` |
+| 4 | Classify and resolve remaining test diagnostics without suppressing them | W0 + owning test lane | Determine whether Pydantic serializer warnings are fixture-only or reveal a real validation/serialization gap; clean invalid-escape and Pillow deprecation warnings without changing business assertions | OPEN — non-blocking; see §47 |
+| 5 | Resolve root runner-policy contradiction in `CONTRACT.md` §§0–0.1 | W0 | Explicit impact analysis and controlled Contract Change align the highest-level contract with GitHub-hosted-only execution, while preserving hosted-runner tests | BLOCKED — contract conflict requires explicit authorization; do not edit `CONTRACT.md`, re-enable self-hosted runners or weaken tests before that decision |
+
+**Live-provider boundary:** 19D-10 is already PASS from the separately authorized hosted NVIDIA manual dispatch in §37. The latest ordinary push correctly skipped the live job. Do not incur another provider call merely to refresh documentation; only a separately authorized manual opt-in may run it.
+
 ## 7. Stop conditions
 
 Stop and request a decision only for architecture/contract conflict, data-loss risk, security boundary change, irreversible migration, production-impacting change, or a product decision not specified by either source plan. Ordinary test failures, lint issues and CI configuration defects are to be diagnosed and fixed without changing acceptance thresholds.
@@ -1035,3 +1035,49 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - Current workflows and latest exact-SHA runs use GitHub-hosted runners. No workflow was changed to self-hosted and no local/WSL runner was used.
 - **Status: CONTRACT CONFLICT / BLOCKED for editing `CONTRACT.md`.** Root `CONTRACT.md` declares itself the highest engineering contract and says modifying it is an explicit Contract Change requiring impact analysis; §45 says a contract conflict must stop that task and be reported. I therefore did not silently edit it or weaken the existing hosted-runner gate.
 - Required controlled resolution: update §0 and §0.1 to the current GitHub-hosted CI policy, remove the obsolete self-hosted workflow references, and reconcile the stack table; then update the corresponding contract tests/docs if needed. This is a contract-level change and remains blocked pending explicit authorization. All unrelated W1–W7 work and CI monitoring may continue.
+
+
+## 47. Exact-SHA accessibility, CI runtime and integrated acceptance reconciliation — 2026-11-10
+
+### Source and tested tree
+
+- Audit starting `main` SHA: `99142d0887fa771bea7c3bd3e5bafd27ee435a1b`.
+- Exact executable/workflow SHA: `9d7208cc9818839ea2c9cc5965298e0998c28b68`.
+- GitHub compare shows the two commits from the tested SHA to the audit starting main changed only `docs/execution-ledger.md` and `docs/parallel-workstreams.md`. The code/workflow tree is therefore identical. This update changes only those documentation files.
+
+### Exact-SHA hosted results
+
+- W1 generation durability: **89 passed**, job `129848571048`.
+- W2 React timeline transactions, revision invalidation and AI proposal contracts: **355 passed, 1 warning**, job `129848571236`.
+- W3 lifecycle, render/QC and Asset Library: **287 passed, 1 skipped, 1 warning**, job `129848571925`.
+- W4 project home/create lifecycle: **36 passed**, job `129848571674`.
+- W5 settings IA and credential safety: **13 passed**, job `129848571339`.
+- W7 shared-shell navigation: **2 passed**, job `129848571350`.
+- Parallel W1/W2/W3/W7 run: `42821701905` **SUCCESS**.
+- Product IA W4/W5 run: `42821702016` **SUCCESS**.
+- Full Python/browser regression: **1,952 passed, 2 skipped, 0 failures, 0 errors**; JUnit summary 1,954 tests, run `42821701972`.
+- Studio React build/timeline/lifecycle/render/QC gate: **346 passed, 2 warnings**, same run `42821701972`.
+- Windows-native publication and process-lock branch: **2 passed**, run `42821701904`.
+- Workflow YAML validation: **SUCCESS**, run `42821701924`.
+- Focused storage/external-edit regression: **SUCCESS**, run `42821701901`.
+- The NVIDIA job was **SKIPPED** on the ordinary push, as required. 19D-10 remains PASS from the separately authorized manual-dispatch run `42802192086`; do not confuse LLM streaming acceptance with video-generation provider acceptance.
+
+### W4/W7 accessibility closure
+
+- W4's real Chromium browser tests now verify initial dialog focus, Tab/Shift+Tab containment, no keyboard escape behind the modal, focus restoration after close/finalization, and stable invoker restoration when reopening a saved draft. The existing explicit-close/save-draft behavior remains unchanged; Escape/backdrop are not dismiss actions.
+- W7's real Chromium tests verify keyboard activation of Project/Workspace/Settings, active `aria-current="page"`, inactive-pane `aria-hidden`, one visible pane, stable in-page URL and global create action.
+- W4 and W7 remain separate owners and separate CI jobs; W7 alone owns `index.html` / `app.js`. No router migration or second state machine was introduced.
+
+### Diagnostics retained
+
+- Full pytest reports 8 warnings; Studio release gate reports 2 warnings. No warning was converted into a skip or suppressed.
+- The warning set includes invalid Python escape sequences in two browser-test JS snippets (`\\d` and `\\/`), Pillow's deprecated `Image.getdata()` use in an image assertion, and Pydantic serializer warnings where `tests/test_adversarial_fixes.py` appends raw dictionaries to typed `CompositionIR` collections. The Pydantic warnings require a small audit to distinguish fixture-only construction from a production validation gap before choosing a fix.
+- The action upgrade to `actions/*@v7` has no Node.js 20 forced-runtime warning in the inspected exact-SHA logs.
+- No assertions, timeout thresholds, skip policies or business acceptance gates were relaxed.
+
+### Next execution and stop boundary
+
+1. W0 should audit the Pydantic serializer warnings first; preserve the adversarial editor behavior assertions and fix the typed-model construction or production validation only after the source of the warning is established.
+2. Clean the two invalid-escape warnings and the Pillow deprecation as narrow test-maintenance changes, then rerun the owning lanes and exact-SHA integrated hosted gates for the resulting code SHA.
+3. The root `CONTRACT.md` runner-policy contradiction remains BLOCKED under the contract's own change-control rule. It must not be silently rewritten or bypassed; all unrelated W1–W7 work may continue.
+4. No new paid NVIDIA call is required; the live LLM acceptance is already PASS under §37.
