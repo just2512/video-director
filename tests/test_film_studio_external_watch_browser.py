@@ -3599,6 +3599,14 @@ def test_legacy_director_controls_remain_available_only_without_film_document(tm
                   select.value = pid;
                   select.dispatchEvent(new Event("change", {bubbles:true}));
                 }""", project_id)
+                # Project selection is routed through the async editorLoad authority
+                # wrapper. Do not race the Studio close/rehome operation with the
+                # explicit legacy-planning launcher click below.
+                page.wait_for_function("""() => {
+                  const launcher = document.querySelector('.film-studio-launch');
+                  return !document.documentElement.classList.contains('fs-studio-open') &&
+                    !!launcher && getComputedStyle(launcher).display !== 'none';
+                }""", timeout=10000)
                 try:
                     page.locator("#film-studio-toggle").click()
                 except Exception as exc:
