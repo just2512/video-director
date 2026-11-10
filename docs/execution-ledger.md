@@ -989,3 +989,14 @@ Runs:
 - 19D-10 NVIDIA live-model acceptance remains PASS from manual dispatch run `42802192086`; this current run used the normal no-provider-credential full regression and did not repeat paid live calls.
 - Issue #121 is closed with explicit acceptance evidence. There are currently no open GitHub issues.
 - The current exact-SHA CI acceptance set is PASS. Existing two skips and eight warnings remain visible; none were suppressed or converted to PASS.
+
+
+## 44. Next contract work identified: W4 modal focus and W7 shell keyboard semantics — 2026-11-10
+
+After the current exact-SHA W1–W7 and release gates passed, a focused review of `CONTRACT.md` §§39–40 and the current browser tests found a concrete accessibility coverage gap:
+
+- The Create Project dialog already has `role=dialog`, `aria-modal=true`, an accessible label, and an initial textarea focus. Its explicit-close/save-draft semantics are intentional. However, it has no Tab/Shift+Tab focus trap and does not restore focus to the invoking control after it is hidden or finalized. W4 owns this behavior.
+- The top-level Project/Workspace/Settings controls are native buttons and can receive keyboard focus, but `switchTab()` only toggles CSS classes and pane display. It does not expose the active route with `aria-current` or mark inactive panes `aria-hidden`. W7 owns this shared-shell behavior.
+- Existing W4/W7 browser tests cover mouse navigation, project creation/draft recovery, settings round trips, and integrated shell flow, but do not verify these keyboard/focus contracts with real Chromium keyboard input.
+- These are bounded fixes to existing W4/W7 ownership, not a new UI framework or a change to route behavior. Do not change the Create Project backdrop/Escape behavior: both intentionally preserve the draft and require explicit “收起”.
+- Acceptance: W4 verifies initial focus, Tab/Shift+Tab wrap, no keyboard escape behind the modal, and focus restoration after close/finalization; W7 verifies keyboard activation routes, active `aria-current`, inactive `aria-hidden`, and focus-visible state. Run independent W4/W7 jobs plus full hosted regression and Studio gate.
