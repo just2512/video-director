@@ -34,6 +34,19 @@ def test_css_rewriter_resolves_paths_relative_to_the_stylesheet():
     assert "url(#shape)" in result
 
 
+def test_inline_style_and_css_import_dependencies_are_rewritten():
+    html_source = """<html><head></head><body>
+      <div id="poster" style="background-image:url('../assets/poster.png')"></div>
+    </body></html>"""
+    rewritten_html = inject_scene_runtime(html_source, "film-test", "scenes/title.html", "/media")
+    assert "style=\"background-image:url('/media?project_id=film-test&amp;src=assets%2Fposter.png')\"" in rewritten_html
+
+    css_source = '@import "fonts/theme.css"; .title{background:url("../assets/title.png")}'
+    rewritten_css = inject_scene_css(css_source, "film-test", "scenes/css/main.css", "/media")
+    assert "@import url('/media?project_id=film-test&src=scenes%2Fcss%2Ffonts%2Ftheme.css')" in rewritten_css
+    assert "url('/media?project_id=film-test&src=scenes%2Fassets%2Ftitle.png')" in rewritten_css
+
+
 def test_bridge_contract_includes_exact_time_and_deterministic_primitives():
     source = inject_scene_runtime(
         "<html><head></head><body></body></html>",
