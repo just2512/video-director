@@ -414,7 +414,14 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                   let option=[...select.options].find(item=>item.value===pid);
                   if(!option){option=new Option(pid,pid);select.add(option);}
                   select.value=pid;
+                  // Re-enter the normal project-load contract after a full reload;
+                  // assigning .value alone does not fire the select's inline onchange.
+                  select.dispatchEvent(new Event('change',{bubbles:true}));
                 }""", project_id)
+                page.wait_for_function(
+                    "() => window.filmStudioHasCurrentFilmAuthority?.() === true",
+                    timeout=15000,
+                )
                 page.evaluate("window.filmStudioToggle()")
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
                 page.locator('#fs-timeline .fs-clip[data-clip="scene-clip"]').wait_for(state="visible")

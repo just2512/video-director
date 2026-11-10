@@ -60,6 +60,19 @@ def test_film_migration_api_requires_and_persists_explicit_variant_selection(tmp
         assert unselected["migration_error_code"] == "ACTIVE_VARIANT_REQUIRED"
         assert {item["id"] for item in unselected["variants"]} == {"cut-a", "cut-b"}
 
+        unknown_url = base_url + "/api/editor/film?" + urlencode({
+            "project_id": project_id, "selected_variant_id": "missing-cut", "preview": "1",
+        })
+        with urlopen(unknown_url, timeout=10) as response:
+            unknown = json.loads(response.read().decode("utf-8"))
+        assert unknown["ok"] is True
+        assert unknown["migration_available"] is False
+        assert unknown["migration_error_code"] == "ACTIVE_VARIANT_NOT_FOUND"
+        assert fd.read_project_film(project_id)["exists"] is False, (
+            "an unknown explicit variant must fail closed without falling back to top-level scenes/audio "
+            "or creating film.html"
+        )
+
         selected_url = base_url + "/api/editor/film?" + urlencode({
             "project_id": project_id, "selected_variant_id": "cut-b", "preview": "1",
         })
