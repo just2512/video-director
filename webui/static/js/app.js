@@ -325,7 +325,8 @@ function toggleCapPanel(){
 // 启动：首屏路由（项目页）。Developer Mode 恢复 + 名称映射预热。
 // ===========================================================================
 switchTab('home');
-refreshLLMBadge();
+// Model roles are loaded when the settings pane is opened. A second startup
+// fetch races that route fetch and can re-render the form over unsaved edits.
 if (typeof devInit === 'function') devInit();
 
 Object.assign(window, {
