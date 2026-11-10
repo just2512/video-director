@@ -3599,44 +3599,17 @@ def test_legacy_director_controls_remain_available_only_without_film_document(tm
                   select.value = pid;
                   select.dispatchEvent(new Event("change", {bubbles:true}));
                 }""", project_id)
-                # Project selection is routed through the async editorLoad authority
-                # wrapper. Do not race the Studio close/rehome operation with the
-                # explicit legacy-planning launcher click below.
-                page.wait_for_function("""() => {
-                  const launcher = document.querySelector('.film-studio-launch');
-                  return !document.documentElement.classList.contains('fs-studio-open') &&
-                    !!launcher && getComputedStyle(launcher).display !== 'none';
-                }""", timeout=10000)
-                try:
-                    page.locator("#film-studio-toggle").click()
-                except Exception as exc:
-                    visibility = page.evaluate("""() => {
-                      const target = document.querySelector("#film-studio-toggle");
-                      const chain = [];
-                      for (let node = target; node && chain.length < 8; node = node.parentElement) {
-                        const style = getComputedStyle(node);
-                        const rect = node.getBoundingClientRect();
-                        chain.push({
-                          tag: node.tagName, id: node.id, className: String(node.className || ""),
-                          inlineStyle: node.getAttribute("style"),
-                          display: style.display, visibility: style.visibility, opacity: style.opacity,
-                          rect: {x: rect.x, y: rect.y, width: rect.width, height: rect.height},
-                          hidden: node.hidden
-                        });
-                      }
-                      return {
-                        activeTab: document.querySelector(".tab.active")?.id || null,
-                        paneDisplay: getComputedStyle(document.querySelector("#pane-editor")).display,
-                        paneClass: document.querySelector("#pane-editor")?.className || "",
-                        chain
-                      };
-                    }""")
-                    raise AssertionError({"launcher_visibility": visibility}) from exc
+                # Selecting a legacy project intentionally opens the same Studio
+                # in its read-only migration/planning mode. The launcher is hidden
+                # while Studio owns the editor; do not click it a second time.
                 page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
-                page.wait_for_function(
-                    "() => document.querySelector('#fs-timeline-meta')?.textContent === '迁移预览'",
-                    timeout=5000,
-                )
+                page.wait_for_function("""() => {
+                  const meta = document.querySelector('#fs-timeline-meta');
+                  const launcher = document.querySelector('.film-studio-launch');
+                  return document.documentElement.classList.contains('fs-studio-open') &&
+                    !!meta && meta.textContent === '迁移预览' &&
+                    !!launcher && getComputedStyle(launcher).display === 'none';
+                }""", timeout=10000)
 
                 page.locator('[data-film-action="director-mode"]').click()
                 page.wait_for_function("""() => {
