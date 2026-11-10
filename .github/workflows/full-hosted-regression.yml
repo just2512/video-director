@@ -241,15 +241,8 @@ jobs:
     if: >-
       needs.full_regression.result == 'success' &&
       needs.studio_release_gate.result == 'success' &&
-      (
-        (
-          github.event_name == 'push' &&
-          contains(github.event.head_commit.message, '[live-stream-smoke]') &&
-          contains(github.event.head_commit.message, '[live-provider=nvidia]') &&
-          contains(github.event.head_commit.message, '[live-model=z-ai/glm-5.3-flash]')
-        ) ||
-        (github.event_name == 'workflow_dispatch' && inputs.run_live_nvidia)
-      )
+      github.event_name == 'workflow_dispatch' &&
+      inputs.run_live_nvidia
     needs: [full_regression, studio_release_gate]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
