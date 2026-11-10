@@ -1175,3 +1175,14 @@ def test_resource_snapshot_large_media_copy_is_streaming_and_reports_cost(tmp_pa
     record_property("snapshot_copy_elapsed_ms", report["copy_elapsed_ms"])
     record_property("snapshot_copy_plus_validation_elapsed_ms", round(elapsed_ms, 3))
     record_property("snapshot_python_heap_peak_bytes", peak_bytes)
+    summary_path = __import__("os").environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        with open(summary_path, "a", encoding="utf-8") as summary:
+            summary.write(
+                "| Resource snapshot fixture | Result |\\n"
+                "|---|---:|\\n"
+                f"| Source bytes | {size_bytes} |\\n"
+                f"| Copy time (ms) | {report['copy_elapsed_ms']} |\\n"
+                f"| Copy + source validation (ms) | {elapsed_ms:.3f} |\\n"
+                f"| Python heap peak (bytes) | {peak_bytes} |\\n"
+            )
