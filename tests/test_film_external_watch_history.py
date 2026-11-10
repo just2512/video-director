@@ -371,3 +371,59 @@ def test_scene_watcher_does_not_follow_nested_symlink_directories(tmp_path, monk
     assert events[0][1]["phase"] == "scene_changed"
     assert events[0][1]["paths"] == ["scenes/opening.html"]
 
+
+
+def test_scene_watcher_detects_in_place_write_with_restored_metadata(tmp_path, monkeypatch):
+    """Scene resources with unchanged inode/size/mtime still advance scene_revision."""
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "scene-watch-preserved-metadata"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True, exist_ok=True)
+    film_path = fd._film_path(project_id)
+    film_path.write_text(FILM, encoding="utf-8")
+    scenes = project / "scenes"
+    scenes.mkdir()
+    scene_path = scenes / "opening.html"
+    original = "<html><body>Scene version A</body></html>"
+    changed = "<html><body>Scene version B</body></html>"
+    assert len(original.encode("utf-8")) == len(changed.encode("utf-8"))
+    scene_path.write_text(original, encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    events = []
+
+    watcher = FilmRevisionWatcher(
+        lambda topic, payload: events.append((topic, payload)),
+        scene_content_audit_interval_seconds=0.1,
+    )
+    watcher.watch(project_id, initial_revision=initial["rev"], initial_text=initial["text"])
+
+    before_stat = scene_path.stat()
+    with scene_path.open("r+b") as handle:
+        handle.write(changed.encode("utf-8"))
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.utime(scene_path, ns=(before_stat.st_atime_ns, before_stat.st_mtime_ns))
+    after_stat = scene_path.stat()
+    assert (
+        after_stat.st_dev, after_stat.st_ino, after_stat.st_size, after_stat.st_mtime_ns
+    ) == (
+        before_stat.st_dev, before_stat.st_ino, before_stat.st_size, before_stat.st_mtime_ns
+    )
+
+    _poll_changed_file(watcher)
+
+    current = fd.read_project_film(project_id)
+    assert current["rev"] == initial["rev"]
+    assert current["text"] == initial["text"]
+    assert len(events) == 1, events
+    topic, event = events[0]
+    assert topic == "film"
+    assert event["phase"] == "scene_changed"
+    assert event["project_id"] == project_id
+    assert event["scene_revision"] == watcher._scene_content_signature(
+        {"opening.html": __import__("hashlib").sha256(changed.encode("utf-8")).hexdigest()}
+    )
+    assert event["paths"] == ["scenes/opening.html"]
+    assert event["changes"] == [
+        {"path": "scenes/opening.html", "kind": "modified"}
+    ]
