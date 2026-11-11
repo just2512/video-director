@@ -1493,3 +1493,30 @@ W3 test reconciliation:
 - The implementation preserves the pre-existing copy_elapsed_ms report semantics and exposes the new isolated copy I/O timing in copy_io_elapsed_ms; this avoids silently changing existing consumers.
 
 The next action is serial integration W1 → W2 → W3 → W6 onto main, followed by exact-main W1/W2/W3, focused storage/watch, Studio release gate, full Python/browser, Windows-native and YAML validation. Actual representative large-media measurements remain MISSING pending real project media; no synthetic fixture is used as production evidence.
+
+
+## 65. Current follow-up batch: multi-process generation submit, reload hydration, and editor selection race — 2026-11-11
+
+### Frozen baseline and exclusive ownership
+
+- Frozen main baseline: `4bf9e70fee0b71e701cbc7f5ebc231356e0f3984`. The preceding batch is integrated and exact-main hosted gates passed on this SHA; see runs 43029375628, 43029375643, 43029375661, 43029375761, 43029375775 and 43029375808.
+- W1 `work/w1-multiprocess-submit-dedup-20261111` owns only `tests/test_generation_recovery.py`. It proves two independent processes submitting the same video fingerprint serialize reservation and issue exactly one provider POST; this is a local reservation invariant, not a claim of exactly-once remote execution.
+- W2 `work/w2-refresh-after-external-revision-20261111` owns only `tests/test_film_studio_external_watch_browser.py`. It verifies a full-page reload rehydrates the latest externally-written FilmDocument revision and clears stale transient state.
+- W2 `work/w2-canvas-history-reload-race-20261111` owns only `tests/test_film_studio_canvas_history_browser.py`. It isolates a `PROJECT_SELECTION_CHANGED` race seen in the existing canvas history reload regression after a concurrent startup authority load.
+- W6 `work/w6-current-batch-register-20261111` owns only these two documentation files.
+- All code branches start from the same exact main SHA and have disjoint file ownership. Run owner-scoped lanes on exact branch heads; do not integrate a branch while its scoped lane is running or failing.
+
+### Scoped status at registration
+
+- W1 SHA `eb602435e63a62d45b9a76f28815cd13622daf15`: generation lane **96 passed** (run `43030373187`); focused storage/external-edit **SUCCESS** (run `43030373194`); YAML **SUCCESS** (run `43030373149`).
+- W2 refresh initial SHA `52858a8beb3bdaa3be0b71fbe6b537e437620da2`: timeline lane **2 failed / 360 passed** (run `43030602145`). One failure is the new test's invalid Playwright wait predicate (`arguments` is not defined); the other is an existing canvas-history test returning `PROJECT_SELECTION_CHANGED` while startup project authority is still loading. The wait predicate was corrected in SHA `6e6aaedcf47ae26934d49eb09b1f9981b9c11163`; exact-SHA rerun is in progress (run `43032288137`).
+- W2 canvas-history isolation branch SHA `c16ac0514525b633d2b185198fb69976cdc22ae4`: adds a wait for restored FilmDocument authority before manually invoking the reload assertion; W2 lane and YAML validation are running (run `43032559820`, `43032559915`).
+- No current-batch branch is integrated yet.
+
+### Remaining acceptance and external-data gates
+
+1. Require exact-SHA W2 refresh lane PASS; inspect whether the canvas-history selection race reproduces after the wait-predicate correction.
+2. Require the independent W2 canvas-history branch PASS; do not treat the W7 shell-navigation lane as coverage for this test file.
+3. Integrate W1, W2 refresh, W2 canvas-history and W6 documentation serially, preserving all intervening main commits; then run all affected owner lanes plus Studio release gate, full Python/browser, focused storage/watch, Windows-native and YAML against one exact resulting main SHA.
+4. Resource snapshot benchmark harness is implemented, but representative large-media performance remains **MISSING** until a real representative project media file is available. Do not substitute a synthetic fixture or infer production throughput.
+5. Keep NVIDIA live model acceptance opt-in only; no paid provider call is implied by these test-only changes.
