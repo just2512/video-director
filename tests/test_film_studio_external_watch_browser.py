@@ -4481,20 +4481,6 @@ def test_two_real_browser_tabs_reject_stale_same_project_revision_without_overwr
                     stale_requests.append(json.loads(route.request.post_data or "{}"))
                     held_routes.append(route)
 
-                def capture_stale_response(response):
-                    if "/api/editor/film/edit" in response.url:
-                        try:
-                            stale_responses.append({
-                                "status": response.status,
-                                "body": response.json(),
-                            })
-                        except Exception as exc:
-                            stale_responses.append({
-                                "status": response.status,
-                                "body_error": str(exc),
-                            })
-
-                tab_b.on("response", capture_stale_response)
                 tab_b.route("**/api/editor/film/edit", hold_tab_b_edit)
                 tab_b.evaluate(
                     """trackId => {
@@ -4524,7 +4510,9 @@ def test_two_real_browser_tabs_reject_stale_same_project_revision_without_overwr
                 )
                 assert "locked" in locked_track.get("attrs", {}), locked_track
 
-                held_routes[0].continue_()
+                forwarded = held_routes[0].fetch()
+                stale_responses.append({"status": forwarded.status, "body": forwarded.json()})
+                held_routes[0].fulfill(response=forwarded)
                 stale_result = tab_b.evaluate(
                     "async () => await window.__staleEditPromise"
                 )
