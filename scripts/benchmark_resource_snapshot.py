@@ -111,7 +111,10 @@ def benchmark_snapshot(project_id: str, resources: Iterable[str]) -> dict:
                 "concurrent writes and filesystem allocation granularity. snapshot_allocated_bytes "
                 "isolates allocated blocks for copied payload files."
             ),
-            "copy_and_source_hash_ms": copy_report["copy_elapsed_ms"],
+            "snapshot_read_ms": copy_report["read_elapsed_ms"],
+            "snapshot_copy_and_fsync_ms": copy_report["copy_elapsed_ms"],
+            "snapshot_hash_update_ms": copy_report["hash_elapsed_ms"],
+            "snapshot_build_elapsed_ms": copy_report["snapshot_elapsed_ms"],
             "source_validation_hash_ms": round(source_validation_ms, 3),
             "copied_hash_verification_ms": round(copied_hash_ms, 3),
             "source_hashes_before_copy": source_records,
