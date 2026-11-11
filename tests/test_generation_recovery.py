@@ -2303,3 +2303,82 @@ def test_generation_job_ledger_merge_is_safe_across_independent_processes(tmp_pa
     assert {
         job_id: persisted[job_id]["provider_task_id"] for job_id in job_ids
     } == {job_id: f"provider-{job_id}" for job_id in job_ids}
+
+
+def _generation_process_crash_after_provider_acceptance(project_id, identity, post_calls, ready, start):
+    import os
+    from video_director import generation as gen
+
+    class AcceptedThenProcessDies:
+        def post(self, _path, json=None):
+            with post_calls.get_lock():
+                post_calls.value += 1
+            # Model the provider accepting the paid task while the client process
+            # dies before it can persist the returned provider task ID.
+            os._exit(73)
+
+    ready.set()
+    if not start.wait(timeout=15):
+        os._exit(74)
+    gen._create_poll_and_persist_video(
+        AcceptedThenProcessDies(), project_id, "fake-model", "crash-boundary",
+        320, 180, "c" * 64, "A",
+        str(gen.config.project_dir(project_id) / "crash-boundary.mp4"),
+        timeout=5, provider_identity=identity,
+    )
+
+
+def test_provider_acceptance_then_process_crash_never_resubmits_unknown_task(tmp_path, monkeypatch):
+    """A process death after a paid POST must leave a durable fail-closed reservation."""
+    import multiprocessing
+    from video_director import config, generation as gen
+
+    _isolate(tmp_path, monkeypatch)
+    identity = _video_identity(monkeypatch, gen, "fake-model")
+    project_id = "generation-provider-accepted-process-crash"
+    config.init_project_dirs(config.project_dir(project_id))
+    gen._save_jobs(project_id, {})
+
+    context = multiprocessing.get_context("fork")
+    post_calls = context.Value("i", 0)
+    ready = context.Event()
+    start = context.Event()
+    worker = context.Process(
+        target=_generation_process_crash_after_provider_acceptance,
+        args=(project_id, identity, post_calls, ready, start),
+    )
+    worker.start()
+    try:
+        assert ready.wait(timeout=10), "crash worker did not initialize"
+        start.set()
+        worker.join(timeout=15)
+        assert not worker.is_alive(), "crash worker did not terminate"
+        assert worker.exitcode == 73, worker.exitcode
+    finally:
+        start.set()
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(timeout=5)
+
+    jobs = gen._load_jobs(project_id)
+    assert len(jobs) == 1, jobs
+    reservation = next(iter(jobs.values()))
+    assert reservation["status"] == "submitting", reservation
+    assert reservation["provider_task_id"] is None
+    assert post_calls.value == 1
+
+    class MustNotSubmitAgain:
+        def post(self, *_args, **_kwargs):
+            with post_calls.get_lock():
+                post_calls.value += 1
+            raise AssertionError("ambiguous provider acceptance must never be resubmitted")
+
+    with pytest.raises(gen.GenerationError) as error:
+        gen._create_poll_and_persist_video(
+            MustNotSubmitAgain(), project_id, "fake-model", "crash-boundary",
+            320, 180, "c" * 64, "A",
+            str(config.project_dir(project_id) / "crash-boundary.mp4"),
+            timeout=5, provider_identity=identity,
+        )
+    assert error.value.code == "VIDEO_SUBMISSION_UNKNOWN"
+    assert post_calls.value == 1, "retry must not create a second paid provider task"
