@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import platform
+import shutil
 import sys
 import tempfile
 import time
@@ -69,6 +70,7 @@ def benchmark_snapshot(project_id: str, resources: Iterable[str]) -> dict:
 
     with tempfile.TemporaryDirectory(prefix=".film-resource-snapshot-benchmark-", dir=project_root) as temp:
         snapshot_root = Path(temp) / "snapshot"
+        free_before = shutil.disk_usage(project_root).free
         snapshot = SceneResourceSnapshot(project_id, snapshot_root).build(selected)
         copy_report = snapshot.report()
 
@@ -93,6 +95,7 @@ def benchmark_snapshot(project_id: str, resources: Iterable[str]) -> dict:
         copied_hash_ms = (time.perf_counter() - copied_hash_started) * 1000.0
         logical_bytes = sum(item["size_bytes"] for item in copied_records)
         allocated_bytes = _allocated_bytes(snapshot_root)
+        filesystem_free_delta = free_before - shutil.disk_usage(project_root).free
 
         return {
             "project_id": project_id,
@@ -101,7 +104,13 @@ def benchmark_snapshot(project_id: str, resources: Iterable[str]) -> dict:
             "source_bytes": sum(item["size_bytes"] for item in copy_report["resources"]),
             "snapshot_logical_bytes": logical_bytes,
             "snapshot_allocated_bytes": allocated_bytes,
-            "disk_increment_bytes": allocated_bytes,
+            "disk_increment_bytes": filesystem_free_delta,
+            "filesystem_free_delta_bytes": filesystem_free_delta,
+            "disk_increment_method": (
+                "Project-volume free-space delta during the snapshot; may include unrelated "
+                "concurrent writes and filesystem allocation granularity. snapshot_allocated_bytes "
+                "isolates allocated blocks for copied payload files."
+            ),
             "copy_and_source_hash_ms": copy_report["copy_elapsed_ms"],
             "source_validation_hash_ms": round(source_validation_ms, 3),
             "copied_hash_verification_ms": round(copied_hash_ms, 3),
