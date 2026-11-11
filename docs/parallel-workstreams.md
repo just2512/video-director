@@ -134,3 +134,12 @@ All code branches below start from frozen `main` SHA `5935b3fddcaad09606ca5d014d
 - Do not cherry-pick or merge while a scoped job is running. A failed scoped lane returns to its owning branch for correction and rerun.
 - After all scoped lanes pass, integrate W1 → W2 → W3 → W6 serially, preserving intervening main commits. Then run the exact-main integrated gates listed in the execution ledger.
 - These are short-lived branches, not new long-lived release branches; no PR/manual-review handoff is required.
+
+
+### Additional W6 platform-specific branch
+
+| Lane | Branch | Exclusive write ownership | Acceptance |
+|---|---|---|---|
+| W6 | `work/w6-windows-asset-reference-race-20261111` | `tests/test_asset_catalog_windows_process.py`, `.github/workflows/windows-native-publication.yml` | YAML validation on branch; after main integration, Windows-hosted `spawn` test proves manifest reference writes serialize with catalog deletion under `msvcrt.locking` |
+
+This W6 branch is independent of the W3 Linux `fork` regression and does not modify W3-owned files.
