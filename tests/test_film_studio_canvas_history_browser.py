@@ -415,6 +415,14 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 )
                 page.locator("#tab-editor").click()
                 page.locator("#pane-editor").wait_for(state="visible")
+                # The application may restore the selected project on page startup.
+                # Wait for that authority request to settle before issuing the explicit
+                # reload assertion below; otherwise two editorLoad generations can race
+                # and the older one correctly returns PROJECT_SELECTION_CHANGED.
+                page.wait_for_function(
+                    """() => window.filmStudioHasCurrentFilmAuthority?.() === true""",
+                    timeout=15000,
+                )
                 page.evaluate("""(pid) => {
                   const select=document.querySelector('#editor-project');
                   let option=[...select.options].find(item=>item.value===pid);
