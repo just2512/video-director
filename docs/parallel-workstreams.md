@@ -221,7 +221,7 @@ All branches start from frozen main SHA '4bf9e70fee0b71e701cbc7f5ebc231356e0f398
 | W8 | 'work/w8-shotcraft-ui-browser-20261111' | 'tests/test_shotcraft_ui_browser.py' | Real Chromium Template Gallery registry load, category/ratio filters, keyboard selection, disabled preflight actions and cancel |
 | W6 | 'work/w6-commercial-preflight-lane-20261111' | '.github/workflows/**', '.github/scripts/install-ubuntu-media-deps.sh' | Add W3/W8 lanes and bounded apt fallback; YAML + shell syntax validation, then hosted browser execution |
 
-- W3 and W8 branches are independent and do not touch each other's files.
+- W3 and W8 branches are independent and do not touch each other's files. W8 exact-SHA owner lane is PASS for the first Template Gallery browser test (1 passed); W3 exact-SHA lane is still RUNNING with the expanded commercial test set.
 - W6 owns workflow wiring; merge its workflow commit into each task branch only after the current scoped run finishes, then rerun the lane on the resulting exact SHA.
 - W7 remains the only writer for shared 'index.html' and 'app.js'; W8 may add isolated modules/tests but must request serial W7 wiring if a new shell entry point is required.
 - Do not call the full Shotcraft UI or Commercial Creative E2E gate PASS based only on the initial Template Gallery test. Motion Gallery, Shotbook end-to-end and complete create→render→preflight→reopen evidence remain separate acceptance requirements.
