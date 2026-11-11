@@ -489,7 +489,7 @@ def preflight_edge_projects(tmp_path, monkeypatch):
     """商业发布边界矩阵：BLOCKED、缺失媒体、CLEAR 与 UNKNOWN 混合引用。"""
     monkeypatch.setattr(config, "composer_storage_root", lambda: tmp_path)
     existing = tmp_path / "known.jpg"
-    existing.write_bytes(b"\\xff\\xd8\\xff")
+    existing.write_bytes(b"\xff\xd8\xff")
     cases = {
         "pf-blocked": ([{"id": "blocked-img", "type": "image", "file": str(existing),
                          "duration": 4.0, "source": "shotcraft-assets"}], ["blocked-img"]),
