@@ -1334,7 +1334,7 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - `work/w2-canvas-history-project-isolation-20261111` owns only `tests/test_film_document_contract.py`: two projects with identical clip IDs perform independent edits/undo/redo; history operations in one project must not consume or mutate the other project's history.
 - `work/w3-asset-catalog-transaction-audit-20261111` owns `tests/test_asset_catalog.py` and `tests/test_film_render_scene_e2e.py`: verify two independent OS processes updating different semantic fields of the same Asset Library item do not clobber each other; remove the unused `record_property` fixture argument from the 64 MiB snapshot benchmark, which still emits explicit GitHub job-summary metrics.
 - `work/w6-next-batch-branch-register-20261111` owns workflow/docs only: run the Asset Library concurrent semantic merge test on the actual Windows `msvcrt.locking` branch and register exact branch ownership/acceptance.
-- All three branches are frozen from the same main SHA and have disjoint file ownership. Branch PASS remains scoped evidence only.
+- All four branches are frozen from the same main SHA and have disjoint file ownership. Branch PASS remains scoped evidence only.
 
 ### Next acceptance gates
 
@@ -1349,6 +1349,6 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 ### Follow-on audit queue
 
 - W1: provider reservation recovery and terminal-state races across independent processes, including the boundary between durable provider task ID and output finalization.
-- W2: cross-project history isolation and stale-revision behavior across multiple browser contexts; existing reload/Undo/Redo coverage is accepted, but concurrent editor contexts remain a separate contract to audit.
+- W2: multi-context stale-revision behavior across browser tabs; the current project-scoped history test covers independent projects, not two tabs editing the same project concurrently.
 - W3: Asset Library catalog mutation/read-modify-write concurrency, project-reference-safe deletion under concurrent updates, and representative large-media snapshot disk/time measurements.
 - W6: keep owner-lane CI parity and native Windows coverage aligned with the tests that exercise platform-specific lock branches.
