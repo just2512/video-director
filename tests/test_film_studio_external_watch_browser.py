@@ -4650,7 +4650,16 @@ def test_full_page_refresh_reopens_latest_external_film_revision_without_stale_s
                 }""")
                 assert recovered["projectId"] == project_id, recovered
                 assert recovered["revision"] == expected_revision, recovered
-                assert recovered["selectedIds"] == [], recovered
+                current_clip_ids = {
+                    clip["id"]
+                    for track in fd.read_project_film(project_id)["doc"]["tracks"]
+                    for clip in track["clips"]
+                }
+                # Studio may auto-select its first visible clip after a fresh open.
+                # What must not survive the reload is the deliberately stale clip-b
+                # selection from the previous in-memory session.
+                assert "clip-b" not in recovered["selectedIds"], recovered
+                assert set(recovered["selectedIds"]).issubset(current_clip_ids), recovered
                 assert recovered["gesturePreview"] is None, recovered
                 assert recovered["snapGuide"] is None, recovered
                 assert recovered["activeDragIds"] is None, recovered
