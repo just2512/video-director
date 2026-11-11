@@ -1129,7 +1129,7 @@ def test_migrated_project_external_revision_reopen_look_and_mp4_qc_share_one_rev
 
 
 
-def test_resource_snapshot_large_media_copy_is_streaming_and_reports_cost(tmp_path, monkeypatch, record_property):
+def test_resource_snapshot_large_media_copy_is_streaming_and_reports_cost(tmp_path, monkeypatch):
     """Exercise a production-sized media object without loading it into Python memory."""
     import hashlib
     import time
@@ -1216,3 +1216,65 @@ def test_resource_snapshot_rejects_metadata_preserving_rewrite_on_native_platfor
     with pytest.raises(ResourceSnapshotError, match="changed before publication"):
         snapshot.validate_sources()
     assert pinned.read_bytes() == original
+
+
+
+def _catalog_semantic_update_process(storage_root, asset_id, barrier, field, value, results):
+    import os
+    os.environ["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(storage_root)
+    from video_director import asset_catalog as ac
+    barrier.wait(timeout=15)
+    try:
+        if field == "description":
+            updated = ac.update_asset_semantics(asset_id, description=value)
+        else:
+            updated = ac.update_asset_semantics(asset_id, tags=value)
+        results.put(("ok", field, updated.get("description"), updated.get("tags")))
+    except Exception as exc:
+        results.put(("error", field, type(exc).__name__, str(exc)))
+
+
+def test_catalog_semantic_read_modify_write_preserves_concurrent_fields_across_processes(tmp_path, monkeypatch):
+    """Independent processes updating separate semantic fields must not clobber each other."""
+    import multiprocessing
+
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    from video_director import asset_catalog as ac
+
+    ac._ensure_dirs()
+    with ac._catalog_lock():
+        ac._save_catalog({
+            "shared-asset": {
+                "id": "shared-asset",
+                "description": "before",
+                "tags": ["existing"],
+                "file": str(tmp_path / "asset.png"),
+            }
+        })
+
+    context = multiprocessing.get_context("spawn")
+    barrier = context.Barrier(2)
+    results = context.Queue()
+    workers = [
+        context.Process(
+            target=_catalog_semantic_update_process,
+            args=(storage, "shared-asset", barrier, "description", "description-from-process", results),
+        ),
+        context.Process(
+            target=_catalog_semantic_update_process,
+            args=(storage, "shared-asset", barrier, "tags", ["tag-from-process"], results),
+        ),
+    ]
+    for worker in workers:
+        worker.start()
+    outcomes = [results.get(timeout=20) for _ in workers]
+    for worker in workers:
+        worker.join(timeout=20)
+        assert not worker.is_alive(), "catalog semantic writer did not exit"
+        assert worker.exitcode == 0
+
+    assert all(item[0] == "ok" for item in outcomes), outcomes
+    final = ac.get_asset("shared-asset")
+    assert final["description"] == "description-from-process", final
+    assert final["tags"] == ["tag-from-process"], final
