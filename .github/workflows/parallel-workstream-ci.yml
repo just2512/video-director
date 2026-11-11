@@ -94,6 +94,7 @@ jobs:
             tests/test_visual_overlay_timeline.py \
             tests/test_audio_clip_timeline.py \
             tests/test_film_document_contract.py \
+            tests/test_film_studio_multitab_revision_browser.py \
             tests/test_film_timeline_markers.py \
             tests/test_film_clip_lock.py \
             tests/test_film_external_watch_history.py \
@@ -132,6 +133,7 @@ jobs:
             tests/test_film_studio_migration_preview_browser.py \
             tests/test_film_render_publication_transaction.py \
             tests/test_film_render_scene_e2e.py \
+            tests/test_resource_snapshot_benchmark.py \
             tests/test_film_scene_runtime.py \
             tests/test_film_runtime_video_frame_wait.py \
             tests/test_film_document_contract.py \
