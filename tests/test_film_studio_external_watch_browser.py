@@ -4482,7 +4482,7 @@ def test_two_real_browser_tabs_reject_stale_same_project_revision_without_overwr
                     held_routes.append(route)
 
                 def capture_stale_response(response):
-                    if response.url.endswith("/api/editor/film/edit"):
+                    if "/api/editor/film/edit" in response.url:
                         try:
                             stale_responses.append({
                                 "status": response.status,
