@@ -25,6 +25,7 @@ Create independent short-lived branches from one frozen `main` SHA for workstrea
 | W5 Settings IA (07D) | Categorized settings, progressive disclosure, safe save/import/export UX | `tests/test_settings_information_architecture_browser.py` (including export secret redaction and partial-import key preservation), `tests/test_model_config_persistence_contract.py` |
 | W6 Hosted CI orchestration | GitHub Actions workflows, scoped lanes, artifact retention, exact-SHA provenance | Workflow syntax validation plus each lane's scoped suite |
 | W7 Shared shell integration | `index.html`, `app.js`, navigation and view-state integration | Project home/settings navigation and full browser E2E |
+| W8 Shotcraft UI browser acceptance | 19D / Commercial E2E | Shotbook, Template Gallery and Motion Gallery interaction contracts; real Chromium DOM assertions | W1/W2/W3 isolated work; W7 shell integration only after module contracts stabilize | Does not own 'index.html' or 'app.js'; W7 remains sole shared-shell writer |
 
 ## Parallelism and integration
 
@@ -35,8 +36,11 @@ Create independent short-lived branches from one frozen `main` SHA for workstrea
 - W7 is serial: one writer owns shared shell files and integrates only after W4/W5 contracts are stable. Its browser suite includes the integrated home → create/cancel/resume → settings save/import/export journey, not just isolated route checks.
 - Shared contracts (FilmDocument revision, project context, create lifecycle, model-config persistence and provider identity) are never modified by two lanes simultaneously.
 
-## Runner policy
+- W8 owns Shotcraft browser acceptance and its isolated UI modules/tests. It must not edit 'webui/static/index.html' or 'webui/static/js/app.js'; shared-shell wiring remains a serial W7 task.
+- W3 lifecycle/export acceptance also owns commercial preflight boundary tests. The W3 hosted lane runs 'tests/test_shotcraft_integration.py' and 'tests/test_commercial_gate.py' in addition to the FilmDocument lifecycle/export suite.
+- W8 has a separate GitHub-hosted Chromium lane. Its first acceptance module exercises the real Template Gallery registry/filter/selection/cancel flow; Shotbook and Motion Gallery coverage must be added before the full Shotcraft UI gate can be called PASS.
 
+## Runner policy
 **GitHub-hosted runners only.** Use `ubuntu-24.04` for Linux/browser/media suites and `windows-latest` for Windows-native publication tests. No workflow may target `self-hosted`, local WSL, developer workspaces, or local model configuration. The obsolete self-hosted AI Director workflow has been removed; `full-hosted-regression.yml` is the canonical release gate. Live NVIDIA acceptance is a separately gated, explicit opt-in using only the dedicated GitHub Actions secret on a hosted runner.
 
 Documentation-only commits do not rerun the expensive full test suite. Every code/workflow change does; the ledger records the exact tested code SHA. Each short-lived branch has independent concurrency and exact-SHA scoped CI; superseded runs on that branch may be cancelled, but runs on other branches must not cancel one another. After direct integration, rerun affected lanes and the integrated full gates on the resulting exact `main` SHA.
@@ -206,3 +210,17 @@ All code branches start from frozen main SHA `4bf9e70fee0b71e701cbc7f5ebc231356e
 
 - W1 Windows parity branch `86be7edef26f8ffa54c27296fd56188cfe6bb89e`: W1 lane and YAML validation passed; actual Windows spawn test waits for exact-main Windows-native acceptance.
 - W2 canvas-history attempt 1 failed during browser dependency installation because GitHub runner DNS could not resolve the Ubuntu package mirror; no pytest assertions ran. Attempt 2 is running. This is tracked as infrastructure failure, not a code regression.
+## Active branch register — 2026-11-11 commercial preflight / Shotcraft UI extension
+
+All branches start from frozen main SHA '4bf9e70fee0b71e701cbc7f5ebc231356e0f3984'. Ownership is disjoint.
+
+| Lane | Branch | Exclusive write ownership | Acceptance |
+|---|---|---|---|
+| W3 | 'work/w3-commercial-preflight-matrix-20261111' | 'tests/test_shotcraft_integration.py' | BLOCKED third-party, missing media, and mixed CLEAR + UNKNOWN references must be classified per asset; UNKNOWN cannot be masked |
+| W8 | 'work/w8-shotcraft-ui-browser-20261111' | 'tests/test_shotcraft_ui_browser.py' | Real Chromium Template Gallery registry load, category/ratio filters, keyboard selection, disabled preflight actions and cancel |
+| W6 | 'work/w6-commercial-preflight-lane-20261111' | '.github/workflows/parallel-workstream-ci.yml' | Add W3 commercial test modules and isolated W8 Chromium lane; exact-SHA YAML validation |
+
+- W3 and W8 branches are independent and do not touch each other's files.
+- W6 owns workflow wiring; merge its workflow commit into each task branch only after the current scoped run finishes, then rerun the lane on the resulting exact SHA.
+- W7 remains the only writer for shared 'index.html' and 'app.js'; W8 may add isolated modules/tests but must request serial W7 wiring if a new shell entry point is required.
+- Do not call the full Shotcraft UI or Commercial Creative E2E gate PASS based only on the initial Template Gallery test. Motion Gallery, Shotbook end-to-end and complete create→render→preflight→reopen evidence remain separate acceptance requirements.
