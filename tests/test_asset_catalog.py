@@ -755,3 +755,51 @@ def test_catalog_semantic_read_modify_write_preserves_concurrent_fields_across_p
     final = ac.get_asset("shared-asset")
     assert final["description"] == "description-from-process", final
     assert final["tags"] == ["tag-from-process"], final
+
+
+def _asset_manifest_process_writer(project_id, row, started, finished, errors):
+    from video_director import project_manifest
+    started.set()
+    try:
+        project_manifest.merge_project_manifest_entries(project_id, [row])
+    except Exception as exc:
+        errors.put(repr(exc))
+    finally:
+        finished.set()
+
+
+def test_project_manifest_process_writer_serializes_with_library_deletion(_iso, fixtures):
+    """OS-process manifest writers share the catalog lock with library deletion."""
+    import multiprocessing
+    from video_director import asset_catalog as ac
+
+    entry = ac.import_asset(fixtures["img"])
+    project_id = "al-process-reference-delete-race"
+    context = multiprocessing.get_context("fork")
+    started = context.Event()
+    finished = context.Event()
+    errors = context.Queue()
+    row = {"id": entry["asset_id"], "type": "image", "file": entry["file"]}
+    process = context.Process(
+        target=_asset_manifest_process_writer,
+        args=(project_id, row, started, finished, errors),
+    )
+
+    with ac._catalog_lock():
+        process.start()
+        assert started.wait(timeout=10), "manifest writer process did not start"
+        assert not finished.wait(timeout=0.2), (
+            "manifest writer bypassed the cross-process catalog transaction lock"
+        )
+
+    assert finished.wait(timeout=15), "manifest writer did not resume after lock release"
+    process.join(timeout=10)
+    assert not process.is_alive(), "manifest writer process did not exit"
+    assert process.exitcode == 0
+    assert errors.empty(), list(errors.queue) if hasattr(errors, "queue") else "writer failed"
+
+    result = ac.delete_asset(entry["asset_id"])
+    assert result["ok"] is False
+    assert result["code"] == "ASSET_IN_USE"
+    assert ac.get_asset(entry["asset_id"]) is not None
+    assert Path(entry["file"]).is_file()
