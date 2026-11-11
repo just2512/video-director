@@ -30,7 +30,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install isolated test dependencies
-        run: python -m pip install --disable-pip-version-check pytest pillow loguru
+        run: python -m pip install --disable-pip-version-check pytest pillow loguru filelock
       - name: Exercise real MoveFileExW write-through replace and durable delete
         run: >-
           python -m pytest -q
@@ -38,4 +38,5 @@ jobs:
           tests/test_asset_catalog.py::test_catalog_file_lock_serializes_independent_processes
           tests/test_asset_catalog.py::test_catalog_semantic_read_modify_write_preserves_concurrent_fields_across_processes
           tests/test_asset_catalog_windows_process.py::test_windows_spawn_manifest_writer_serializes_with_library_deletion
+          tests/test_generation_recovery_windows_process.py::test_windows_spawned_processes_submit_same_video_fingerprint_only_once
           tests/test_film_render_scene_e2e.py::test_resource_snapshot_rejects_metadata_preserving_rewrite_on_native_platform
