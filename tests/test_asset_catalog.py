@@ -796,7 +796,9 @@ def test_project_manifest_process_writer_serializes_with_library_deletion(_iso, 
     process.join(timeout=10)
     assert not process.is_alive(), "manifest writer process did not exit"
     assert process.exitcode == 0
-    import queue\n    with pytest.raises(queue.Empty):\n        errors.get(timeout=0.2)
+    import queue
+    with pytest.raises(queue.Empty):
+        errors.get(timeout=0.2)
 
     result = ac.delete_asset(entry["asset_id"])
     assert result["ok"] is False
