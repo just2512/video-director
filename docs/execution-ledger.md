@@ -1323,3 +1323,12 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 4. Integrate W2 test, W3 JUnit correction and W6 workflow change serially, preserving all intervening main changes; then rerun W2, W3, Studio release gate, full Python/browser, Windows-native and YAML on one exact resulting main SHA.
 5. Reconcile the current full-suite-only canvas failure and make W2 include the canvas-history test so the scoped lane cannot omit it again.
 6. After acceptance, continue independent audits of generation reservation/recovery and FilmDocument/Asset Catalog cross-process durability; do not reopen the already accepted W3 immutable resource snapshot absent new evidence.
+
+
+## 58. W2 project-switch four-way contract lane extension — 2026-11-11
+
+- Frozen base: `fe20b42770660db215d1f5f9210a2046d30b0416`.
+- The current main tree already contains `tests/test_film_studio_project_switch_four_way_browser.py`; it checks one project switch across request, HTTP response, FilmStore state and persisted film.html, including selection isolation.
+- Source audit found the test was not listed in W2's dedicated timeline transaction lane. This is a CI coverage gap, not a missing product implementation.
+- W6 branch `work/w6-project-switch-four-way-lane-20261111` adds that existing test to the W2 lane and documents its ownership. No product source or test code is modified in this lane.
+- Status: W6 YAML syntax **OPEN** pending branch run; W2 test execution will be confirmed after exact-main integration. The current integrated SHA `fe20b427...` full and Studio gates are still running; do not overwrite or infer their results.
