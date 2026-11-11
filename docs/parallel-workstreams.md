@@ -153,7 +153,7 @@ All branches below are frozen from main SHA 12aac891b12b0ec577c318981396db398e08
 |---|---|---|---|
 | W1 | work/w1-generation-output-finalization-20261111 | tests/test_generation_recovery.py | Process death after MP4 atomic replace but before terminal job marker; recovery reuses bytes without a second download |
 | W2 | work/w2-real-multitab-revision-20261111 | tests/test_film_studio_external_watch_browser.py | Two real Chromium tabs, held stale edit request, server-side REVISION_CONFLICT, no overwrite of committed bytes |
-| W3 | work/w3-resource-snapshot-benchmark-harness-20261111 | scripts/benchmark_resource_snapshot.py, tests/test_film_render_scene_e2e.py | Opt-in real-media snapshot measurements; fixture tests validate only the harness contract |
+| W3 | work/w3-resource-snapshot-benchmark-harness-20261111 | video_director/film_resource_snapshot.py, scripts/benchmark_resource_snapshot.py, tests/test_film_render_scene_e2e.py | Opt-in real-media snapshot measurements with separate read/copy+fsync/hash timings; fixture tests validate only the harness contract |
 | W6 | work/w6-followup-register-20261111 | docs/execution-ledger.md, docs/parallel-workstreams.md | Documentation reconciliation; existing W2/W3 lane commands already include their test modules, so no workflow edit is required |
 
 - W1, W2 and W3 may run concurrently on GitHub-hosted Ubuntu from this same base. W6 maintains the CI lane wiring and records evidence; it does not modify W1/W2/W3-owned files.
