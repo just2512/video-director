@@ -1527,3 +1527,10 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W2 refresh SHA `6e6aaedcf47ae26934d49eb09b1f9981b9c11163` corrected the invalid Playwright wait predicate but still returned **1 failed / 361 passed** (run `43032288137`). The remaining failure was an over-strict assertion that expected an empty selection after reopen; the Studio legitimately auto-selects its first visible clip. The test now checks the actual invariant: the deliberately stale `clip-b` selection is not restored, and any selected IDs belong to the current document. Correction commit: `41b6b64158403b4d076eb4e98a8791cb761a0c85`; exact-SHA rerun `43032985829` is **RUNNING**.
 - Independent W2 canvas-history branch `c16ac0514525b633d2b185198fb69976cdc22ae4` waits for the startup FilmDocument authority load to settle before invoking its explicit reload assertion. Its exact-SHA timeline lane `43032559820` is **RUNNING**; YAML validation `43032559915` is **SUCCESS**.
 - Do not integrate either W2 branch until both owner lanes pass. No production source behavior has been changed in these W2 branches; they correct and stabilize browser-level regression assertions.
+
+
+### Additional W1 Windows-native parity lane
+
+- W1 branch `work/w1-windows-generation-submit-lock-20261111` starts from the same frozen main SHA and owns only `tests/test_generation_recovery_windows_process.py` plus `.github/workflows/windows-native-publication.yml`.
+- Adds a Windows `multiprocessing.spawn` regression proving two independent processes with the same video fingerprint issue one provider POST under the cross-process `FileLock`; adds explicit `filelock` installation to the minimal Windows-native test environment.
+- Branch workflow syntax and Linux W1 owner-lane results are pending; the Windows spawn test is main-only and must pass after integration on `windows-latest`.
