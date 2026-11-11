@@ -103,16 +103,14 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
 ## Short-lived branch execution protocol (restored 2026-11-10)
 
 - Freeze one base `main` SHA before creating task branches.
-- Create one branch per independent deliverable; do not create branches merely to duplicate CI jobs.
-- Branches must have non-overlapping write ownership. Current active execution branches, all frozen from main SHA `5627243bf9cb0847cf78c9093a90732351a18aaf`:
-  - `work/w1-generation-recovery-race-audit`: W1 cross-process ledger regression is integrated to main; branch is no longer an active writer.
-  - `work/w1-provider-submit-multiprocess-20261111`: W1 owns only `tests/test_generation_recovery.py`; verifies two OS processes with one fingerprint/variant produce exactly one provider POST. Scoped CI is running.
-  - `work/w2-canvas-history-reload-20261111`: W2 owns only `tests/test_film_studio_canvas_history_browser.py`; awaits editor authority and the actual `editorLoad` Promise after full reload. Scoped CI is running.
-  - `work/w3-benchmark-junit-20261111`: W3 owns only `tests/test_film_render_scene_e2e.py`; removes unsupported JUnit properties while preserving GitHub job-summary metrics. Scoped CI is running.
-  - `work/w6-w2-canvas-ci-lane-20261111`: W6 owns `.github/workflows/parallel-workstream-ci.yml` and the execution/parallel workflow docs; adds canvas history reload regression to W2's lane. YAML syntax CI is running.
-- W1's completed change is integrated; W3 remains active. W6 is documentation-only and does not edit W1/W3 production or test files. No branch is allowed to write another branch's owned path.
-- Run branch-scoped hosted tests on each branch SHA. Do not treat branch PASS as integrated PASS.
-
+- Frozen baseline for the current batch: `fe20b42770660db215d1f5f9210a2046d30b0416`.
+- Active short-lived branches, with disjoint write ownership:
+  - `work/w1-generation-crash-recovery-20261111`: W1 owns only `tests/test_generation_recovery.py`; process-crash boundary after provider acceptance.
+  - `work/w2-canvas-history-project-isolation-20261111`: W2 owns only `tests/test_film_document_contract.py`; independent per-project undo/redo histories.
+  - `work/w3-asset-catalog-transaction-audit-20261111`: W3 owns `tests/test_asset_catalog.py` and `tests/test_film_render_scene_e2e.py`; cross-process semantic merge and JUnit warning cleanup.
+  - `work/w6-next-batch-branch-register-20261111`: W6 owns workflow/docs; adds the Asset Library cross-process merge test to Windows-native CI and updates the live ledger.
+- W1/W2/W3 scoped Linux CI and W6 workflow syntax are PASS on the exact SHAs recorded in ledger §58. W6's added Windows-native semantic-merge test remains OPEN until main integration.
+- W1/W2/W3/W6 were developed concurrently from the same frozen main SHA with disjoint write ownership. Integrate completed branches serially after scoped PASS, then rerun affected lanes and integrated gates on one exact main SHA.
 - Branch-scoped workflow filters execute only the owning lane on `work/w1-*` through `work/w7-*`; the `main` integration target still executes all applicable lanes. This prevents every task branch from paying for unrelated W1/W2/W3/W7 suites.
-- Integrate completed W1 and W3 test-only branches serially to `main` after scoped acceptance, then run W1/W3 affected lanes, Studio release gate, full Python/browser, Windows-native and YAML validation on the same final main SHA.
+- Integrate completed W1/W2/W3 test-only branches and W6 workflow changes serially to `main` after scoped acceptance, then run W1/W2/W3 affected lanes, Studio release gate, full Python/browser, Windows-native and YAML validation on the same final main SHA.
 - No PR/manual reviewer handoff; the coordinator performs direct integration and conflict resolution. Delete each short-lived branch only after its commits are integrated and exact-main acceptance is recorded.
