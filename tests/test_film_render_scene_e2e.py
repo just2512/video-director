@@ -1306,7 +1306,10 @@ def test_benchmark_reports_real_project_resource_copy_and_hash_metrics(tmp_path,
     assert result["snapshot_allocated_bytes"] >= len(payload)
     assert result["disk_increment_bytes"] == result["filesystem_free_delta_bytes"]
     assert "Project-volume free-space delta" in result["disk_increment_method"]
-    assert result["copy_and_source_hash_ms"] >= 0
+    assert result["snapshot_read_ms"] >= 0
+    assert result["snapshot_copy_and_fsync_ms"] >= 0
+    assert result["snapshot_hash_update_ms"] >= 0
+    assert result["snapshot_build_elapsed_ms"] >= 0
     assert result["source_validation_hash_ms"] >= 0
     assert result["copied_hash_verification_ms"] >= 0
     expected = hashlib.sha256(payload).hexdigest()
