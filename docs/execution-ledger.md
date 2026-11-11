@@ -1493,3 +1493,30 @@ W3 test reconciliation:
 - The implementation preserves the pre-existing copy_elapsed_ms report semantics and exposes the new isolated copy I/O timing in copy_io_elapsed_ms; this avoids silently changing existing consumers.
 
 The next action is serial integration W1 → W2 → W3 → W6 onto main, followed by exact-main W1/W2/W3, focused storage/watch, Studio release gate, full Python/browser, Windows-native and YAML validation. Actual representative large-media measurements remain MISSING pending real project media; no synthetic fixture is used as production evidence.
+
+
+## 65. Main integration and next independent batch — 2026-11-11
+
+### Integrated main SHA
+
+- Main now contains W1 → W2 → W3 → W6 serial integration from frozen base 12aac891b12b0ec577c318981396db398e080400.
+- Current integrated SHA: 4bf9e70fee0b71e701cbc7f5ebc231356e0f3984.
+- Exact-main gates already PASS: YAML validation run 43029375628; Windows-native run 43029375761 (5 passed); focused storage/watch run 43029375666 (173 passed, 1 skipped); W1 generation lane 95 passed; W2 timeline lane 361 passed; W3 lifecycle/export/QC lane 304 passed, 1 skipped; W7 navigation PASS; Product IA W4/W5 PASS; Studio release gate 359 passed.
+- Full Python/browser regression run 43029375775 is still RUNNING at this update. Do not mark the new main SHA fully accepted until that run completes.
+- NVIDIA live provider/model acceptance remains explicit opt-in and is not part of the credential-free full regression.
+
+## 66. Next independent batch: cross-process submit deduplication and full-page refresh recovery
+
+### Frozen baseline and exclusive ownership
+
+- Frozen baseline: 4bf9e70fee0b71e701cbc7f5ebc231356e0f3984.
+- W1 work/w1-multiprocess-submit-dedup-20261111 owns only tests/test_generation_recovery.py. Two forked workers synchronize on the same project, prompt, model, dimensions and variant; both reach the durable submit boundary, but the provider POST counter must remain exactly one and both workers must reuse the same persisted task ID.
+- W2 work/w2-refresh-after-external-revision-20261111 owns only tests/test_film_studio_external_watch_browser.py. It opens a real Studio project, writes a newer external film.html revision, performs a full browser document reload, reopens the same project and verifies the latest revision is hydrated while old selections/gesture previews are absent and no stale edit request is sent.
+- W6 work/w6-next-batch-register-20261111-2 owns only docs/execution-ledger.md and docs/parallel-workstreams.md. It records the new frozen baseline, exclusive ownership and exact owner-lane gates.
+- W3 actual representative-media measurement remains blocked on a real large project media asset. The harness is ready; do not substitute unit-test fixtures for the production measurement.
+
+### Acceptance
+
+- W1: exact branch SHA W1 generation durability lane, focused storage/watch lane and YAML validation.
+- W2: exact branch SHA W2 timeline/browser lane and YAML validation.
+- Integrate W1 → W2 → W6 only after both code lanes pass; then run W1/W2, focused storage/watch, Studio release gate, full Python/browser, Windows-native and YAML on one exact main SHA.
