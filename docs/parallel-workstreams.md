@@ -143,3 +143,33 @@ All code branches below start from frozen `main` SHA `5935b3fddcaad09606ca5d014d
 | W6 | `work/w6-windows-asset-reference-race-20261111` | `tests/test_asset_catalog_windows_process.py`, `.github/workflows/windows-native-publication.yml` | YAML validation on branch; after main integration, Windows-hosted `spawn` test proves manifest reference writes serialize with catalog deletion under `msvcrt.locking` |
 
 This W6 branch is independent of the W3 Linux `fork` regression and does not modify W3-owned files.
+
+
+## Active branch register — 2026-11-11 next batch
+
+All branches below are frozen from main SHA 12aac891b12b0ec577c318981396db398e080400. File ownership is exclusive and disjoint.
+
+| Lane | Branch | Exclusive write ownership | Acceptance |
+|---|---|---|---|
+| W1 | work/w1-generation-output-finalization-20261111 | tests/test_generation_recovery.py | Process death after MP4 atomic replace but before terminal job marker; recovery reuses bytes without a second download |
+| W2 | work/w2-real-multitab-revision-20261111 | tests/test_film_studio_external_watch_browser.py | Two real Chromium tabs, held stale edit request, server-side REVISION_CONFLICT, no overwrite of committed bytes |
+| W3 | work/w3-resource-snapshot-benchmark-harness-20261111 | video_director/film_resource_snapshot.py, scripts/benchmark_resource_snapshot.py, tests/test_film_render_scene_e2e.py | Opt-in real-media snapshot measurements with separate read/copy+fsync/hash timings; fixture tests validate only the harness contract |
+| W6 | work/w6-followup-register-20261111 | docs/execution-ledger.md, docs/parallel-workstreams.md | Documentation reconciliation; existing W2/W3 lane commands already include their test modules, so no workflow edit is required |
+
+- W1, W2 and W3 may run concurrently on GitHub-hosted Ubuntu from this same base. W6 maintains the CI lane wiring and records evidence; it does not modify W1/W2/W3-owned files.
+- W2 reuses the already-owned external-watch browser test module so the new real two-tab regression is executed by the existing W2 lane without a duplicate test entry or a second workflow owner.
+- W3's production measurement requires real representative media. A small test fixture is permitted only for testing report shape, path validation and hash consistency; it must never be cited as a production benchmark.
+- Integrate W1 → W2 → W3 → W6 only after exact-SHA scoped PASS. Then run W1/W2/W3, focused storage/watch, Studio release gate, full Python/browser, Windows-native and YAML on one exact main SHA.
+
+
+## Next-batch CI reconciliation — 2026-11-11
+
+- Integrated main SHA 12aac891b12b0ec577c318981396db398e080400 passed the full hosted acceptance: 1,969 passed, 2 skipped, 0 failures/errors; Studio release gate 356 passed; W1/W2/W3/W7, Product IA, focused storage, Windows-native (5 passed) and YAML all SUCCESS. NVIDIA live acceptance remained explicitly skipped.
+- W1 next-batch exact SHA 44c8a3468ddfc7d1448dcbd726d4a6f233ea0313: 95 passed; focused storage 173 passed, 1 skipped; YAML SUCCESS.
+- W3 latest exact SHA 969bd0a4e3fb26b3faaf11ad19b80eaa84c558a6: 304 passed, 1 skipped; YAML SUCCESS. The harness reports project-volume free-space delta, separate read/copy+fsync/hash-update timings, source revalidation and copied-hash verification. Existing copy_elapsed_ms semantics remain unchanged.
+- W2 next-batch exact SHA 50479f987b41fa8a7811ef1fb4f679adf43b5080: 361 passed, including the two-real-tab stale-revision regression; YAML SUCCESS. The first attempt exposed only a response-observation defect in the test; route.fetch/fulfill now forwards the held request to the real API and verifies the actual conflict response.
+- W6 workflow syntax SHA db427b5bd94201b2765c9002d67e5510fc4124f9: SUCCESS. Do not integrate until W2 exact-SHA lane passes.
+- Actual large-media performance measurements remain MISSING until representative project media is supplied; fixture tests are harness-contract checks only.
+
+
+- Final next-batch owner-lane closure: W1 44c8a3468ddfc7d1448dcbd726d4a6f233ea0313 PASS (95 tests; focused storage 173 passed, 1 skipped); W2 50479f987b41fa8a7811ef1fb4f679adf43b5080 PASS (361 tests); W3 969bd0a4e3fb26b3faaf11ad19b80eaa84c558a6 PASS (304 passed, 1 skipped). W6 documentation register is ready. Serial integration is now unblocked.
