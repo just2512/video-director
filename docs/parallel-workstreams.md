@@ -190,3 +190,11 @@ All code branches start from frozen main SHA `4bf9e70fee0b71e701cbc7f5ebc231356e
 - The initial W2 refresh attempt exposed a test predicate error and a separate canvas-history startup-selection race. Fix the predicate and stabilize the independent canvas-history test; do not waive either failure.
 - Integrate only after all exact-SHA scoped lanes pass. Then execute the integrated acceptance gates on one exact main SHA. No PR/manual-review handoff is required; the coordinator owns serial integration and automatic verification.
 - The real-media snapshot benchmark remains blocked on representative project media. The benchmark harness fixture tests are not production performance evidence.
+
+
+### Current follow-up CI reconciliation
+
+- W1 `eb602435e63a62d45b9a76f28815cd13622daf15`: 96 generation tests passed; focused storage/external-edit and YAML passed.
+- W2 refresh initial `52858a8beb3bdaa3be0b71fbe6b537e437620da2` failed because of an invalid Playwright predicate and an over-strict stale-selection expectation. Predicate fix `6e6aaedcf47ae26934d49eb09b1f9981b9c11163` still exposed the latter assertion; latest correction `41b6b64158403b4d076eb4e98a8791cb761a0c85` now distinguishes valid fresh-open auto-selection from stale prior-tab selection. Its W2 lane is running.
+- Independent canvas-history fix `c16ac0514525b633d2b185198fb69976cdc22ae4` is running under the W2 lane; its YAML validation passed.
+- The main SHA `4bf9e70fee0b71e701cbc7f5ebc231356e0f3984` remains unchanged. Keep both W2 branches unmerged until exact-SHA owner lanes pass.
