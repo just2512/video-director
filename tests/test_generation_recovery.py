@@ -2631,3 +2631,97 @@ def test_manifest_commit_then_process_crash_repairs_job_marker_without_provider_
     assert repaired["registry_status"] == "registered", repaired
     assert repaired["registry_asset_id"] == "asset-recovered-after-manifest-crash"
     assert registry_calls == [(str(output), prompt)]
+
+
+class _SharedSubmitCounterClient:
+    def __init__(self, calls, lock):
+        self.calls = calls
+        self.lock = lock
+
+    def post(self, _path, json=None):
+        with self.lock:
+            self.calls.value += 1
+        # Keep the first process inside the durable submission boundary long
+        # enough for the second process to contend on the same fingerprint lock.
+        import time
+        time.sleep(0.15)
+        return _FakeResp({"id": "provider-task-single-submit", "status": "queued"})
+
+    def get(self, _path):
+        raise AssertionError("zero-timeout reservation test must not poll the provider")
+
+
+def _generation_process_submit_same_fingerprint_once(
+    project_id, prompt, barrier, result_queue, calls, shared_lock
+):
+    from video_director import generation as gen
+
+    original_submit_and_poll = gen._create_poll_and_persist_video
+
+    def submit_without_waiting_for_provider(client, *args, **kwargs):
+        kwargs["timeout"] = 0
+        return original_submit_and_poll(client, *args, **kwargs)
+
+    gen._create_poll_and_persist_video = submit_without_waiting_for_provider
+    gen._video_client = lambda _cfg: _SharedSubmitCounterClient(calls, shared_lock)
+    try:
+        barrier.wait(timeout=15)
+        gen.generate(
+            project_id, prompt, gen_type="video", width=320, height=180,
+            variant="A", model="fake-model",
+        )
+        result_queue.put("returned-without-timeout")
+    except gen.GenerationError as exc:
+        result_queue.put(exc.code)
+    except Exception as exc:
+        result_queue.put(f"{type(exc).__name__}: {exc}")
+
+
+def test_two_processes_submit_same_video_fingerprint_only_once(tmp_path, monkeypatch):
+    """The cross-process reservation lock must serialize lookup, reserve and POST."""
+    import multiprocessing
+    from video_director import config, generation as gen
+
+    _isolate(tmp_path, monkeypatch)
+    _video_identity(monkeypatch, gen, "fake-model")
+    project_id = "generation-multiprocess-single-submit"
+    prompt = "one provider task for one identical video request"
+    config.init_project_dirs(config.project_dir(project_id))
+
+    context = multiprocessing.get_context("fork")
+    calls = context.Value("i", 0)
+    shared_lock = context.Lock()
+    barrier = context.Barrier(2)
+    result_queue = context.Queue()
+    workers = [
+        context.Process(
+            target=_generation_process_submit_same_fingerprint_once,
+            args=(project_id, prompt, barrier, result_queue, calls, shared_lock),
+        )
+        for _ in range(2)
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=20)
+    try:
+        assert all(not worker.is_alive() for worker in workers)
+        assert [worker.exitcode for worker in workers] == [0, 0]
+        results = [result_queue.get(timeout=5) for _ in workers]
+    finally:
+        for worker in workers:
+            if worker.is_alive():
+                worker.terminate()
+                worker.join(timeout=5)
+        result_queue.close()
+
+    assert results == ["VIDEO_GENERATION_TIMEOUT", "VIDEO_GENERATION_TIMEOUT"], results
+    assert calls.value == 1, f"same fingerprint created {calls.value} provider tasks"
+
+    jobs = gen._load_jobs(project_id)
+    assert len(jobs) == 1, jobs
+    job = next(iter(jobs.values()))
+    assert job["status"] == "running", job
+    assert job["provider_task_id"] == "provider-task-single-submit", job
+    assert job["input_fingerprint"]
+    assert job["provider_identity"]["fingerprint"]
