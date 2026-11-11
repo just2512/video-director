@@ -3701,3 +3701,44 @@ def test_track_add_then_remove_is_a_reversible_operation_pair():
     assert edited == original
     reparsed = fd.parse_film(fd.serialize_film(edited))
     assert fd._film_document_roundtrip_matches(original, reparsed)
+
+
+def test_same_project_two_tab_stale_revision_cannot_overwrite_newer_edit(tmp_path, monkeypatch):
+    """Two tabs opened at one revision: the second stale save must fail closed."""
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "film-two-tab-stale-revision"
+    project_root = storage / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+
+    tab_a_snapshot = fd.read_project_film(project_id)
+    tab_b_snapshot = fd.read_project_film(project_id)
+    assert tab_a_snapshot["rev"] == tab_b_snapshot["rev"]
+
+    saved_by_a = fd.edit_project_film(
+        project_id, tab_a_snapshot["rev"],
+        [{"op": "set", "clip": "clip-a", "field": "volume", "value": "0.4"}],
+        require_base=True, source="tab-a",
+    )
+    bytes_after_a = film_path.read_bytes()
+
+    with pytest.raises(fd.FilmError) as stale_save:
+        fd.edit_project_film(
+            project_id, tab_b_snapshot["rev"],
+            [{"op": "set", "clip": "clip-b", "field": "volume", "value": "0.7"}],
+            require_base=True, source="tab-b",
+        )
+    assert stale_save.value.code == "REVISION_CONFLICT"
+
+    final = fd.read_project_film(project_id)
+    assert final["rev"] == saved_by_a["rev"]
+    assert film_path.read_bytes() == bytes_after_a
+    clips = {
+        clip["id"]: clip
+        for track in final["doc"]["tracks"]
+        for clip in track["clips"]
+    }
+    assert clips["clip-a"]["attrs"]["volume"] == "0.4"
+    assert clips["clip-b"]["attrs"]["volume"] == "1"
