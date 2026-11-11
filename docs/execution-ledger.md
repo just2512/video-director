@@ -1401,3 +1401,44 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - W2 first SHA `a1511b99203044c104784517dfed16efd815c667` returned **2 failures / 358 passed**: the new test incorrectly assumed an absent `volume` attribute had a default serialized value; an existing external-watch browser test also failed its asynchronous revision observation. The new assertion was corrected to verify the attribute remains absent. Latest SHA `6368f4ba18d1732171992e8fe2c444e8f14c291b` is running W2 timeline regression (run `43022505619`) and YAML validation (run `43022505569`). The external-watch failure is not waived; the rerun must establish whether it reproduces.
 - W6 Windows branch `work/w6-windows-asset-reference-race-20261111`, SHA `755a7ae1483ffc761d19e196e25e00abd9539fae`: YAML validation **SUCCESS** (run `43022386946`). Actual `windows-latest` execution is intentionally deferred until main integration.
 - Integration remains **BLOCKED** on W2 exact-SHA scoped PASS. W1/W3 are ready for serial integration only after W2 passes; W6 workflow changes follow the code/test branches. No main changes have been made by this batch.
+
+
+## 61. Reconcile 2026-11-11 concurrent branch batch and exact-main integration
+
+### Scoped branch evidence
+
+- W1 work/w1-terminal-recovery-races-20261111, SHA 286b4a16e8ebe8c9192686c231dce325ca7ae6e9: generation durability 93 passed (run 43021720278); focused storage/watch SUCCESS (run 43021720561); YAML SUCCESS (run 43021720126).
+- W2 work/w2-multitab-stale-revision-20261111, SHA 6368f4ba18d1732171992e8fe2c444e8f14c291b: exact-SHA React Studio timeline transaction and browser regression 360 passed (run 43022505619); YAML SUCCESS (run 43022505569). The initial external-watch observation failure did not reproduce on the corrected exact-SHA rerun; no assertion or test was waived.
+- W3 work/w3-asset-delete-race-20261111, SHA 73d06a8441b37243e8cbd107ddb1ec1da0e6a54d: lifecycle/export/QC 301 passed, 1 skipped (run 43022132219); focused storage/watch SUCCESS (run 43022132171); YAML SUCCESS (run 43022132145).
+- W6 work/w6-windows-asset-reference-race-20261111, SHA 755a7ae1483ffc761d19e196e25e00abd9539fae: YAML validation SUCCESS (run 43022386946). After integration, Windows-native exact-main run 43024008063, job 130533987770: 5 passed, explicitly including tests/test_asset_catalog_windows_process.py::test_windows_spawn_manifest_writer_serializes_with_library_deletion.
+- W6 docs/register branch work/w6-next-batch-register-20261111, SHA 3c07f6e70589a6dba943d00794696c25249f248f: documentation-only change; no test lane required.
+
+### Serial integration and exact-main status
+
+- Frozen integration base: 5935b3fddcaad09606ca5d014dad3623e1d3ddc0.
+- W1, W2, W3, W6 and documentation changes were integrated serially as five commits, preserving each source branch as a second parent. Final integration SHA: 12aac891b12b0ec577c318981396db398e080400.
+- The main ref was advanced with an expected-SHA lease from the frozen base; no force update was used.
+- Exact-main workflow evidence on 12aac891b12b0ec577c318981396db398e080400:
+  - YAML validation run 43024007970: SUCCESS.
+  - Windows-native run 43024008063: 5 passed, including the new Windows spawn lock regression.
+  - Focused storage/external-edit run 43024008137: SUCCESS.
+  - W1 generation durability job 130533988202: SUCCESS.
+  - W7 shared-shell navigation job 130533988263: SUCCESS.
+  - W2 timeline and W3 lifecycle jobs, Full Python/browser run 43024007958, and Product IA run 43024007986 were still running at this ledger update. Do not declare integrated acceptance until all required jobs finish on this exact SHA.
+  - NVIDIA live provider/model acceptance remains explicit opt-in and is not triggered by this test-only integration.
+
+## 62. Next independent batch: output finalization, real two-tab E2E, and media benchmark harness
+
+### Frozen baseline and exclusive ownership
+
+- Frozen baseline: 12aac891b12b0ec577c318981396db398e080400.
+- W1 work/w1-generation-output-finalization-20261111 owns only tests/test_generation_recovery.py. It kills a separate process immediately after the MP4 atomic replace and before the durable done marker; recovery must promote the already-published bytes without downloading again.
+- W2 work/w2-real-multitab-revision-20261111 owns only tests/test_film_studio_external_watch_browser.py. Two real Chromium tabs load one project at the same revision; tab B's real edit request is held, tab A commits, then tab B reaches the server with its stale base and must receive REVISION_CONFLICT without changing committed bytes.
+- W3 work/w3-resource-snapshot-benchmark-harness-20261111 owns only scripts/benchmark_resource_snapshot.py and tests/test_resource_snapshot_benchmark.py. The CLI measures explicitly supplied existing project media: copied logical/allocated bytes, copy+hash time, source revalidation time and copied-hash verification time. It never creates synthetic media for a production measurement.
+- W6 work/w6-followup-register-20261111 owns only .github/workflows/parallel-workstream-ci.yml and the two execution documents. It adds the W3 harness contract test to the W3 lane and registers all exact branch heads and gates.
+- Branches are created from the same frozen main SHA and have disjoint write ownership. Run each owner lane on the exact branch SHA. Integrate only after all scoped code lanes pass; then rerun the exact-main affected lanes and full release gates.
+
+### Measurement boundary
+
+- The benchmark harness's small fixture test verifies only the report contract. It is not representative media performance evidence.
+- Actual snapshot performance remains MISSING until a real representative large project media file is supplied or otherwise available in the repository/project storage. Do not substitute a synthetic 64 MiB fixture or extrapolate production throughput from unit-test data.
