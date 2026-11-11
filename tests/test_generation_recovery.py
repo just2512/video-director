@@ -2382,3 +2382,44 @@ def test_provider_acceptance_then_process_crash_never_resubmits_unknown_task(tmp
         )
     assert error.value.code == "VIDEO_SUBMISSION_UNKNOWN"
     assert post_calls.value == 1, "retry must not create a second paid provider task"
+
+
+def test_downloading_wins_over_late_poll_and_terminal_state_is_immutable(tmp_path, monkeypatch):
+    """Concurrent stale poll results cannot downgrade a completed provider task."""
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from video_director import config, generation as gen
+
+    _isolate(tmp_path, monkeypatch)
+    project_id = "generation-terminal-race"
+    config.init_project_dirs(config.project_dir(project_id))
+    gen._save_jobs(project_id, {
+        "job-race": {"job_id": "job-race", "status": "downloading",
+                     "provider_task_id": "provider-race", "output_file": "pending.mp4"}
+    })
+
+    barrier = threading.Barrier(3)
+
+    def update(fields):
+        barrier.wait(timeout=10)
+        try:
+            return gen._update_job(project_id, "job-race", fields)
+        except gen.GenerationError as exc:
+            return exc.code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        stale = pool.submit(update, {"status": "running", "provider_status": "running"})
+        complete = pool.submit(update, {"status": "done", "output_file": "final.mp4"})
+        barrier.wait(timeout=10)
+        stale_result = stale.result(timeout=15)
+        complete_result = complete.result(timeout=15)
+
+    persisted = gen._load_jobs(project_id)["job-race"]
+    assert persisted["status"] == "done"
+    assert persisted["output_file"] == "final.mp4"
+    assert stale_result == "VIDEO_JOB_TERMINAL" or stale_result["status"] == "downloading"
+    assert complete_result["status"] == "done"
+
+    with pytest.raises(gen.GenerationError) as error:
+        gen._update_job(project_id, "job-race", {"status": "failed"})
+    assert error.value.code == "VIDEO_JOB_TERMINAL"
