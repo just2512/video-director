@@ -112,7 +112,7 @@ def benchmark_snapshot(project_id: str, resources: Iterable[str]) -> dict:
                 "isolates allocated blocks for copied payload files."
             ),
             "snapshot_read_ms": copy_report["read_elapsed_ms"],
-            "snapshot_copy_and_fsync_ms": copy_report["copy_elapsed_ms"],
+            "snapshot_copy_and_fsync_ms": copy_report["copy_io_elapsed_ms"],
             "snapshot_hash_update_ms": copy_report["hash_elapsed_ms"],
             "snapshot_build_elapsed_ms": copy_report["snapshot_elapsed_ms"],
             "source_validation_hash_ms": round(source_validation_ms, 3),
