@@ -49,15 +49,15 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install native media dependencies
+        timeout-minutes: 15
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
+          bash .github/scripts/install-ubuntu-media-deps.sh ffmpeg fonts-noto-cjk fonts-wqy-microhei
       - name: Install focused Python dependencies
         run: >-
           python -m pip install --disable-pip-version-check
           pytest pydantic loguru pillow imageio-ffmpeg edge-tts openai pyyaml playwright filelock
       - name: Install Chromium
-        run: python -m playwright install --with-deps chromium
+        run: python -m playwright install chromium
       - name: Run storage, generation recovery, watcher, and migration browser regressions
         run: |
           python -m pytest -q \
