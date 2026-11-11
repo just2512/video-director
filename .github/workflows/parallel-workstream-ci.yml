@@ -141,6 +141,28 @@ jobs:
             tests/test_shotcraft_integration.py \
             tests/test_commercial_gate.py
 
+  shotcraft-ui:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/work/w8-')
+    name: W8 Shotcraft UI browser acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install browser dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest playwright
+          python -m playwright install --with-deps chromium
+      - name: Shotcraft real-browser UI regression
+        run: python -m pytest -q --tb=short tests/test_shotcraft_ui_browser.py
+
   shell-navigation:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/work/w7-')
     name: W7 shared shell navigation
