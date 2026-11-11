@@ -106,9 +106,9 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
 - Frozen baseline for the current batch: `fe20b42770660db215d1f5f9210a2046d30b0416`.
 - Active short-lived branches, with disjoint write ownership:
   - `work/w1-generation-crash-recovery-20261111`: W1 owns only `tests/test_generation_recovery.py`; process-crash boundary after provider acceptance.
+  - `work/w2-canvas-history-project-isolation-20261111`: W2 owns only `tests/test_film_document_contract.py`; independent per-project undo/redo histories.
   - `work/w3-asset-catalog-transaction-audit-20261111`: W3 owns `tests/test_asset_catalog.py` and `tests/test_film_render_scene_e2e.py`; cross-process semantic merge and JUnit warning cleanup.
   - `work/w6-next-batch-branch-register-20261111`: W6 owns workflow/docs; adds the Asset Library cross-process merge test to Windows-native CI and updates the live ledger.
-- No active W2 branch in this batch: the W2 canvas history reload regression is already integrated and accepted on the frozen baseline. Its next independent target is the separately tracked multi-context project-isolation audit in ledger §58; do not create a branch without a concrete test/ownership boundary.
 - W1/W3/W6 are independent and may run concurrently. Branch-scoped CI runs only each owning lane. Integrate completed branches serially after scoped PASS, then rerun affected lanes and integrated gates on one exact main SHA.
 - Branch-scoped workflow filters execute only the owning lane on `work/w1-*` through `work/w7-*`; the `main` integration target still executes all applicable lanes. This prevents every task branch from paying for unrelated W1/W2/W3/W7 suites.
 - Integrate completed W1 and W3 test-only branches serially to `main` after scoped acceptance, then run W1/W3 affected lanes, Studio release gate, full Python/browser, Windows-native and YAML validation on the same final main SHA.
