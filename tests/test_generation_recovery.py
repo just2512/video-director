@@ -2423,3 +2423,211 @@ def test_downloading_wins_over_late_poll_and_terminal_state_is_immutable(tmp_pat
     with pytest.raises(gen.GenerationError) as error:
         gen._update_job(project_id, "job-race", {"status": "failed"})
     assert error.value.code == "VIDEO_JOB_TERMINAL"
+
+
+def _generation_process_crash_after_output_replace(project_id, job_id, output_file, url, payload, ready, start):
+    """Kill the worker after atomic MP4 replace but before the durable done marker."""
+    import os
+    from pathlib import Path
+    from video_director import generation as gen
+
+    real_replace = gen.atomic_replace
+
+    def replace_then_die(source, target):
+        result = real_replace(source, target)
+        if Path(source).suffix == ".part" and Path(target) == Path(output_file):
+            os._exit(75)
+        return result
+
+    gen.atomic_replace = replace_then_die
+    gen._download_bytes = lambda _url: payload
+    ready.set()
+    if not start.wait(timeout=15):
+        os._exit(76)
+    gen._persist_video_output(project_id, job_id, output_file, url)
+
+
+def test_process_crash_after_atomic_video_replace_recovers_without_redownload(
+    tmp_path, monkeypatch
+):
+    """A durable MP4 must be promoted to done after restart without another download."""
+    import multiprocessing
+    from video_director import config, generation as gen
+
+    _isolate(tmp_path, monkeypatch)
+    project_id = "generation-output-replace-crash"
+    config.init_project_dirs(config.project_dir(project_id))
+    job_id = "job-output-replace-crash"
+    output_file = str(config.project_dir(project_id) / "assets" / "generated" / "recovered.mp4")
+    payload = b"verified-video-output-after-atomic-replace"
+
+    gen._update_job(project_id, job_id, {
+        "gen_type": "video",
+        "status": "downloading",
+        "provider_task_id": "provider-task-durable-before-download",
+        "output_file": output_file,
+        "output_commit_protocol": "atomic-v2",
+    })
+
+    context = multiprocessing.get_context("fork")
+    ready = context.Event()
+    start = context.Event()
+    worker = context.Process(
+        target=_generation_process_crash_after_output_replace,
+        args=(project_id, job_id, output_file, "https://provider.invalid/video.mp4", payload, ready, start),
+    )
+    worker.start()
+    try:
+        assert ready.wait(timeout=10), "output worker did not initialize"
+        start.set()
+        worker.join(timeout=15)
+        assert not worker.is_alive(), "output worker did not terminate"
+        assert worker.exitcode == 75, worker.exitcode
+    finally:
+        start.set()
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(timeout=5)
+
+    output = Path(output_file)
+    assert output.is_file()
+    assert output.read_bytes() == payload
+    interrupted = gen._load_jobs(project_id)[job_id]
+    assert interrupted["status"] == "downloading", interrupted
+    assert interrupted["provider_task_id"] == "provider-task-durable-before-download"
+    assert interrupted["output_commit_protocol"] == "atomic-v2"
+
+    def must_not_download(_url):
+        raise AssertionError("recovery must reuse the atomically published MP4 bytes")
+
+    monkeypatch.setattr(gen, "_download_bytes", must_not_download)
+    recovered = gen._persist_video_output(
+        project_id, job_id, output_file, "https://provider.invalid/video.mp4"
+    )
+    assert recovered == output
+    assert recovered.read_bytes() == payload
+    completed = gen._load_jobs(project_id)[job_id]
+    assert completed["status"] == "done", completed
+    assert completed["output_file"] == output_file
+    assert completed["provider_task_id"] == "provider-task-durable-before-download"
+    assert completed["recovery_needs_registration"] is True
+
+
+def _generation_process_crash_after_manifest_commit(project_id, prompt, ready, start):
+    """Persist the manifest row, then die before the job ledger records registration."""
+    import os
+    from video_director import generation as gen
+
+    original_save = gen._save_manifest
+
+    def save_manifest_then_die(pid, additions):
+        original_save(pid, additions)
+        os._exit(77)
+
+    gen._save_manifest = save_manifest_then_die
+    ready.set()
+    if not start.wait(timeout=15):
+        os._exit(78)
+    gen.generate(
+        project_id, prompt, gen_type="video", width=320, height=180,
+        variant="A", model="fake-model",
+    )
+
+
+def test_manifest_commit_then_process_crash_repairs_job_marker_without_provider_call(
+    tmp_path, monkeypatch
+):
+    """A durable manifest row repairs the job marker after a process restart."""
+    import hashlib
+    import multiprocessing
+    from video_director import config, generation as gen
+
+    _isolate(tmp_path, monkeypatch)
+    identity = _video_identity(monkeypatch, gen, "fake-model")
+    project_id = "generation-manifest-commit-crash"
+    prompt = "manifest registration crash recovery"
+    config.init_project_dirs(config.project_dir(project_id))
+    output = config.project_dir(project_id) / "assets" / "generated" / "recovered.mp4"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"durable-video-before-manifest-recovery")
+
+    fingerprint_source = (
+        prompt + "|video|model:fake-model|provider_identity:"
+        + identity["fingerprint"]
+    )
+    input_fp = hashlib.sha256(
+        f"{fingerprint_source}|dimensions:320x180".encode("utf-8")
+    ).hexdigest()[:16]
+    job_id = "job-manifest-commit-crash"
+    gen._update_job(project_id, job_id, {
+        "gen_type": "video",
+        "provider_identity": identity,
+        "provider_task_id": "provider-task-already-persisted",
+        "model": "fake-model",
+        "input_fingerprint": input_fp,
+        "variant": "A",
+        "width": 320,
+        "height": 180,
+        "status": "done",
+        "output_file": str(output),
+        "output_commit_protocol": "atomic-v2",
+        "recovery_needs_registration": True,
+        "registry_status": "pending",
+        "created_at": 1234567890.0,
+    })
+
+    context = multiprocessing.get_context("fork")
+    ready = context.Event()
+    start = context.Event()
+    worker = context.Process(
+        target=_generation_process_crash_after_manifest_commit,
+        args=(project_id, prompt, ready, start),
+    )
+    worker.start()
+    try:
+        assert ready.wait(timeout=10), "manifest recovery worker did not initialize"
+        start.set()
+        worker.join(timeout=20)
+        assert not worker.is_alive(), "manifest recovery worker did not terminate"
+        assert worker.exitcode == 77, worker.exitcode
+    finally:
+        start.set()
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(timeout=5)
+
+    manifest_path = config.project_dir(project_id) / "assets" / "manifest.json"
+    committed_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert len(committed_manifest) == 1, committed_manifest
+    assert committed_manifest[0]["input_fingerprint"] == input_fp
+    interrupted = gen._load_jobs(project_id)[job_id]
+    assert interrupted["status"] == "done"
+    assert interrupted["recovery_needs_registration"] is True
+    assert interrupted.get("manifest_registered") is not True
+
+    def provider_must_not_be_used(_cfg):
+        raise AssertionError("manifest recovery must not create or poll another provider task")
+
+    monkeypatch.setattr(gen, "_video_client", provider_must_not_be_used)
+    from video_director import asset_catalog
+    registry_calls = []
+
+    def register_recovered_output(file_path, prompt):
+        registry_calls.append((str(file_path), prompt))
+        return {"asset_id": "asset-recovered-after-manifest-crash"}
+
+    monkeypatch.setattr(asset_catalog, "register_generated", register_recovered_output)
+    results = gen.generate(
+        project_id, prompt, gen_type="video", width=320, height=180,
+        variant="A", model="fake-model",
+    )
+    assert len(results) == 1
+    assert Path(results[0].file).read_bytes() == output.read_bytes()
+    repaired_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert len(repaired_manifest) == 1, repaired_manifest
+    repaired = gen._load_jobs(project_id)[job_id]
+    assert repaired["manifest_registered"] is True, repaired
+    assert repaired["recovery_needs_registration"] is False, repaired
+    assert repaired["registry_status"] == "registered", repaired
+    assert repaired["registry_asset_id"] == "asset-recovered-after-manifest-crash"
+    assert registry_calls == [(str(output), prompt)]
