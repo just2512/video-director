@@ -1385,3 +1385,10 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 3. Integrate W1, W2 and W3 serially, preserving intervening main commits; do not merge a branch whose scoped lane failed.
 4. Run the affected W1/W2/W3 lanes, focused storage/watch, Studio release gate, full Python/browser regression, Windows-native and YAML validation against one exact resulting main SHA.
 5. Keep the NVIDIA live provider job skipped unless a separately authorized explicit opt-in is supplied. No paid provider request is implied by this test-only batch.
+
+
+### W6 Windows-native follow-up branch
+
+- Branch `work/w6-windows-asset-reference-race-20261111` starts from the same frozen main SHA and owns only `tests/test_asset_catalog_windows_process.py` plus `.github/workflows/windows-native-publication.yml`.
+- Adds a Windows `spawn`-based process test for the manifest-writer/catalog-delete race and includes it in the Windows-native publication workflow. The Linux-only W3 test uses `fork`; this separate test exercises the Windows `msvcrt.locking` path without changing W3's file ownership.
+- Branch workflow syntax and exact-main Windows execution remain OPEN. The Windows job intentionally runs after integration because `windows-native-publication.yml` is main-only.
