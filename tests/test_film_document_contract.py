@@ -3741,4 +3741,4 @@ def test_same_project_two_tab_stale_revision_cannot_overwrite_newer_edit(tmp_pat
         for clip in track["clips"]
     }
     assert clips["clip-a"]["attrs"]["volume"] == "0.4"
-    assert clips["clip-b"]["attrs"]["volume"] == "1"
+    assert "volume" not in clips["clip-b"]["attrs"]
