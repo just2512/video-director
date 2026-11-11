@@ -1541,3 +1541,28 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W1 Windows parity branch latest SHA `86be7edef26f8ffa54c27296fd56188cfe6bb89e`: W1 owner lane **SUCCESS** (run `43033791325`, job `130567278382`); YAML validation **SUCCESS** (run `43033791335`). The new Windows `spawn` test itself remains pending until main-only Windows-native workflow after integration.
 - W2 canvas-history run `43032559820`, attempt 1, did not reach pytest: Playwright browser dependency installation failed because GitHub-hosted runner DNS could not resolve `azure.archive.ubuntu.com`; logs show apt package fetch failures and `Failed to install browsers`. This is **CI INFRASTRUCTURE FAILURE**, not a test assertion failure. The failed W2 job was explicitly rerun as attempt 2; do not mark PASS until it completes.
 - W2 refresh latest SHA `41b6b64158403b4d076eb4e98a8791cb761a0c85` remains in progress at run `43032985829`; its test and setup result are still UNKNOWN.
+## 66. Commercial preflight and Shotcraft browser evidence extension — 2026-11-11
+
+### Frozen baseline and ownership
+
+- Frozen main baseline: '4bf9e70fee0b71e701cbc7f5ebc231356e0f3984'.
+- W3 'work/w3-commercial-preflight-matrix-20261111' owns only 'tests/test_shotcraft_integration.py'. It adds real manifest-backed cases for a blocked third-party asset, missing referenced media, and a mixed CLEAR + UNKNOWN asset set. The UNKNOWN asset must still reject the whole commercial preflight; a CLEAR sibling cannot mask it.
+- W8 'work/w8-shotcraft-ui-browser-20261111' owns only 'tests/test_shotcraft_ui_browser.py'. It opens the actual Template Gallery in Chromium, loads the real Registry API, filters by category and supported ratio, changes keyboard selection, verifies render/instantiate remain disabled until real assets are supplied, and cancels without creating a project.
+- W6 'work/w6-commercial-preflight-lane-20261111' owns only '.github/workflows/parallel-workstream-ci.yml'. It adds the W3 Shotcraft/commercial test modules to the lifecycle lane and a separate W8 browser lane. The W8 branch's test module is not yet covered by a branch-scoped job until the W6 workflow commit is merged into that branch.
+- W6 documentation branch 'work/w6-current-batch-register-20261111' owns only these two documents.
+
+### Exact-SHA status at registration
+
+- W3 latest test SHA 'cabb32f8a212c08fcd3e88e3e46a2219a8bc44ce': YAML SUCCESS (run '43043394811'); W3 owner lane '43043394855' is RUNNING using the pre-W6 workflow definition, so the newly added Shotcraft tests have not yet been proven by that lane.
+- W8 latest test SHA '4ed11ea3b3af7b6e90cbf99739bb0b45f5d5c3b3': YAML SUCCESS (run '43043879514'); the W8 owner lane is SKIPPED because the frozen-main workflow does not yet define W8. This is not a test PASS.
+- W6 workflow SHA '7f532aa31932a66d3c636b9f3e0cf1ba5dee19f4': YAML validation SUCCESS (run '43043892787'). Its workflow change still requires the W3 and W8 branch-scoped lanes to execute after the updated workflow is inherited.
+- W2 refresh branch SHA '41b6b64158403b4d076eb4e98a8791cb761a0c85': run '43032985829', attempt 2, remains RUNNING during browser dependency installation.
+- W2 canvas-history branch SHA 'c16ac0514525b633d2b185198fb69976cdc22ae4': run '43032559820', attempt 3, is RUNNING after repeated GitHub-hosted apt/DNS infrastructure interruptions. No pytest result is available yet.
+
+### Acceptance and integration order
+
+1. Let the current W3 run finish; do not treat its pre-W6 lane as evidence for the newly added tests.
+2. After the current scoped run is complete, merge the W6 workflow change into the W3 and W8 task branches using merge commits, preserving disjoint ownership. Run W3 and W8 exact-SHA lanes with the updated workflow.
+3. W3 must pass the new blocked/missing/mixed commercial preflight cases. W8 must pass its actual Chromium Template Gallery test; YAML success alone is insufficient.
+4. Integrate the workflow and code branches serially only after exact-SHA scoped PASS. Run all affected lanes and integrated gates on the resulting exact main SHA.
+5. The INTEGRATION-GATES.md reference to 'tools/test_webui_shotcraft.py' is currently stale: that path is absent from the main tree. The new W8 pytest module is an initial executable replacement for Template Gallery DOM evidence only; Motion Gallery and the full Commercial Creative E2E remain MISSING until separately implemented and verified.
