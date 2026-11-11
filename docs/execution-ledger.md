@@ -1345,3 +1345,13 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - Studio release gate run `43005207448`, job `130470845349`: **353 passed**.
 - The W2 project-switch four-way test already exists in main but is absent from the W2 lane. W6 branch `work/w6-project-switch-four-way-lane-20261111` adds it to W2's scoped command; YAML syntax run `43005717500` passed. This workflow-only change is not yet integrated.
 - Status: integrated main SHA `fe20b42770660db215d1f5f9210a2046d30b0416` has Full Python/browser **PASS**, Studio **PASS**, W2 **PASS on successful same-SHA retry**, W1/W3/W4/W5/W7, focused storage, Windows-native and YAML **PASS**. One initial W2 attempt failed and was rerun successfully; preserve this flake history in the ledger. The W3 JUnit warning cleanup and W2 project-switch lane extension are follow-up branch work, not yet integrated.
+
+
+### W3 JUnit fixture correction — exact branch evidence
+
+- W3 branch latest SHA: `260f08a8936eaa0dcfa26563a4b2bb5f15a1183a`.
+- W3 lifecycle/export/QC run `43007125267`, job `130477268630`: **297 passed, 1 skipped**.
+- Focused storage/watch run `43007125274`, job `130477268424`: **166 passed, 1 skipped**.
+- YAML run `43007125284`, job `130477272214`: SUCCESS.
+- Removed the remaining `record_property` fixture parameter from the 64 MiB benchmark test. The previous main full run's xunit2 warning was caused by requesting the fixture even after all calls were removed. The benchmark continues to publish metrics through `GITHUB_STEP_SUMMARY`.
+- Status: W3 scoped PASS; the JUnit warning correction is ready for integration. Exact-main rerun is still required.
