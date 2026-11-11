@@ -36,7 +36,7 @@ Create independent short-lived branches from one frozen `main` SHA for workstrea
 - W7 is serial: one writer owns shared shell files and integrates only after W4/W5 contracts are stable. Its browser suite includes the integrated home → create/cancel/resume → settings save/import/export journey, not just isolated route checks.
 - Shared contracts (FilmDocument revision, project context, create lifecycle, model-config persistence and provider identity) are never modified by two lanes simultaneously.
 
-- W8 owns Shotcraft browser acceptance and its isolated UI modules/tests. It must not edit 'webui/static/index.html' or 'webui/static/js/app.js'; shared-shell wiring remains a serial W7 task.
+- W8 owns Shotcraft browser acceptance and isolated Shotbook/Template/Motion Gallery modules/tests. It must not edit 'webui/static/index.html' or 'webui/static/js/app.js'; shared-shell wiring remains a serial W7 task. Motion Gallery implementation is a continuation branch based on the already-passing Template Gallery W8 base.
 - W3 lifecycle/export acceptance also owns commercial preflight boundary tests. The W3 hosted lane runs 'tests/test_shotcraft_integration.py' and 'tests/test_commercial_gate.py' in addition to the FilmDocument lifecycle/export suite.
 - W8 has a separate GitHub-hosted Chromium lane. Its first acceptance module exercises the real Template Gallery registry/filter/selection/cancel flow; Shotbook and Motion Gallery coverage must be added before the full Shotcraft UI gate can be called PASS.
 - W6 owns '.github/scripts/install-ubuntu-media-deps.sh' as a shared CI helper. It bounds apt mirror waits, retries after removing the degraded Azure mirror entry, and fails if the fallback package install cannot complete. Linux browser jobs use 'playwright install chromium' rather than 'playwright install --with-deps', so apt installation is controlled only by the shared helper.
@@ -225,3 +225,12 @@ All branches start from frozen main SHA '4bf9e70fee0b71e701cbc7f5ebc231356e0f398
 - W6 owns workflow wiring; merge its workflow commit into each task branch only after the current scoped run finishes, then rerun the lane on the resulting exact SHA.
 - W7 remains the only writer for shared 'index.html' and 'app.js'; W8 may add isolated modules/tests but must request serial W7 wiring if a new shell entry point is required.
 - Do not call the full Shotcraft UI or Commercial Creative E2E gate PASS based only on the initial Template Gallery test. Motion Gallery, Shotbook end-to-end and complete create→render→preflight→reopen evidence remain separate acceptance requirements.
+## W8 Motion Gallery follow-on branch — 2026-11-11
+
+| Branch | Base | Exclusive ownership | Acceptance |
+|---|---|---|---|
+| 'work/w8-motion-gallery-20261111' | '2aba84ed610bdce636745ebac801f18848b67421' | 'webui/static/js/shotbook.js', 'webui/static/css/shotbook-storyboard.css', 'tests/test_shotcraft_ui_browser.py' | Registry-backed search/filter, renderer-specific eligibility, CSS keyframe preview, cancel without mutation, real Editor Command apply on a supported image layer |
+
+- W8 uses the Shotbook-provided 'supported_for' field as the execution gate; 'compatible_layers' alone is not sufficient to claim renderer support.
+- The browser preview is a linearized CSS representation of the Registry channels, clearly labeled as illustrative. It must not be presented as proof of final FFmpeg output.
+- The follow-on branch must pass its exact-SHA W8 Chromium lane before integration; no shared shell files are edited.
