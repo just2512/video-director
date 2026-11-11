@@ -1308,11 +1308,12 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - Full Python/browser run `42920662708`, job `130194365596`: **1,959 passed, 2 skipped, 1 failed**. Failure: `tests/test_film_studio_canvas_history_browser.py::test_studio_canvas_edit_undo_redo_and_persistence_after_reload`, line 421, waiting for Film Studio authority after a full browser reload. The same test had not been included in the dedicated W2 lane, so the main-only failure escaped the scoped gate.
 - The full run also emitted a non-fatal JUnit warning because the W3 benchmark used `record_property` with `junit_family=xunit2`; W3 removes those unsupported properties while retaining job-summary metrics.
 - New branch CI:
-  - W1 parallel workflow run `43004602807`: in progress; focused storage run `43004602867`: in progress.
-  - W2 first scoped timeline run `43003837472`, job `130466286102`: **356 passed**, but this run preceded inclusion of the canvas test; the new exact-SHA run is `43004343065`.
-  - W3 parallel workflow run `43003840649`, job `130466297077`: **297 passed, 1 skipped**; focused storage run `43003840734`, job `130466296123`: **166 passed, 1 skipped**.
+  - W1 latest corrected code/test SHA `0dc063150c3816b188f7feba0617e2e9751ac7d6`: W1 run `43004741070`, job `130469292519`: **91 passed**; YAML run `43004741039`, job `130469292412`: SUCCESS; focused storage run `43004740837`, job `130469656473`: in progress. The preceding W1 SHA `ea44c2db...` failed only because the new process worker helper was not inserted; the helper was added in `0dc06315` and the rerun passed 91 tests.
+  - W2 exact branch SHA `c584dccb38957c119c617e8a84eb3fbf22aa9dd7`: run `43004343065`, job `130467973827`: **358 passed**; this run includes the Canvas reload test in W2's lane. YAML run `43004343074`, job `130467973600`: SUCCESS.
+  - W3 exact branch SHA `d4130c3f63992aade3eee0fbb2c1b26dfbfb5272`: run `43003840649`, job `130466297077`: **297 passed, 1 skipped**; focused storage run `43003840734`, job `130466296123`: **166 passed, 1 skipped**.
+  - W6 workflow SHA `ec72a6c8b8dd5ba2e356bc2d1c167a58e5f08d95`: syntax run `43003845806`, job `130466312747`: SUCCESS.
   - W6 workflow syntax run `43003845806`, job `130466312747`: **SUCCESS**; W6-only Product IA jobs were skipped as expected.
-- W1's new cross-process provider-submission test is **OPEN** pending its exact branch lane. W2 remains **OPEN** pending run `43004343065`, which includes the canvas history test. W3 scoped acceptance **PASS**; W6 workflow syntax **PASS**. Do not integrate on branch creation alone.
+- W1 scoped generation durability **PASS**; its focused storage companion is still running. W2 scoped timeline plus Canvas reload **PASS** (358 tests). W3 scoped lifecycle **PASS** (297 passed, 1 skipped) and focused storage **PASS** (166 passed, 1 skipped). W6 workflow syntax **PASS**. Final integration remains OPEN until W1 focused storage finishes and all four branch changes are integrated into one exact main SHA.
 
 ### Integration and follow-on gates
 
