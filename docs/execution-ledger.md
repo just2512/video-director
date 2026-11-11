@@ -1336,13 +1336,19 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - `work/w6-next-batch-branch-register-20261111` owns workflow/docs only: run the Asset Library concurrent semantic merge test on the actual Windows `msvcrt.locking` branch and register exact branch ownership/acceptance.
 - All four branches are frozen from the same main SHA and have disjoint file ownership. Branch PASS remains scoped evidence only.
 
+### Scoped branch evidence
+
+- W1 branch SHA `22aa3e0b63b6fe01122c886ab8b62ba0777826d7`: W1 generation durability **92 passed** (run `43013926271`, job `130500258859`); focused storage/watch **168 passed, 1 skipped** (run `43013926166`, job `130500720939`); YAML syntax SUCCESS (run `43013926171`).
+- W2 branch SHA `f41fea0c06bb1603220a4205d1852d4856ad285e`: W2 timeline transaction suite **359 passed** (run `43014468734`, job `130501965838`); YAML syntax SUCCESS (run `43014468771`). This includes the new two-project history isolation regression.
+- W3 branch SHA `cd863491551c91bc9c5cd31f132937db0a497aac`: W3 lifecycle/export/QC **299 passed, 1 skipped** (run `43013812285`, job `130502066852`); focused storage/watch **168 passed, 1 skipped** (run `43013812420`, job `130500271933`); YAML syntax SUCCESS (run `43013812275`). The lifecycle log no longer contains the pytest `record_property`/JUnit `xunit2` warning.
+- W6 workflow SHA `2a8d4c4ca01ab21ce962b912d48107e5e4af5056`: YAML syntax SUCCESS (run `43013971093`, job `130500292783`). Windows-native execution of the newly added semantic-merge test is intentionally deferred until main integration because that workflow only triggers on main.
+- W1/W2/W3 scoped Linux suites and W6 syntax are **PASS**. W6 Windows-native test and integrated exact-main gates remain **OPEN**.
+
 ### Next acceptance gates
 
-1. W1 generation durability suite and YAML syntax on its exact branch SHA.
-2. W2 timeline transaction suite on its exact branch SHA, including project-scoped undo/redo isolation.
-3. W3 lifecycle/export/QC and focused storage/watch on its exact branch SHA; confirm the JUnit warning disappears and the concurrent Asset Library merge survives.
-4. W6 YAML syntax on its exact branch SHA; Windows-native execution of the new Asset Library merge test is a post-integration gate.
-5. Integrate W1/W2/W3/W6 serially, preserving intervening main commits; then run W1/W2/W3, focused storage, Windows-native, Studio release gate, full Python/browser and YAML on one exact main SHA.
+1. W1/W2/W3 scoped Linux suites and W6 YAML syntax have passed on their recorded branch SHAs.
+2. Integrate W1/W2/W3/W6 serially, preserving intervening main commits; then run W1/W2/W3, focused storage, Windows-native, Studio release gate, full Python/browser and YAML on one exact main SHA.
+3. Confirm the new Asset Library semantic-merge test passes on Windows `msvcrt.locking` after integration.
 6. Do not weaken the fail-closed provider reservation contract. The crash test must prove one provider POST only; it does not claim exactly-once semantics at the remote provider.
 7. Keep the 64 MiB benchmark's Python heap bound distinct from process RSS; retain measured copy bytes/time and do not infer production performance from the synthetic fixture alone.
 
