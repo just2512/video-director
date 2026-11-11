@@ -173,3 +173,18 @@ All branches below are frozen from main SHA 12aac891b12b0ec577c318981396db398e08
 
 
 - Final next-batch owner-lane closure: W1 44c8a3468ddfc7d1448dcbd726d4a6f233ea0313 PASS (95 tests; focused storage 173 passed, 1 skipped); W2 50479f987b41fa8a7811ef1fb4f679adf43b5080 PASS (361 tests); W3 969bd0a4e3fb26b3faaf11ad19b80eaa84c558a6 PASS (304 passed, 1 skipped). W6 documentation register is ready. Serial integration is now unblocked.
+
+
+## Active branch register — 2026-11-11 follow-up batch
+
+All branches below are frozen from main SHA 4bf9e70fee0b71e701cbc7f5ebc231356e0f3984.
+
+| Lane | Branch | Exclusive write ownership | Acceptance |
+|---|---|---|---|
+| W1 | work/w1-multiprocess-submit-dedup-20261111 | tests/test_generation_recovery.py | Two forked callers with identical video fingerprint result in one provider POST, one durable task ID and no duplicate task |
+| W2 | work/w2-refresh-after-external-revision-20261111 | tests/test_film_studio_external_watch_browser.py | Full browser reload reopens latest external film revision, clears stale transient state and sends no stale edit |
+| W6 | work/w6-next-batch-register-20261111-2 | docs/execution-ledger.md, docs/parallel-workstreams.md | Freeze baseline, preserve exclusive ownership and record exact CI gates |
+
+- W1 and W2 run concurrently from the same base. No code file overlaps.
+- W3 production measurement remains MISSING pending a representative real large media asset; the benchmark harness is not treated as a substitute for that input.
+- Main SHA 4bf9e70fee0b71e701cbc7f5ebc231356e0f3984 already passed W1/W2/W3, W4/W5, W7, focused storage, Windows-native and YAML; Full Python/browser remains in progress.
