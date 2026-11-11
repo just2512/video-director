@@ -1331,6 +1331,7 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 
 - Frozen main baseline: `fe20b42770660db215d1f5f9210a2046d30b0416`. On this exact SHA, Full Python/browser completed with **1,963 tests, 0 failures, 0 errors, 2 skipped**; Studio release gate **353 passed**; W1 **91 passed**, W2 **358 passed**, W3 **297 passed, 1 skipped**, W4 **36 passed**, W5 **13 passed**, W7 **2 passed**, focused storage/watch **167 passed, 1 skipped**, Windows-native **3 passed**, YAML validation SUCCESS. All required jobs completed successfully. The NVIDIA live token-stream job was skipped by default.
 - `work/w1-generation-crash-recovery-20261111` owns only `tests/test_generation_recovery.py`: force process termination immediately after the mocked provider accepts a non-idempotent POST but before the response/task ID is persisted; a later process must see the durable `submitting` reservation and refuse a second paid POST.
+- `work/w2-canvas-history-project-isolation-20261111` owns only `tests/test_film_document_contract.py`: two projects with identical clip IDs perform independent edits/undo/redo; history operations in one project must not consume or mutate the other project's history.
 - `work/w3-asset-catalog-transaction-audit-20261111` owns `tests/test_asset_catalog.py` and `tests/test_film_render_scene_e2e.py`: verify two independent OS processes updating different semantic fields of the same Asset Library item do not clobber each other; remove the unused `record_property` fixture argument from the 64 MiB snapshot benchmark, which still emits explicit GitHub job-summary metrics.
 - `work/w6-next-batch-branch-register-20261111` owns workflow/docs only: run the Asset Library concurrent semantic merge test on the actual Windows `msvcrt.locking` branch and register exact branch ownership/acceptance.
 - All three branches are frozen from the same main SHA and have disjoint file ownership. Branch PASS remains scoped evidence only.
@@ -1338,11 +1339,12 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 ### Next acceptance gates
 
 1. W1 generation durability suite and YAML syntax on its exact branch SHA.
-2. W3 lifecycle/export/QC and focused storage/watch on its exact branch SHA; confirm the JUnit warning disappears and the concurrent Asset Library merge survives.
-3. W6 YAML syntax on its exact branch SHA.
-4. Integrate W1/W3/W6 serially, preserving intervening main commits; then run W1/W3, focused storage, Windows-native, Studio release gate, full Python/browser and YAML on one exact main SHA.
-5. Do not weaken the fail-closed provider reservation contract. The crash test must prove one provider POST only; it does not claim exactly-once semantics at the remote provider.
-6. Keep the 64 MiB benchmark's Python heap bound distinct from process RSS; retain measured copy bytes/time and do not infer production performance from the synthetic fixture alone.
+2. W2 timeline transaction suite on its exact branch SHA, including project-scoped undo/redo isolation.
+3. W3 lifecycle/export/QC and focused storage/watch on its exact branch SHA; confirm the JUnit warning disappears and the concurrent Asset Library merge survives.
+4. W6 YAML syntax on its exact branch SHA; Windows-native execution of the new Asset Library merge test is a post-integration gate.
+5. Integrate W1/W2/W3/W6 serially, preserving intervening main commits; then run W1/W2/W3, focused storage, Windows-native, Studio release gate, full Python/browser and YAML on one exact main SHA.
+6. Do not weaken the fail-closed provider reservation contract. The crash test must prove one provider POST only; it does not claim exactly-once semantics at the remote provider.
+7. Keep the 64 MiB benchmark's Python heap bound distinct from process RSS; retain measured copy bytes/time and do not infer production performance from the synthetic fixture alone.
 
 ### Follow-on audit queue
 
