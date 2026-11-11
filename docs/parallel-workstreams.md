@@ -173,3 +173,20 @@ All branches below are frozen from main SHA 12aac891b12b0ec577c318981396db398e08
 
 
 - Final next-batch owner-lane closure: W1 44c8a3468ddfc7d1448dcbd726d4a6f233ea0313 PASS (95 tests; focused storage 173 passed, 1 skipped); W2 50479f987b41fa8a7811ef1fb4f679adf43b5080 PASS (361 tests); W3 969bd0a4e3fb26b3faaf11ad19b80eaa84c558a6 PASS (304 passed, 1 skipped). W6 documentation register is ready. Serial integration is now unblocked.
+
+
+## Active branch register — 2026-11-11 follow-up batch (baseline 4bf9e70)
+
+All code branches start from frozen main SHA `4bf9e70fee0b71e701cbc7f5ebc231356e0f3984`. File ownership is exclusive and disjoint.
+
+| Lane | Branch | Exclusive write ownership | Acceptance |
+|---|---|---|---|
+| W1 | `work/w1-multiprocess-submit-dedup-20261111` | `tests/test_generation_recovery.py` | Two independent processes with one input fingerprint must issue exactly one provider POST and persist one reservation/job |
+| W2 | `work/w2-refresh-after-external-revision-20261111` | `tests/test_film_studio_external_watch_browser.py` | Full browser reload must restore latest external FilmDocument revision and clear stale transient state |
+| W2 | `work/w2-canvas-history-reload-race-20261111` | `tests/test_film_studio_canvas_history_browser.py` | Startup project authority must settle before explicit reload assertion; no false PROJECT_SELECTION_CHANGED race |
+| W6 | `work/w6-current-batch-register-20261111` | `docs/execution-ledger.md`, `docs/parallel-workstreams.md` | Record exact branch heads, failures, reruns, and integration evidence |
+
+- W1 and both W2 branches may run concurrently because their write ownership is disjoint. Both W2 branches use the W2 owner lane because both touch timeline/browser regression files; W7 is reserved for shared-shell navigation only.
+- The initial W2 refresh attempt exposed a test predicate error and a separate canvas-history startup-selection race. Fix the predicate and stabilize the independent canvas-history test; do not waive either failure.
+- Integrate only after all exact-SHA scoped lanes pass. Then execute the integrated acceptance gates on one exact main SHA. No PR/manual-review handoff is required; the coordinator owns serial integration and automatic verification.
+- The real-media snapshot benchmark remains blocked on representative project media. The benchmark harness fixture tests are not production performance evidence.
