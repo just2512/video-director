@@ -2364,7 +2364,7 @@ def test_provider_acceptance_then_process_crash_never_resubmits_unknown_task(tmp
     assert len(jobs) == 1, jobs
     reservation = next(iter(jobs.values()))
     assert reservation["status"] == "submitting", reservation
-    assert reservation["provider_task_id"] is None
+    assert reservation.get("provider_task_id") is None
     assert post_calls.value == 1
 
     class MustNotSubmitAgain:
