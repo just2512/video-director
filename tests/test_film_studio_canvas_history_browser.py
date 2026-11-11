@@ -407,6 +407,12 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 # A true browser reload must rebuild the Inspector from the stored
                 # film.html revision, not from stale in-memory selection state.
                 page.reload(wait_until="domcontentloaded")
+                page.wait_for_function(
+                    "() => window.__filmStudioEditorAuthorityWrapperInstalled === true && "
+                    "typeof window.editorLoad === 'function' && "
+                    "typeof window.filmStudioHasCurrentFilmAuthority === 'function'",
+                    timeout=15000,
+                )
                 page.locator("#tab-editor").click()
                 page.locator("#pane-editor").wait_for(state="visible")
                 page.evaluate("""(pid) => {
@@ -414,10 +420,24 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                   let option=[...select.options].find(item=>item.value===pid);
                   if(!option){option=new Option(pid,pid);select.add(option);}
                   select.value=pid;
-                  // Re-enter the normal project-load contract after a full reload;
-                  // assigning .value alone does not fire the select's inline onchange.
+                  // Capture the actual asynchronous authority-load result invoked
+                  // by the select's normal inline onchange handler. Dispatching a
+                  // DOM event alone does not await that Promise.
+                  const original=window.editorLoad;
+                  window.__testEditorLoadPromise=null;
+                  window.editorLoad=function(...args){
+                    window.__testEditorLoadPromise=Promise.resolve(original.apply(this,args));
+                    return window.__testEditorLoadPromise;
+                  };
                   select.dispatchEvent(new Event('change',{bubbles:true}));
                 }""", project_id)
+                load_result = page.evaluate("""async () => {
+                  if(!window.__testEditorLoadPromise) return null;
+                  return await window.__testEditorLoadPromise;
+                }""")
+                assert load_result and load_result.get("ok") is True, load_result
+                assert load_result.get("film_document") is True, load_result
+                assert load_result.get("project_id") == project_id, load_result
                 page.wait_for_function(
                     "() => window.filmStudioHasCurrentFilmAuthority?.() === true",
                     timeout=15000,
