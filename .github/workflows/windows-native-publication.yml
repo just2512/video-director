@@ -37,4 +37,5 @@ jobs:
           tests/test_film_render_publication_transaction.py::test_windows_write_through_replace_and_delete_round_trip
           tests/test_asset_catalog.py::test_catalog_file_lock_serializes_independent_processes
           tests/test_asset_catalog.py::test_catalog_semantic_read_modify_write_preserves_concurrent_fields_across_processes
+          tests/test_asset_catalog_windows_process.py::test_windows_spawn_manifest_writer_serializes_with_library_deletion
           tests/test_film_render_scene_e2e.py::test_resource_snapshot_rejects_metadata_preserving_rewrite_on_native_platform
