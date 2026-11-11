@@ -1553,11 +1553,11 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 
 ### Exact-SHA status at registration
 
-- W3 latest test SHA 'cabb32f8a212c08fcd3e88e3e46a2219a8bc44ce': YAML SUCCESS (run '43043394811'); W3 owner lane '43043394855' is RUNNING using the pre-W6 workflow definition, so the newly added Shotcraft tests have not yet been proven by that lane.
-- W8 latest test SHA '4ed11ea3b3af7b6e90cbf99739bb0b45f5d5c3b3': YAML SUCCESS (run '43043879514'); the W8 owner lane is SKIPPED because the frozen-main workflow does not yet define W8. This is not a test PASS.
-- W6 workflow latest SHA '3cebe6e6b5acd45cee905633369ca3180b444b92': includes the W3/W8 lane wiring, shared bounded apt helper, Playwright browser-only install, and bash syntax validation. The earlier workflow-only SHA '7f532aa31932a66d3c636b9f3e0cf1ba5dee19f4' passed YAML validation (run '43043892787'); the latest exact-SHA YAML + shell validation is pending.
-- W2 refresh branch SHA '41b6b64158403b4d076eb4e98a8791cb761a0c85': run '43032985829', attempt 2, remains RUNNING during browser dependency installation.
-- W2 canvas-history branch SHA 'c16ac0514525b633d2b185198fb69976cdc22ae4': run '43032559820', attempt 3, is RUNNING after repeated GitHub-hosted apt/DNS infrastructure interruptions. No pytest result is available yet.
+- W3 latest merge SHA '5ea66e44027b24355ca528a03c374c05e83c5b15' now includes the W6 workflow/helper. YAML validation SUCCESS (run '43045141704'); W3 owner lane '43045141584' is RUNNING and now includes the new Shotcraft/commercial tests.
+- W8 latest merge SHA '2aba84ed610bdce636745ebac801f18848b67421' includes the W6 workflow/helper. W8 owner lane PASS (run '43045195550', job '130607167500': 1 passed in 2.44s); YAML validation SUCCESS (run '43045195615'). The W8 browser test is now real evidence for Template Gallery only, not the complete Shotcraft UI gate.
+- W6 workflow latest SHA '3cebe6e6b5acd45cee905633369ca3180b444b92': W3/W8 lane wiring, shared bounded apt helper, Playwright browser-only install, and bash syntax validation all included; exact-SHA YAML + shell validation SUCCESS (run '43044978418').
+- W2 refresh latest merge SHA 'ca3f9e5afae13aba6d894f1b72c5b162ed2095d3': W2 owner lane '43045101190' and focused storage/watch '43045101366' are RUNNING with the bounded apt helper.
+- W2 canvas-history latest merge SHA 'da5d7dac01675d772c72e05b6bc29c067fcce982': W2 owner lane '43045123203' and focused storage/watch '43045123422' are RUNNING with the bounded apt helper. No pytest result is available yet.
 
 ### CI infrastructure diagnosis and mitigation
 
