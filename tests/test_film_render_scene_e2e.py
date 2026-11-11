@@ -1129,7 +1129,7 @@ def test_migrated_project_external_revision_reopen_look_and_mp4_qc_share_one_rev
 
 
 
-def test_resource_snapshot_large_media_copy_is_streaming_and_reports_cost(tmp_path, monkeypatch, record_property):
+def test_resource_snapshot_large_media_copy_is_streaming_and_reports_cost(tmp_path, monkeypatch):
     """Exercise a production-sized media object without loading it into Python memory."""
     import hashlib
     import time
