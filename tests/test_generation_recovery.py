@@ -2423,3 +2423,90 @@ def test_downloading_wins_over_late_poll_and_terminal_state_is_immutable(tmp_pat
     with pytest.raises(gen.GenerationError) as error:
         gen._update_job(project_id, "job-race", {"status": "failed"})
     assert error.value.code == "VIDEO_JOB_TERMINAL"
+
+
+def _generation_process_crash_after_output_replace(project_id, job_id, output_file, url, ready, start):
+    """Kill the worker after atomic MP4 replace but before the durable done marker."""
+    import os
+    from pathlib import Path
+    from video_director import generation as gen
+
+    real_replace = gen.atomic_replace
+
+    def replace_then_die(source, target):
+        result = real_replace(source, target)
+        if Path(source).suffix == ".part" and Path(target) == Path(output_file):
+            os._exit(75)
+        return result
+
+    gen.atomic_replace = replace_then_die
+    ready.set()
+    if not start.wait(timeout=15):
+        os._exit(76)
+    gen._persist_video_output(project_id, job_id, output_file, url)
+
+
+def test_process_crash_after_atomic_video_replace_recovers_without_redownload(
+    tmp_path, monkeypatch
+):
+    """A durable MP4 must be promoted to done after restart without another download."""
+    import multiprocessing
+    from video_director import config, generation as gen
+
+    _isolate(tmp_path, monkeypatch)
+    project_id = "generation-output-replace-crash"
+    config.init_project_dirs(config.project_dir(project_id))
+    job_id = "job-output-replace-crash"
+    output_file = str(config.project_dir(project_id) / "assets" / "generated" / "recovered.mp4")
+    payload = b"verified-video-output-after-atomic-replace"
+
+    gen._update_job(project_id, job_id, {
+        "gen_type": "video",
+        "status": "downloading",
+        "provider_task_id": "provider-task-durable-before-download",
+        "output_file": output_file,
+        "output_commit_protocol": "atomic-v2",
+    })
+
+    context = multiprocessing.get_context("fork")
+    ready = context.Event()
+    start = context.Event()
+    worker = context.Process(
+        target=_generation_process_crash_after_output_replace,
+        args=(project_id, job_id, output_file, "https://provider.invalid/video.mp4", ready, start),
+    )
+    worker.start()
+    try:
+        assert ready.wait(timeout=10), "output worker did not initialize"
+        start.set()
+        worker.join(timeout=15)
+        assert not worker.is_alive(), "output worker did not terminate"
+        assert worker.exitcode == 75, worker.exitcode
+    finally:
+        start.set()
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(timeout=5)
+
+    output = Path(output_file)
+    assert output.is_file()
+    assert output.read_bytes() == payload
+    interrupted = gen._load_jobs(project_id)[job_id]
+    assert interrupted["status"] == "downloading", interrupted
+    assert interrupted["provider_task_id"] == "provider-task-durable-before-download"
+    assert interrupted["output_commit_protocol"] == "atomic-v2"
+
+    def must_not_download(_url):
+        raise AssertionError("recovery must reuse the atomically published MP4 bytes")
+
+    monkeypatch.setattr(gen, "_download_bytes", must_not_download)
+    recovered = gen._persist_video_output(
+        project_id, job_id, output_file, "https://provider.invalid/video.mp4"
+    )
+    assert recovered == output
+    assert recovered.read_bytes() == payload
+    completed = gen._load_jobs(project_id)[job_id]
+    assert completed["status"] == "done", completed
+    assert completed["output_file"] == output_file
+    assert completed["provider_task_id"] == "provider-task-durable-before-download"
+    assert completed["recovery_needs_registration"] is True
