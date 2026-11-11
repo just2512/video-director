@@ -39,6 +39,7 @@ Create independent short-lived branches from one frozen `main` SHA for workstrea
 - W8 owns Shotcraft browser acceptance and its isolated UI modules/tests. It must not edit 'webui/static/index.html' or 'webui/static/js/app.js'; shared-shell wiring remains a serial W7 task.
 - W3 lifecycle/export acceptance also owns commercial preflight boundary tests. The W3 hosted lane runs 'tests/test_shotcraft_integration.py' and 'tests/test_commercial_gate.py' in addition to the FilmDocument lifecycle/export suite.
 - W8 has a separate GitHub-hosted Chromium lane. Its first acceptance module exercises the real Template Gallery registry/filter/selection/cancel flow; Shotbook and Motion Gallery coverage must be added before the full Shotcraft UI gate can be called PASS.
+- W6 owns '.github/scripts/install-ubuntu-media-deps.sh' as a shared CI helper. It bounds apt mirror waits, retries after removing the degraded Azure mirror entry, and fails if the fallback package install cannot complete. Linux browser jobs use 'playwright install chromium' rather than 'playwright install --with-deps', so apt installation is controlled only by the shared helper.
 
 ## Runner policy
 **GitHub-hosted runners only.** Use `ubuntu-24.04` for Linux/browser/media suites and `windows-latest` for Windows-native publication tests. No workflow may target `self-hosted`, local WSL, developer workspaces, or local model configuration. The obsolete self-hosted AI Director workflow has been removed; `full-hosted-regression.yml` is the canonical release gate. Live NVIDIA acceptance is a separately gated, explicit opt-in using only the dedicated GitHub Actions secret on a hosted runner.
@@ -218,7 +219,7 @@ All branches start from frozen main SHA '4bf9e70fee0b71e701cbc7f5ebc231356e0f398
 |---|---|---|---|
 | W3 | 'work/w3-commercial-preflight-matrix-20261111' | 'tests/test_shotcraft_integration.py' | BLOCKED third-party, missing media, and mixed CLEAR + UNKNOWN references must be classified per asset; UNKNOWN cannot be masked |
 | W8 | 'work/w8-shotcraft-ui-browser-20261111' | 'tests/test_shotcraft_ui_browser.py' | Real Chromium Template Gallery registry load, category/ratio filters, keyboard selection, disabled preflight actions and cancel |
-| W6 | 'work/w6-commercial-preflight-lane-20261111' | '.github/workflows/parallel-workstream-ci.yml' | Add W3 commercial test modules and isolated W8 Chromium lane; exact-SHA YAML validation |
+| W6 | 'work/w6-commercial-preflight-lane-20261111' | '.github/workflows/**', '.github/scripts/install-ubuntu-media-deps.sh' | Add W3/W8 lanes and bounded apt fallback; YAML + shell syntax validation, then hosted browser execution |
 
 - W3 and W8 branches are independent and do not touch each other's files.
 - W6 owns workflow wiring; merge its workflow commit into each task branch only after the current scoped run finishes, then rerun the lane on the resulting exact SHA.
