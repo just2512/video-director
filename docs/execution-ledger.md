@@ -1289,3 +1289,34 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 3. Integrate W3 test-only changes to main without dropping the already-integrated W1 test; integrate W6 documentation changes serially after code integration.
 4. Run W1/W3 affected lanes, focused storage/watch, Studio release gate, full Python/browser, Windows-native and YAML on the exact resulting main SHA.
 5. Update this ledger with exact final SHA and evidence. Do not treat scoped branch PASS as integrated PASS.
+
+
+## 57. Three-way parallel regression closure — 2026-11-11
+
+### Frozen baseline and ownership
+
+- Frozen `main` baseline for this batch: `f063e5563c0c73ecc67099a50843803560d6870e`.
+- W2 branch `work/w2-canvas-history-reload-20261111`, SHA `127d9d946835658c4b173158d764739f5008223c`: owns only `tests/test_film_studio_canvas_history_browser.py`. It synchronizes on the editor-authority wrapper after reload, wraps the real asynchronous `editorLoad` promise, awaits and validates its result before asserting the restored authority. This is an explicit load-completion contract, not a longer timeout or weakened assertion.
+- W3 branch `work/w3-benchmark-junit-20261111`, SHA `d4130c3f63992aade3eee0fbb2c1b26dfbfb5272`: owns only `tests/test_film_render_scene_e2e.py`. Removes pytest `record_property` calls incompatible with this repository's JUnit `xunit2` format; the benchmark still publishes copy bytes, copy time, validation time and Python heap peak to the GitHub Actions job summary.
+- W6 branch `work/w6-w2-canvas-ci-lane-20261111`, workflow SHA `ec72a6c8b8dd5ba2e356bc2d1c167a58e5f08d95`: owns workflow/docs only. Adds the canvas history reload browser test to W2's timeline transaction lane, not W3's lifecycle lane.
+- These branches were created from the same frozen main SHA and have disjoint write ownership. No production source files were changed in this batch.
+
+### Failure evidence and current status
+
+- Exact main SHA `f063e5563c0c73ecc67099a50843803560d6870e`: W1–W7 owner lanes, Product IA, focused storage/watch, Windows-native and YAML completed successfully; Studio release gate succeeded.
+- Full Python/browser run `42920662708`, job `130194365596`: **1,959 passed, 2 skipped, 1 failed**. Failure: `tests/test_film_studio_canvas_history_browser.py::test_studio_canvas_edit_undo_redo_and_persistence_after_reload`, line 421, waiting for Film Studio authority after a full browser reload. The same test had not been included in the dedicated W2 lane, so the main-only failure escaped the scoped gate.
+- The full run also emitted a non-fatal JUnit warning because the W3 benchmark used `record_property` with `junit_family=xunit2`; W3 removes those unsupported properties while retaining job-summary metrics.
+- New branch CI:
+  - W2 parallel workflow run `43003837472`: in progress.
+  - W3 parallel workflow run `43003840649` and focused storage run `43003840734`: in progress.
+  - W6 workflow syntax run `43003845806`: in progress; W6-only owner lanes are expected to skip.
+- Status: W2/W3 scoped acceptance **OPEN** until the exact branch runs finish. W6 workflow syntax **OPEN** until run `43003845806` completes. Do not integrate on branch creation alone.
+
+### Integration and follow-on gates
+
+1. Require W2 browser test to pass on its exact branch SHA; inspect its actual result and trace if it fails.
+2. Require W3 lifecycle and focused storage lanes to pass on its exact branch SHA.
+3. Require W6 YAML syntax to pass on its exact workflow SHA.
+4. Integrate W2 test, W3 JUnit correction and W6 workflow change serially, preserving all intervening main changes; then rerun W2, W3, Studio release gate, full Python/browser, Windows-native and YAML on one exact resulting main SHA.
+5. Reconcile the current full-suite-only canvas failure and make W2 include the canvas-history test so the scoped lane cannot omit it again.
+6. After acceptance, continue independent audits of generation reservation/recovery and FilmDocument/Asset Catalog cross-process durability; do not reopen the already accepted W3 immutable resource snapshot absent new evidence.
