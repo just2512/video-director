@@ -40,7 +40,7 @@ class SceneResourceSnapshot:
         self.sources: dict[str, dict] = {}
         self.bytes_copied = 0
         self.read_elapsed_ms = 0.0
-        self.copy_elapsed_ms = 0.0
+        self.copy_io_elapsed_ms = 0.0
         self.hash_elapsed_ms = 0.0
         self.started = time.perf_counter()
         self.elapsed_ms = 0.0
@@ -105,7 +105,7 @@ class SceneResourceSnapshot:
                         break
                     started = time.perf_counter()
                     output_stream.write(chunk)
-                    self.copy_elapsed_ms += (time.perf_counter() - started) * 1000.0
+                    self.copy_io_elapsed_ms += (time.perf_counter() - started) * 1000.0
                     started = time.perf_counter()
                     digest.update(chunk)
                     self.hash_elapsed_ms += (time.perf_counter() - started) * 1000.0
@@ -177,7 +177,9 @@ class SceneResourceSnapshot:
             "resource_count": len(self.sources),
             "bytes_copied": self.bytes_copied,
             "read_elapsed_ms": round(self.read_elapsed_ms, 3),
-            "copy_elapsed_ms": round(self.copy_elapsed_ms, 3),
+            # Preserve the legacy field's total-build semantics for existing callers.
+            "copy_elapsed_ms": round(self.elapsed_ms, 3),
+            "copy_io_elapsed_ms": round(self.copy_io_elapsed_ms, 3),
             "hash_elapsed_ms": round(self.hash_elapsed_ms, 3),
             "snapshot_elapsed_ms": round(self.elapsed_ms, 3),
             "resources": [
