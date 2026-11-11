@@ -160,3 +160,13 @@ All branches below are frozen from main SHA 12aac891b12b0ec577c318981396db398e08
 - W2 reuses the already-owned external-watch browser test module so the new real two-tab regression is executed by the existing W2 lane without a duplicate test entry or a second workflow owner.
 - W3's production measurement requires real representative media. A small test fixture is permitted only for testing report shape, path validation and hash consistency; it must never be cited as a production benchmark.
 - Integrate W1 → W2 → W3 → W6 only after exact-SHA scoped PASS. Then run W1/W2/W3, focused storage/watch, Studio release gate, full Python/browser, Windows-native and YAML on one exact main SHA.
+
+
+## Next-batch CI reconciliation — 2026-11-11
+
+- Integrated main SHA 12aac891b12b0ec577c318981396db398e080400 passed the full hosted acceptance: 1,969 passed, 2 skipped, 0 failures/errors; Studio release gate 356 passed; W1/W2/W3/W7, Product IA, focused storage, Windows-native (5 passed) and YAML all SUCCESS. NVIDIA live acceptance remained explicitly skipped.
+- W1 next-batch exact SHA e3ce0bf33200825172a18e7b58ec6fd8dce65d24: 94 passed; focused storage 172 passed, 1 skipped; YAML SUCCESS.
+- W3 next-batch exact SHA c44306653afff9dd2a0f5d16490ea12c5c18a3a3: 304 passed, 1 skipped; YAML SUCCESS. The benchmark contract tests run in tests/test_film_render_scene_e2e.py, already owned by the W3 lane.
+- W2 next-batch latest SHA 50479f987b41fa8a7811ef1fb4f679adf43b5080 remains RUNNING. The preceding attempt exposed a response-observation defect in the new test, not a production write failure; the held request is now forwarded to the real API via route.fetch/fulfill so the test can assert the server's actual conflict response.
+- W6 workflow syntax SHA db427b5bd94201b2765c9002d67e5510fc4124f9: SUCCESS. Do not integrate until W2 exact-SHA lane passes.
+- Actual large-media performance measurements remain MISSING until representative project media is supplied; fixture tests are harness-contract checks only.
