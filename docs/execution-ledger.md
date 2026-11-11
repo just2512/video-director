@@ -1520,3 +1520,10 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 3. Integrate W1, W2 refresh, W2 canvas-history and W6 documentation serially, preserving all intervening main commits; then run all affected owner lanes plus Studio release gate, full Python/browser, focused storage/watch, Windows-native and YAML against one exact resulting main SHA.
 4. Resource snapshot benchmark harness is implemented, but representative large-media performance remains **MISSING** until a real representative project media file is available. Do not substitute a synthetic fixture or infer production throughput.
 5. Keep NVIDIA live model acceptance opt-in only; no paid provider call is implied by these test-only changes.
+
+
+### Scoped rerun reconciliation
+
+- W2 refresh SHA `6e6aaedcf47ae26934d49eb09b1f9981b9c11163` corrected the invalid Playwright wait predicate but still returned **1 failed / 361 passed** (run `43032288137`). The remaining failure was an over-strict assertion that expected an empty selection after reopen; the Studio legitimately auto-selects its first visible clip. The test now checks the actual invariant: the deliberately stale `clip-b` selection is not restored, and any selected IDs belong to the current document. Correction commit: `41b6b64158403b4d076eb4e98a8791cb761a0c85`; exact-SHA rerun `43032985829` is **RUNNING**.
+- Independent W2 canvas-history branch `c16ac0514525b633d2b185198fb69976cdc22ae4` waits for the startup FilmDocument authority load to settle before invoking its explicit reload assertion. Its exact-SHA timeline lane `43032559820` is **RUNNING**; YAML validation `43032559915` is **SUCCESS**.
+- Do not integrate either W2 branch until both owner lanes pass. No production source behavior has been changed in these W2 branches; they correct and stabilize browser-level regression assertions.
