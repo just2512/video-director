@@ -2609,6 +2609,14 @@ def test_manifest_commit_then_process_crash_repairs_job_marker_without_provider_
         raise AssertionError("manifest recovery must not create or poll another provider task")
 
     monkeypatch.setattr(gen, "_video_client", provider_must_not_be_used)
+    from video_director import asset_catalog
+    registry_calls = []
+
+    def register_recovered_output(file_path, prompt):
+        registry_calls.append((str(file_path), prompt))
+        return {"asset_id": "asset-recovered-after-manifest-crash"}
+
+    monkeypatch.setattr(asset_catalog, "register_generated", register_recovered_output)
     results = gen.generate(
         project_id, prompt, gen_type="video", width=320, height=180,
         variant="A", model="fake-model",
@@ -2621,4 +2629,5 @@ def test_manifest_commit_then_process_crash_repairs_job_marker_without_provider_
     assert repaired["manifest_registered"] is True, repaired
     assert repaired["recovery_needs_registration"] is False, repaired
     assert repaired["registry_status"] == "registered", repaired
-    assert repaired.get("registry_asset_id")
+    assert repaired["registry_asset_id"] == "asset-recovered-after-manifest-crash"
+    assert registry_calls == [(str(output), prompt)]
