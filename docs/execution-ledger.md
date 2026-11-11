@@ -1548,16 +1548,22 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - Frozen main baseline: '4bf9e70fee0b71e701cbc7f5ebc231356e0f3984'.
 - W3 'work/w3-commercial-preflight-matrix-20261111' owns only 'tests/test_shotcraft_integration.py'. It adds real manifest-backed cases for a blocked third-party asset, missing referenced media, and a mixed CLEAR + UNKNOWN asset set. The UNKNOWN asset must still reject the whole commercial preflight; a CLEAR sibling cannot mask it.
 - W8 'work/w8-shotcraft-ui-browser-20261111' owns only 'tests/test_shotcraft_ui_browser.py'. It opens the actual Template Gallery in Chromium, loads the real Registry API, filters by category and supported ratio, changes keyboard selection, verifies render/instantiate remain disabled until real assets are supplied, and cancels without creating a project.
-- W6 'work/w6-commercial-preflight-lane-20261111' owns only '.github/workflows/parallel-workstream-ci.yml'. It adds the W3 Shotcraft/commercial test modules to the lifecycle lane and a separate W8 browser lane. The W8 branch's test module is not yet covered by a branch-scoped job until the W6 workflow commit is merged into that branch.
+- W6 'work/w6-commercial-preflight-lane-20261111' owns '.github/workflows/**' plus '.github/scripts/install-ubuntu-media-deps.sh'. It adds the W3 Shotcraft/commercial test modules to the lifecycle lane, a separate W8 browser lane, and a bounded apt installer that retries against fallback Ubuntu mirrors when the hosted runner's Azure mirror stalls. It also removes Playwright's redundant '--with-deps' apt invocation; the resulting browser launch must still pass in the W2/W3/W8 hosted lanes.
 - W6 documentation branch 'work/w6-current-batch-register-20261111' owns only these two documents.
 
 ### Exact-SHA status at registration
 
 - W3 latest test SHA 'cabb32f8a212c08fcd3e88e3e46a2219a8bc44ce': YAML SUCCESS (run '43043394811'); W3 owner lane '43043394855' is RUNNING using the pre-W6 workflow definition, so the newly added Shotcraft tests have not yet been proven by that lane.
 - W8 latest test SHA '4ed11ea3b3af7b6e90cbf99739bb0b45f5d5c3b3': YAML SUCCESS (run '43043879514'); the W8 owner lane is SKIPPED because the frozen-main workflow does not yet define W8. This is not a test PASS.
-- W6 workflow SHA '7f532aa31932a66d3c636b9f3e0cf1ba5dee19f4': YAML validation SUCCESS (run '43043892787'). Its workflow change still requires the W3 and W8 branch-scoped lanes to execute after the updated workflow is inherited.
+- W6 workflow latest SHA '3cebe6e6b5acd45cee905633369ca3180b444b92': includes the W3/W8 lane wiring, shared bounded apt helper, Playwright browser-only install, and bash syntax validation. The earlier workflow-only SHA '7f532aa31932a66d3c636b9f3e0cf1ba5dee19f4' passed YAML validation (run '43043892787'); the latest exact-SHA YAML + shell validation is pending.
 - W2 refresh branch SHA '41b6b64158403b4d076eb4e98a8791cb761a0c85': run '43032985829', attempt 2, remains RUNNING during browser dependency installation.
 - W2 canvas-history branch SHA 'c16ac0514525b633d2b185198fb69976cdc22ae4': run '43032559820', attempt 3, is RUNNING after repeated GitHub-hosted apt/DNS infrastructure interruptions. No pytest result is available yet.
+
+### CI infrastructure diagnosis and mitigation
+
+- The W2/W3 jobs repeatedly stalled in 'Install browser and media dependencies'. Logs from the first W2 refresh attempt show 'Temporary failure resolving azure.archive.ubuntu.com'; W2 canvas attempt 1 never reached pytest for the same package-mirror failure. This matches the documented GitHub-hosted Ubuntu apt mirror failure mode, not a product test failure.
+- W6 adds '.github/scripts/install-ubuntu-media-deps.sh': bounded apt update/download attempts, explicit HTTP(S) timeouts, removal of the degraded Azure mirror entry before fallback retry, and a final install from downloaded package archives. The script fails closed if fallback installation still fails; it does not skip dependencies.
+- Playwright install now downloads the Chromium browser without '--with-deps', avoiding a second uncontrolled apt path. This is a mitigation hypothesis until the updated W2/W3/W8 jobs launch Chromium and pass.
 
 ### Acceptance and integration order
 
