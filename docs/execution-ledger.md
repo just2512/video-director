@@ -1358,3 +1358,30 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - W2: multi-context stale-revision behavior across browser tabs; the current project-scoped history test covers independent projects, not two tabs editing the same project concurrently.
 - W3: Asset Library catalog mutation/read-modify-write concurrency, project-reference-safe deletion under concurrent updates, and representative large-media snapshot disk/time measurements.
 - W6: keep owner-lane CI parity and native Windows coverage aligned with the tests that exercise platform-specific lock branches.
+
+
+## 59. Concurrent durability and same-project stale-tab follow-up — 2026-11-11
+
+### Frozen baseline and ownership
+
+- Frozen baseline: `5935b3fddcaad09606ca5d014dad3623e1d3ddc0`.
+- W1 `work/w1-terminal-recovery-races-20261111` owns only `tests/test_generation_recovery.py`. It adds a synchronized race between a stale provider poll (`running`) and local finalization (`done`) after the durable `downloading` state, then verifies terminal immutability.
+- W2 `work/w2-multitab-stale-revision-20261111` owns only `tests/test_film_document_contract.py`. It models two browser tabs holding the same project revision; tab A commits, tab B's stale `require_base` save must return `REVISION_CONFLICT` without changing the committed bytes or clip fields.
+- W3 `work/w3-asset-delete-race-20261111` owns only `tests/test_asset_catalog.py`. It adds an OS-process test proving a project-manifest writer blocks on the cross-process catalog transaction lock while deletion is in its critical section, then confirms the referenced asset cannot be deleted.
+- W6 `work/w6-next-batch-register-20261111` owns only `docs/execution-ledger.md` and `docs/parallel-workstreams.md`; it records this batch's exact branch heads, CI gates and integration conditions.
+- All branches were created from the same frozen main SHA and have disjoint file ownership. No production source code or protected shared contract is changed in this batch.
+
+### Scoped CI state
+
+- W1 branch SHA `286b4a16e8ebe8c9192686c231dce325ca7ae6e9`: W1 generation durability job **SUCCESS** (run `43021720278`); focused storage/watch **SUCCESS** (run `43021720561`); workflow syntax **SUCCESS** (run `43021720126`).
+- W2 branch SHA `a1511b99203044c104784517dfed16efd815c667`: W2 timeline transaction job is **IN_PROGRESS** (run `43021887975`); workflow syntax is **IN_PROGRESS** (run `43021887980`).
+- W3 branch SHA `e351c1a43921e1010457a3a9535a9ea25c087c7d`: W3 lifecycle job is **IN_PROGRESS** (run `43021786719`); focused storage/watch is **PENDING** (run `43021786693`); workflow syntax **SUCCESS** (run `43021786718`).
+- W1 is scoped PASS. W2 and W3 remain **RUNNING / UNKNOWN** until their exact-SHA jobs finish. No branch is integrated based solely on an in-progress result.
+
+### Acceptance and integration gates
+
+1. Require W2 exact-SHA timeline tests, including the same-project stale-tab contract, to pass.
+2. Require W3 exact-SHA lifecycle and focused storage/watch tests to pass; inspect the multiprocessing lock test's actual result.
+3. Integrate W1, W2 and W3 serially, preserving intervening main commits; do not merge a branch whose scoped lane failed.
+4. Run the affected W1/W2/W3 lanes, focused storage/watch, Studio release gate, full Python/browser regression, Windows-native and YAML validation against one exact resulting main SHA.
+5. Keep the NVIDIA live provider job skipped unless a separately authorized explicit opt-in is supplied. No paid provider request is implied by this test-only batch.
