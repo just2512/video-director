@@ -49,7 +49,10 @@ def benchmark_snapshot(project_id: str, resources: Iterable[str]) -> dict:
     project_root = config.project_dir(project_id).resolve(strict=True)
     source_records = []
     for raw in selected:
-        source = fd.media_path_for_src(project_id, raw)
+        try:
+            source = fd.media_path_for_src(project_id, raw)
+        except fd.FilmError as exc:
+            raise ValueError(f"resource must be an existing regular file: {raw}") from exc
         if source.is_symlink() or not source.is_file():
             raise ValueError(f"resource must be an existing regular file: {raw}")
         try:
