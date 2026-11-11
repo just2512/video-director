@@ -4582,7 +4582,7 @@ def test_full_page_refresh_reopens_latest_external_film_revision_without_stale_s
             try:
                 _open_multitab_project(page, base_url, project_id)
                 page.wait_for_function(
-                    "window.filmStudioStore?.getSnapshot()?.revision === arguments[0]",
+                    "revision => window.filmStudioStore?.getSnapshot()?.revision === revision",
                     arg=initial["rev"],
                 )
 
