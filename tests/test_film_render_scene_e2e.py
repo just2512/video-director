@@ -1312,7 +1312,7 @@ def test_benchmark_reports_real_project_resource_copy_and_hash_metrics(tmp_path,
     expected = hashlib.sha256(payload).hexdigest()
     assert result["source_hashes_before_copy"][0]["sha256_before"] == expected
     assert result["snapshot_hashes"][0]["sha256"] == expected
-    assert "not a production-wide" in result["measurement_scope"]
+    assert "not as a production-wide" in result["measurement_scope"]
 
 
 def test_benchmark_rejects_missing_or_out_of_project_resource(tmp_path, monkeypatch):
