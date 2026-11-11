@@ -76,12 +76,12 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install browser and media dependencies
+        timeout-minutes: 15
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
+          bash .github/scripts/install-ubuntu-media-deps.sh ffmpeg fonts-noto-cjk fonts-wqy-microhei
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest playwright
-          python -m playwright install --with-deps chromium
+          python -m playwright install chromium
       - name: Timeline transaction and revision regression
         run: |
           python -m pytest -q --tb=short \
@@ -117,12 +117,12 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install browser and media dependencies
+        timeout-minutes: 15
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg fonts-noto-cjk fonts-wqy-microhei
+          bash .github/scripts/install-ubuntu-media-deps.sh ffmpeg fonts-noto-cjk fonts-wqy-microhei
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest playwright
-          python -m playwright install --with-deps chromium
+          python -m playwright install chromium
       - name: Project lifecycle, render and QC regression
         run: |
           python -m pytest -q --tb=short \
@@ -156,10 +156,11 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install browser dependencies
+        timeout-minutes: 15
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest playwright
-          python -m playwright install --with-deps chromium
+          python -m playwright install chromium
       - name: Shotcraft real-browser UI regression
         run: python -m pytest -q --tb=short tests/test_shotcraft_ui_browser.py
 
@@ -178,10 +179,11 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install browser dependencies
+        timeout-minutes: 15
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest playwright
-          python -m playwright install --with-deps chromium
+          python -m playwright install chromium
       - name: Verify top-level route and shared-shell behavior
         run: |
           python -m pytest -q --tb=short tests/test_product_shell_navigation_browser.py
