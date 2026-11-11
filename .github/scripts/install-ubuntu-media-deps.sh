@@ -42,11 +42,13 @@ if [[ ! -x "$ffmpeg_bin" ]]; then
   exit 1
 fi
 "$ffmpeg_bin" -hide_banner -version
-if ! "$ffmpeg_bin" -hide_banner -encoders 2>&1 | grep -q 'libx264'; then
+encoders="$("$ffmpeg_bin" -hide_banner -encoders 2>&1)"
+if ! grep -q 'libx264' <<< "$encoders"; then
   echo "Pinned FFmpeg build does not expose libx264; refusing to run render tests." >&2
   exit 1
 fi
-if ! "$ffmpeg_bin" -hide_banner -filters 2>&1 | grep -q 'drawtext'; then
+filters="$("$ffmpeg_bin" -hide_banner -filters 2>&1)"
+if ! grep -q 'drawtext' <<< "$filters"; then
   echo "Pinned FFmpeg build does not expose drawtext; refusing to run CJK render tests." >&2
   exit 1
 fi
