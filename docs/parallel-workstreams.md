@@ -192,6 +192,10 @@ All code branches start from frozen main SHA `4bf9e70fee0b71e701cbc7f5ebc231356e
 - The real-media snapshot benchmark remains blocked on representative project media. The benchmark harness fixture tests are not production performance evidence.
 
 
+
+
+| W1 | `work/w1-windows-generation-submit-lock-20261111` | `tests/test_generation_recovery_windows_process.py`, `.github/workflows/windows-native-publication.yml` | Windows `spawn` workers must serialize the generation reservation/POST boundary and produce one provider task; run on main-only Windows-native workflow after integration |
+
 ### Current follow-up CI reconciliation
 
 - W1 `eb602435e63a62d45b9a76f28815cd13622daf15`: 96 generation tests passed; focused storage/external-edit and YAML passed.
