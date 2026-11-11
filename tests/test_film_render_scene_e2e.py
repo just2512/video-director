@@ -1304,7 +1304,8 @@ def test_benchmark_reports_real_project_resource_copy_and_hash_metrics(tmp_path,
     assert result["source_bytes"] == len(payload)
     assert result["snapshot_logical_bytes"] == len(payload)
     assert result["snapshot_allocated_bytes"] >= len(payload)
-    assert result["disk_increment_bytes"] == result["snapshot_allocated_bytes"]
+    assert result["disk_increment_bytes"] == result["filesystem_free_delta_bytes"]
+    assert "Project-volume free-space delta" in result["disk_increment_method"]
     assert result["copy_and_source_hash_ms"] >= 0
     assert result["source_validation_hash_ms"] >= 0
     assert result["copied_hash_verification_ms"] >= 0
