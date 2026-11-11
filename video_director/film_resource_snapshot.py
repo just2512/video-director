@@ -113,7 +113,7 @@ class SceneResourceSnapshot:
                 started = time.perf_counter()
                 output_stream.flush()
                 os.fsync(output_stream.fileno())
-                self.copy_elapsed_ms += (time.perf_counter() - started) * 1000.0
+                self.copy_io_elapsed_ms += (time.perf_counter() - started) * 1000.0
                 after_fd = os.fstat(input_stream.fileno())
             after_path = source.stat()
             if (_stable_identity(before_fd) != _stable_identity(after_fd)
