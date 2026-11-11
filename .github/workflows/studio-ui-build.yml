@@ -36,7 +36,7 @@ jobs:
       - name: Install system media dependencies
         timeout-minutes: 15
         run: |
-          bash .github/scripts/install-ubuntu-media-deps.sh ffmpeg fonts-noto-cjk fonts-wqy-microhei
+          bash .github/scripts/install-ubuntu-media-deps.sh
       - name: Build React 19 Studio and Tailwind 4
         working-directory: studio_ui
         run: |
