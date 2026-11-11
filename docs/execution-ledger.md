@@ -1323,3 +1323,30 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 4. Integrate W2 test, W3 JUnit correction and W6 workflow change serially, preserving all intervening main changes; then rerun W2, W3, Studio release gate, full Python/browser, Windows-native and YAML on one exact resulting main SHA.
 5. Reconcile the current full-suite-only canvas failure and make W2 include the canvas-history test so the scoped lane cannot omit it again.
 6. After acceptance, continue independent audits of generation reservation/recovery and FilmDocument/Asset Catalog cross-process durability; do not reopen the already accepted W3 immutable resource snapshot absent new evidence.
+
+
+## 58. Parallel follow-up: provider crash boundary and Asset Library cross-process merge — 2026-11-11
+
+### Frozen baseline and branch ownership
+
+- Frozen main baseline: `fe20b42770660db215d1f5f9210a2046d30b0416`. On this exact SHA, Full Python/browser completed with **1,963 tests, 0 failures, 0 errors, 2 skipped**; Studio release gate **353 passed**; W1 **91 passed**, W2 **358 passed**, W3 **297 passed, 1 skipped**, W4 **36 passed**, W5 **13 passed**, W7 **2 passed**, focused storage/watch **167 passed, 1 skipped**, Windows-native **3 passed**, YAML validation SUCCESS. All required jobs completed successfully. The NVIDIA live token-stream job was skipped by default.
+- `work/w1-generation-crash-recovery-20261111` owns only `tests/test_generation_recovery.py`: force process termination immediately after the mocked provider accepts a non-idempotent POST but before the response/task ID is persisted; a later process must see the durable `submitting` reservation and refuse a second paid POST.
+- `work/w3-asset-catalog-transaction-audit-20261111` owns `tests/test_asset_catalog.py` and `tests/test_film_render_scene_e2e.py`: verify two independent OS processes updating different semantic fields of the same Asset Library item do not clobber each other; remove the unused `record_property` fixture argument from the 64 MiB snapshot benchmark, which still emits explicit GitHub job-summary metrics.
+- `work/w6-next-batch-branch-register-20261111` owns workflow/docs only: run the Asset Library concurrent semantic merge test on the actual Windows `msvcrt.locking` branch and register exact branch ownership/acceptance.
+- All three branches are frozen from the same main SHA and have disjoint file ownership. Branch PASS remains scoped evidence only.
+
+### Next acceptance gates
+
+1. W1 generation durability suite and YAML syntax on its exact branch SHA.
+2. W3 lifecycle/export/QC and focused storage/watch on its exact branch SHA; confirm the JUnit warning disappears and the concurrent Asset Library merge survives.
+3. W6 YAML syntax on its exact branch SHA.
+4. Integrate W1/W3/W6 serially, preserving intervening main commits; then run W1/W3, focused storage, Windows-native, Studio release gate, full Python/browser and YAML on one exact main SHA.
+5. Do not weaken the fail-closed provider reservation contract. The crash test must prove one provider POST only; it does not claim exactly-once semantics at the remote provider.
+6. Keep the 64 MiB benchmark's Python heap bound distinct from process RSS; retain measured copy bytes/time and do not infer production performance from the synthetic fixture alone.
+
+### Follow-on audit queue
+
+- W1: provider reservation recovery and terminal-state races across independent processes, including the boundary between durable provider task ID and output finalization.
+- W2: cross-project history isolation and stale-revision behavior across multiple browser contexts; existing reload/Undo/Redo coverage is accepted, but concurrent editor contexts remain a separate contract to audit.
+- W3: Asset Library catalog mutation/read-modify-write concurrency, project-reference-safe deletion under concurrent updates, and representative large-media snapshot disk/time measurements.
+- W6: keep owner-lane CI parity and native Windows coverage aligned with the tests that exercise platform-specific lock branches.
