@@ -114,3 +114,32 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
 - Branch-scoped workflow filters execute only the owning lane on `work/w1-*` through `work/w7-*`; the `main` integration target still executes all applicable lanes. This prevents every task branch from paying for unrelated W1/W2/W3/W7 suites.
 - Integrate completed W1/W2/W3 test-only branches and W6 workflow changes serially to `main` after scoped acceptance, then run W1/W2/W3 affected lanes, Studio release gate, full Python/browser, Windows-native and YAML validation on the same final main SHA.
 - No PR/manual reviewer handoff; the coordinator performs direct integration and conflict resolution. Delete each short-lived branch only after its commits are integrated and exact-main acceptance is recorded.
+
+
+## Active branch register — 2026-11-11 follow-up
+
+All code branches below start from frozen `main` SHA `5935b3fddcaad09606ca5d014dad3623e1d3ddc0`. Their file ownership is disjoint; the coordinator integrates only after each scoped lane passes.
+
+| Lane | Branch | Exclusive write ownership | Acceptance |
+|---|---|---|---|
+| W1 | `work/w1-terminal-recovery-races-20261111` | `tests/test_generation_recovery.py` | Generation durability workflow; stale poll cannot downgrade `downloading` / terminal state |
+| W2 | `work/w2-multitab-stale-revision-20261111` | `tests/test_film_document_contract.py` | Timeline transaction workflow; second tab's stale base revision is rejected without file mutation |
+| W3 | `work/w3-asset-delete-race-20261111` | `tests/test_asset_catalog.py` | Lifecycle and focused storage/watch workflows; cross-process manifest writer serializes with catalog deletion |
+| W6 | `work/w6-next-batch-register-20261111` | `docs/execution-ledger.md`, `docs/parallel-workstreams.md` only | Documentation register; no production/test ownership |
+
+### Integration discipline for this batch
+
+- W1, W2 and W3 are independent test-only branches and may execute concurrently on GitHub-hosted runners.
+- W6 is documentation-only and does not own workflow YAML or code/test files.
+- Do not cherry-pick or merge while a scoped job is running. A failed scoped lane returns to its owning branch for correction and rerun.
+- After all scoped lanes pass, integrate W1 → W2 → W3 → W6 serially, preserving intervening main commits. Then run the exact-main integrated gates listed in the execution ledger.
+- These are short-lived branches, not new long-lived release branches; no PR/manual-review handoff is required.
+
+
+### Additional W6 platform-specific branch
+
+| Lane | Branch | Exclusive write ownership | Acceptance |
+|---|---|---|---|
+| W6 | `work/w6-windows-asset-reference-race-20261111` | `tests/test_asset_catalog_windows_process.py`, `.github/workflows/windows-native-publication.yml` | YAML validation on branch; after main integration, Windows-hosted `spawn` test proves manifest reference writes serialize with catalog deletion under `msvcrt.locking` |
+
+This W6 branch is independent of the W3 Linux `fork` regression and does not modify W3-owned files.
