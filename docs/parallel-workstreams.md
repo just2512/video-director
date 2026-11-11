@@ -153,8 +153,8 @@ All branches below are frozen from main SHA 12aac891b12b0ec577c318981396db398e08
 |---|---|---|---|
 | W1 | work/w1-generation-output-finalization-20261111 | tests/test_generation_recovery.py | Process death after MP4 atomic replace but before terminal job marker; recovery reuses bytes without a second download |
 | W2 | work/w2-real-multitab-revision-20261111 | tests/test_film_studio_external_watch_browser.py | Two real Chromium tabs, held stale edit request, server-side REVISION_CONFLICT, no overwrite of committed bytes |
-| W3 | work/w3-resource-snapshot-benchmark-harness-20261111 | scripts/benchmark_resource_snapshot.py, tests/test_resource_snapshot_benchmark.py | Opt-in real-media snapshot measurements; fixture tests validate only the harness contract |
-| W6 | work/w6-followup-register-20261111 | .github/workflows/parallel-workstream-ci.yml, docs/execution-ledger.md, docs/parallel-workstreams.md | W3 test included in its scoped lane; exact branch SHA YAML validation and current ledger reconciliation |
+| W3 | work/w3-resource-snapshot-benchmark-harness-20261111 | scripts/benchmark_resource_snapshot.py, tests/test_film_render_scene_e2e.py | Opt-in real-media snapshot measurements; fixture tests validate only the harness contract |
+| W6 | work/w6-followup-register-20261111 | .github/workflows/parallel-workstream-ci.yml, docs/execution-ledger.md, docs/parallel-workstreams.md | W3 harness test remains in the existing scoped lane; exact branch SHA YAML validation and current ledger reconciliation |
 
 - W1, W2 and W3 may run concurrently on GitHub-hosted Ubuntu from this same base. W6 maintains the CI lane wiring and records evidence; it does not modify W1/W2/W3-owned files.
 - W2 reuses the already-owned external-watch browser test module so the new real two-tab regression is executed by the existing W2 lane without a duplicate test entry or a second workflow owner.
