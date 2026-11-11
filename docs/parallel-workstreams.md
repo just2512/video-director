@@ -143,3 +143,20 @@ All code branches below start from frozen `main` SHA `5935b3fddcaad09606ca5d014d
 | W6 | `work/w6-windows-asset-reference-race-20261111` | `tests/test_asset_catalog_windows_process.py`, `.github/workflows/windows-native-publication.yml` | YAML validation on branch; after main integration, Windows-hosted `spawn` test proves manifest reference writes serialize with catalog deletion under `msvcrt.locking` |
 
 This W6 branch is independent of the W3 Linux `fork` regression and does not modify W3-owned files.
+
+
+## Active branch register — 2026-11-11 next batch
+
+All branches below are frozen from main SHA 12aac891b12b0ec577c318981396db398e080400. File ownership is exclusive and disjoint.
+
+| Lane | Branch | Exclusive write ownership | Acceptance |
+|---|---|---|---|
+| W1 | work/w1-generation-output-finalization-20261111 | tests/test_generation_recovery.py | Process death after MP4 atomic replace but before terminal job marker; recovery reuses bytes without a second download |
+| W2 | work/w2-real-multitab-revision-20261111 | tests/test_film_studio_external_watch_browser.py | Two real Chromium tabs, held stale edit request, server-side REVISION_CONFLICT, no overwrite of committed bytes |
+| W3 | work/w3-resource-snapshot-benchmark-harness-20261111 | scripts/benchmark_resource_snapshot.py, tests/test_resource_snapshot_benchmark.py | Opt-in real-media snapshot measurements; fixture tests validate only the harness contract |
+| W6 | work/w6-followup-register-20261111 | .github/workflows/parallel-workstream-ci.yml, docs/execution-ledger.md, docs/parallel-workstreams.md | W3 test included in its scoped lane; exact branch SHA YAML validation and current ledger reconciliation |
+
+- W1, W2 and W3 may run concurrently on GitHub-hosted Ubuntu from this same base. W6 maintains the CI lane wiring and records evidence; it does not modify W1/W2/W3-owned files.
+- W2 reuses the already-owned external-watch browser test module so the new real two-tab regression is executed by the existing W2 lane without a duplicate test entry or a second workflow owner.
+- W3's production measurement requires real representative media. A small test fixture is permitted only for testing report shape, path validation and hash consistency; it must never be cited as a production benchmark.
+- Integrate W1 → W2 → W3 → W6 only after exact-SHA scoped PASS. Then run W1/W2/W3, focused storage/watch, Studio release gate, full Python/browser, Windows-native and YAML on one exact main SHA.
