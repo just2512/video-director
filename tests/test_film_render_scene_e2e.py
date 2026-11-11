@@ -1278,3 +1278,54 @@ def test_catalog_semantic_read_modify_write_preserves_concurrent_fields_across_p
     final = ac.get_asset("shared-asset")
     assert final["description"] == "description-from-process", final
     assert final["tags"] == ["tag-from-process"], final
+
+
+# Functional tests for the opt-in real-media benchmark. These small fixtures verify
+# report semantics only and are not used as representative performance evidence.
+from scripts.benchmark_resource_snapshot import benchmark_snapshot
+
+
+def test_benchmark_reports_real_project_resource_copy_and_hash_metrics(tmp_path, monkeypatch):
+    import hashlib
+    from video_director import config
+
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "resource-snapshot-benchmark-contract"
+    config.init_project_dirs(config.project_dir(project_id))
+    source = config.project_dir(project_id) / "assets" / "benchmark-contract.bin"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    payload = (b"project-media-contract-" * 8192) + b"end"
+    source.write_bytes(payload)
+
+    result = benchmark_snapshot(project_id, ["assets/benchmark-contract.bin"])
+
+    assert result["resource_count"] == 1
+    assert result["source_bytes"] == len(payload)
+    assert result["snapshot_logical_bytes"] == len(payload)
+    assert result["snapshot_allocated_bytes"] >= len(payload)
+    assert result["disk_increment_bytes"] == result["filesystem_free_delta_bytes"]
+    assert "Project-volume free-space delta" in result["disk_increment_method"]
+    assert result["snapshot_read_ms"] >= 0
+    assert result["snapshot_copy_and_fsync_ms"] >= 0
+    assert result["snapshot_hash_update_ms"] >= 0
+    assert result["snapshot_build_elapsed_ms"] >= 0
+    assert result["source_validation_hash_ms"] >= 0
+    assert result["copied_hash_verification_ms"] >= 0
+    expected = hashlib.sha256(payload).hexdigest()
+    assert result["source_hashes_before_copy"][0]["sha256_before"] == expected
+    assert result["snapshot_hashes"][0]["sha256"] == expected
+    assert "not as a production-wide" in result["measurement_scope"]
+
+
+def test_benchmark_rejects_missing_or_out_of_project_resource(tmp_path, monkeypatch):
+    import pytest
+    from video_director import config
+
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "resource-snapshot-benchmark-invalid"
+    config.init_project_dirs(config.project_dir(project_id))
+
+    with pytest.raises(Exception, match="existing regular file"):
+        benchmark_snapshot(project_id, ["assets/missing.mp4"])

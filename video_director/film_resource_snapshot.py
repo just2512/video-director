@@ -39,6 +39,9 @@ class SceneResourceSnapshot:
         self.entries: dict[str, Path] = {}
         self.sources: dict[str, dict] = {}
         self.bytes_copied = 0
+        self.read_elapsed_ms = 0.0
+        self.copy_io_elapsed_ms = 0.0
+        self.hash_elapsed_ms = 0.0
         self.started = time.perf_counter()
         self.elapsed_ms = 0.0
 
@@ -95,14 +98,22 @@ class SceneResourceSnapshot:
             with source.open("rb") as input_stream, destination.open("xb") as output_stream:
                 before_fd = os.fstat(input_stream.fileno())
                 while True:
+                    started = time.perf_counter()
                     chunk = input_stream.read(1024 * 1024)
+                    self.read_elapsed_ms += (time.perf_counter() - started) * 1000.0
                     if not chunk:
                         break
+                    started = time.perf_counter()
                     output_stream.write(chunk)
+                    self.copy_io_elapsed_ms += (time.perf_counter() - started) * 1000.0
+                    started = time.perf_counter()
                     digest.update(chunk)
+                    self.hash_elapsed_ms += (time.perf_counter() - started) * 1000.0
                     copied += len(chunk)
+                started = time.perf_counter()
                 output_stream.flush()
                 os.fsync(output_stream.fileno())
+                self.copy_io_elapsed_ms += (time.perf_counter() - started) * 1000.0
                 after_fd = os.fstat(input_stream.fileno())
             after_path = source.stat()
             if (_stable_identity(before_fd) != _stable_identity(after_fd)
@@ -165,7 +176,12 @@ class SceneResourceSnapshot:
         return {
             "resource_count": len(self.sources),
             "bytes_copied": self.bytes_copied,
+            "read_elapsed_ms": round(self.read_elapsed_ms, 3),
+            # Preserve the legacy field's total-build semantics for existing callers.
             "copy_elapsed_ms": round(self.elapsed_ms, 3),
+            "copy_io_elapsed_ms": round(self.copy_io_elapsed_ms, 3),
+            "hash_elapsed_ms": round(self.hash_elapsed_ms, 3),
+            "snapshot_elapsed_ms": round(self.elapsed_ms, 3),
             "resources": [
                 {"src": key, "size_bytes": value["size_bytes"], "sha256": value["sha256"]}
                 for key, value in sorted(self.sources.items())
