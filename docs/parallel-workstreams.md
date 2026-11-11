@@ -166,7 +166,10 @@ All branches below are frozen from main SHA 12aac891b12b0ec577c318981396db398e08
 
 - Integrated main SHA 12aac891b12b0ec577c318981396db398e080400 passed the full hosted acceptance: 1,969 passed, 2 skipped, 0 failures/errors; Studio release gate 356 passed; W1/W2/W3/W7, Product IA, focused storage, Windows-native (5 passed) and YAML all SUCCESS. NVIDIA live acceptance remained explicitly skipped.
 - W1 next-batch exact SHA 44c8a3468ddfc7d1448dcbd726d4a6f233ea0313: 95 passed; focused storage 173 passed, 1 skipped; YAML SUCCESS.
-- W3 prior exact SHA c44306653afff9dd2a0f5d16490ea12c5c18a3a3: 304 passed, 1 skipped. Latest SHA 4e9f0228bda84d332ca41c81fc437164adcfc322 adds project-volume free-space delta plus separate read/copy+fsync/hash timings and is RUNNING; YAML SUCCESS.
+- W3 latest exact SHA 969bd0a4e3fb26b3faaf11ad19b80eaa84c558a6: 304 passed, 1 skipped; YAML SUCCESS. The harness reports project-volume free-space delta, separate read/copy+fsync/hash-update timings, source revalidation and copied-hash verification. Existing copy_elapsed_ms semantics remain unchanged.
 - W2 next-batch exact SHA 50479f987b41fa8a7811ef1fb4f679adf43b5080: 361 passed, including the two-real-tab stale-revision regression; YAML SUCCESS. The first attempt exposed only a response-observation defect in the test; route.fetch/fulfill now forwards the held request to the real API and verifies the actual conflict response.
 - W6 workflow syntax SHA db427b5bd94201b2765c9002d67e5510fc4124f9: SUCCESS. Do not integrate until W2 exact-SHA lane passes.
 - Actual large-media performance measurements remain MISSING until representative project media is supplied; fixture tests are harness-contract checks only.
+
+
+- Final next-batch owner-lane closure: W1 44c8a3468ddfc7d1448dcbd726d4a6f233ea0313 PASS (95 tests; focused storage 173 passed, 1 skipped); W2 50479f987b41fa8a7811ef1fb4f679adf43b5080 PASS (361 tests); W3 969bd0a4e3fb26b3faaf11ad19b80eaa84c558a6 PASS (304 passed, 1 skipped). W6 documentation register is ready. Serial integration is now unblocked.
