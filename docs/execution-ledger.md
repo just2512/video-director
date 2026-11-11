@@ -1296,6 +1296,7 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 ### Frozen baseline and ownership
 
 - Frozen `main` baseline for this batch: `f063e5563c0c73ecc67099a50843803560d6870e`.
+- W1 branch `work/w1-provider-submit-multiprocess-20261111`, SHA `ea44c2db53ab53acff4d7bc5ea1b35ef08a9f598`: owns only `tests/test_generation_recovery.py`. Adds a two-OS-process same-fingerprint provider submission test, requiring exactly one non-idempotent provider POST and one durable provider task ID. This extends the existing process-level ledger merge test, which did not exercise the full submission reservation boundary.
 - W2 branch `work/w2-canvas-history-reload-20261111`, SHA `127d9d946835658c4b173158d764739f5008223c`: owns only `tests/test_film_studio_canvas_history_browser.py`. It synchronizes on the editor-authority wrapper after reload, wraps the real asynchronous `editorLoad` promise, awaits and validates its result before asserting the restored authority. This is an explicit load-completion contract, not a longer timeout or weakened assertion.
 - W3 branch `work/w3-benchmark-junit-20261111`, SHA `d4130c3f63992aade3eee0fbb2c1b26dfbfb5272`: owns only `tests/test_film_render_scene_e2e.py`. Removes pytest `record_property` calls incompatible with this repository's JUnit `xunit2` format; the benchmark still publishes copy bytes, copy time, validation time and Python heap peak to the GitHub Actions job summary.
 - W6 branch `work/w6-w2-canvas-ci-lane-20261111`, workflow SHA `ec72a6c8b8dd5ba2e356bc2d1c167a58e5f08d95`: owns workflow/docs only. Adds the canvas history reload browser test to W2's timeline transaction lane, not W3's lifecycle lane.
@@ -1307,10 +1308,11 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - Full Python/browser run `42920662708`, job `130194365596`: **1,959 passed, 2 skipped, 1 failed**. Failure: `tests/test_film_studio_canvas_history_browser.py::test_studio_canvas_edit_undo_redo_and_persistence_after_reload`, line 421, waiting for Film Studio authority after a full browser reload. The same test had not been included in the dedicated W2 lane, so the main-only failure escaped the scoped gate.
 - The full run also emitted a non-fatal JUnit warning because the W3 benchmark used `record_property` with `junit_family=xunit2`; W3 removes those unsupported properties while retaining job-summary metrics.
 - New branch CI:
-  - W2 parallel workflow run `43003837472`: in progress.
+  - W1 parallel workflow run `43004602807`: in progress; focused storage run `43004602867`: in progress.
+  - W2 first scoped timeline run `43003837472`, job `130466286102`: **356 passed**, but this run preceded inclusion of the canvas test; the new exact-SHA run is `43004343065`.
   - W3 parallel workflow run `43003840649`, job `130466297077`: **297 passed, 1 skipped**; focused storage run `43003840734`, job `130466296123`: **166 passed, 1 skipped**.
   - W6 workflow syntax run `43003845806`, job `130466312747`: **SUCCESS**; W6-only Product IA jobs were skipped as expected.
-- Status: W3 scoped acceptance **PASS**; W6 workflow syntax **PASS**. W2 remains **OPEN** until its timeline lane completes and the canvas test is rerun inside that lane with the W6 workflow change. Do not integrate on branch creation alone.
+- W1's new cross-process provider-submission test is **OPEN** pending its exact branch lane. W2 remains **OPEN** pending run `43004343065`, which includes the canvas history test. W3 scoped acceptance **PASS**; W6 workflow syntax **PASS**. Do not integrate on branch creation alone.
 
 ### Integration and follow-on gates
 
