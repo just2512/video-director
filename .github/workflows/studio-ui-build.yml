@@ -34,6 +34,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - name: Install system media dependencies
+        timeout-minutes: 15
         run: |
           bash .github/scripts/install-ubuntu-media-deps.sh ffmpeg fonts-noto-cjk fonts-wqy-microhei
       - name: Build React 19 Studio and Tailwind 4
@@ -54,6 +55,7 @@ jobs:
         working-directory: remotion_runtime
         run: npm install --no-package-lock --no-audit --no-fund --fetch-retries=2
       - name: Install Python and browser dependencies
+        timeout-minutes: 15
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest playwright
