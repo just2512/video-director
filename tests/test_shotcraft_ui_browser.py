@@ -84,7 +84,7 @@ def test_template_gallery_uses_real_registry_filters_and_cancels_cleanly(tmp_pat
                     )
                     assert page.locator("#tg-count").inner_text().startswith("显示 ")
 
-                ratios = sorted({ratio for item in registry_state["templates"] for ratio in item["ratios"]})
+                ratios = page.evaluate("() => [...new Set(window.TG.visible.flatMap(item => item.supported_ratios || []))].sort()")
                 if ratios:
                     ratio = ratios[0]
                     page.locator("#tg-ratio-filter").select_option(label=ratio)
