@@ -1442,3 +1442,34 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 
 - The benchmark harness's small fixture test verifies only the report contract. It is not representative media performance evidence.
 - Actual snapshot performance remains MISSING until a real representative large project media file is supplied or otherwise available in the repository/project storage. Do not substitute a synthetic 64 MiB fixture or extrapolate production throughput from unit-test data.
+
+
+## 63. Exact-main release closure and next-batch scoped reconciliation — 2026-11-11
+
+### Previous batch integrated acceptance: PASS
+
+On exact main SHA 12aac891b12b0ec577c318981396db398e080400:
+
+- Full Python/browser regression run 43024007958, job 130533987297: 1,969 passed, 2 skipped, 0 failures, 0 errors.
+- Studio build/timeline/lifecycle/export/QC release gate, same SHA, job 130533987549: 356 passed.
+- Parallel workstream regression run 43024007984: W1 93 passed, W2 360 passed, W3 302 passed and 1 skipped, W7 2 passed; all owner jobs SUCCESS.
+- Product IA run 43024007986: W4 project-home/create and W5 settings/credential-safety jobs SUCCESS.
+- Focused storage/external-edit run 43024008137: SUCCESS.
+- Windows-native run 43024008063, job 130533987770: 5 passed, including the newly integrated Windows spawn/process catalog-lock regression.
+- Workflow YAML validation run 43024007970: SUCCESS.
+- NVIDIA real token-stream acceptance: SKIPPED by explicit opt-in policy; no live/paid model call was made.
+
+This closes the integrated acceptance for the previous batch on this exact main SHA. The main branch is not being modified by the next batch while its scoped branch work is running.
+
+### Next batch scoped evidence
+
+- W1 branch work/w1-generation-output-finalization-20261111, latest SHA e3ce0bf33200825172a18e7b58ec6fd8dce65d24: W1 generation durability 94 passed (run 43024620221, job 130536177537); focused storage/watch 172 passed, 1 skipped (run 43024620167, job 130536657320); YAML SUCCESS (run 43024620093). The new process-death test kills the worker after atomic MP4 publication and verifies recovery promotes the existing bytes without invoking download again.
+- W3 branch work/w3-resource-snapshot-benchmark-harness-20261111, latest SHA c44306653afff9dd2a0f5d16490ea12c5c18a3a3: lifecycle/export/QC 304 passed, 1 skipped (run 43025512459, job 130539239996); YAML SUCCESS (run 43025512651). The benchmark harness contract tests are inside tests/test_film_render_scene_e2e.py, so they execute in the existing W3 owner lane.
+- W2 branch work/w2-real-multitab-revision-20261111: first browser attempt on SHA 06973819e1c253a91d4fcc3bafcc49af259e6d4a returned 1 failure / 360 passed because the response observer did not capture tab B's held request. The test was changed to forward the held request with Playwright route.fetch/fulfill and inspect the actual API response. Latest SHA 50479f987b41fa8a7811ef1fb4f679adf43b5080, run 43025769040, is still RUNNING at this update; do not count W2 as PASS yet.
+- W6 docs/workflow branch work/w6-followup-register-20261111, latest workflow SHA db427b5bd94201b2765c9002d67e5510fc4124f9: YAML validation SUCCESS (run 43025391185). It records the next batch and retains the W3 harness test in the existing W3 test module/lane.
+
+### Remaining hard gate
+
+- W2's real two-tab browser case must pass on its latest exact SHA.
+- Then integrate W1 → W2 → W3 → W6 serially and run all affected scoped lanes plus full Python/browser, Studio release gate, focused storage/watch, Windows-native and YAML on one resulting main SHA.
+- The real-media benchmark harness is implemented and functionally tested, but representative production performance remains MISSING until a real large project media asset is available. No synthetic fixture result is a substitute.
