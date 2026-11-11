@@ -24,6 +24,35 @@ import pytest
 import multiprocessing
 
 
+def _generation_process_submit(
+    project_id, worker_id, ready_queue, start_event, result_queue,
+    client, provider_identity, output_path,
+):
+    from video_director import generation as generation_module
+
+    ready_queue.put(worker_id)
+    if not start_event.wait(timeout=15):
+        result_queue.put((worker_id, "barrier-timeout", None))
+        return
+    try:
+        result = generation_module._create_poll_and_persist_video(
+            client,
+            project_id,
+            "fake-model",
+            "same prompt",
+            320,
+            180,
+            "b" * 64,
+            "A",
+            output_path,
+            timeout=15,
+            provider_identity=provider_identity,
+        )
+        result_queue.put((worker_id, "ok", result))
+    except Exception as exc:
+        result_queue.put((worker_id, type(exc).__name__, str(exc)))
+
+
 def _generation_process_update(project_id, job_id, ready_queue, start_event, result_queue):
     from video_director import generation as generation_module
 
@@ -2136,6 +2165,99 @@ class TestVideoProviderIdentity:
         assert {identity["endpoint"] for identity in identities} == {
             "https://provider-one.example/v1", "https://provider-two.example/v1"
         }
+
+
+
+
+def test_same_fingerprint_processes_share_one_paid_provider_submission(tmp_path, monkeypatch):
+    """The durable submit lock must serialize independent processes, not only threads."""
+    from types import SimpleNamespace
+
+    from video_director import config, generation as gen
+
+    _isolate(tmp_path, monkeypatch)
+    identity = _video_identity(monkeypatch, gen, "fake-model")
+    project_id = "generation-multiprocess-submit"
+    config.init_project_dirs(config.project_dir(project_id))
+    gen._save_jobs(project_id, {})
+
+    context = multiprocessing.get_context("fork")
+
+    class SharedProviderClient:
+        def __init__(self):
+            self.post_calls = context.Value("i", 0)
+            self.get_calls = context.Value("i", 0)
+            self.post_entered = context.Event()
+            self.release_post = context.Event()
+
+        def post(self, _path, json=None):
+            with self.post_calls.get_lock():
+                self.post_calls.value += 1
+            self.post_entered.set()
+            if not self.release_post.wait(timeout=15):
+                raise TimeoutError("test did not release the first provider submission")
+            return SimpleNamespace(json=lambda: {"id": "one-cross-process-task", "status": "queued"})
+
+        def get(self, _path):
+            with self.get_calls.get_lock():
+                self.get_calls.value += 1
+            return SimpleNamespace(json=lambda: {
+                "id": "one-cross-process-task",
+                "status": "completed",
+                "url": "https://cdn.example/one-cross-process-task.mp4",
+            })
+
+    client = SharedProviderClient()
+    ready_queue = context.Queue()
+    result_queue = context.Queue()
+    start_event = context.Event()
+    workers = [
+        context.Process(
+            target=_generation_process_submit,
+            args=(
+                project_id,
+                worker_id,
+                ready_queue,
+                start_event,
+                result_queue,
+                client,
+                identity,
+                str(config.project_dir(project_id) / "assets" / "shared.mp4"),
+            ),
+        )
+        for worker_id in ("worker-a", "worker-b")
+    ]
+    for worker in workers:
+        worker.start()
+
+    ready = {ready_queue.get(timeout=15) for _ in workers}
+    assert ready == {"worker-a", "worker-b"}
+    start_event.set()
+    try:
+        assert client.post_entered.wait(timeout=10), "no provider submission reached the mock"
+        # Keep the first non-idempotent POST open while the competing process
+        # attempts the same fingerprint/variant reservation.
+        client.release_post.set()
+        results = [result_queue.get(timeout=20) for _ in workers]
+    finally:
+        client.release_post.set()
+        for worker in workers:
+            worker.join(timeout=20)
+
+    assert all(not worker.is_alive() for worker in workers), "submission processes did not exit"
+    assert [worker.exitcode for worker in workers] == [0, 0]
+    assert all(status == "ok" for _, status, _ in results), results
+    assert {result for _, _, result in results} == {
+        "https://cdn.example/one-cross-process-task.mp4"
+    }
+    assert client.post_calls.value == 1, "same fingerprint/variant must create exactly one paid task"
+
+    jobs = gen._load_jobs(project_id)
+    assert len(jobs) == 1, jobs
+    job = next(iter(jobs.values()))
+    assert job["provider_task_id"] == "one-cross-process-task"
+    assert job["input_fingerprint"] == "b" * 64
+    assert job["variant"] == "A"
 
 
 def test_generation_job_ledger_merge_is_safe_across_independent_processes(tmp_path, monkeypatch):

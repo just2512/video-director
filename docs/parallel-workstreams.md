@@ -105,9 +105,11 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
 - Freeze one base `main` SHA before creating task branches.
 - Create one branch per independent deliverable; do not create branches merely to duplicate CI jobs.
 - Branches must have non-overlapping write ownership. Current active execution branches, all frozen from main SHA `5627243bf9cb0847cf78c9093a90732351a18aaf`:
-  - `work/w1-generation-recovery-race-audit`: W1 cross-process ledger regression **integrated** to main in `b5dd5900acd0d3ac290d24f24611685ace36d1b2`; scoped lane passed 90 tests. Its branch is no longer an active writer and is retained pending final exact-main acceptance/cleanup.
-  - `work/w3-resource-snapshot-scale-benchmark`: W3 64 MiB resource-snapshot bounded-heap/copy-cost benchmark plus metadata-preserving source-rewrite guard intended for Windows-native CI; owns only `tests/test_film_render_scene_e2e.py`; latest exact-branch CI is running.
-  - `work/w6-active-branch-register`: W6 synchronization of this active-branch register; owns only `.github/workflows/windows-native-publication.yml`, `docs/parallel-workstreams.md`, `docs/execution-ledger.md` and `docs/openfilm-gap-and-target-architecture.md`.
+  - `work/w1-generation-recovery-race-audit`: W1 cross-process ledger regression is integrated to main; branch is no longer an active writer.
+  - `work/w1-provider-submit-multiprocess-20261111`: W1 owns only `tests/test_generation_recovery.py`; verifies two OS processes with one fingerprint/variant produce exactly one provider POST. Scoped CI is running.
+  - `work/w2-canvas-history-reload-20261111`: W2 owns only `tests/test_film_studio_canvas_history_browser.py`; awaits editor authority and the actual `editorLoad` Promise after full reload. Scoped CI is running.
+  - `work/w3-benchmark-junit-20261111`: W3 owns only `tests/test_film_render_scene_e2e.py`; removes unsupported JUnit properties while preserving GitHub job-summary metrics. Scoped CI is running.
+  - `work/w6-w2-canvas-ci-lane-20261111`: W6 owns `.github/workflows/parallel-workstream-ci.yml` and the execution/parallel workflow docs; adds canvas history reload regression to W2's lane. YAML syntax CI is running.
 - W1's completed change is integrated; W3 remains active. W6 is documentation-only and does not edit W1/W3 production or test files. No branch is allowed to write another branch's owned path.
 - Run branch-scoped hosted tests on each branch SHA. Do not treat branch PASS as integrated PASS.
 

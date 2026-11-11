@@ -1171,10 +1171,6 @@ def test_resource_snapshot_large_media_copy_is_streaming_and_reports_cost(tmp_pa
     # The implementation reads fixed 1 MiB chunks; heap usage must not scale with
     # the 64 MiB source object. This is a Python-heap bound, not an RSS claim.
     assert peak_bytes < 8 * 1024 * 1024
-    record_property("snapshot_fixture_bytes", size_bytes)
-    record_property("snapshot_copy_elapsed_ms", report["copy_elapsed_ms"])
-    record_property("snapshot_copy_plus_validation_elapsed_ms", round(elapsed_ms, 3))
-    record_property("snapshot_python_heap_peak_bytes", peak_bytes)
     summary_path = __import__("os").environ.get("GITHUB_STEP_SUMMARY")
     if summary_path:
         with open(summary_path, "a", encoding="utf-8") as summary:
