@@ -484,6 +484,40 @@ def preflight_project(tmp_path, monkeypatch):
     return tmp_path, out
 
 
+@pytest.fixture()
+def preflight_edge_projects(tmp_path, monkeypatch):
+    """商业发布边界矩阵：BLOCKED、缺失媒体、CLEAR 与 UNKNOWN 混合引用。"""
+    monkeypatch.setattr(config, "composer_storage_root", lambda: tmp_path)
+    existing = tmp_path / "known.jpg"
+    existing.write_bytes(b"\xff\xd8\xff")
+    cases = {
+        "pf-blocked": ([{"id": "blocked-img", "type": "image", "file": str(existing),
+                         "duration": 4.0, "source": "shotcraft-assets"}], ["blocked-img"]),
+        "pf-missing-media": ([{"id": "missing-img", "type": "image",
+                               "file": str(tmp_path / "missing.jpg"), "duration": 4.0,
+                               "source": "user"}], ["missing-img"]),
+        "pf-mixed": ([{"id": "clear-img", "type": "image", "file": str(existing),
+                        "duration": 4.0, "source": "user"},
+                       {"id": "unknown-img", "type": "image", "file": str(existing),
+                        "duration": 4.0}], ["clear-img", "unknown-img"]),
+    }
+    for project_id, (manifest, asset_ids) in cases.items():
+        base = tmp_path / project_id
+        (base / "plans").mkdir(parents=True)
+        (base / "assets").mkdir(parents=True)
+        layers = [Layer(type=LayerType.image, asset_id=asset_id,
+                        start=0.0, duration=4.0) for asset_id in asset_ids]
+        ir = CompositionIR(
+            project=ProjectSpec(width=1080, height=1920, fps=30, duration=4.0),
+            scenes=[SceneIR(id="S01", start=0.0, duration=4.0, text="x", layers=layers)],
+        )
+        (base / "plans" / "composition.json").write_text(
+            json.dumps(json.loads(ir.model_dump_json())), encoding="utf-8")
+        (base / "assets" / "manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8")
+    return tmp_path
+
+
 class TestPreflight:
     def test_clear_passes(self, preflight_project):
         tmp_path, _ = preflight_project
@@ -511,3 +545,23 @@ class TestPreflight:
         report = preflight.run_preflight("pf-none")
         assert report.status == "REJECT"
         assert report.issues[0].code == "COMPOSITION_MISSING"
+
+    def test_blocked_third_party_asset_rejected(self, preflight_edge_projects):
+        report = preflight.run_preflight("pf-blocked")
+        assert report.status == "REJECT"
+        assert any(i.code == "ASSET_LICENSE_BLOCKED" and i.target_id == "blocked-img"
+                   and not i.recoverable for i in report.issues)
+
+    def test_missing_media_rejected(self, preflight_edge_projects):
+        report = preflight.run_preflight("pf-missing-media")
+        assert report.status == "REJECT"
+        assert any(i.code == "ASSET_FILE_MISSING" and i.target_id == "missing-img"
+                   and not i.recoverable for i in report.issues)
+
+    def test_clear_asset_does_not_mask_unknown_asset(self, preflight_edge_projects):
+        report = preflight.run_preflight("pf-mixed")
+        assert report.status == "REJECT"
+        assert any(i.code == "ASSET_LICENSE_UNKNOWN" and i.target_id == "unknown-img"
+                   for i in report.issues)
+        assert not any(i.target_id == "clear-img" for i in report.issues)
+
