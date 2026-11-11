@@ -545,6 +545,7 @@ class TestPreflight:
         report = preflight.run_preflight("pf-none")
         assert report.status == "REJECT"
         assert report.issues[0].code == "COMPOSITION_MISSING"
+
     def test_blocked_third_party_asset_rejected(self, preflight_edge_projects):
         report = preflight.run_preflight("pf-blocked")
         assert report.status == "REJECT"
