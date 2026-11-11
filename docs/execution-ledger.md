@@ -1464,7 +1464,7 @@ This closes the integrated acceptance for the previous batch on this exact main 
 ### Next batch scoped evidence
 
 - W1 branch work/w1-generation-output-finalization-20261111, latest SHA 44c8a3468ddfc7d1448dcbd726d4a6f233ea0313: W1 generation durability 95 passed (run 43026770873, job 130543328949); focused storage/watch 173 passed, 1 skipped (run 43026770993, job 130543330284); YAML SUCCESS (run 43026770825). It covers process death after atomic MP4 publication and after manifest commit; both recovery paths must reuse durable bytes and avoid another provider call.
-- W3 branch work/w3-resource-snapshot-benchmark-harness-20261111, latest SHA fc06445acbbef47134b7f3a225afe286a3c8ad9b: the prior exact-SHA c44306653afff9dd2a0f5d16490ea12c5c18a3a3 run passed 304 tests, 1 skipped (run 43025512459, job 130539239996). The latest SHA adds same-project-filesystem free-space delta reporting and is still RUNNING (run 43027142155); its YAML validation is also still running. Benchmark contract tests remain in tests/test_film_render_scene_e2e.py.
+- W3 branch work/w3-resource-snapshot-benchmark-harness-20261111, latest SHA 969bd0a4e3fb26b3faaf11ad19b80eaa84c558a6: lifecycle/export/QC 304 passed, 1 skipped (run 43028662784, job 130549720506); YAML SUCCESS (run 43028662689). It adds project-volume free-space delta and separate read, copy+fsync, hash-update, source-revalidation and copied-hash timings. The legacy copy_elapsed_ms report field retains its prior total-build semantics.
 - W2 branch work/w2-real-multitab-revision-20261111, latest SHA 50479f987b41fa8a7811ef1fb4f679adf43b5080: timeline transaction and browser regression 361 passed (run 43025769040, job 130540097926); YAML SUCCESS (run 43025769403). The initial response-observer failure was corrected by forwarding the held request with Playwright route.fetch/fulfill and inspecting the actual API response.
 - W6 documentation branch work/w6-followup-register-20261111, latest docs SHA e5be9ad3d77865b2b364808792df7b6229da538e: docs-only update. YAML validation run 43025391185 succeeded on the same workflow content as the frozen baseline; no workflow YAML delta was needed.
 
@@ -1476,3 +1476,20 @@ This closes the integrated acceptance for the previous batch on this exact main 
 
 
 - W1 test-fixture reconciliation: the first manifest-crash test attempt used non-MP4 placeholder bytes, so the real Asset Catalog correctly rejected the fixture with BAD_FILE_TYPE and left registry_status pending. No production code was changed. The test was narrowed to the manifest/job-marker recovery boundary and mocks only the separate Asset Catalog registration call; the subsequent exact-SHA W1 lane passed.
+
+
+## 64. Next-batch exact-SHA closure — 2026-11-11
+
+All code owner lanes for the next batch now pass on their latest exact branch heads:
+
+- W1 generation finalization/recovery: 44c8a3468ddfc7d1448dcbd726d4a6f233ea0313 — 95 passed; focused storage/watch 173 passed, 1 skipped; YAML SUCCESS.
+- W2 real two-tab stale revision: 50479f987b41fa8a7811ef1fb4f679adf43b5080 — 361 passed; YAML SUCCESS.
+- W3 resource snapshot measurement: 969bd0a4e3fb26b3faaf11ad19b80eaa84c558a6 — 304 passed, 1 skipped; YAML SUCCESS.
+- W6 documentation register: work/w6-followup-register-20261111 — docs-only branch; no conflicting code ownership.
+
+W3 test reconciliation:
+- One run failed because the test expected a wording fragment that did not match the measurement-scope text; the assertion was corrected.
+- The next run exposed a missed timer attribute rename in the fsync timing path. That attribute was corrected, and the final exact-SHA W3 lane passed.
+- The implementation preserves the pre-existing copy_elapsed_ms report semantics and exposes the new isolated copy I/O timing in copy_io_elapsed_ms; this avoids silently changing existing consumers.
+
+The next action is serial integration W1 → W2 → W3 → W6 onto main, followed by exact-main W1/W2/W3, focused storage/watch, Studio release gate, full Python/browser, Windows-native and YAML validation. Actual representative large-media measurements remain MISSING pending real project media; no synthetic fixture is used as production evidence.
