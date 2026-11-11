@@ -657,6 +657,37 @@ def test_generated_asset_insert_falls_back_when_source_patch_is_valid_but_stale(
     )
 
 
+def test_undo_redo_history_is_isolated_between_projects(tmp_path, monkeypatch):
+    """Undo/redo in one open project must never consume another project's history."""
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_a = "film-history-isolation-a"
+    project_b = "film-history-isolation-b"
+    for project_id in (project_a, project_b):
+        root = tmp_path / "composer" / project_id
+        root.mkdir(parents=True)
+        (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+
+    a_initial = fd.read_project_film(project_a)
+    b_initial = fd.read_project_film(project_b)
+    a_edit = fd.edit_project_film(
+        project_a, a_initial["rev"],
+        [{"op": "set", "clip": "clip-b", "field": "at", "value": 7}],
+    )
+    b_edit = fd.edit_project_film(
+        project_b, b_initial["rev"],
+        [{"op": "set", "clip": "clip-b", "field": "at", "value": 12}],
+    )
+
+    a_undo = fd.undo_redo_project_film(project_a, a_edit["rev"], "undo")
+    assert a_undo["rev"] == a_initial["rev"]
+    assert fd.read_project_film(project_b)["rev"] == b_edit["rev"]
+    b_redo = fd.undo_redo_project_film(project_b, b_edit["rev"], "undo")
+    assert b_redo["rev"] == b_initial["rev"]
+    b_redo = fd.undo_redo_project_film(project_b, b_redo["rev"], "redo")
+    assert b_redo["rev"] == b_edit["rev"]
+    assert fd.read_project_film(project_a)["rev"] == a_initial["rev"]
+
+
 def test_undo_redo_rejects_stale_client_revision(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     root = tmp_path / "composer" / "film-history-stale-base"
