@@ -1534,3 +1534,10 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W1 branch `work/w1-windows-generation-submit-lock-20261111` starts from the same frozen main SHA and owns only `tests/test_generation_recovery_windows_process.py` plus `.github/workflows/windows-native-publication.yml`.
 - Adds a Windows `multiprocessing.spawn` regression proving two independent processes with the same video fingerprint issue one provider POST under the cross-process `FileLock`; adds explicit `filelock` installation to the minimal Windows-native test environment.
 - Branch workflow syntax and Linux W1 owner-lane results are pending; the Windows spawn test is main-only and must pass after integration on `windows-latest`.
+
+
+### Windows parity branch and CI infrastructure retry
+
+- W1 Windows parity branch latest SHA `86be7edef26f8ffa54c27296fd56188cfe6bb89e`: W1 owner lane **SUCCESS** (run `43033791325`, job `130567278382`); YAML validation **SUCCESS** (run `43033791335`). The new Windows `spawn` test itself remains pending until main-only Windows-native workflow after integration.
+- W2 canvas-history run `43032559820`, attempt 1, did not reach pytest: Playwright browser dependency installation failed because GitHub-hosted runner DNS could not resolve `azure.archive.ubuntu.com`; logs show apt package fetch failures and `Failed to install browsers`. This is **CI INFRASTRUCTURE FAILURE**, not a test assertion failure. The failed W2 job was explicitly rerun as attempt 2; do not mark PASS until it completes.
+- W2 refresh latest SHA `41b6b64158403b4d076eb4e98a8791cb761a0c85` remains in progress at run `43032985829`; its test and setup result are still UNKNOWN.
