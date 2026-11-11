@@ -110,6 +110,7 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
   - `work/w2-canvas-history-reload-20261111`: W2 owns only `tests/test_film_studio_canvas_history_browser.py`; awaits editor authority and the actual `editorLoad` Promise after full reload. Scoped CI is running.
   - `work/w3-benchmark-junit-20261111`: W3 owns only `tests/test_film_render_scene_e2e.py`; removes unsupported JUnit properties while preserving GitHub job-summary metrics. Scoped CI is running.
   - `work/w6-w2-canvas-ci-lane-20261111`: W6 owns `.github/workflows/parallel-workstream-ci.yml` and the execution/parallel workflow docs; adds canvas history reload regression to W2's lane. YAML syntax CI is running.
+  - `work/w6-project-switch-four-way-lane-20261111`: W6 owns the W2 lane filter and docs; adds the existing four-way project-switch contract to W2's scoped run. YAML syntax CI passed.
 - W1's completed change is integrated; W3 remains active. W6 is documentation-only and does not edit W1/W3 production or test files. No branch is allowed to write another branch's owned path.
 - Run branch-scoped hosted tests on each branch SHA. Do not treat branch PASS as integrated PASS.
 
