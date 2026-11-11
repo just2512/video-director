@@ -202,3 +202,7 @@ All code branches start from frozen main SHA `4bf9e70fee0b71e701cbc7f5ebc231356e
 - W2 refresh initial `52858a8beb3bdaa3be0b71fbe6b537e437620da2` failed because of an invalid Playwright predicate and an over-strict stale-selection expectation. Predicate fix `6e6aaedcf47ae26934d49eb09b1f9981b9c11163` still exposed the latter assertion; latest correction `41b6b64158403b4d076eb4e98a8791cb761a0c85` now distinguishes valid fresh-open auto-selection from stale prior-tab selection. Its W2 lane is running.
 - Independent canvas-history fix `c16ac0514525b633d2b185198fb69976cdc22ae4` is running under the W2 lane; its YAML validation passed.
 - The main SHA `4bf9e70fee0b71e701cbc7f5ebc231356e0f3984` remains unchanged. Keep both W2 branches unmerged until exact-SHA owner lanes pass.
+
+
+- W1 Windows parity branch `86be7edef26f8ffa54c27296fd56188cfe6bb89e`: W1 lane and YAML validation passed; actual Windows spawn test waits for exact-main Windows-native acceptance.
+- W2 canvas-history attempt 1 failed during browser dependency installation because GitHub runner DNS could not resolve the Ubuntu package mirror; no pytest assertions ran. Attempt 2 is running. This is tracked as infrastructure failure, not a code regression.
