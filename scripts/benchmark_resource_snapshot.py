@@ -67,7 +67,7 @@ def benchmark_snapshot(project_id: str, resources: Iterable[str]) -> dict:
             "source_hash_elapsed_ms": round(elapsed_ms, 3),
         })
 
-    with tempfile.TemporaryDirectory(prefix="film-resource-snapshot-benchmark-") as temp:
+    with tempfile.TemporaryDirectory(prefix=".film-resource-snapshot-benchmark-", dir=project_root) as temp:
         snapshot_root = Path(temp) / "snapshot"
         snapshot = SceneResourceSnapshot(project_id, snapshot_root).build(selected)
         copy_report = snapshot.report()
@@ -114,7 +114,8 @@ def benchmark_snapshot(project_id: str, resources: Iterable[str]) -> dict:
             },
             "measurement_scope": (
                 "Only the explicitly selected project resources and their discovered local "
-                "dependencies; not a production-wide or cross-filesystem benchmark."
+                "dependencies; the temporary copy is measured on the project filesystem, "
+                "not as a production-wide benchmark."
             ),
         }
 
