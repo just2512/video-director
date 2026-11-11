@@ -165,8 +165,8 @@ All branches below are frozen from main SHA 12aac891b12b0ec577c318981396db398e08
 ## Next-batch CI reconciliation — 2026-11-11
 
 - Integrated main SHA 12aac891b12b0ec577c318981396db398e080400 passed the full hosted acceptance: 1,969 passed, 2 skipped, 0 failures/errors; Studio release gate 356 passed; W1/W2/W3/W7, Product IA, focused storage, Windows-native (5 passed) and YAML all SUCCESS. NVIDIA live acceptance remained explicitly skipped.
-- W1 next-batch exact SHA e3ce0bf33200825172a18e7b58ec6fd8dce65d24: 94 passed; focused storage 172 passed, 1 skipped; YAML SUCCESS.
-- W3 next-batch exact SHA c44306653afff9dd2a0f5d16490ea12c5c18a3a3: 304 passed, 1 skipped; YAML SUCCESS. The benchmark contract tests run in tests/test_film_render_scene_e2e.py, already owned by the W3 lane.
-- W2 next-batch latest SHA 50479f987b41fa8a7811ef1fb4f679adf43b5080 remains RUNNING. The preceding attempt exposed a response-observation defect in the new test, not a production write failure; the held request is now forwarded to the real API via route.fetch/fulfill so the test can assert the server's actual conflict response.
+- W1 next-batch exact SHA 44c8a3468ddfc7d1448dcbd726d4a6f233ea0313: 95 passed; focused storage 173 passed, 1 skipped; YAML SUCCESS.
+- W3 prior exact SHA c44306653afff9dd2a0f5d16490ea12c5c18a3a3: 304 passed, 1 skipped. Latest SHA 4e9f0228bda84d332ca41c81fc437164adcfc322 adds project-volume free-space delta plus separate read/copy+fsync/hash timings and is RUNNING; YAML SUCCESS.
+- W2 next-batch exact SHA 50479f987b41fa8a7811ef1fb4f679adf43b5080: 361 passed, including the two-real-tab stale-revision regression; YAML SUCCESS. The first attempt exposed only a response-observation defect in the test; route.fetch/fulfill now forwards the held request to the real API and verifies the actual conflict response.
 - W6 workflow syntax SHA db427b5bd94201b2765c9002d67e5510fc4124f9: SUCCESS. Do not integrate until W2 exact-SHA lane passes.
 - Actual large-media performance measurements remain MISSING until representative project media is supplied; fixture tests are harness-contract checks only.
