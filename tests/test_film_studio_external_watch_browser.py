@@ -4541,3 +4541,128 @@ def test_two_real_browser_tabs_reject_stale_same_project_revision_without_overwr
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_full_page_refresh_reopens_latest_external_film_revision_without_stale_state(
+    tmp_path, monkeypatch
+):
+    """A full browser refresh must hydrate the latest on-disk revision, not stale tab state."""
+    storage_root = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
+    import webui.server as web_server
+
+    web_server = importlib.reload(web_server)
+    web_server.COMPOSER_ROOT = storage_root
+
+    project_id = "film-studio-refresh-latest-revision"
+    project_root = storage_root / project_id
+    project_root.mkdir(parents=True)
+    film_path = project_root / fd.FILM_NAME
+    film_path.write_text(SAMPLE, encoding="utf-8")
+    initial = fd.read_project_film(project_id)
+    assert initial["exists"]
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1440, "height": 1000})
+            page = context.new_page()
+            page_errors: list[str] = []
+            film_edit_requests: list[str] = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
+            page.on(
+                "request",
+                lambda request: film_edit_requests.append(request.url)
+                if "/api/editor/film/edit" in request.url else None,
+            )
+            base_url = f"http://127.0.0.1:{server.server_port}/"
+            try:
+                _open_multitab_project(page, base_url, project_id)
+                page.wait_for_function(
+                    "window.filmStudioStore?.getSnapshot()?.revision === arguments[0]",
+                    arg=initial["rev"],
+                )
+
+                # Leave old-project transient state in memory, then simulate an external
+                # agent saving a newer film.html revision while this browser is open.
+                page.evaluate("""() => {
+                  const store = window.filmStudioStore;
+                  store.setField("timelineGesturePreview", {
+                    "clip-b": {left: 321, width: 99, mode: "move"}
+                  });
+                  store.setField("timelineSnapGuide", {at: 5, kind: "playhead"});
+                  store.setField("timelineActiveDragIds", ["clip-b"]);
+                  store.setField("selectedIds", ["clip-b"]);
+                }""")
+                external_before = film_path.read_text(encoding="utf-8")
+                clip_start = external_before.index('id="clip-b"')
+                tag_end = external_before.index(">", clip_start)
+                at_marker = external_before.index('at="', clip_start, tag_end)
+                at_start = at_marker + len('at="')
+                at_end = external_before.index('"', at_start, tag_end)
+                external_text = external_before[:at_start] + "8.25" + external_before[at_end:]
+                assert external_text != external_before
+                film_path.write_text(external_text, encoding="utf-8")
+                external = fd.read_project_film(project_id)
+                assert external["exists"] and external["rev"] != initial["rev"]
+                expected_revision = external["rev"]
+                expected_clip = next(
+                    clip for track in external["doc"]["tracks"]
+                    for clip in track["clips"] if clip["id"] == "clip-b"
+                )
+                assert float(expected_clip["attrs"]["at"]) == 8.25
+
+                # Full document reload discards the old in-memory FilmStore. Reopening
+                # the same project must hydrate the external revision from disk.
+                page.reload(wait_until="domcontentloaded")
+                _open_multitab_project(page, base_url, project_id)
+                page.wait_for_function(
+                    """expected => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      const clip = (state?.film?.tracks || []).flatMap(track => track.clips || [])
+                        .find(item => item.id === "clip-b");
+                      return state?.projectId === expected.projectId &&
+                        state?.revision === expected.revision &&
+                        state?.film?.project_id === expected.projectId &&
+                        !!clip && Math.abs(Number(clip.at) - 8.25) < 0.001 &&
+                        state?.busy === false && state?.pendingTransaction === null;
+                    }""",
+                    arg={"projectId": project_id, "revision": expected_revision},
+                    timeout=15_000,
+                )
+                recovered = page.evaluate("""() => {
+                  const state = window.filmStudioStore?.getSnapshot();
+                  return {
+                    projectId: state?.projectId,
+                    revision: state?.revision,
+                    selectedIds: [...(state?.selectedIds || [])],
+                    gesturePreview: state?.timelineGesturePreview,
+                    snapGuide: state?.timelineSnapGuide,
+                    activeDragIds: state?.timelineActiveDragIds,
+                    pendingExternalRevision: state?.pendingExternalRevision,
+                    broken: state?.broken,
+                    busy: state?.busy,
+                    pendingTransaction: state?.pendingTransaction
+                  };
+                }""")
+                assert recovered["projectId"] == project_id, recovered
+                assert recovered["revision"] == expected_revision, recovered
+                assert recovered["selectedIds"] == [], recovered
+                assert recovered["gesturePreview"] is None, recovered
+                assert recovered["snapGuide"] is None, recovered
+                assert recovered["activeDragIds"] is None, recovered
+                assert recovered["pendingExternalRevision"] == "", recovered
+                assert recovered["broken"] is False and recovered["busy"] is False, recovered
+                assert recovered["pendingTransaction"] is None, recovered
+                assert film_path.read_text(encoding="utf-8") == external_text
+                assert film_edit_requests == [], film_edit_requests
+                assert page_errors == [], page_errors
+            finally:
+                browser.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
