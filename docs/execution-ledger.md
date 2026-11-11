@@ -1332,3 +1332,15 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - Source audit found the test was not listed in W2's dedicated timeline transaction lane. This is a CI coverage gap, not a missing product implementation.
 - W6 branch `work/w6-project-switch-four-way-lane-20261111` adds that existing test to the W2 lane and documents its ownership. No product source or test code is modified in this lane.
 - Status: W6 YAML syntax **PASS** (run `43005717500`, job `130472572921`). W2 test execution remains OPEN until this workflow change is integrated and the exact-main W2 lane executes the project-switch test. The current integrated SHA `fe20b427...` full and Studio gates are still running; do not overwrite or infer their results.
+
+
+## 59. Exact-main W2/Studio/full gate reconciliation — 2026-11-11
+
+- Integrated SHA: `fe20b42770660db215d1f5f9210a2046d30b0416`.
+- Studio release gate run `43005207448`, job `130470845349`: **353 passed**.
+- W1 generation durability, W3 lifecycle/export/QC, W4 project home/create, W5 settings, W7 shared shell, focused storage/watch, Windows-native publication and YAML all completed successfully on the same SHA.
+- W2 timeline lane run `43005207413`, job `130470845525`: **FAILED** at `test_external_agent_write_hot_reloads_and_recovers_after_broken_document`, asserting that a React trim-start gesture advanced `clip-a.attrs.at`; the final disk/API/store revisions matched, but the observed clip start remained `0.0`. The same test passed on W2 branch SHA `c584dccb...`; do not treat that as integrated acceptance.
+- The failed W2 job was rerun on the same exact SHA using job `130475830786`; it is still running at this ledger update.
+- Full Python/browser run `43005207448`, job `130470845661`: still running; no final result is inferred.
+- The W2 project-switch four-way test already exists in main but is absent from the W2 lane. W6 branch `work/w6-project-switch-four-way-lane-20261111` adds it to W2's scoped command; YAML syntax run `43005717500` passed. This workflow-only change is not yet integrated.
+- Status: integrated acceptance **OPEN** until W2 retry and full Python/browser complete. Do not alter or weaken the trim-start assertion without diagnosing the request/response/store/disk evidence.
