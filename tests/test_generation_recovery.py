@@ -2425,7 +2425,7 @@ def test_downloading_wins_over_late_poll_and_terminal_state_is_immutable(tmp_pat
     assert error.value.code == "VIDEO_JOB_TERMINAL"
 
 
-def _generation_process_crash_after_output_replace(project_id, job_id, output_file, url, ready, start):
+def _generation_process_crash_after_output_replace(project_id, job_id, output_file, url, payload, ready, start):
     """Kill the worker after atomic MP4 replace but before the durable done marker."""
     import os
     from pathlib import Path
@@ -2440,6 +2440,7 @@ def _generation_process_crash_after_output_replace(project_id, job_id, output_fi
         return result
 
     gen.atomic_replace = replace_then_die
+    gen._download_bytes = lambda _url: payload
     ready.set()
     if not start.wait(timeout=15):
         os._exit(76)
@@ -2473,7 +2474,7 @@ def test_process_crash_after_atomic_video_replace_recovers_without_redownload(
     start = context.Event()
     worker = context.Process(
         target=_generation_process_crash_after_output_replace,
-        args=(project_id, job_id, output_file, "https://provider.invalid/video.mp4", ready, start),
+        args=(project_id, job_id, output_file, "https://provider.invalid/video.mp4", payload, ready, start),
     )
     worker.start()
     try:
