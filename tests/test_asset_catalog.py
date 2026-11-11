@@ -693,3 +693,65 @@ def test_catalog_file_lock_serializes_independent_processes(tmp_path):
 
     assert first.exitcode == 0
     assert second.exitcode == 0
+
+
+
+def _catalog_semantic_update_process(storage_root, asset_id, barrier, field, value, results):
+    import os
+    os.environ["VIDEO_DIRECTOR_STORAGE_ROOT"] = str(storage_root)
+    from video_director import asset_catalog as ac
+    barrier.wait(timeout=15)
+    try:
+        if field == "description":
+            updated = ac.update_asset_semantics(asset_id, description=value)
+        else:
+            updated = ac.update_asset_semantics(asset_id, tags=value)
+        results.put(("ok", field, updated.get("description"), updated.get("tags")))
+    except Exception as exc:
+        results.put(("error", field, type(exc).__name__, str(exc)))
+
+
+def test_catalog_semantic_read_modify_write_preserves_concurrent_fields_across_processes(tmp_path, monkeypatch):
+    """Independent processes updating separate semantic fields must not clobber each other."""
+    import multiprocessing
+
+    storage = tmp_path / "composer"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    from video_director import asset_catalog as ac
+
+    ac._ensure_dirs()
+    with ac._catalog_lock():
+        ac._save_catalog({
+            "shared-asset": {
+                "id": "shared-asset",
+                "description": "before",
+                "tags": ["existing"],
+                "file": str(tmp_path / "asset.png"),
+            }
+        })
+
+    context = multiprocessing.get_context("spawn")
+    barrier = context.Barrier(2)
+    results = context.Queue()
+    workers = [
+        context.Process(
+            target=_catalog_semantic_update_process,
+            args=(storage, "shared-asset", barrier, "description", "description-from-process", results),
+        ),
+        context.Process(
+            target=_catalog_semantic_update_process,
+            args=(storage, "shared-asset", barrier, "tags", ["tag-from-process"], results),
+        ),
+    ]
+    for worker in workers:
+        worker.start()
+    outcomes = [results.get(timeout=20) for _ in workers]
+    for worker in workers:
+        worker.join(timeout=20)
+        assert not worker.is_alive(), "catalog semantic writer did not exit"
+        assert worker.exitcode == 0
+
+    assert all(item[0] == "ok" for item in outcomes), outcomes
+    final = ac.get_asset("shared-asset")
+    assert final["description"] == "description-from-process", final
+    assert final["tags"] == ["tag-from-process"], final
