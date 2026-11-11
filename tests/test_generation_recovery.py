@@ -24,6 +24,35 @@ import pytest
 import multiprocessing
 
 
+def _generation_process_submit(
+    project_id, worker_id, ready_queue, start_event, result_queue,
+    client, provider_identity, output_path,
+):
+    from video_director import generation as generation_module
+
+    ready_queue.put(worker_id)
+    if not start_event.wait(timeout=15):
+        result_queue.put((worker_id, "barrier-timeout", None))
+        return
+    try:
+        result = generation_module._create_poll_and_persist_video(
+            client,
+            project_id,
+            "fake-model",
+            "same prompt",
+            320,
+            180,
+            "b" * 64,
+            "A",
+            output_path,
+            timeout=15,
+            provider_identity=provider_identity,
+        )
+        result_queue.put((worker_id, "ok", result))
+    except Exception as exc:
+        result_queue.put((worker_id, type(exc).__name__, str(exc)))
+
+
 def _generation_process_update(project_id, job_id, ready_queue, start_event, result_queue):
     from video_director import generation as generation_module
 
