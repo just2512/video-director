@@ -87,6 +87,7 @@ jobs:
           python -m pytest -q --tb=short \
             tests/test_editor_undo_redo.py \
             tests/test_film_studio_timeline_history_browser.py \
+            tests/test_film_studio_canvas_history_browser.py \
             tests/test_film_studio_pending_revision.py \
             tests/test_film_studio_external_watch_browser.py \
             tests/test_editor_command_project_switch_browser.py \
