@@ -1308,9 +1308,9 @@ After the current exact-SHA W1–W7 and release gates passed, a focused review o
 - The full run also emitted a non-fatal JUnit warning because the W3 benchmark used `record_property` with `junit_family=xunit2`; W3 removes those unsupported properties while retaining job-summary metrics.
 - New branch CI:
   - W2 parallel workflow run `43003837472`: in progress.
-  - W3 parallel workflow run `43003840649` and focused storage run `43003840734`: in progress.
-  - W6 workflow syntax run `43003845806`: in progress; W6-only owner lanes are expected to skip.
-- Status: W2/W3 scoped acceptance **OPEN** until the exact branch runs finish. W6 workflow syntax **OPEN** until run `43003845806` completes. Do not integrate on branch creation alone.
+  - W3 parallel workflow run `43003840649`, job `130466297077`: **297 passed, 1 skipped**; focused storage run `43003840734`, job `130466296123`: **166 passed, 1 skipped**.
+  - W6 workflow syntax run `43003845806`, job `130466312747`: **SUCCESS**; W6-only Product IA jobs were skipped as expected.
+- Status: W3 scoped acceptance **PASS**; W6 workflow syntax **PASS**. W2 remains **OPEN** until its timeline lane completes and the canvas test is rerun inside that lane with the W6 workflow change. Do not integrate on branch creation alone.
 
 ### Integration and follow-on gates
 
