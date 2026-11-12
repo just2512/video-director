@@ -20,11 +20,12 @@ Create independent short-lived branches from one frozen `main` SHA for workstrea
 |---|---|---|
 | W1 Generation durability (19D) | Generation reservation/state machine, provider submission identity, crash recovery, Manifest/Registry idempotency | `tests/test_generation_recovery.py`, `tests/test_generation_gap1.py`, `tests/test_film_transaction_recovery.py`, `tests/test_project_manifest.py`, `tests/test_bulk_management.py` |
 | W2 Timeline transaction state (19D) | Multi-select, cross-track drag, Undo/Redo, stale revisions, project-switch state, marker transactions and clip-lock enforcement | `tests/test_editor_undo_redo.py`, `tests/test_film_studio_timeline_history_browser.py`, `tests/test_film_studio_pending_revision.py`, `tests/test_film_studio_external_watch_browser.py`, `tests/test_editor_command_project_switch_browser.py`, `tests/test_visual_overlay_timeline.py`, `tests/test_audio_clip_timeline.py`, `tests/test_film_document_contract.py`, `tests/test_film_timeline_markers.py`, `tests/test_film_clip_lock.py`, `tests/test_film_external_watch_history.py`, `tests/test_film_transaction_recovery.py`, `tests/test_film_studio_ai_proposal_browser.py`, `tests/test_film_studio_ai_stream_contract.py`, `tests/test_film_studio_roll_browser.py` |
-| W3 Lifecycle/export acceptance (19D) | Create, migrate, edit, reopen, render, QC, deterministic supported HTML-scene frame contract, generated-asset manual adoption and artifact provenance | `tests/test_project_manager.py`, `tests/test_project_manager_film_authority.py`, `tests/test_film_full_pipeline_e2e.py`, `tests/test_film_studio_migration_preview_browser.py`, `tests/test_film_render_publication_transaction.py`, `tests/test_film_render_scene_e2e.py`, `tests/test_film_scene_runtime.py`, `tests/test_film_studio_generated_asset_adoption_browser.py`, `tests/test_asset_catalog.py` (Asset Library catalog persistence, reference-safe deletion, and cross-process transaction lock), and `tests/test_film_variant_migration_api.py` (explicit variant selection and unknown-ID fail-closed HTTP contract); also runs `tests/test_film_document_contract.py` as a shared FilmDocument lifecycle/serialization contract |
+| W3 Lifecycle/export acceptance (19D) | Create, migrate, edit, reopen, render, QC, deterministic supported HTML-scene frame contract, generated-asset manual adoption and artifact provenance | `tests/test_project_manager.py`, `tests/test_project_manager_film_authority.py`, `tests/test_film_full_pipeline_e2e.py`, `tests/test_film_studio_migration_preview_browser.py`, `tests/test_film_render_publication_transaction.py`, `tests/test_film_render_scene_e2e.py`, `tests/test_film_scene_runtime.py`, `tests/test_film_runtime_video_frame_wait.py`, `tests/test_film_studio_generated_asset_adoption_browser.py`, `tests/test_asset_catalog.py` (Asset Library catalog persistence, reference-safe deletion, and cross-process transaction lock), and `tests/test_film_variant_migration_api.py` (explicit variant selection and unknown-ID fail-closed HTTP contract); also runs `tests/test_film_document_contract.py` as a shared FilmDocument lifecycle/serialization contract |
 | W4 Project home/create UX (07D) | Project-first hierarchy and existing create-flow promotion | `tests/test_project_creation_workspace_browser.py`, `tests/test_create_dialog_cancel_browser.py`, `tests/test_create_dialog_persistence_browser.py` (including project width/height/FPS restore and legacy platform fallback) |
 | W5 Settings IA (07D) | Categorized settings, progressive disclosure, safe save/import/export UX | `tests/test_settings_information_architecture_browser.py` (including export secret redaction and partial-import key preservation), `tests/test_model_config_persistence_contract.py` |
 | W6 Hosted CI orchestration | GitHub Actions workflows, scoped lanes, artifact retention, exact-SHA provenance | Workflow syntax validation plus each lane's scoped suite |
 | W7 Shared shell integration | `index.html`, `app.js`, navigation and view-state integration | Project home/settings navigation and full browser E2E |
+| W8 Shotcraft creative browser UX | Shotcraft storyboard/timeline/visual-overlay browser interactions; real Chromium acceptance | `tests/test_studio_browser_flow.py`, `tests/test_visual_overlay_browser.py` |
 
 ## Parallelism and integration
 
@@ -33,6 +34,7 @@ Create independent short-lived branches from one frozen `main` SHA for workstrea
 - W4 and W5 can develop isolated JS/CSS modules concurrently. They must not edit `index.html` or `app.js`; W7 integrates those shared files in a reserved serial window.
 - W6 can migrate and validate hosted CI concurrently with read-only audits and isolated test preparation.
 - W7 is serial: one writer owns shared shell files and integrates only after W4/W5 contracts are stable. Its browser suite includes the integrated home → create/cancel/resume → settings save/import/export journey, not just isolated route checks.
+- W8 is an independent short-lived browser-acceptance branch for Shotcraft creative workflows. It runs the W8 Chromium lane and must not edit W3 renderer contracts or W7 shared-shell files. W3 remains the owner of HTML-scene deterministic rendering and fail-closed resource behavior.
 - Shared contracts (FilmDocument revision, project context, create lifecycle, model-config persistence and provider identity) are never modified by two lanes simultaneously.
 
 ## Runner policy
@@ -237,3 +239,11 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 - W2 sequence coverage is deliberately bounded; do not describe it as exhaustive permutations.
 - W3 subtitle migration distinguishes mapped cue/style fields from archived-only `mode`, `source`, and `style_id` semantics. No false claim of lossless migration.
 - Real-media performance and live NVIDIA token streaming remain external/explicit gates, not silently skipped PASS items.
+
+
+## 2026-11-12 W3/W8/W6 ownership reconciliation
+
+- The execution ledger and this plan now use one consistent execution model: frozen main baseline → independent short-lived task branches with disjoint path ownership → exact-SHA hosted owner CI → path-scoped direct integration → integrated exact-SHA release gates.
+- W3 owns supported HTML scene frame/resource determinism under `docs/film-scene-capability-matrix.md`; arbitrary HTML/WebGL, uncontrolled timers, remote resources, and cross-device pixel identity remain unsupported or UNKNOWN.
+- W8 owns Shotcraft creative browser UX and visual-overlay browser acceptance. W8 is not the HTML scene determinism owner.
+- W6 owns GitHub Actions orchestration and the execution/parallel-workstream documents. W6 must not copy stale workflow snapshots from W3/W8 code branches during integration.
