@@ -247,3 +247,21 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 - W3 owns supported HTML scene frame/resource determinism under `docs/film-scene-capability-matrix.md`; arbitrary HTML/WebGL, uncontrolled timers, remote resources, and cross-device pixel identity remain unsupported or UNKNOWN.
 - W8 owns Shotcraft creative browser UX and visual-overlay browser acceptance. W8 is not the HTML scene determinism owner.
 - W6 owns GitHub Actions orchestration and the execution/parallel-workstream documents. W6 must not copy stale workflow snapshots from W3/W8 code branches during integration.
+
+
+## 2026-11-12 migration persistence and keyboard-first Shotcraft batch
+
+- Frozen baseline: `e52120f267d3eb0fcdc768fd2342086f4c2073bb`. Required hosted main gates are PASS on this exact SHA; explicit NVIDIA live token-stream acceptance is SKIPPED/opt-in.
+- The batch uses three independent short-lived branches with disjoint path ownership:
+
+| Workstream | Branch | Owned paths | Acceptance |
+|---|---|---|---|
+| W3 | `work/w3-migration-roundtrip-matrix-20261112` | Audio-lane, visual-track and overlay-audio migration tests; CompositionIR migration field audit | Exact-SHA W3 lifecycle/export/QC lane |
+| W8 | `work/w8-shotcraft-overlay-accessibility-20261112` | `tests/test_visual_overlay_browser.py` | Exact-SHA Shotcraft/visual-overlay browser lane |
+| W6 | `work/w6-roundtrip-lane-wiring-20261112` | Parallel-workstream workflow and these two execution-plan documents | Workflow YAML syntax; no W3/W8 test ownership |
+
+- W3 checks serialize→parse→serialize persistence for selected audio/visual migration semantics. These assertions are bounded evidence for the named fields, not a blanket claim that all CompositionIR MAPPED fields are lossless.
+- W8 checks pointer and keyboard Enter/Space activation, focused-button state, and exactly-once command dispatch for overlay, overwrite and insert placement.
+- W6 adds the three W3 test modules to the W3 owner-lane command and keeps the workflow/docs changes separate from W3/W8 test paths.
+- Integration order: wait for W3 and W8 exact-SHA owner CI plus W6 syntax validation; integrate only owned paths, never copy stale workflow snapshots; then rerun affected owner lanes and all integrated hosted release gates on one exact main SHA.
+- Real-media snapshot performance remains MISSING pending representative user media. NVIDIA live token-stream remains opt-in and is not satisfied by ordinary hosted CI.
