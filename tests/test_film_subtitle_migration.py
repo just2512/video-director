@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from video_director import film_document as fd
+from video_director.editor import composition_version
 from video_director.models import CompositionIR
 
 
@@ -88,7 +89,7 @@ def test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_
         project_id,
         result["document"],
         result["pages"],
-        source_version=0,
+        source_version=composition_version(project_id),
         warnings=warnings,
         selected_variant_id=result["selected_variant_id"],
     )
