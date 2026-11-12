@@ -397,3 +397,11 @@ Owner PASS on each latest branch SHA is mandatory before integration. Integrate 
 - Public-sample cloud media acceptance is PASS. Performance timings and SHA-256 values are in the W3 Actions step summary. This does not close the distinct user-production-media performance benchmark, which remains MISSING until a representative production project is available.
 - NVIDIA live-provider job remains SKIPPED and requires separate explicit opt-in. Local model-config preservation remains UNKNOWN and must not be inspected by CI.
 - **Stop condition:** both documented product plans and all required default hosted gates are closed. Do not create another W1/W2/W3/W4/W5/W7/W8 feature or test batch. Reopen only for a reproducible documented-contract failure or an explicitly supplied external acceptance input. No further cloud-side product work is pending under the current plans.
+
+
+## 2026-11-12 NVIDIA live-provider retry disposition and stop condition
+
+- Explicitly authorized live run `43176619085` on main SHA `1e79cdf688a91f4ab31e728c3b517ce5a0e0755e`: Studio release gate and full Python/browser regression PASS. NVIDIA probe retry job `131060218475` failed to obtain a non-empty token; `APITimeoutError/ReadTimeout` after 210.84s. First attempt job `131047157788` had the same timeout after 210.71s.
+- Classifier: `BLOCKED_ENDPOINT`. The actual Film AI streaming test was SKIPPED; therefore token ordering, approval safety and application-level live integration remain NOT ACCEPTED / NOT TESTED. No JUnit artifact was generated because the test did not start.
+- Stop live retries after these two attempts. The NVIDIA key was present; do not misclassify this as missing credentials or as a product regression. Resume only after endpoint availability is independently established and a fresh explicit live-call authorization is given.
+- No new product feature/test batch is opened. Existing delivery scope and default CI closure remain intact. External evidence still outstanding: representative user-production-media performance `MISSING` and local model-config preservation `UNKNOWN` (local-only; CI must not inspect credentials/configuration).
