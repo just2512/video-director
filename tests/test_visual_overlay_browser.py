@@ -179,3 +179,59 @@ def test_visual_overlay_create_exposes_overlay_overwrite_and_insert_in_chromium(
                     page.close()
         finally:
             browser.close()
+
+
+
+def test_locked_visual_overlay_track_rejects_pointer_drag_without_dispatching_command():
+    """A locked visual lane must fail closed in the actual Chromium pointer path."""
+    root = Path(__file__).resolve().parents[1]
+    math_script = root / "webui" / "static" / "js" / "timeline-edit-math.js"
+    overlay_script = root / "webui" / "static" / "js" / "visual-overlay-editor.js"
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={"width": 900, "height": 180})
+            page.set_content("""<!doctype html><html><head><style>
+                html, body { margin: 0; padding: 0; }
+                #editor-timeline { width: 800px; height: 80px; }
+                .ed-track-body { position: relative; width: 800px; height: 30px; }
+                .ed-visual-overlay-clip { position: absolute; top: 0; height: 24px; }
+            </style></head><body><div id="editor-timeline">
+                <div class="ed-track" data-visual-track-id="overlay-locked">
+                    <div class="ed-track-body">
+                        <div id="locked-clip" class="ed-visual-overlay-clip"
+                             data-visual-overlay-index="0" style="left:25%;width:20%"></div>
+                    </div>
+                </div>
+            </div></body></html>""")
+            page.evaluate("""() => {
+                window.ED = {comp: {
+                    duration: 10,
+                    assets: [{id: "still", type: "image", duration: 10}],
+                    visual_tracks: [{id: "overlay-locked", locked: true}],
+                    visual_overlays: [{
+                        id: "locked-overlay", asset_id: "still", start: 2.5, duration: 2,
+                        source_in: 0, track_id: "overlay-locked"
+                    }]
+                }};
+                window.__commands = [];
+                window.executeCommand = async command => { window.__commands.push(command); return {ok: true}; };
+                window.editorToast = (message, isError) => { window.__toast = {message, isError}; };
+                window.refreshWorkspace = async () => {};
+                window.editorRenderTimeline = () => {};
+            }""")
+            page.add_script_tag(path=str(math_script))
+            page.add_script_tag(path=str(overlay_script))
+            page.evaluate("_tlBindVisualOverlayDrag()")
+
+            page.mouse.move(300, 10)
+            page.mouse.down()
+            page.mouse.move(340, 10)
+            page.mouse.up()
+
+            assert page.evaluate("window.__commands") == []
+            toast = page.evaluate("window.__toast")
+            assert toast and toast["isError"] is True
+            assert "锁定" in toast["message"]
+        finally:
+            browser.close()
