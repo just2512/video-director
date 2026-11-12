@@ -199,11 +199,11 @@ def test_scene_and_video_layer_timing_source_range_and_fit_mode_map_to_film_clip
             "source": "uploaded", "description": "Scene and layer migration fixture",
         }],
         "scenes": [{
-            "id": "scene-offset", "start": 1.5, "duration": 2,
+            "id": "scene-offset", "start": 0, "duration": 3.5,
             "text": "Scene timing contract",
             "layers": [{
                 "id": "layer-offset", "type": "video", "asset_id": "asset-video",
-                "start": 0, "duration": 2, "source_in": 1, "source_out": 5,
+                "start": 1.5, "duration": 2, "source_in": 1, "source_out": 5,
                 "speed": 2, "fit_mode": "contain",
             }],
         }],
