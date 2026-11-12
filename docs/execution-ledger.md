@@ -1800,3 +1800,12 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - Integrate only the W2, W3 and W8 owned test paths, then the W6 documentation paths. Preserve current main as first parent and each final source branch head as an additional parent. Never copy stale workflow files.
 - After integration, run W1/W2/W3/W7/W8, Product IA W4/W5, full hosted Python/browser regression, Studio release gate, focused storage/watch, Windows-native publication, and YAML validation on the same exact main SHA. This is also the first full-gate evidence on the docs-only successor SHA `202ab62...`; the prior batch-72 runs were on `23ce5d2...` and do not qualify the successor SHA.
 - NVIDIA live token-stream acceptance remains explicit opt-in; representative real-media snapshot performance remains MISSING.
+
+
+### Section 74 follow-up — integrated W2 race diagnosis and owner corrections
+
+- Integrated batch-72 W2 lane on `23ce5d2b39712937f7c65b8b8ca0eb6879919447` exposed an existing timing race in `tests/test_film_studio_external_watch_browser.py::test_external_agent_write_hot_reloads_and_recovers_after_broken_document`: after redo, the test observed the disk write before FilmStore released `busy/pendingTransaction`, then started a trim gesture while the previous transaction was still closing. The preview moved but the edit was rejected; the assertion correctly caught the unchanged disk position. This is a test synchronization defect, not a reason to weaken the assertion or change the product contract.
+- W2 now owns both `tests/test_film_studio_pending_revision.py` and `tests/test_film_studio_external_watch_browser.py` in this batch. The correction waits for the exact redo revision, `busy=false`, `pendingTransaction=null`, and no pending external revision before beginning the next trim gesture. Existing 10s gate is unchanged.
+- W2 latest branch SHA is now `11ffce38b9cdbb2e79dceba5f72cfb63a0be2cfa`; owner run `43165127727` is queued; syntax run `43165127785` is queued. Earlier W2 run `43164804919` on SHA `0008d5b...` is superseded and is not final evidence.
+- W3 exact SHA `55b36f60fff45cfb51ad5596961e5b77d1ba78fd`: owner run `43164853975` PASS, 378 passed, 1 skipped, 0 failed; syntax `43164853993` PASS.
+- W8 exact SHA `19c5b3ae6b4479328c5a13e047573295d6e81a3e`: owner run `43164924206` PASS, 11 Chromium tests passed; syntax `43164924037` PASS.
