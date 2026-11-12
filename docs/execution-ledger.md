@@ -1831,3 +1831,28 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - Therefore batch-72's integrated SHA is NOT fully accepted: the parallel W2 lane failed one timing-sensitive browser assertion, even though the full suite passed. The failure was not ignored. W2 owner branch SHA `11ffce38b9cdbb2e79dceba5f72cfb63a0be2cfa` now passes 367 tests after synchronizing on the exact redo revision and idle transaction state.
 - Current next-batch final owner evidence: W2 `11ffce38...` run `43165127727` PASS, 367 passed; W3 `55b36f60...` run `43164853975` PASS, 378 passed/1 skipped; W8 `4fce2ab...` run `43165598130` PASS, 11 passed. Their syntax runs `43165127785`, `43164853993`, and `43165598119` all PASS.
 - W6 docs branch has reconciled these results and owns only the two docs. Next step is path-scoped integration W2 → W3 → W8 → W6 against current main `202ab62...`, then all integrated gates on the resulting exact main SHA. No gate from `23ce5d2...` is substituted for the new main SHA.
+
+
+## 75. 2026-11-12 exact-main acceptance reconciliation and W6 path-filter correction
+
+### Exact integrated main SHA
+
+- Integrated code/test SHA: `0f75b1c24ff140e151d53bd7026ea5e57232001c` (main).
+- Parallel workstream run `43165912612`: PASS — W1 96 passed; W2 367 passed; W3 378 passed, 1 skipped; W7 2 passed; W8 11 passed.
+- Product IA run `43165912628`: PASS — W4 36 passed; W5 13 passed.
+- Full hosted run `43165912670`: attempt 1 had 1 Studio-gate failure; attempt 2 completed SUCCESS on the same SHA. Full Python/browser job: 1,993 passed, 2 skipped. Studio release gate: 366 passed on attempt 2. The initial attempt's 365 passed / 1 failed was `tests/test_film_studio_external_watch_browser.py::test_external_agent_write_hot_reloads_and_recovers_after_broken_document`; it observed `clip-a at=0` after the trim gesture. The exact same SHA passed the test in the W2 lane and in Studio retry; no assertion or timeout was weakened. Record the first failure as a timing-sensitive regression signal, not as a green result retroactively.
+- Windows-native publication run `43165912691`: PASS — 6 passed.
+- Workflow syntax run `43165912627`: PASS.
+
+### W6 focused storage/watch path-filter correction
+
+- The focused workflow did not trigger for SHA `0f75b1c...` because its path filter and pytest command omitted the changed existing test `tests/test_film_studio_external_watch_browser.py`. This was a concrete CI coverage gap: changes to the external-write/FilmStore recovery browser regression could bypass the focused storage/watch gate.
+- W6 branch `work/w6-focused-storage-watch-path-20261112`, workflow-only SHA `0fb16e6ca81160bd11970f290c0df0aa8d85a56b`: added that existing test path to both the `push.paths` filter and the focused pytest command. No product code or new test was added.
+- Focused storage/watch run `43169213066`: PASS — 187 passed, 1 skipped. Workflow YAML run `43169213053`: PASS. Product IA jobs were correctly skipped on this W6-only branch; they are not counted as PASS evidence.
+- This W6 correction has not yet been integrated into main. Next: path-scoped integration of only `.github/workflows/focused-storage-watch.yml` plus the two execution documents, preserving current main as first parent and the final W6 branch head as an additional parent. Then run every required integrated gate against the resulting exact main SHA.
+
+### Remaining external evidence
+
+- Representative real-media snapshot performance remains MISSING until a representative project media file is supplied. Synthetic media is not production evidence.
+- The default full-hosted run's NVIDIA live job was SKIPPED; no provider call was made in this run. Do not trigger a paid live call without the explicit opt-in and required hosted secret. Historical live acceptance evidence, if applicable, remains tied to its recorded tested SHA and must not be silently transferred to this SHA.
+- No new product feature batch is justified. After the W6 workflow correction is integrated and the exact-main gates pass, reconcile the final ledger and close the documented delivery batch.
