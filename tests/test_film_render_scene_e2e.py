@@ -1337,7 +1337,7 @@ def test_ffmpeg_stderr_fallback_preserves_audio_codec_sample_rate_and_channels(m
     stderr = """Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'rendered.mp4':
   Duration: 00:00:02.00, start: 0.000000, bitrate: 128 kb/s
   Stream #0:0(und): Video: h264 (High), yuv420p, 320x180, 10 fps
-  Stream #0:1(und): Audio: aac (LC), 48000 Hz, stereo, fltp, 128 kb/s
+  Stream #0:1[0x2](und): Audio: aac (LC), 48000 Hz, stereo, fltp, 128 kb/s
 """
     completed = subprocess.CompletedProcess(
         args=["ffmpeg", "-hide_banner", "-i", "rendered.mp4"],
