@@ -188,7 +188,7 @@ def _probe_with_ffmpeg_stderr(ffmpeg: str, media: str) -> ProbeResult:
         if fm:
             result.fps = float(fm.group(1))
     audio_match = re.search(
-        r"Stream #0:\d+(?:\\([^)]*\\))?:\\s*Audio:\\s*([^\\s,]+)(?:\\s+\\([^)]*\\))?,\\s*(\\d+)\\s*Hz,\\s*([^,\\r\\n]+)",
+        r"Stream #0:\d+(?:\([^)]*\))?:\s*Audio:\s*([^\s,]+)(?:\s+\([^)]*\))?,\s*(\d+)\s*Hz,\s*([^,\r\n]+)",
         err,
     )
     if audio_match:
@@ -203,7 +203,7 @@ def _probe_with_ffmpeg_stderr(ffmpeg: str, media: str) -> ProbeResult:
             "5.1(back)": 6, "6.1": 7, "7.1": 8, "7.1(wide)": 8,
             "7.1(wide-side)": 8, "octagonal": 8,
         }
-        channels_match = re.search(r"(\\d+)\\s+channels?", channel_layout)
+        channels_match = re.search(r"(\d+)\s+channels?", channel_layout)
         if channels_match:
             result.audio_channels = int(channels_match.group(1))
         else:
