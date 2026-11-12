@@ -193,7 +193,7 @@ def test_scene_and_video_layer_timing_source_range_and_fit_mode_map_to_film_clip
 
     ir = CompositionIR.model_validate({
         "version": 1,
-        "project": {"width": 1280, "height": 720, "fps": 24, "duration": 6},
+        "project": {"width": 1280, "height": 720, "fps": 24, "duration": 3.5},
         "assets": [{
             "id": "asset-video", "type": "video", "file": "assets/clip.mp4",
             "source": "uploaded", "description": "Scene and layer migration fixture",
@@ -224,4 +224,4 @@ def test_scene_and_video_layer_timing_source_range_and_fit_mode_map_to_film_clip
     assert attrs["speed"] == "2"
     assert attrs["data-source-scene-id"] == "scene-offset"
     assert "object-fit:contain" in attrs["style"]
-    assert result["duration"] == 6
+    assert result["duration"] == 3.5
