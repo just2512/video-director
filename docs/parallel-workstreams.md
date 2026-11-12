@@ -211,3 +211,14 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 - W3 exact branch owner lane: 353 passed, 1 skipped on `bdbb62ac9f6a30ed8b0d243e09b50cf374cd55f5`. W2 refresh passed 362 tests on `67f871b9af76edea722bb3d60b8369b56190a054`. W2 Canvas-history test was corrected to trigger and await the real project-selector `editorLoad` after reload; latest branch `a9f6f6b4c1730db53f2dd8d5c5525beb98b2261f` passed 361 tests on run `43136145184`.
 - W1 Linux and Windows scoped lanes are PASS. Windows spawn must still execute on integrated main.
 - No integration until both W2 lanes pass. After serial integration, all owner lanes and integrated hosted release gates must pass on one exact main SHA.
+
+
+
+## 2026-11-12 integrated-batch closure
+
+- Exact integrated code SHA: `28fc07f43cf0f01d7c39f40c89273f4395a91c10`.
+- Full hosted regression: 1,980 passed, 2 skipped, 0 failed. Studio gate: 360 passed. Parallel lanes: W1 96, W2 362, W3 353/1 skipped, W7 2, W8 8. Product IA W4/W5: 36/13. Windows native: 6. Focused storage/external edit: 174/1 skipped. Workflow syntax: PASS.
+- Real Chromium workspace smoke completed its template MP4 render and decode path; the 76.371s test and server log show successful sample-render and MP4-download HTTP responses. FFPROBE AAC metadata smoke is PASS.
+- Windows-native write-through replace/delete and spawn-lock tests ran on the Windows runner, not only on Linux.
+- This batch is closed. The next independent batch is scoped to W2 bounded edit-operation sequences, W3 CompositionIR mapped-field semantic round trips, and W8 fail-closed HTML/WebGL capability boundaries. W6 updates lane wiring and the execution ledger.
+- Real-media snapshot performance remains MISSING until representative project media is available. NVIDIA live token-stream acceptance remains explicit opt-in; no provider call is implied by CI PASS.
