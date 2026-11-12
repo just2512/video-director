@@ -366,3 +366,11 @@ Owner PASS on each latest branch SHA is mandatory before integration. Integrate 
 - W8 exact SHA `4fce2abf5212fd26ece3bbabe67763ab124f9e60`: 11 Chromium tests passed; split survives a full reload before Inspector opens.
 - W2/W3/W8 workflow syntax runs all PASS. The exact run IDs and test counts are in `execution-ledger.md` §74.
 - Batch-72 integrated SHA `23ce5d2...` exposed one W2 external-watch timing failure. It is corrected on the W2 owner branch; the integrated acceptance must be repeated after this batch is integrated. The earlier full regression PASS does not erase the failed parallel lane.
+
+
+## W6 focused storage/watch trigger parity
+
+- W6 branch `work/w6-focused-watch-path-parity-20261112` owns `.github/workflows/focused-storage-watch.yml` for this correction.
+- The workflow's push path filter and pytest command now both include `tests/test_film_studio_external_watch_browser.py` and `tests/test_film_studio_pending_revision.py`. This makes external Studio revision/watch changes trigger the focused suite instead of relying only on the full hosted suite.
+- Exact workflow-code SHA `37e89c5cd09cbbbc77f7035bc8b279f4be82df57`: YAML syntax PASS and focused storage/watch PASS (206 passed, 1 skipped). See execution ledger §75.
+- Integrate this W6 branch after the current main full-hosted and Studio release jobs finish. The focused workflow will then be triggered on the new exact main SHA, closing the missing integrated-main focused gate.
