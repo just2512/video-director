@@ -169,5 +169,5 @@ def test_project_spec_dimensions_rate_and_duration_have_explicit_runtime_semanti
     assert document["fps"] == 24
     assert result["duration"] == 8
 
-    archive = json.loads((project_root / result["source_archive"]["path"]).read_text(encoding="utf-8"))
+    archive = json.loads(result["pages"][result["source_archive"]["path"]])
     assert archive["project"] == {"width": 1280, "height": 720, "fps": 24, "duration": 8}
