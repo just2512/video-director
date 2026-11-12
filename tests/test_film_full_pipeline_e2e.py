@@ -321,3 +321,237 @@ font:700 10px sans-serif;text-shadow:0 1px 3px #000}
     assert qc["audio"]["mean_volume_db"] is not None
     assert -60 < qc["audio"]["mean_volume_db"] < 0
     assert all(check["status"] == "PASS" for check in qc["checks"])
+
+
+def test_real_public_media_full_project_render_and_performance_snapshot(tmp_path, monkeypatch):
+    """Run the actual FilmDocument preview/render/QC path with licensed public footage.
+
+    Source: Big Buck Bunny, Blender Foundation, CC BY 3.0.
+    The immutable sample repository commit is pinned so the source cannot silently drift.
+    """
+    import hashlib
+    import os
+    import time
+    import urllib.request
+
+    from video_director import config, film_document as fd, film_render, prober, renderer
+
+    source_url = (
+        "https://raw.githubusercontent.com/chthomos/video-media-samples/"
+        "997cb58f16bc3433652506910734be75bc64d768/"
+        "big-buck-bunny-480p-30sec.mp4"
+    )
+    source_commit = "997cb58f16bc3433652506910734be75bc64d768"
+    source_license = "Big Buck Bunny, Blender Foundation, CC BY 3.0"
+    ffmpeg = renderer._ffmpeg()
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "real-public-media-acceptance"
+    project = config.project_dir(project_id)
+    assets = project / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+
+    source_path = tmp_path / "big-buck-bunny-480p-30sec.mp4"
+    started = time.perf_counter()
+    request = urllib.request.Request(
+        source_url, headers={"User-Agent": "video-director-real-media-acceptance"}
+    )
+    digest = hashlib.sha256()
+    downloaded = 0
+    with urllib.request.urlopen(request, timeout=90) as response, source_path.open("wb") as output:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            downloaded += len(chunk)
+            assert downloaded <= 32 * 1024 * 1024, "Pinned public sample exceeded the 32 MiB safety bound"
+            digest.update(chunk)
+            output.write(chunk)
+    download_ms = round((time.perf_counter() - started) * 1000, 2)
+    source_sha256 = digest.hexdigest()
+    assert downloaded > 1024 * 1024, f"Public media download is unexpectedly small: {downloaded} bytes"
+
+    started = time.perf_counter()
+    source_probe = prober.probe_media(str(source_path))
+    source_probe_ms = round((time.perf_counter() - started) * 1000, 2)
+    assert source_probe.has_video_stream
+    assert source_probe.has_audio_stream
+    assert source_probe.width and source_probe.width >= 640
+    assert source_probe.height and source_probe.height >= 360
+    assert source_probe.duration and 25 <= float(source_probe.duration) <= 35
+
+    # Decode every source video and audio packet, not merely container metadata.
+    started = time.perf_counter()
+    decoded = subprocess.run(
+        [
+            ffmpeg, "-hide_banner", "-v", "error", "-xerror", "-err_detect", "explode",
+            "-i", str(source_path), "-map", "0:v:0", "-map", "0:a:0", "-f", "null", "-",
+        ],
+        capture_output=True, text=True, timeout=180,
+    )
+    assert decoded.returncode == 0, decoded.stderr[-4000:]
+    source_decode_ms = round((time.perf_counter() - started) * 1000, 2)
+
+    # Keep the real scene content; normalize video to browser-safe VP8. Extract
+    # the original audio into a separate PCM track so Chromium's video-frame
+    # presentation clock is not coupled to a second decoder on the same element.
+    browser_media = assets / "big-buck-bunny-real-content.webm"
+    started = time.perf_counter()
+    transcoded = subprocess.run(
+        [
+            ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+            "-ss", "0", "-t", "8", "-i", str(source_path),
+            "-vf", "scale=320:180:force_original_aspect_ratio=decrease,"
+                   "pad=320:180:(ow-iw)/2:(oh-ih)/2,fps=12",
+            "-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "8",
+            "-lag-in-frames", "0", "-auto-alt-ref", "0", "-g", "1",
+            "-keyint_min", "1", "-pix_fmt", "yuv420p",
+            "-an", str(browser_media),
+        ],
+        capture_output=True, text=True, timeout=180,
+    )
+    assert transcoded.returncode == 0, transcoded.stderr[-4000:]
+    transcode_ms = round((time.perf_counter() - started) * 1000, 2)
+    browser_probe = prober.probe_media(str(browser_media))
+    assert browser_probe.has_video_stream and not browser_probe.has_audio_stream
+    assert (browser_probe.width, browser_probe.height) == (320, 180)
+    assert browser_probe.duration and abs(float(browser_probe.duration) - 8.0) <= 0.25
+
+    audio_media = assets / "big-buck-bunny-original-audio.wav"
+    started = time.perf_counter()
+    audio_extracted = subprocess.run(
+        [
+            ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+            "-ss", "0", "-t", "8", "-i", str(source_path),
+            "-map", "0:a:0", "-vn", "-ac", "2", "-ar", "44100",
+            "-c:a", "pcm_s16le", str(audio_media),
+        ],
+        capture_output=True, text=True, timeout=90,
+    )
+    assert audio_extracted.returncode == 0, audio_extracted.stderr[-3000:]
+    audio_extract_ms = round((time.perf_counter() - started) * 1000, 2)
+    audio_probe = prober.probe_media(str(audio_media))
+    assert audio_probe.has_audio_stream and not audio_probe.has_video_stream
+    assert audio_probe.duration and abs(float(audio_probe.duration) - 8.0) <= 0.25
+
+    film_html = '''<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=320,height=180">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#101820}</style>
+</head><body>
+<section id="video-track" data-label="真实视频素材">
+  <video id="big-buck-bunny" src="assets/big-buck-bunny-real-content.webm#t=0,8"
+         at="0" style="left:0px;top:0px;width:320px;height:180px;object-fit:cover"></video>
+</section>
+<section id="audio-track" data-label="原始音轨">
+  <audio id="big-buck-bunny-audio" src="assets/big-buck-bunny-original-audio.wav#t=0,8"
+         at="0" volume="1"></audio>
+</section>
+</body></html>'''
+    (project / fd.FILM_NAME).write_text(film_html, encoding="utf-8")
+    state = fd.read_project_film(project_id)
+    assert state["exists"] is True
+    revision = state["rev"]
+    assert revision
+    clips = [
+        clip
+        for track in state["doc"]["tracks"]
+        for clip in track.get("clips", [])
+    ]
+    assert len(clips) == 2, {"tracks": state["doc"]["tracks"]}
+
+    # Exercise Chromium frame capture, immutable resource snapshot, revision pinning,
+    # FFmpeg publication and QC as a real project.
+    started = time.perf_counter()
+    look = film_render.look_project_film(
+        project_id, expected_revision=revision, times=[0.5, 4.0, 7.5]
+    )
+    look_ms = round((time.perf_counter() - started) * 1000, 2)
+    assert look["ok"] is True
+    assert look["revision"] == revision
+    assert look["determinism_status"] == "PASS"
+    assert Path(look["image_path"]).is_file()
+
+    started = time.perf_counter()
+    rendered = film_render.render_project_film(project_id, revision, fps=12)
+    render_ms = round((time.perf_counter() - started) * 1000, 2)
+    output = Path(rendered["mp4_path"])
+    assert rendered["ok"] and rendered["current"]
+    assert rendered["rendered_revision"] == revision
+    assert rendered["revision_status"] == "CURRENT"
+    assert rendered["frame_count"] == 96
+    assert rendered["audio_tracks_mixed"] == 1
+    assert output.is_file() and output.stat().st_size > 0
+
+    output_probe = prober.probe_media(str(output))
+    assert output_probe.has_video_stream and output_probe.has_audio_stream
+    assert (output_probe.width, output_probe.height) == (320, 180)
+    assert output_probe.duration and abs(float(output_probe.duration) - 8.0) <= 0.25
+
+    qc_path = Path(rendered["qc_report_path"])
+    assert rendered["qc_status"] == "PASS"
+    assert qc_path.is_file() and qc_path.stat().st_size > 0
+    qc = json.loads(qc_path.read_text(encoding="utf-8"))
+    assert qc["status"] == "PASS"
+    assert qc["source_revision"] == revision
+    assert qc["current_revision_match"] is True
+    assert qc["output"]["sha256"] and len(qc["output"]["sha256"]) == 64
+    assert qc["output"]["size_bytes"] == output.stat().st_size
+    assert qc["audio"]["stream_present"] is True
+    assert all(check["status"] == "PASS" for check in qc["checks"])
+
+    report = {
+        "schema_version": 1,
+        "acceptance": "PASS",
+        "scope": "GitHub-hosted real public media; not user-production media",
+        "source": {
+            "title": "Big Buck Bunny 480p 30s sample",
+            "url": source_url,
+            "repository_commit": source_commit,
+            "license": source_license,
+            "download_bytes": downloaded,
+            "sha256": source_sha256,
+            "probe": {
+                "width": source_probe.width, "height": source_probe.height,
+                "fps": source_probe.fps, "duration_seconds": source_probe.duration,
+                "video": source_probe.has_video_stream, "audio": source_probe.has_audio_stream,
+            },
+        },
+        "browser_profile": {
+            "container": "WebM + WAV", "video_codec": "VP8", "audio_codec": "PCM s16le",
+            "width": browser_probe.width, "height": browser_probe.height,
+            "fps": browser_probe.fps, "duration_seconds": browser_probe.duration,
+        },
+        "measurements_ms": {
+            "download": download_ms, "source_probe": source_probe_ms,
+            "full_source_av_decode": source_decode_ms, "browser_video_transcode": transcode_ms,
+            "original_audio_extract": audio_extract_ms,
+            "chromium_look_3_frames": look_ms, "film_project_render_and_qc": render_ms,
+        },
+        "render": {
+            "revision": revision, "frame_count": rendered["frame_count"],
+            "audio_tracks_mixed": rendered["audio_tracks_mixed"],
+            "output_bytes": output.stat().st_size,
+            "output_sha256": qc["output"]["sha256"],
+            "duration_seconds": output_probe.duration,
+            "qc_status": rendered["qc_status"],
+            "qc_checks": {item["name"]: item["status"] for item in qc["checks"]},
+        },
+    }
+    serialized = json.dumps(report, ensure_ascii=False, sort_keys=True)
+    print("REAL_MEDIA_ACCEPTANCE_JSON=" + serialized)
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        with open(summary_path, "a", encoding="utf-8") as summary:
+            summary.write("## Real public-media Film Studio acceptance\n\n")
+            summary.write("- Result: PASS\n")
+            summary.write(f"- Source: {source_license}; pinned commit {source_commit}\n")
+            summary.write(f"- Source media: {downloaded} bytes, SHA-256 {source_sha256}\n")
+            summary.write(f"- Source probe: {source_probe.width}x{source_probe.height}, "
+                          f"{source_probe.fps} fps, {source_probe.duration}s\n")
+            summary.write(f"- Output: {output_probe.width}x{output_probe.height}, "
+                          f"{output_probe.duration}s, {output.stat().st_size} bytes\n")
+            summary.write(f"- Film revision: {revision}; QC: {rendered['qc_status']}\n")
+            summary.write("- Timings (ms): " + ", ".join(
+                f"{key}={value}" for key, value in report["measurements_ms"].items()
+            ) + "\n\n")
+            summary.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
