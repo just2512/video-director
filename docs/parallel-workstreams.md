@@ -366,3 +366,19 @@ Owner PASS on each latest branch SHA is mandatory before integration. Integrate 
 - W8 exact SHA `4fce2abf5212fd26ece3bbabe67763ab124f9e60`: 11 Chromium tests passed; split survives a full reload before Inspector opens.
 - W2/W3/W8 workflow syntax runs all PASS. The exact run IDs and test counts are in `execution-ledger.md` §74.
 - Batch-72 integrated SHA `23ce5d2...` exposed one W2 external-watch timing failure. It is corrected on the W2 owner branch; the integrated acceptance must be repeated after this batch is integrated. The earlier full regression PASS does not erase the failed parallel lane.
+
+
+## 2026-11-12 follow-up — integrated release-gate failure and correction lane
+
+Frozen baseline for this follow-up: `0f75b1c24ff140e151d53bd7026ea5e57232001c`.
+
+| Lane | Branch | Exclusive path | Acceptance |
+|---|---|---|---|
+| W2 | `work/w2-external-watch-trim-atomicity-20261112` | `tests/test_film_studio_external_watch_browser.py` | Require the authoritative POST edit response before accepting a new revision as the committed trim; preserve all existing assertions and timeouts. |
+| W3 | `work/w3-compositionir-unsupported-field-contract-20261112` | one dedicated CompositionIR migration test file | Unsupported fields must produce explicit warnings and remain in the source archive; unsupported semantics must not be silently mapped or dropped. |
+| W8 | `work/w8-shotcraft-keyboard-command-feedback-20261112` | `tests/test_studio_browser_flow.py` | Real Chromium keyboard selection/command flow, Inspector state, and explicit rejection/error feedback. |
+| W6 | `work/w6-next-batch-provenance-20261112` | `docs/execution-ledger.md`, `docs/parallel-workstreams.md` | Record exact branch heads, owner runs, integrated gate evidence and remaining MISSING acceptance. |
+
+The integrated SHA `0f75b1c24ff140e151d53bd7026ea5e57232001c` has PASS evidence for W1/W2/W3/W7/W8, Product IA, Windows-native publication and YAML. However, its Studio release gate failed one external-watch trim assertion (365 passed, 1 failed); therefore the integrated batch is NOT ACCEPTED. The full Python/browser job was still running when this section was authored. The W2 follow-up waits for the actual edit response (HTTP 200) before reading the committed document; a background external-watch revision cannot stand in for the trim transaction. No timeout or assertion is weakened.
+
+Every branch must run its owner lane against its latest exact SHA. After W2 correction integration, rerun the Studio release gate and all integrated acceptance gates against the resulting exact main SHA. W3/W8 remain independent branches and must not write W2's test file or shared production contracts. Do not delete branches until integration and exact-SHA acceptance are complete.
