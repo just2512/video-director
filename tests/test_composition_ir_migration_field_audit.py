@@ -335,6 +335,13 @@ def test_subtitle_nested_field_audit_matches_renderer_contract():
     assert {field for field, cols in rows.items() if cols[1] == "MAPPED"} == expected_mapped
     assert {field for field, cols in rows.items() if cols[1] == "ARCHIVED_ONLY"} == expected_archived
 
+    evidence_ref = (
+        "tests/test_film_subtitle_migration.py::"
+        "test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings"
+    )
+    for field, columns in rows.items():
+        assert evidence_ref in columns[2], f"subtitle disposition lacks exact test evidence: {field}"
+
 
 def test_variant_field_audit_distinguishes_selected_content_from_archived_metadata():
     audit = AUDIT_PATH.read_text(encoding="utf-8")
