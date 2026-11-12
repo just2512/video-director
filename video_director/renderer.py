@@ -220,14 +220,17 @@ def _verify_muxed_audio(output_path: str, expected_duration: float) -> dict:
         # Portable distributions may ship ffmpeg without ffprobe. Use the project's
         # established ffmpeg-stderr probe fallback rather than disabling final export.
         try:
-            probe = prober.probe_media(output_path)
+            # Bypass the general probe cache: the export gate needs the actual
+            # audio codec/layout metadata, not only cached stream-presence flags.
+            probe = prober._probe_with_ffmpeg_stderr(ff, output_path)
         except Exception as exc:
             raise RenderError(f"无法探测最终 MP4（ffprobe 不可用且 ffmpeg 回退失败）: {exc}") from exc
-        if not probe.has_audio_stream:
-            raise RenderError("最终 MP4 没有音频流")
+        if not probe.has_audio_stream or not probe.audio_codec:
+            raise RenderError("最终 MP4 音频流缺少可验证的编码器信息")
         audio_duration = float(probe.duration or 0.0)
-        codec = "unknown (ffmpeg-stderr fallback)"
-        channels = None
+        codec = probe.audio_codec
+        channels = probe.audio_channels
+        stream = {"sample_rate": probe.audio_sample_rate}
         probe_engine = probe.engine
 
     if not math.isfinite(audio_duration) or audio_duration <= 0:
