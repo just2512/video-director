@@ -366,3 +366,15 @@ Owner PASS on each latest branch SHA is mandatory before integration. Integrate 
 - W8 exact SHA `4fce2abf5212fd26ece3bbabe67763ab124f9e60`: 11 Chromium tests passed; split survives a full reload before Inspector opens.
 - W2/W3/W8 workflow syntax runs all PASS. The exact run IDs and test counts are in `execution-ledger.md` §74.
 - Batch-72 integrated SHA `23ce5d2...` exposed one W2 external-watch timing failure. It is corrected on the W2 owner branch; the integrated acceptance must be repeated after this batch is integrated. The earlier full regression PASS does not erase the failed parallel lane.
+
+
+## 2026-11-12 W6 focused storage/watch path coverage correction
+
+- Exact baseline main SHA: `0f75b1c24ff140e151d53bd7026ea5e57232001c`.
+- W6 found that `tests/test_film_studio_external_watch_browser.py` was exercised by W2 and the Studio gate but omitted from `focused-storage-watch.yml`'s push path filter and test command. The omission meant edits to this existing external-write/recovery browser regression would not start the focused gate.
+- W6 branch: `work/w6-focused-storage-watch-path-20261112`; workflow SHA `0fb16e6ca81160bd11970f290c0df0aa8d85a56b`. Change is limited to adding the existing test file to the focused workflow's trigger paths and pytest command. No product source or test assertion was changed.
+- Exact branch evidence: focused storage/watch run `43169213066` PASS (187 passed, 1 skipped); workflow YAML validation run `43169213053` PASS. Product IA jobs were path-filtered SKIPPED and are not treated as PASS.
+- Main SHA `0f75b1c...` gate reconciliation is recorded in execution-ledger.md §75: parallel lanes, Product IA, full Python/browser, Studio retry, Windows-native and YAML all have exact-SHA evidence. The first Studio attempt exposed one timing-sensitive external-watch browser failure; the same SHA's retry passed 366 tests, and the W2 lane passed 367 tests. Preserve the failure record; do not weaken assertions.
+- Next integration is W6 only: path-scope `.github/workflows/focused-storage-watch.yml`, `docs/execution-ledger.md`, and `docs/parallel-workstreams.md` onto the then-current main tree. Keep main as first parent and the final W6 branch head as an additional parent; use a non-force expected-SHA lease. Do not open another W1/W2/W3/W8 feature batch.
+- After integration, rerun all required main gates on the single resulting SHA, including focused storage/watch (now triggered by the workflow-file change), parallel lanes, Product IA, full hosted Python/browser and Studio release gate, Windows-native publication, and workflow YAML validation. If all pass, update the final exact-SHA ledger and close this delivery batch.
+- External evidence remains bounded: representative real-media snapshot performance is MISSING pending representative project media; NVIDIA live acceptance is explicit opt-in and is not triggered by ordinary push CI.
