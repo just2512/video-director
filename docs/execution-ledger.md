@@ -1525,3 +1525,46 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - Windows spawn test for W1 must actually execute on the integrated main SHA.
 - Representative large-media snapshot performance remains MISSING until real representative project media is available; no synthetic fixture is production evidence.
 - NVIDIA live-model acceptance remains explicit opt-in and is not triggered by these CI-only changes.
+
+
+
+## 66. 2026-11-12 media-runtime hardening and scoped-lane revalidation
+
+### Exact baseline and current main
+
+- Frozen integration baseline for this batch remains `4bf9e70fee0b71e701cbc7f5ebc231356e0f3984`.
+- Current main is `f53ed86791b31e74033e0fa059b4b5a4d13853a2`; it includes the W6 dependency-order correction and the W8 creative-browser target update.
+- Do not replace current main workflow files with stale branch snapshots. The W2/W3 branches were created from the frozen baseline and are behind current main; integrate only their exclusively owned test files. W1 Windows additionally owns its Windows-native workflow change. W6 supplies the final CI script/workflow and documentation deltas.
+
+### W6 FFprobe correction
+
+- Main full-hosted run `43132644847` failed with 9 tests: 8 AAC metadata assertions and one template-gallery browser wait for `#tg-render` to become enabled.
+- Root cause for the eight media assertions: the pinned imageio-ffmpeg wheel provides FFmpeg but not FFprobe. The renderer correctly fell back to stderr probing, which cannot provide the codec/sample-rate fields required by the tests.
+- First correction attempt used a dynamic FFprobe build and failed on the hosted runner because `libva.so.2` was absent. That attempt is superseded and must not be integrated.
+- Final W6 correction uses the upstream static Linux x64 FFprobe asset with a pinned SHA-256. Before tests run, the script creates an AAC MP4 with the exact pinned FFmpeg binary and requires FFprobe to report `codec_name=aac` and `sample_rate=48000`. Failure is a hard stop; no silent fallback is accepted as CI readiness.
+- The static FFprobe preflight is PASS on W3 exact branch run `43135695334`; log evidence includes `FFPROBE_SMOKE=PASS`.
+- W6 also adds `test-results/**` to the full-regression artifact so Chromium traces and server diagnostics survive browser failures.
+
+### Exact-SHA scoped evidence
+
+- W1 Linux cross-process submit dedup: `eb602435e63a62d45b9a76f28815cd13622daf15`; 96 passed, focused storage/watch and YAML SUCCESS.
+- W1 Windows spawn lock: `86be7edef26f8ffa54c27296fd56188cfe6bb89e`; W1 owner lane and YAML SUCCESS. Actual Windows spawn execution remains a hard gate on integrated main.
+- W2 external revision after refresh: latest corrected branch SHA `67f871b9af76edea722bb3d60b8369b56190a054`; owner lane run `43135684066` SUCCESS: 362 passed, 0 failed. The run includes `FFPROBE_SMOKE=PASS`.
+- W2 Canvas history startup race: first static-FFprobe run on `7787c342c772f958e17ee21db2cd2073deb0882a` reached 360 passed but failed one browser test because the test waited for current FilmDocument authority before triggering the project selector's normal `editorLoad` action. The test now explicitly reopens the project through that selector and awaits the actual `editorLoad` promise; latest SHA `a9f6f6b4c1730db53f2dd8d5c5525beb98b2261f`, owner lane run `43136145184` SUCCESS: 361 passed, 0 failed.
+- W3 commercial preflight matrix: latest corrected branch SHA `bdbb62ac9f6a30ed8b0d243e09b50cf374cd55f5`; lifecycle/export/QC run `43135695334`: 353 passed, 1 skipped, 0 failures. This exact run also passed the static FFprobe AAC smoke preflight.
+- W6 workflow syntax on CI workflow SHA `afd764e1ea1737015c11e4cbe433f23829745cc1`: run `43136216959` SUCCESS. The full-regression job sets `VIDEO_DIRECTOR_TEST_RESULTS=test-results` and uploads that directory alongside JUnit and pytest logs, so browser traces are retained.
+
+### W2 Canvas-history test reconciliation
+
+- The failed wait was at the browser-reload boundary, not during undo/redo persistence: the test had reloaded the page and shown the editor tab, then waited for `filmStudioHasCurrentFilmAuthority()` before it invoked the normal project-selector change that calls `editorLoad()`.
+- The wait was therefore circular when the page did not auto-open the project. The test now triggers the real selector action first, captures and awaits the actual asynchronous `editorLoad` result, checks `film_document` and project identity, and only then waits for FilmDocument authority and the restored Inspector.
+- No timeout was increased and no product assertion was weakened. The new exact-SHA owner run is required before integration.
+
+### Remaining hard gates and integration order
+
+- All scoped owner lanes are now PASS on their exact SHAs. Integration may proceed serially in the order below; keep the frozen baseline and current main as the first-parent integration base.
+- Integrate W1 Linux → W1 Windows → W2 refresh → W2 canvas-history → W3 commercial preflight → W6 CI/docs.
+- For W2/W3 branches, take only the owner test file(s); do not copy their stale workflow snapshots over current main. W6-owned script/workflow changes are integrated from the final W6 branch.
+- After integration, run all affected W1/W2/W3/W7/W8 lanes, focused storage/watch, Studio release gate, full Python/browser, Windows-native publication and YAML validation on one exact main SHA.
+- The template-gallery browser timeout shares the same root cause: `template_runtime_report()` sets `can_render=false` when `prober._resolve_ffprobe()` returns no executable, so `#tg-render` remains disabled after a valid upload. The static FFprobe preflight directly addresses this readiness gate. The integrated full-browser regression must verify the button becomes enabled; if it still fails, use the retained trace and server diagnostics to fix the actual readiness/asset-upload condition rather than increasing timeouts or weakening the assertion.
+- NVIDIA live-model acceptance remains explicit opt-in. Representative large-media snapshot performance remains MISSING pending real project media.
