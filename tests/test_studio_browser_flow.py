@@ -1406,6 +1406,15 @@ def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolba
                 assert left["source_in"] == right["source_in"] == 0.0
                 assert not page_errors, "Browser runtime errors: " + " | ".join(page_errors)
 
+                # Reload the project from its persisted CompositionIR before opening
+                # Inspector; the split must survive a full browser document reload.
+                page.reload(wait_until="networkidle")
+                reopened = page.evaluate("(projectId) => workspaceOpen(projectId, undefined, {legacyCompositionMode:true})", pid)
+                assert reopened.get("ok"), reopened
+                page.evaluate("() => { ED.timelineView = 'time'; editorRenderTimeline(); }")
+                page.wait_for_function(
+                    "() => ED.comp && Array.isArray(ED.comp.visual_overlays) && ED.comp.visual_overlays.length === 2"
+                )
                 selected_overlay = page.locator('#editor-timeline .ed-visual-overlay-clip[data-visual-overlay-index="0"]')
                 selected_overlay.click()
                 page.locator('button[data-action="ui.edit_visual_overlay"]').click()
