@@ -73,10 +73,8 @@ fi
 
 ffmpeg_bin_dir="$RUNNER_TEMP/ffmpeg-bin"
 mkdir -p "$ffmpeg_bin_dir"
-
 # FFmpeg and FFprobe are separate executables. Use the upstream static
-# FFprobe 6.1.1 Linux x64 asset (John Van Sickle build), SHA-256 pinned.
-# The static build avoids runner-specific libva/shared-library dependencies.
+# FFprobe Linux x64 asset, SHA-256 pinned, to avoid runner-specific shared libs.
 ffprobe_url="https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffprobe-linux-x64.gz"
 ffprobe_sha256="25d9b6ccb05e3d9de9e04e31e2506d8dd7f9f0418981965ac6df12e8d3afd067"
 ffprobe_download="$RUNNER_TEMP/ffprobe-linux-x64.gz"
@@ -89,8 +87,8 @@ gzip -dc "$ffprobe_download" > "$ffprobe_bin"
 chmod 0755 "$ffprobe_bin"
 "$ffprobe_bin" -hide_banner -version
 
-# Prove the standalone probe can read AAC metadata from the pinned FFmpeg
-# build before any renderer tests are allowed to execute.
+# Verify that the independent FFprobe can read AAC metadata produced by the
+# exact pinned FFmpeg executable before renderer acceptance starts.
 probe_smoke="$RUNNER_TEMP/ffprobe-validation.mp4"
 "$ffmpeg_bin" -y -hide_banner -loglevel error \
   -f lavfi -i "color=c=black:s=32x32:d=0.5" \
@@ -99,24 +97,11 @@ probe_smoke="$RUNNER_TEMP/ffprobe-validation.mp4"
 probe_metadata="$("$ffprobe_bin" -v error -select_streams a:0 \
   -show_entries stream=codec_name,sample_rate,channels \
   -of default=noprint_wrappers=1 "$probe_smoke")"
-grep -q '^codec_name=aacln -sfn "$ffmpeg_bin" "$ffmpeg_bin_dir/ffmpeg"
-echo "$ffmpeg_bin_dir" >> "$GITHUB_PATH"
-echo "IMAGEIO_FFMPEG_EXE=$ffmpeg_bin" >> "$GITHUB_ENV"
-
-echo "MEDIA_RUNTIME=PASS"
-echo "FFMPEG=$ffmpeg_bin"
-echo "CJK_FONT=$font_path"
-echo "WQY_FONT_GIT_BLOB=$font_blob"
- <<< "$probe_metadata"
-grep -q '^sample_rate=48000ln -sfn "$ffmpeg_bin" "$ffmpeg_bin_dir/ffmpeg"
-echo "$ffmpeg_bin_dir" >> "$GITHUB_PATH"
-echo "IMAGEIO_FFMPEG_EXE=$ffmpeg_bin" >> "$GITHUB_ENV"
-
-echo "MEDIA_RUNTIME=PASS"
-echo "FFMPEG=$ffmpeg_bin"
-echo "CJK_FONT=$font_path"
-echo "WQY_FONT_GIT_BLOB=$font_blob"
- <<< "$probe_metadata"
+printf '%s\n' "$probe_metadata"
+if [[ "$probe_metadata" != *"codec_name=aac"* || "$probe_metadata" != *"sample_rate=48000"* ]]; then
+  echo "FFPROBE_SMOKE=FAIL metadata did not contain AAC/48000Hz fields" >&2
+  exit 1
+fi
 echo "FFPROBE_SMOKE=PASS"
 ln -sfn "$ffmpeg_bin" "$ffmpeg_bin_dir/ffmpeg"
 echo "$ffmpeg_bin_dir" >> "$GITHUB_PATH"
