@@ -1817,3 +1817,17 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W2 first owner run `43164804919` on `0008d5b...` is superseded. The integrated-main failure on `23ce5d2...` was diagnosed and corrected in the W2 branch; do not reuse the earlier owner PASS as evidence for the fix.
 - W8 was extended after its earlier 11-test PASS to reload the browser document, reopen the project, verify both split overlays are still persisted, then select and open Inspector. The latest W8 exact SHA is now `3d76158c979bbc93535fd93587ee6ef6d8218c7e`; owner run `43165363150` and syntax run `43165363110` are IN_PROGRESS. Earlier W8 run `43164924206` is superseded for this extended assertion.
 - W3 remains PASS on `55b36f60fff45cfb51ad5596961e5b77d1ba78fd`: owner run `43164853975`, 378 passed, 1 skipped, 0 failed; syntax `43164853993` PASS.
+
+
+### Section 74 final owner closure and batch-72 integrated gate report
+
+- W8 final exact SHA `4fce2abf5212fd26ece3bbabe67763ab124f9e60`: owner run `43165598130` PASS, 11 Chromium tests passed; workflow syntax run `43165598119` PASS. The test now reloads the full browser document after split, reopens the project, verifies both overlays survived, waits for canonical selection, then opens Inspector.
+- Batch-72 integrated SHA `23ce5d2b39712937f7c65b8b8ca0eb6879919447` gate report:
+  - Full hosted regression run `43164334409`: 1,990 passed, 2 skipped, 0 failures/errors; Studio release gate in the same run: 365 passed.
+  - Parallel lanes run `43164334364`: W1 96 passed; W3 377 passed/1 skipped; W8 10 passed; W7 SUCCESS; W2 365 passed/1 failed. The single W2 failure was the external-watch test race described above.
+  - Product IA run `43164334268`: W4 36 passed; W5 13 passed.
+  - Windows-native publication run `43164334341`: 6 passed.
+  - YAML validation run `43164334395`: SUCCESS.
+- Therefore batch-72's integrated SHA is NOT fully accepted: the parallel W2 lane failed one timing-sensitive browser assertion, even though the full suite passed. The failure was not ignored. W2 owner branch SHA `11ffce38b9cdbb2e79dceba5f72cfb63a0be2cfa` now passes 367 tests after synchronizing on the exact redo revision and idle transaction state.
+- Current next-batch final owner evidence: W2 `11ffce38...` run `43165127727` PASS, 367 passed; W3 `55b36f60...` run `43164853975` PASS, 378 passed/1 skipped; W8 `4fce2ab...` run `43165598130` PASS, 11 passed. Their syntax runs `43165127785`, `43164853993`, and `43165598119` all PASS.
+- W6 docs branch has reconciled these results and owns only the two docs. Next step is path-scoped integration W2 → W3 → W8 → W6 against current main `202ab62...`, then all integrated gates on the resulting exact main SHA. No gate from `23ce5d2...` is substituted for the new main SHA.
