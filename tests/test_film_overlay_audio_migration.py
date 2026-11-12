@@ -39,3 +39,18 @@ def test_video_overlay_source_audio_disabled_is_muted_and_enabled_preserves_volu
     assert "muted" not in audible["attrs"]
     assert audible["attrs"]["volume"] == "0.35"
     assert not any("source_audio_enabled" in warning for warning in result["warnings"])
+
+    serialized = fd.serialize_film(result["document"])
+    restored = fd.parse_film(serialized)
+    restored_silent = next(
+        track["clips"][0] for track in restored["tracks"]
+        if track["id"] == "track-overlay-silent"
+    )
+    restored_audible = next(
+        track["clips"][0] for track in restored["tracks"]
+        if track["id"] == "track-overlay-audible"
+    )
+    assert "muted" in restored_silent["attrs"]
+    assert "muted" not in restored_audible["attrs"]
+    assert restored_audible["attrs"]["volume"] == "0.35"
+    assert fd.serialize_film(restored) == serialized
