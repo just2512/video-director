@@ -67,7 +67,7 @@ A workstream PASS is not an integrated PASS. After each integration commit, reru
 
 - The W3 hosted job also runs `tests/test_film_studio_generated_asset_adoption_browser.py`. This is a lifecycle acceptance test: a generated asset must remain a reusable library item until explicit user adoption; a generation request overlapping a user edit must not overwrite the newer FilmDocument revision; stale-revision adoption must fail; explicit adoption must survive a full-page reload.
 - W3 also runs `tests/test_film_document_contract.py` as a shared FilmDocument serialization/lifecycle integration contract. W2 remains the primary owner of timeline operation semantics in that file; the W3 invocation is an additional lifecycle dependency check, not a transfer of W2 ownership.
-- W1–W7 are parallel ownership and independent hosted-CI lanes on the single `main` integration target. They are not seven long-lived branches. W7 remains the only serial writer for `index.html` and `app.js`.
+- W1–W8 are parallel ownership and independent hosted-CI lanes on the single `main` integration target. They are not seven long-lived branches. W7 remains the only serial writer for `index.html` and `app.js`.
 
 
 ## Asset Library lifecycle lane reconciliation (2026-11-10)
