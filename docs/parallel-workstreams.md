@@ -357,3 +357,12 @@ Frozen baseline: `202ab62ccb7f01f29240d9b5335df0b41d8ef9eb`. The next batch uses
 - No workflow defect was found in this audit; therefore W6 does not change workflow code in this batch.
 
 Owner PASS on each latest branch SHA is mandatory before integration. Integrate W2 → W3 → W8 → W6 with path-scoped trees and source branch heads retained as additional parents. Then execute every integrated release gate against one exact main SHA. A docs-only main successor without fresh exact-SHA full-gate evidence is not considered fully accepted.
+
+
+### Latest owner-lane evidence for this batch
+
+- W2 exact SHA `11ffce38b9cdbb2e79dceba5f72cfb63a0be2cfa`: 367 passed; redo transaction release is synchronized before the next timeline gesture.
+- W3 exact SHA `55b36f60fff45cfb51ad5596961e5b77d1ba78fd`: 378 passed, 1 skipped; AssetRef, Variant, AudioTrack lane and mask boundaries are asserted.
+- W8 exact SHA `4fce2abf5212fd26ece3bbabe67763ab124f9e60`: 11 Chromium tests passed; split survives a full reload before Inspector opens.
+- W2/W3/W8 workflow syntax runs all PASS. The exact run IDs and test counts are in `execution-ledger.md` §74.
+- Batch-72 integrated SHA `23ce5d2...` exposed one W2 external-watch timing failure. It is corrected on the W2 owner branch; the integrated acceptance must be repeated after this batch is integrated. The earlier full regression PASS does not erase the failed parallel lane.
