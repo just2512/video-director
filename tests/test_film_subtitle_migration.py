@@ -83,7 +83,17 @@ def test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_
     assert any("字幕对齐来源元数据未写入" in warning for warning in warnings)
     assert any("字幕 mode 元数据未写入" in warning for warning in warnings)
 
-    document = result["document"]
+    assert "scenes/subtitles.html" in result["pages"]
+    initialized = fd.initialize_project_film(
+        project_id,
+        result["document"],
+        result["pages"],
+        source_version=0,
+        warnings=warnings,
+        selected_variant_id=result["selected_variant_id"],
+    )
+    assert initialized["ok"] is True
+    document = initialized["document"]
     subtitle_track = next(track for track in document["tracks"] if track["id"] == "track-subtitles")
     subtitle_clip = subtitle_track["clips"][0]
     assert subtitle_clip["attrs"]["src"] == "scenes/subtitles.html#t=0,3"
@@ -105,7 +115,7 @@ def test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_
     assert "top:36px;bottom:auto" in html
     assert 'const animation="fade"' in html
 
-    archive_path = project_root / "migration" / "source-composition.json"
+    archive_path = project_root / result["source_archive"]["path"]
     archived = json.loads(archive_path.read_text(encoding="utf-8"))
     assert archived["subtitle_style"]["mode"] == "word"
     assert archived["subtitle_track"]["mode"] == "word"
