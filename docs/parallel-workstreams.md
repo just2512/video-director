@@ -222,3 +222,18 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 - Windows-native write-through replace/delete and spawn-lock tests ran on the Windows runner, not only on Linux.
 - This batch is closed. The next independent batch is scoped to W2 bounded edit-operation sequences, W3 CompositionIR mapped-field semantic round trips, and W8 fail-closed HTML/WebGL capability boundaries. W6 updates lane wiring and the execution ledger.
 - Real-media snapshot performance remains MISSING until representative project media is available. NVIDIA live token-stream acceptance remains explicit opt-in; no provider call is implied by CI PASS.
+
+
+
+## 2026-11-12 next-batch branch register
+
+| Workstream | Branch | Owned scope | State |
+|---|---|---|---|
+| W2 | `work/w2-edit-operation-sequence-matrix-20261112` | `tests/test_film_document_contract.py` — three bounded multi-operation sequences and atomic rejection | PASS — run `43139051903`, 365 passed |
+| W3 | `work/w3-compositionir-semantic-evidence-20261112` | `tests/test_film_subtitle_migration.py` + recursive field-audit evidence | PASS — run `43140616590`, 370 passed/1 skipped |
+| W6 | `work/w6-next-batch-wiring-20261112` | W3 lane test-list update and this register | PASS — syntax run `43139165110` |
+
+- Frozen baseline for all three branches: `ed8431faac81a5567b28a82e9da972ddab6f701c`.
+- W2 sequence coverage is deliberately bounded; do not describe it as exhaustive permutations.
+- W3 subtitle migration distinguishes mapped cue/style fields from archived-only `mode`, `source`, and `style_id` semantics. No false claim of lossless migration.
+- Real-media performance and live NVIDIA token streaming remain external/explicit gates, not silently skipped PASS items.

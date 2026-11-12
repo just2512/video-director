@@ -1606,3 +1606,43 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 5. **NVIDIA live token-stream acceptance remains explicit opt-in.** No paid/provider live calls were made in this batch. Run only in the configured NVIDIA environment with explicit authorization and retain the acceptance artifacts.
 
 - Do not create the next batch until this exact-main acceptance is recorded and the new baseline is frozen. New work must again use one main baseline, independent W2/W3/W8 branches, a W6 workflow/docs branch, owner CI, then path-scoped serial integration.
+
+
+
+## 68. 2026-11-12 next parallel batch — edit-sequence and subtitle migration contracts
+
+### Frozen baseline and ownership
+
+- Frozen main baseline: `ed8431faac81a5567b28a82e9da972ddab6f701c`. This is a docs-only successor to fully accepted code SHA `28fc07f43cf0f01d7c39f40c89273f4395a91c10`; the code tree is unchanged.
+- W2 owner branch: `work/w2-edit-operation-sequence-matrix-20261112`, latest SHA `f63d539b44b5714e41f4bc5aeab0a0db13b84f43`. Owns only `tests/test_film_document_contract.py`.
+- W3 owner branch: `work/w3-compositionir-semantic-evidence-20261112`, latest SHA `1f2c20ced5301a356988919c3a716901b33e0c9f`. Owns `tests/test_film_subtitle_migration.py`; W6-owned workflow wiring is propagated only to execute its test and the existing field-audit test.
+- W6 owner branch: `work/w6-next-batch-wiring-20261112`, latest workflow SHA `2e554f379d8b3f15cbd2b26fc21403f91a4e4c01`. Owns `.github/workflows/parallel-workstream-ci.yml` and the execution/parallel ledgers.
+- All branches start from the same frozen baseline. Main remains integration-only.
+
+### Scope
+
+- W2 adds bounded multi-operation sequences: split → roll → slip with deterministic replay; set-envelope → split → trim → ripple-delete with source/timeline rebase; and a valid first operation followed by a locked-target rejection to prove no partial mutation. This is not exhaustive permutation coverage.
+- W3 adds a CompositionIR subtitle migration contract: subtitle cue time/text and supported style properties must reach the generated subtitle page and FilmDocument track; legacy word-mode/source/style-registry lineage must produce explicit warnings and remain in the source archive rather than being represented as runtime behavior.
+- W3 lane now includes `tests/test_composition_ir_migration_field_audit.py` and `tests/test_film_subtitle_migration.py`.
+- W8 is intentionally not broadened in this batch. Arbitrary HTML/WebGL frame determinism remains outside the supported claim; do not enable or imply support without a separate capability contract and user-facing decision.
+
+### Hard gates and external blockers
+
+- Both owner lanes must pass on their latest exact SHAs before path-scoped integration. A failure returns only to the owning branch.
+- Real-media snapshot performance remains MISSING until representative project media is available; synthetic fixtures cannot close that gate.
+- NVIDIA live token-stream acceptance remains explicit opt-in; do not invoke paid/live provider calls as part of these CI tests.
+
+
+## 69. 2026-11-12 owner-lane acceptance — ready for serial integration
+
+| Owner lane | Exact branch SHA | CI evidence | Result |
+|---|---|---|---|
+| W2 timeline transactions | `f63d539b44b5714e41f4bc5aeab0a0db13b84f43` | Run `43139051903` | 365 passed, 0 failed |
+| W3 lifecycle/export/QC + subtitle migration | `1f2c20ced5301a356988919c3a716901b33e0c9f` | Run `43140616590` | 370 passed, 1 skipped, 0 failed |
+| W3 workflow syntax | same W3 branch SHA | Run `43140616559` | SUCCESS |
+| W6 workflow syntax | `2e554f379d8b3f15cbd2b26fc21403f91a4e4c01` | Run `43139165110` | SUCCESS |
+
+- W2's three sequence tests pass: split→roll→slip deterministic replay; envelope set→split→trim→ripple-delete rebasing; and late locked-target rejection without partial mutation.
+- W3 subtitle migration test passes after using the real initialization transaction and lock-consistent legacy composition version. It verifies cue timing/text, supported style CSS, subtitle FilmDocument track/stacking, and source-snapshot preservation.
+- The recursive field audit now links all 19 SubtitleCue/SubtitleStyle/SubtitleTrack rows to the exact migration test; the audit test asserts those evidence references exist.
+- Both owner lanes are green on their latest SHAs. Proceed with W2 → W3 → W6 path-scoped serial integration; do not copy W3's propagated workflow snapshot. W6 remains the sole owner of workflow changes.
