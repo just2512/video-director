@@ -455,6 +455,7 @@ class TestProposalFlow:
 
 # ===========================================================================
 # IG-PREFLIGHT Commercial Preflight Gate
+# Exercise license, provenance, and media-presence hard gates independently and in mixed projects.
 # ===========================================================================
 
 @pytest.fixture()
