@@ -1664,3 +1664,31 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W6 owns workflow definitions, branch-lane wiring, and the two execution-plan documents. W6 must not overwrite W3/W8-owned test files.
 - Real-media snapshot performance remains MISSING until representative project media is supplied. NVIDIA live token-stream acceptance remains explicit opt-in and was skipped by the latest hosted full regression.
 - Do not integrate any code branch until its own exact-SHA scoped CI is PASS. Then integrate only owned paths, preserving the frozen main fixes, and rerun all affected owner lanes plus the integrated full hosted gates on one exact main SHA.
+
+
+
+## 2026-11-12 section 70 CI closure and baseline correction
+
+- W3 scene-boundary owner branch `work/w3-semantic-roundtrip-scene-boundaries-20261112`, exact SHA `5ddcb458c016ebec9054e3c14ee3c237d4695815`: Parallel workstream run `43150524520` PASS; W3 lifecycle/export/QC job `130958333714` SUCCESS. Workflow syntax run `43150524521`, focused storage run `43150524462` SUCCESS.
+- W8 Shotcraft owner branch `work/w8-shotcraft-browser-acceptance-20261112`, exact SHA `6dfa77cd6a223d9fe599de82a97756af388dc368`: Parallel workstream run `43150154272` PASS; W8 browser job `130957159894` SUCCESS. Workflow syntax run `43150154254` SUCCESS.
+- These are the owner runs for the branch names recorded in section 70. Separate later runs `43156659597` and `43156641957` belong to different W3/W8 branch names and must not be substituted as evidence for the section 70 branches.
+- Main has since advanced to `e52120f267d3eb0fcdc768fd2342086f4c2073bb` with the W2 Canvas initialization/reload race fix. Section 70's `23bab67...` remains the historical frozen base for its owner branches; it is not the current main integration target. Revalidate path-scoped diffs against current main before any integration.
+- Section 70 code branches are owner-CI PASS and eligible for path-scoped integration only after checking their diffs against the current main SHA and confirming no intervening changes conflict. The W6 documentation branch remains separate.
+
+
+## 2026-11-12 next parallel batch — edit sequence, CompositionIR field groups, Shotcraft inspector
+
+### Frozen baseline and exclusive ownership
+
+- Frozen main baseline: `e52120f267d3eb0fcdc768fd2342086f4c2073bb`. This includes the W2 Canvas initialization/reload race correction. Main remains integration-only.
+- W2 branch `work/w2-edit-sequence-boundaries-20261112`, owns only `tests/test_film_document_contract.py`. Adds a bounded chained edit/reopen/replay invariant; does not claim exhaustive operation permutations.
+- W3 branch `work/w3-compositionir-field-groups-20261112`, owns only `tests/test_film_subtitle_migration.py`. Adds ProjectSpec dimensions/frame-rate/duration semantic evidence and archive preservation; it does not close the remaining mapped-field inventory.
+- W8 branch `work/w8-shotcraft-inspector-state-20261112`, owns only `tests/test_visual_overlay_browser.py`. Adds a real Chromium locked-visual-track pointer-drag rejection contract; no command dispatch or optimistic mutation is allowed.
+- W6 branch `work/w6-ledger-baseline-reconcile-20261112`, owns only `docs/execution-ledger.md` and `docs/parallel-workstreams.md`. It records the exact branch/run evidence and reconciles the current baseline. It must not modify product/test files or copy stale workflow snapshots.
+
+### Acceptance and integration gates
+
+- W2, W3 and W8 each require their own owner lane to pass on the exact final branch SHA. A failure returns only to its owner branch; no test removal, assertion weakening, timeout inflation or synthetic PASS.
+- Integrate only the three owned test paths, then W6 documentation, using path-scoped integration against the latest main. Never replace the current workflow file with a stale branch snapshot.
+- After integration, run W2/W3/W8 owner lanes, W1/W7 unaffected-lane checks, focused storage/watch, Studio release gate, full Python/browser regression, Windows-native publication and workflow YAML validation on one exact main SHA.
+- Real-media snapshot performance remains MISSING until representative project media is supplied. NVIDIA live token-stream acceptance remains explicit opt-in and must not invoke paid/provider calls without the configured secret and authorization.
