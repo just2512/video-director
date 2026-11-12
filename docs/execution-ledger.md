@@ -2,7 +2,7 @@
 
 **Repository:** `just2512/video-director`  
 **Audit starting main SHA:** `99142d0887fa771bea7c3bd3e5bafd27ee435a1b`  
-**Updated:** 2026-11-10  
+**Updated:** 2026-11-12  
 **Purpose:** operational status and dependency ledger only. This file does not replace, merge, or rewrite either source plan.
 
 ## 0. Non-negotiable execution rules
@@ -1849,10 +1849,40 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - The focused workflow did not trigger for SHA `0f75b1c...` because its path filter and pytest command omitted the changed existing test `tests/test_film_studio_external_watch_browser.py`. This was a concrete CI coverage gap: changes to the external-write/FilmStore recovery browser regression could bypass the focused storage/watch gate.
 - W6 branch `work/w6-focused-storage-watch-path-20261112`, workflow-only SHA `0fb16e6ca81160bd11970f290c0df0aa8d85a56b`: added that existing test path to both the `push.paths` filter and the focused pytest command. No product code or new test was added.
 - Focused storage/watch run `43169213066`: PASS — 187 passed, 1 skipped. Workflow YAML run `43169213053`: PASS. Product IA jobs were correctly skipped on this W6-only branch; they are not counted as PASS evidence.
-- This W6 correction has not yet been integrated into main. Next: path-scoped integration of only `.github/workflows/focused-storage-watch.yml` plus the two execution documents, preserving current main as first parent and the final W6 branch head as an additional parent. Then run every required integrated gate against the resulting exact main SHA.
+- At the time of this entry the W6 correction had not yet been integrated. It was subsequently integrated by exact-main commit `980fc08c12dd3fb1d8f079e30b1c744c3ec9fa71`; final acceptance is recorded in §76.
 
 ### Remaining external evidence
 
 - Representative real-media snapshot performance remains MISSING until a representative project media file is supplied. Synthetic media is not production evidence.
 - The default full-hosted run's NVIDIA live job was SKIPPED; no provider call was made in this run. Do not trigger a paid live call without the explicit opt-in and required hosted secret. Historical live acceptance evidence, if applicable, remains tied to its recorded tested SHA and must not be silently transferred to this SHA.
 - No new product feature batch is justified. After the W6 workflow correction is integrated and the exact-main gates pass, reconcile the final ledger and close the documented delivery batch.
+
+## 76. 2026-11-12 final exact-main acceptance and delivery closure
+
+### Final integrated SHA and path-scoped W6 integration
+
+- Final executable/workflow SHA: `980fc08c12dd3fb1d8f079e30b1c744c3ec9fa71`.
+- W6 integration commit: `980fc08c12dd3fb1d8f079e30b1c744c3ec9fa71`; first parent is prior main `0f75b1c24ff140e151d53bd7026ea5e57232001c`, additional parent is W6 branch head `4c2f86006e55709a7247d5e8959af6eb1fe5b4a3`.
+- Integrated paths are limited to `.github/workflows/focused-storage-watch.yml`, `docs/execution-ledger.md`, and `docs/parallel-workstreams.md`. The workflow change adds the existing `tests/test_film_studio_external_watch_browser.py` to the focused workflow's path filter and pytest command; no product source or new test was added.
+
+### Required exact-main CI evidence — all on SHA `980fc08c...`
+
+| Gate | Run | Result |
+|---|---:|---|
+| Parallel workstreams | `43169667221` | PASS — W1 96; W2 367; W3 378 passed / 1 skipped; W7 2; W8 11 |
+| Product IA | `43169667156` | PASS — W4 36; W5 13 |
+| Full hosted regression | `43169667169` | SUCCESS — full Python/browser 1,993 passed / 2 skipped; Studio release gate 366 passed |
+| Focused storage/watch | `43169667230` | PASS — 187 passed / 1 skipped |
+| Windows native publication | `43169667150` | PASS — 6 passed |
+| Workflow YAML validation | `43169667157` | PASS |
+
+- All required default gates ran against the same exact integrated main SHA. No result from an older SHA was substituted. This closes the integrated-main acceptance requirement in §74 and the W6 path-filter correction in §75.
+- The preceding SHA `0f75b1c...` had one initial Studio-gate failure in run `43165912670` attempt 1; the same run's attempt 2 passed 366 tests without changing assertions or timeouts. The latest integrated SHA also passed the Studio gate (366) and W2 lane (367). Preserve the initial failure as a timing-sensitive observation; it is not an outstanding failure on the final SHA.
+- NVIDIA live token-stream job was SKIPPED in the final default run. No provider call was made and no cost incurred. This is not a new live-provider PASS; any new live call remains explicit opt-in and requires the hosted secret.
+
+### Closure boundary
+
+- No further W1/W2/W3/W4/W5/W7/W8 feature batch is justified by either execution plan. The implementation and required default hosted CI gates are closed on the exact SHA above.
+- Representative real-media snapshot performance remains MISSING until representative project media is supplied. Synthetic fixtures are not a substitute and this external measurement must not be fabricated.
+- User-machine local model-config preservation remains UNKNOWN because repository CI must not read local credentials/configuration. It is a separate manual check only if the user chooses to perform it.
+- Stop adding features and tests. Reopen work only for a reproducible failure against the documented contract or when the missing external acceptance input is supplied.
