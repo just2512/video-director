@@ -1416,8 +1416,15 @@ def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolba
                     "() => ED.comp && Array.isArray(ED.comp.visual_overlays) && ED.comp.visual_overlays.length === 2"
                 )
                 selected_overlay = page.locator('#editor-timeline .ed-visual-overlay-clip[data-visual-overlay-index="0"]')
+                selected_overlay.wait_for(state="visible")
                 selected_overlay.click()
-                page.locator('button[data-action="ui.edit_visual_overlay"]').click()
+                page.wait_for_function(
+                    "() => SEL.selection && SEL.selection.type === 'visual_overlay' && SEL.selection.id === 'e2e-overlay'"
+                )
+                edit_overlay = page.locator('button[data-action="ui.edit_visual_overlay"]')
+                edit_overlay.wait_for(state="visible")
+                edit_overlay.click()
+                page.locator("#visual-overlay-inspector-mask").wait_for(state="visible")
                 assert page.locator("#visual-overlay-inspector-mask").is_visible()
                 page.locator("#visual-overlay-inspector-mask button[onclick='editorVisualOverlayClose()']").first.click()
                 assert not page.locator("#visual-overlay-inspector-mask").count()
