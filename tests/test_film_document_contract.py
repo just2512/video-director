@@ -3742,3 +3742,84 @@ def test_same_project_two_tab_stale_revision_cannot_overwrite_newer_edit(tmp_pat
     }
     assert clips["clip-a"]["attrs"]["volume"] == "0.4"
     assert "volume" not in clips["clip-b"]["attrs"]
+
+
+def test_multi_operation_split_roll_slip_sequence_is_replayable_and_preserves_timeline():
+    doc = fd.parse_film(SAMPLE)
+    updated, operations = fd.apply_ops(doc, [
+        {"op": "split", "clip": "clip-a", "at": 2, "new_id": "clip-a-right"},
+        {"op": "roll", "clip": "clip-a", "other_clip": "clip-a-right", "delta": 0.5},
+        {"op": "slip", "clip": "clip-a-right", "delta_source": -0.5},
+    ])
+
+    clips = {clip["id"]: clip for track in updated["tracks"] for clip in track["clips"]}
+    left, right = clips["clip-a"], clips["clip-a-right"]
+    assert left["attrs"]["src"].endswith("#t=2,7")
+    assert right["attrs"]["src"].endswith("#t=6.5,11.5")
+    assert float(right["attrs"]["at"]) == pytest.approx(2.5)
+    assert fd.clip_duration(left) == pytest.approx(2.5)
+    assert fd.clip_duration(right) == pytest.approx(2.5)
+    assert fd.clip_end(left) == pytest.approx(float(right["attrs"]["at"]))
+    assert fd.clip_end(right) == pytest.approx(5)
+    assert [item["op"] for item in operations] == ["split", "roll", "slip"]
+
+    replayed, _ = fd.apply_ops(fd.parse_film(SAMPLE), operations)
+    serialized = fd.serialize_film(updated)
+    assert fd.serialize_film(replayed) == serialized
+    assert fd.serialize_film(fd.parse_film(serialized)) == serialized
+
+
+def test_multi_operation_split_trim_ripple_delete_rebases_audio_envelope_in_one_transaction():
+    doc = fd.parse_film(SAMPLE)
+    envelope = [
+        {"t": 0, "v": 1},
+        {"t": 5, "v": 0.2},
+        {"t": 12, "v": 0.8},
+        {"t": 20, "v": 0.6},
+    ]
+    updated, operations = fd.apply_ops(doc, [
+        {"op": "set", "clip": "audio-1", "field": "volume_envelope", "value": envelope},
+        {"op": "split", "clip": "audio-1", "at": 10, "new_id": "audio-right"},
+        {"op": "trim", "clip": "audio-right", "edge": "start", "at": 12},
+        {"op": "ripple_delete", "clip": "clip-b", "scope": "all"},
+    ])
+
+    tracks = {track["id"]: track for track in updated["tracks"]}
+    video = {clip["id"]: clip for clip in tracks["video-main"]["clips"]}
+    audio = {clip["id"]: clip for clip in tracks["audio-bed"]["clips"]}
+    assert "clip-b" not in video
+    assert audio["audio-1"]["attrs"]["src"].endswith("#t=0,5")
+    assert fd.clip_end(audio["audio-1"]) == pytest.approx(5)
+    assert float(audio["audio-right"]["attrs"]["at"]) == pytest.approx(7)
+    assert audio["audio-right"]["attrs"]["src"].endswith("#t=12,20")
+    assert fd.clip_duration(audio["audio-right"]) == pytest.approx(8)
+    assert json.loads(audio["audio-1"]["attrs"]["volume_envelope"]) == [
+        {"t": 0.0, "v": 1.0},
+        {"t": 5.0, "v": 0.2},
+    ]
+    assert json.loads(audio["audio-right"]["attrs"]["volume_envelope"]) == [
+        {"t": 0.0, "v": 0.8},
+        {"t": 8.0, "v": 0.6},
+    ]
+    assert [item["op"] for item in operations] == ["set", "split", "trim", "ripple_delete"]
+
+    replayed, _ = fd.apply_ops(fd.parse_film(SAMPLE), operations)
+    assert fd.serialize_film(replayed) == fd.serialize_film(updated)
+
+
+def test_multi_operation_batch_rejects_late_locked_target_without_partial_mutation():
+    doc = fd.parse_film(SAMPLE)
+    locked_track = fd.copy.deepcopy(doc["tracks"][0])
+    locked_track["id"] = "video-locked-target"
+    locked_track["attrs"]["locked"] = ""
+    locked_track["clips"] = []
+    doc["tracks"].append(locked_track)
+    before = fd.serialize_film(doc)
+
+    with pytest.raises(fd.FilmError):
+        fd.apply_ops(doc, [
+            {"op": "split", "clip": "clip-a", "at": 2, "new_id": "clip-a-right"},
+            {"op": "move", "clip": "clip-a-right", "track_id": "video-locked-target", "at": 0},
+        ])
+
+    assert fd.serialize_film(doc) == before
