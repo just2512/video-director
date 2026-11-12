@@ -124,15 +124,15 @@ def test_visual_overlay_create_exposes_overlay_overwrite_and_insert_in_chromium(
     root = Path(__file__).resolve().parents[1]
     script = root / "webui" / "static" / "js" / "visual-overlay-editor.js"
     cases = (
-        ("overlay", 2.0, 2.0),
-        ("overwrite", 2.0, 2.0),
+        ("overlay", 2.0, 2.0, "pointer"),
+        ("overwrite", 2.0, 2.0, "enter"),
         # Insert is allowed to cross the old project end; the server extends it.
-        ("insert", 8.0, 4.0),
+        ("insert", 8.0, 4.0, "space"),
     )
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
         try:
-            for placement_mode, start, duration in cases:
+            for placement_mode, start, duration, activation in cases:
                 page = browser.new_page()
                 try:
                     page.set_content("<!doctype html><html><body></body></html>")
@@ -162,8 +162,15 @@ def test_visual_overlay_create_exposes_overlay_overwrite_and_insert_in_chromium(
                     page.locator("#visual-overlay-start").fill(str(start))
                     page.locator("#visual-overlay-start").dispatch_event("change")
                     page.locator("#visual-overlay-duration").fill(str(duration))
-                    page.get_by_role("button", name="添加到时间线").click()
+                    button = page.get_by_role("button", name="添加到时间线")
+                    if activation == "pointer":
+                        button.click()
+                    else:
+                        button.focus()
+                        assert button.evaluate("(element) => document.activeElement === element")
+                        button.press("Enter" if activation == "enter" else "Space")
                     page.wait_for_function("window.__commands.length === 1")
+                    assert page.evaluate("window.__commands.length") == 1
 
                     command = page.evaluate("window.__commands[0]")
                     assert command["command"] == "add_visual_overlay", command
