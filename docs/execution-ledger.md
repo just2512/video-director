@@ -1493,3 +1493,35 @@ W3 test reconciliation:
 - The implementation preserves the pre-existing copy_elapsed_ms report semantics and exposes the new isolated copy I/O timing in copy_io_elapsed_ms; this avoids silently changing existing consumers.
 
 The next action is serial integration W1 → W2 → W3 → W6 onto main, followed by exact-main W1/W2/W3, focused storage/watch, Studio release gate, full Python/browser, Windows-native and YAML validation. Actual representative large-media measurements remain MISSING pending real project media; no synthetic fixture is used as production evidence.
+
+
+## 65. 2026-11-12 follow-up: commercial preflight matrix and CI media-runtime ordering
+
+### Frozen integration baseline
+
+- Main remains frozen at `4bf9e70fee0b71e701cbc7f5ebc231356e0f3984`; no product or test code from this batch has been integrated.
+- This batch continues on short-lived W1/W2/W3/W6 branches. The coordinator may propagate W6-owned workflow fixes onto code branches so each code owner lane executes against the corrected CI contract; that does not transfer workflow ownership to W1/W2/W3.
+
+### Active scoped branches
+
+- W1 Linux cross-process generation dedup: `work/w1-multiprocess-submit-dedup-20261111`, SHA `eb602435e63a62d45b9a76f28815cd13622daf15`; generation lane 96 passed, focused storage/watch and YAML SUCCESS. This proves local same-fingerprint submit serialization, not remote provider exactly-once.
+- W1 Windows spawn generation lock: `work/w1-windows-generation-submit-lock-20261111`, SHA `86be7edef26f8ffa54c27296fd56188cfe6bb89e`; W1 owner lane and YAML SUCCESS. Actual Windows-native spawn execution remains pending integration.
+- W2 external revision after full-page refresh: `work/w2-refresh-after-external-revision-20261111`, corrected workflow/test SHA `edbe599932e51263bff2ecd391f83e4851559de0`; YAML SUCCESS, focused storage/watch SUCCESS, W2 browser/timeline lane RUNNING (run 43131532044).
+- W2 canvas-history startup selection race: `work/w2-canvas-history-reload-race-20261111`, corrected workflow/test SHA `4dd753d9dbdd48443a7c8043f66eea44d9cbc089`; YAML SUCCESS, focused storage/watch SUCCESS, W2 browser/timeline lane RUNNING (run 43131542189).
+- W3 commercial preflight hard-gate matrix: `work/w3-commercial-preflight-matrix-20261111`, latest SHA `69dab033e6f2b594d63aebb3b72fad19e3240129`; tests cover CLEAR, UNKNOWN, BLOCKED, missing media and mixed CLEAR+UNKNOWN asset references. Latest W3 lifecycle lane RUNNING (run 43131728496); focused storage/watch SUCCESS on prior corrected SHA `36b1eeb759c60a404d2bb34db82d03ab51e11982`; latest YAML validation is RUNNING.
+- W6 workflow/runtime ordering: `work/w6-commercial-preflight-lane-20261111`, SHA `fc343092829eb39fe7302f7f8fd941b30895794f`; YAML validation SUCCESS (run 43131426973), focused storage/watch SUCCESS (run 43131420050).
+
+### CI failure diagnosis and correction
+
+- The first W2/W3 scoped runs failed before pytest: `.github/scripts/install-ubuntu-media-deps.sh` imports `video_director.graphics.font_resolver`, which requires `loguru`, but the workflow invoked the script before installing `requirements.txt`. This is a CI setup-order defect, not a product-test failure.
+- W6 corrected the order in parallel workstream, product IA, full hosted, focused storage/watch and Studio UI build workflows: install Python runtime/test dependencies first, then run the verified media/font preflight. No dependency pin was weakened and no media/font verification was bypassed.
+- Corrected workflow blobs were propagated to the active W2/W3 branches while preserving each code branch's exclusive test-file ownership. W2 focused storage/watch and W3 focused storage/watch subsequently passed. The W2 browser lanes and latest W3 lifecycle lane must still finish on their exact latest SHAs before integration.
+
+### Remaining hard gates
+
+- Do not integrate W2 refresh, W2 canvas-history or W3 commercial preflight until their latest exact-SHA owner lanes pass.
+- Then integrate W1 Linux, W1 Windows, W2 refresh, W2 canvas-history, W3 commercial preflight and W6 workflow/docs changes serially, preserving all intervening main commits.
+- Run the complete affected owner lanes, focused storage/watch, Studio release gate, full Python/browser, Windows-native publication and YAML validation on one exact resulting main SHA.
+- Windows spawn test for W1 must actually execute on the integrated main SHA.
+- Representative large-media snapshot performance remains MISSING until real representative project media is available; no synthetic fixture is production evidence.
+- NVIDIA live-model acceptance remains explicit opt-in and is not triggered by these CI-only changes.

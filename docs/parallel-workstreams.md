@@ -173,3 +173,28 @@ All branches below are frozen from main SHA 12aac891b12b0ec577c318981396db398e08
 
 
 - Final next-batch owner-lane closure: W1 44c8a3468ddfc7d1448dcbd726d4a6f233ea0313 PASS (95 tests; focused storage 173 passed, 1 skipped); W2 50479f987b41fa8a7811ef1fb4f679adf43b5080 PASS (361 tests); W3 969bd0a4e3fb26b3faaf11ad19b80eaa84c558a6 PASS (304 passed, 1 skipped). W6 documentation register is ready. Serial integration is now unblocked.
+
+
+## 2026-11-12 active branch batch
+
+Frozen base remains main `4bf9e70fee0b71e701cbc7f5ebc231356e0f3984`. Continue independent branch work; main remains integration-only.
+
+| Lane | Branch | Exclusive code/test ownership | Current acceptance |
+|---|---|---|---|
+| W1 | `work/w1-multiprocess-submit-dedup-20261111` | `tests/test_generation_recovery.py` | Linux owner lane 96 passed; focused storage/watch and YAML SUCCESS |
+| W1 | `work/w1-windows-generation-submit-lock-20261111` | `tests/test_generation_recovery_windows_process.py`, Windows-native workflow | W1 owner lane and YAML SUCCESS; Windows spawn execution waits for integration |
+| W2 | `work/w2-refresh-after-external-revision-20261111` | `tests/test_film_studio_external_watch_browser.py` | Focused storage/watch and YAML SUCCESS; browser owner lane RUNNING |
+| W2 | `work/w2-canvas-history-reload-race-20261111` | `tests/test_film_studio_canvas_history_browser.py` | Focused storage/watch and YAML SUCCESS; browser owner lane RUNNING |
+| W3 | `work/w3-commercial-preflight-matrix-20261111` | `tests/test_shotcraft_integration.py` | Commercial hard-gate matrix; latest lifecycle owner lane RUNNING |
+| W6 | `work/w6-commercial-preflight-lane-20261111` | CI workflows and execution/register documentation | Dependency-order fix applied; YAML and focused storage/watch SUCCESS |
+
+### W6 CI runtime ordering contract
+
+Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first install the Python runtime dependencies needed by `video_director.graphics.font_resolver` (including `loguru` and `pillow`). The media script then verifies the pinned FFmpeg wheel and font assets. Do not move the preflight ahead of dependency installation, remove its checks, or replace pinned assets with unverified downloads.
+
+### Integration order and gates
+
+- W1 Linux → W1 Windows → W2 refresh → W2 canvas-history → W3 commercial preflight → W6 workflow/docs.
+- No integration while any relevant owner lane is RUNNING or FAIL.
+- After serial integration, run all affected W1/W2/W3/W7/W8 lanes, focused storage/watch, Studio release gate, full Python/browser, Windows-native publication and YAML validation on one exact main SHA.
+- Do not combine test evidence from different SHAs. Windows spawn must execute on the integrated SHA. NVIDIA live-model and real-media performance gates remain opt-in / MISSING as defined in the execution ledger.
