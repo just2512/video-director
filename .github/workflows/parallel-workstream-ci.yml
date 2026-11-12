@@ -123,6 +123,8 @@ jobs:
           python -m pip install -r requirements.txt pytest playwright
           bash .github/scripts/install-ubuntu-media-deps.sh
           python -m playwright install chromium
+      # Keep the CompositionIR audio/visual serialize-parse round-trip tests in
+      # the owning W3 lane; the full hosted suite remains an independent gate.
       - name: Project lifecycle, render and QC regression
         run: |
           python -m pytest -q --tb=short \
