@@ -1706,3 +1706,11 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
   - Windows-native publication: 6 passed (run `43152316198`).
   - GitHub Actions YAML: SUCCESS (run `43152316207`).
 - NVIDIA live token-stream acceptance was explicitly skipped; it is not a PASS. The earlier failed full-regression attempt on parent SHA `56d8369c48e362ded4b7ed6a5c2a9ebb0bbea116` was superseded by the successful full gate on the exact integrated SHA above.
+
+
+
+### Section 71 owner-lane update
+
+- W8 exact branch SHA `cb369c517f888c1de49096f8552f200f25a0e08c`: owner run `43157349798` SUCCESS; W8 real Chromium browser step SUCCESS. Workflow syntax run `43157349734` SUCCESS.
+- W3 first attempt SHA `620cb7d533198e0d4e3fbd3b4eb39acacdea0f7d` failed 1 test because the new test read `migration/source-composition.json` from disk before the explicit film initialization transaction. This was a test setup error, not a product regression. The assertion now checks the source snapshot returned in `result.pages`, which is the actual build contract before initialization. Corrected branch SHA: `927befdacc8db61bed490e689c9d3b103a78d630`; new owner CI is pending.
+- W2 exact branch SHA `2d3fb039c48eb9a1b044acdaeb15cec25733a216`: owner lane `43157339629` was still running at this update; do not report PASS until its test step completes.
