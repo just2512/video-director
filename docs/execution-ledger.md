@@ -1730,3 +1730,11 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 
 - W3 corrected exact SHA `927befdacc8db61bed490e689c9d3b103a78d630`: owner run `43157597237` PASS; lifecycle/export/QC job `130981039920` reports 375 passed, 1 skipped, 0 failed. Workflow syntax run `43157597386` PASS.
 - W2 corrected SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` remains in progress at this update. No integration until it is complete and PASS.
+
+
+
+### Section 71 latest exact-SHA update
+
+- W3 was extended after its prior PASS to cover SceneIR/Layer timing, source range, playback speed and fit-mode mapping. Latest branch SHA is now `5a1000994d3bea2a12f5a501200b0e23ad04f5db`; owner run `43157839805` and syntax run `43157839811` are queued. The earlier `927bef...` PASS does not qualify the new test.
+- W2 latest branch SHA remains `25fa22b96902b473bd1fc781a31bf542bed9ad29`; owner run `43157670771` is still in progress. Do not integrate until the exact latest SHA passes.
+- W8 remains PASS on `cb369c517f888c1de49096f8552f200f25a0e08c`, 10 Chromium tests passed.
