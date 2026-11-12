@@ -415,6 +415,9 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 )
                 page.locator("#tab-editor").click()
                 page.locator("#pane-editor").wait_for(state="visible")
+                # A reload creates a fresh page/Studio state. Reopen the project
+                # through the real selector change below and await that authority request;
+                # do not wait for an auto-open that is not triggered by merely showing the tab.
                 page.evaluate("""(pid) => {
                   const select=document.querySelector('#editor-project');
                   let option=[...select.options].find(item=>item.value===pid);
