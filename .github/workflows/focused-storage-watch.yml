@@ -48,14 +48,14 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - name: Install native media dependencies
-        timeout-minutes: 15
-        run: |
-          bash .github/scripts/install-ubuntu-media-deps.sh
       - name: Install focused Python dependencies
         run: >-
           python -m pip install --disable-pip-version-check
           pytest pydantic loguru pillow imageio-ffmpeg edge-tts openai pyyaml playwright filelock
+      - name: Install native media dependencies
+        timeout-minutes: 15
+        run: |
+          bash .github/scripts/install-ubuntu-media-deps.sh
       - name: Install Chromium
         run: python -m playwright install chromium
       - name: Run storage, generation recovery, watcher, and migration browser regressions
