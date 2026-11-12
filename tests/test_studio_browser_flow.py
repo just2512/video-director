@@ -9,6 +9,8 @@ import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
+import pytest
+
 from playwright.sync_api import sync_playwright
 
 from video_director.models import (
@@ -1432,7 +1434,8 @@ def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolba
 
 
 
-def test_expand_main_timeline_button_runs_one_atomic_command_in_chromium(tmp_path, monkeypatch):
+@pytest.mark.parametrize("activation", ["mouse", "keyboard"])
+def test_expand_main_timeline_button_runs_one_atomic_command_in_chromium(tmp_path, monkeypatch, activation):
     """One visible user action converts every compatible scene clip on the real workspace."""
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
     results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
@@ -1483,7 +1486,12 @@ def test_expand_main_timeline_button_runs_one_atomic_command_in_chromium(tmp_pat
                     and item.url.endswith("/api/editor/command"),
                     timeout=10000,
                 ) as response_info:
-                    button.click()
+                    if activation == "keyboard":
+                        button.focus()
+                        assert page.evaluate("document.activeElement === document.querySelector('#ed-expand-main-timeline')")
+                        button.press("Enter")
+                    else:
+                        button.click()
                 command_response = response_info.value
                 assert command_response.status == 200
                 command_body = command_response.json()
