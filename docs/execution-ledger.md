@@ -9,7 +9,7 @@
 
 1. The 2026-10-19 OpenFilm/Film Studio work and the 2026-11-07 Product IA work remain separate delivery lines.
 2. `main` is the only integration branch. No long-lived work branches or PR workflow is introduced.
-3. Parallelism means independent work ownership and independent GitHub-hosted CI jobs. Shared production files are changed serially by the coordinator.
+3. Parallelism requires independent short-lived task branches frozen from one exact main SHA, disjoint file ownership, and independent GitHub-hosted CI for each owner lane. `main` is integration-only; completed branches are integrated directly in dependency order with path-scoped trees. No long-lived work branches or PR/manual-review handoff.
 4. **No self-hosted/local runner, WSL runner, developer checkout, or local model-config file may be used by repository CI.** GitHub Actions jobs must use GitHub-hosted runners (Ubuntu or Windows).
 5. Real-provider acceptance may only run as an explicit opt-in on a GitHub-hosted runner with GitHub Actions Secrets. No local runner credentials or local storage are read.
 6. A test added is not a feature delivered. A green scoped job is not an integrated PASS. Every PASS must identify the code SHA, business behavior, and test evidence.
@@ -68,7 +68,7 @@ At the start of this reconciliation, `main` was `99142d0887fa771bea7c3bd3e5bafd2
 
 ## 3. Workstream partition — what can genuinely run in parallel
 
-Workstreams are logical ownership lanes, not new Git branches. Source writes integrate directly to `main`; CI jobs run on isolated GitHub-hosted runners.
+Workstreams are logical ownership lanes implemented by independent short-lived Git branches. Freeze one exact `main` SHA, create one branch per disjoint task, run each scoped hosted-CI lane on that branch's exact SHA, then integrate directly to `main` in dependency order with path-scoped trees. `main` remains integration-only; no long-lived branches or PR/manual-review handoff.
 
 | Lane | Plan | Owns | Can run concurrently with | Must wait for / must not touch |
 |---|---|---|---|---|
@@ -1601,7 +1601,7 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 
 1. **W2 bounded edit-operation sequence matrix.** Extend from individually passing operations to explicit, deterministic operation combinations and state invariants. Do not claim exhaustive permutations; uncovered sequences remain UNKNOWN.
 2. **W3 CompositionIR semantic round-trip matrix.** The 241-field disposition inventory classifies fields as mapped/archive-only/rejected; it is not proof that every mapped field is semantically lossless. Add round-trip tests for mapped field groups and explicit preservation/rejection assertions for archived or unsupported fields.
-3. **W8 HTML scene determinism boundary.** Keep arbitrary HTML/WebGL, nondeterministic animation and unsupported external-resource behavior outside the supported claim. Add or extend fail-closed tests for unsupported capabilities; do not silently render them as deterministic.
+3. **W3 HTML scene determinism boundary.** Keep arbitrary HTML/WebGL, nondeterministic animation and unsupported external-resource behavior outside the supported claim. Add or extend fail-closed tests for unsupported capabilities; do not silently render them as deterministic. W8 owns Shotcraft creative browser UX, not scene-render determinism.
 4. **Real-media snapshot performance remains MISSING.** The benchmark harness exists, but representative large project media is required. Do not substitute synthetic media and report it as representative.
 5. **NVIDIA live token-stream acceptance remains explicit opt-in.** No paid/provider live calls were made in this batch. Run only in the configured NVIDIA environment with explicit authorization and retain the acceptance artifacts.
 
@@ -1646,3 +1646,21 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W3 subtitle migration test passes after using the real initialization transaction and lock-consistent legacy composition version. It verifies cue timing/text, supported style CSS, subtitle FilmDocument track/stacking, and source-snapshot preservation.
 - The recursive field audit now links all 19 SubtitleCue/SubtitleStyle/SubtitleTrack rows to the exact migration test; the audit test asserts those evidence references exist.
 - Both owner lanes are green on their latest SHAs. Proceed with W2 → W3 → W6 path-scoped serial integration; do not copy W3's propagated workflow snapshot. W6 remains the sole owner of workflow changes.
+
+
+## 70. 2026-11-12 next parallel batch — scene boundary, Shotcraft browser UX, and plan reconciliation
+
+### Frozen baseline and branch ownership
+
+- Frozen main baseline: `23bab67b59d968bcc2c70ef90faa52ca0939d91f`. Full hosted regression, Studio release gate, Product IA, Parallel workstreams, Windows-native publication, and workflow syntax all PASS on this exact SHA (runs `43147459576`, `43147459508`, `43147459504`, `43147459543`, `43147459538`).
+- W3 branch: `work/w3-semantic-roundtrip-scene-boundaries-20261112`; owns `tests/test_film_render_scene_e2e.py`. Added explicit offline-render rejection coverage for `file://` and `ftp://` resources in addition to remote HTTPS; scoped owner CI pending exact-SHA result.
+- W8 branch: `work/w8-shotcraft-browser-acceptance-20261112`; owns `tests/test_studio_browser_flow.py`. Timeline conversion browser acceptance now exercises both pointer activation and keyboard Enter activation; scoped owner CI pending exact-SHA result.
+- W6 branch: `work/w6-ledger-workflow-reconcile-20261112`; owns only `docs/execution-ledger.md` and `docs/parallel-workstreams.md`. Reconciles current operating rules, W3/W8 ownership, and the stale W8 determinism wording. Documentation-only; no product CI rerun required.
+
+### Ownership and hard gates
+
+- W3 owns CompositionIR lifecycle/migration and supported HTML scene frame/resource determinism. The capability matrix remains bounded: only project-local scenes implementing `window.film.frame(t)` are eligible; arbitrary HTML/WebGL and cross-device pixel identity remain unsupported/UNKNOWN.
+- W8 owns Shotcraft creative browser interaction and visual-overlay browser UX. It does not own HTML scene renderer determinism.
+- W6 owns workflow definitions, branch-lane wiring, and the two execution-plan documents. W6 must not overwrite W3/W8-owned test files.
+- Real-media snapshot performance remains MISSING until representative project media is supplied. NVIDIA live token-stream acceptance remains explicit opt-in and was skipped by the latest hosted full regression.
+- Do not integrate any code branch until its own exact-SHA scoped CI is PASS. Then integrate only owned paths, preserving the frozen main fixes, and rerun all affected owner lanes plus the integrated full hosted gates on one exact main SHA.
