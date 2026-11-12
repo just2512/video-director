@@ -22,6 +22,17 @@ from pathlib import Path
 import pytest
 
 import multiprocessing
+import os
+
+
+requires_fork_context = pytest.mark.skipif(
+    os.name == "nt",
+    reason="fork multiprocessing context unavailable on Windows; cross-process FileLock semantics covered by Linux CI",
+)
+requires_symlink_capability = pytest.mark.skipif(
+    os.name == "nt",
+    reason="symlink creation needs Windows developer mode/admin; symlink-rejection paths covered by Linux CI",
+)
 
 
 def _generation_process_submit(
@@ -1751,7 +1762,7 @@ class TestGenerationJobLedgerAtomicWrite:
         def fail_replace(_source, _destination):
             raise OSError("simulated ledger replace failure")
 
-        monkeypatch.setattr(gen.os, "replace", fail_replace)
+        monkeypatch.setattr(gen, "atomic_replace", fail_replace)
         with pytest.raises(OSError, match="simulated ledger replace failure"):
             gen._update_job(project_id, "job-after", {"status": "done"})
 
@@ -1846,6 +1857,7 @@ def test_video_output_rejects_symlinked_project_directory(
     assert not (external_dir / "escaped.mp4").exists()
 
 @pytest.mark.parametrize("symlink_component", ["assets", "generated"])
+@requires_symlink_capability
 def test_image_generation_rejects_symlinked_output_directories(
     tmp_path, monkeypatch, symlink_component,
 ):
@@ -2169,6 +2181,7 @@ class TestVideoProviderIdentity:
 
 
 
+@requires_fork_context
 def test_same_fingerprint_processes_share_one_paid_provider_submission(tmp_path, monkeypatch):
     """The durable submit lock must serialize independent processes, not only threads."""
     from types import SimpleNamespace
@@ -2260,6 +2273,7 @@ def test_same_fingerprint_processes_share_one_paid_provider_submission(tmp_path,
     assert job["variant"] == "A"
 
 
+@requires_fork_context
 def test_generation_job_ledger_merge_is_safe_across_independent_processes(tmp_path, monkeypatch):
     """Separate OS processes must not lose each other's read/modify/write updates."""
     from video_director import config, generation as generation_module
@@ -2328,6 +2342,7 @@ def _generation_process_crash_after_provider_acceptance(project_id, identity, po
     )
 
 
+@requires_fork_context
 def test_provider_acceptance_then_process_crash_never_resubmits_unknown_task(tmp_path, monkeypatch):
     """A process death after a paid POST must leave a durable fail-closed reservation."""
     import multiprocessing
@@ -2447,6 +2462,7 @@ def _generation_process_crash_after_output_replace(project_id, job_id, output_fi
     gen._persist_video_output(project_id, job_id, output_file, url)
 
 
+@requires_fork_context
 def test_process_crash_after_atomic_video_replace_recovers_without_redownload(
     tmp_path, monkeypatch
 ):
@@ -2534,6 +2550,7 @@ def _generation_process_crash_after_manifest_commit(project_id, prompt, ready, s
     )
 
 
+@requires_fork_context
 def test_manifest_commit_then_process_crash_repairs_job_marker_without_provider_call(
     tmp_path, monkeypatch
 ):
@@ -2677,6 +2694,7 @@ def _generation_process_submit_same_fingerprint_once(
         result_queue.put(f"{type(exc).__name__}: {exc}")
 
 
+@requires_fork_context
 def test_two_processes_submit_same_video_fingerprint_only_once(tmp_path, monkeypatch):
     """The cross-process reservation lock must serialize lookup, reserve and POST."""
     import multiprocessing

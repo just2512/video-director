@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from pathlib import Path
 
@@ -103,6 +104,7 @@ def test_assets_symlink_is_rejected_for_manifest_read_and_write(monkeypatch, tmp
     assert (outside / "manifest.json").read_text(encoding="utf-8") == '[{"id":"outside"}]'
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation needs Windows developer mode; covered by Linux CI")
 def test_project_root_symlink_is_rejected_before_project_lock_side_effect(monkeypatch, tmp_path):
     root = tmp_path / "composer"
     target = tmp_path / "real-project"

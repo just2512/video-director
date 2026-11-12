@@ -2816,7 +2816,10 @@ def read_project_film(project_id: str) -> dict:
     path = _film_path(project_id)
     if not _film_path_is_regular(path):
         return {"exists": False, "project_id": project_id, "text": "", "rev": revision_of(""), "doc": None}
-    text = path.read_text(encoding="utf-8")
+    # 用 read_bytes().decode 而非 read_text：read_text 在 Windows 默认 universal
+    # newlines 会把 \r\n 转成 \n，导致 revision 与外部 agent 用原始字节算的
+    # revision 不一致（CRLF film.html 的 rev 漂移，破坏编辑锁/冲突检测）。
+    text = path.read_bytes().decode("utf-8")
     return {"exists": True, "project_id": project_id, "text": text, "rev": revision_of(text), "doc": parse_film(text)}
 
 
@@ -2870,7 +2873,7 @@ def _recover_film_transaction(project_id: str) -> None:
     path = _film_path(project_id)
     if not _film_path_is_regular(path):
         raise FilmError("FILM_TRANSACTION_CONFLICT", "恢复期间 film.html 不存在或路径不安全", 409)
-    current_text = path.read_text(encoding="utf-8")
+    current_text = path.read_bytes().decode("utf-8")
     current_rev = revision_of(current_text)
     if current_rev not in {payload["before_rev"], payload["after_rev"]}:
         raise FilmError("FILM_TRANSACTION_CONFLICT", "film.html 已被事务之外的修改改变；保留事务日志并拒绝覆盖", 409)
@@ -2950,7 +2953,7 @@ def record_external_film_revision(
         try:
             if not _film_path_is_regular(path):
                 return {"status": "unreadable", "revision": after_revision}
-            current_text = path.read_text(encoding="utf-8")
+            current_text = path.read_bytes().decode("utf-8")
         except FilmError as exc:
             return {"status": "unsafe", "error": exc.code, "revision": after_revision}
         except (OSError, UnicodeError):

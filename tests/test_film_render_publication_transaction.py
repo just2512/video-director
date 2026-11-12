@@ -46,14 +46,14 @@ def test_qc_replace_failure_rolls_back_already_published_mp4(
     film_render, _root, workdir, output_temp, output, report_path = _publication_layout(
         tmp_path, monkeypatch, had_previous=had_previous
     )
-    real_replace = film_render.os.replace
+    real_replace = film_render._atomic_replace
 
     def fail_qc_replace(source, destination):
         if Path(destination) == report_path:
             raise OSError("injected QC publication failure")
         return real_replace(source, destination)
 
-    monkeypatch.setattr(film_render.os, "replace", fail_qc_replace)
+    monkeypatch.setattr(film_render, "_atomic_replace", fail_qc_replace)
 
     with pytest.raises(OSError, match="injected QC publication failure"):
         film_render._publish_render_artifacts(
@@ -83,7 +83,7 @@ def test_commit_journal_failure_rolls_back_both_published_artifacts(
     film_render, _root, workdir, output_temp, output, report_path = _publication_layout(
         tmp_path, monkeypatch, had_previous=had_previous
     )
-    real_replace = film_render.os.replace
+    real_replace = film_render._atomic_replace
     journal = workdir / "publish-transaction.json"
     journal_replacements = 0
 
@@ -95,7 +95,7 @@ def test_commit_journal_failure_rolls_back_both_published_artifacts(
                 raise OSError("injected committed-journal failure")
         return real_replace(source, destination)
 
-    monkeypatch.setattr(film_render.os, "replace", fail_commit_journal)
+    monkeypatch.setattr(film_render, "_atomic_replace", fail_commit_journal)
 
     with pytest.raises(OSError, match="injected committed-journal failure"):
         film_render._publish_render_artifacts(
@@ -123,14 +123,14 @@ def test_mp4_replace_failure_leaves_previous_artifacts_untouched(tmp_path, monke
     film_render, _root, workdir, output_temp, output, report_path = _publication_layout(
         tmp_path, monkeypatch, had_previous=True
     )
-    real_replace = film_render.os.replace
+    real_replace = film_render._atomic_replace
 
     def fail_mp4_replace(source, destination):
         if Path(destination) == output:
             raise OSError("injected MP4 publication failure")
         return real_replace(source, destination)
 
-    monkeypatch.setattr(film_render.os, "replace", fail_mp4_replace)
+    monkeypatch.setattr(film_render, "_atomic_replace", fail_mp4_replace)
 
     with pytest.raises(OSError, match="injected MP4 publication failure"):
         film_render._publish_render_artifacts(
@@ -157,7 +157,7 @@ def test_failed_rollback_retains_journal_and_backups_for_startup_recovery(
     film_render, project_root, workdir, output_temp, output, report_path = _publication_layout(
         tmp_path, monkeypatch, had_previous=True
     )
-    real_replace = film_render.os.replace
+    real_replace = film_render._atomic_replace
     output_replace_count = 0
 
     def fail_publication_and_rollback(source, destination):
@@ -171,7 +171,7 @@ def test_failed_rollback_retains_journal_and_backups_for_startup_recovery(
                 raise OSError("injected rollback replacement failure")
         return real_replace(source, destination)
 
-    monkeypatch.setattr(film_render.os, "replace", fail_publication_and_rollback)
+    monkeypatch.setattr(film_render, "_atomic_replace", fail_publication_and_rollback)
 
     with pytest.raises(RuntimeError, match="rollback was deferred"):
         film_render._publish_render_artifacts(
@@ -190,7 +190,7 @@ def test_failed_rollback_retains_journal_and_backups_for_startup_recovery(
     assert output.read_bytes() == b"new-mp4"
     assert report_path.read_bytes() == b'{"status":"OLD"}'
 
-    monkeypatch.setattr(film_render.os, "replace", real_replace)
+    monkeypatch.setattr(film_render, "_atomic_replace", real_replace)
     film_render._recover_render_publication(
         project_root, workdir, REVISION, os.getpid()
     )
@@ -218,7 +218,7 @@ def test_commit_failure_restores_mixed_prior_artifact_state(
     if had_report:
         report_path.write_bytes(b'{"status":"OLD"}')
 
-    real_replace = film_render.os.replace
+    real_replace = film_render._atomic_replace
     journal = workdir / "publish-transaction.json"
     journal_replacements = 0
 
@@ -230,7 +230,7 @@ def test_commit_failure_restores_mixed_prior_artifact_state(
                 raise OSError("injected committed-journal failure")
         return real_replace(source, destination)
 
-    monkeypatch.setattr(film_render.os, "replace", fail_commit_journal)
+    monkeypatch.setattr(film_render, "_atomic_replace", fail_commit_journal)
 
     with pytest.raises(OSError, match="injected committed-journal failure"):
         film_render._publish_render_artifacts(
@@ -260,7 +260,7 @@ def test_publication_flushes_backups_before_prepared_journal_and_syncs_renames(
         tmp_path, monkeypatch, had_previous=True
     )
     events = []
-    real_replace = film_render.os.replace
+    real_replace = film_render._atomic_replace
     real_fsync_file = film_render._fsync_file
     real_fsync_directory = film_render._fsync_directory
 
@@ -278,7 +278,7 @@ def test_publication_flushes_backups_before_prepared_journal_and_syncs_renames(
 
     monkeypatch.setattr(film_render, "_fsync_file", track_file)
     monkeypatch.setattr(film_render, "_fsync_directory", track_directory)
-    monkeypatch.setattr(film_render.os, "replace", track_replace)
+    monkeypatch.setattr(film_render, "_atomic_replace", track_replace)
 
     film_render._publish_render_artifacts(
         "project-transaction",
