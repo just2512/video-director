@@ -335,3 +335,25 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 - Integrate W2 → W3 → W8 → W6 with a tree based on the latest main tree and only the explicitly owned paths. Preserve the original branch heads as additional commit parents. Update main non-force with expected-SHA lease; abort and re-evaluate if main has advanced.
 - After integration, all required workstream lanes, Product IA, full hosted Python/browser regression, Studio release gate, focused storage/watch, Windows-native publication and YAML validation must be checked against the same exact integrated main SHA. Update the ledger with exact run/job/test evidence.
 - Next independent batch is not to be opened until this batch's integrated-main gates pass and the new main baseline is frozen. Candidate parallel scopes are W2 timeline cross-track/ripple/undo-redo/revision-conflict atomicity; W3 AssetRef/Variant/Mask/AudioTrack semantic mapping plus explicit unsupported-field fail-closed behavior; W8 Shotcraft selection/split/Inspector/keyboard/error-feedback/reload consistency; and W6 CI path-filter/owner-lane/provenance maintenance. Assign distinct files or serialize shared-contract changes before creating branches. Real-media performance and NVIDIA live token streaming remain separate MISSING/explicit-opt-in gates.
+
+
+## 2026-11-12 next batch — isolated acceptance extensions
+
+Frozen baseline: `202ab62ccb7f01f29240d9b5335df0b41d8ef9eb`. The next batch uses short-lived branches with disjoint test-file ownership:
+
+| Lane | Branch | Exclusive path | Acceptance focus |
+|---|---|---|---|
+| W2 | `work/w2-cross-track-ripple-atomicity-20261112` | `tests/test_film_studio_pending_revision.py` | Undo/redo uses the current revision as the transaction base; rejected/stale history operations never replace local document state; pending external revisions are flushed after the transaction. |
+| W3 | `work/w3-compositionir-resource-audio-mask-20261112` | `tests/test_film_subtitle_migration.py` | AssetRef provenance without raw path leakage; selected Variant identity/version and metadata; AudioTrack physical lane and mute semantics; supported mask geometry vs inverted/feather/opacity behavior explicitly warned and archived. |
+| W8 | `work/w8-shotcraft-inspector-persistence-20261112` | `tests/test_studio_browser_flow.py` | Real Chromium pointer and keyboard activation through visual-overlay select → split → persisted result → Inspector. |
+| W6 | `work/w6-ci-provenance-next-batch-20261112` | `docs/execution-ledger.md`, `docs/parallel-workstreams.md`; workflow file only for a proven defect | Register branch heads, exact owner runs, path boundaries and integrated gate provenance. |
+
+### CI orchestration audit
+
+- `parallel-workstream-ci.yml` selects the owner lane by branch prefix (`work/w1-`, `work/w2-`, `work/w3-`, `work/w7-`, `work/w8-`) and runs all lanes on `main`.
+- Every owner job checks out `github.sha`; concurrency keys include `github.ref`, so one branch cannot cancel another branch's run.
+- Documentation-only changes are intentionally ignored by product regression workflows. YAML syntax is run when workflow files change; do not manufacture a workflow edit merely to create a green check.
+- The workflow has `workflow_dispatch` for explicit manual execution. Exact run head SHA and job/test output remain the provenance source of truth.
+- No workflow defect was found in this audit; therefore W6 does not change workflow code in this batch.
+
+Owner PASS on each latest branch SHA is mandatory before integration. Integrate W2 → W3 → W8 → W6 with path-scoped trees and source branch heads retained as additional parents. Then execute every integrated release gate against one exact main SHA. A docs-only main successor without fresh exact-SHA full-gate evidence is not considered fully accepted.
