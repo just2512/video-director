@@ -387,3 +387,32 @@ def test_visual_overlay_and_watermark_field_audit_has_no_unclassified_fields():
     assert all(columns[1] == "MAPPED" for columns in rows.values())
     assert "每个 overlay" in rows["VisualOverlayClip.track_id"][2]
     assert "静态图片不适用" in rows["VisualOverlayClip.source_audio_enabled"][2]
+
+
+def test_audio_and_visual_mapped_field_rows_link_to_roundtrip_runtime_evidence():
+    audit = AUDIT_PATH.read_text(encoding="utf-8")
+    rows = {
+        line.split("|")[1].strip().strip("`"): [
+            column.strip() for column in line.strip("|").split("|")
+        ]
+        for line in audit.splitlines()
+        if line.startswith("| `") and line.count("|") >= 3
+    }
+    evidence = {
+        "AudioLane.id": "tests/test_film_beat_layer_audio_migration.py::test_audio_lane_order_controls_film_track_order_not_clip_start",
+        "AudioLane.name": "tests/test_film_beat_layer_audio_migration.py::test_audio_lane_order_controls_film_track_order_not_clip_start",
+        "AudioLane.order": "tests/test_film_beat_layer_audio_migration.py::test_audio_lane_order_controls_film_track_order_not_clip_start",
+        "AudioLane.locked": "tests/test_film_beat_layer_audio_migration.py::test_audio_lane_order_controls_film_track_order_not_clip_start",
+        "AudioLane.muted": "tests/test_film_beat_layer_audio_migration.py::test_audio_lane_order_controls_film_track_order_not_clip_start",
+        "AudioLane.hidden": "tests/test_film_beat_layer_audio_migration.py::test_audio_lane_order_controls_film_track_order_not_clip_start",
+        "VisualTrack.id": "tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved",
+        "VisualTrack.name": "tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved",
+        "VisualTrack.order": "tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved",
+        "VisualTrack.locked": "tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved",
+        "VisualTrack.hidden": "tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved",
+        "VisualOverlayClip.source_audio_enabled": "tests/test_film_overlay_audio_migration.py::test_video_overlay_source_audio_disabled_is_muted_and_enabled_preserves_volume",
+        "VisualOverlayClip.source_audio_volume": "tests/test_film_overlay_audio_migration.py::test_video_overlay_source_audio_disabled_is_muted_and_enabled_preserves_volume",
+    }
+    for field, test_reference in evidence.items():
+        assert field in rows, f"missing audited field: {field}"
+        assert test_reference in rows[field][2], f"{field} lacks exact round-trip evidence"
