@@ -203,7 +203,7 @@ def test_scene_and_video_layer_timing_source_range_and_fit_mode_map_to_film_clip
             "text": "Scene timing contract",
             "layers": [{
                 "id": "layer-offset", "type": "video", "asset_id": "asset-video",
-                "start": 0.25, "duration": 2, "source_in": 1, "source_out": 5,
+                "start": 0, "duration": 2, "source_in": 1, "source_out": 5,
                 "speed": 2, "fit_mode": "contain",
             }],
         }],
@@ -217,7 +217,7 @@ def test_scene_and_video_layer_timing_source_range_and_fit_mode_map_to_film_clip
     assert len(clips) == 1
     attrs = clips[0]["attrs"]
     assert attrs["src"].endswith("#t=1,5")
-    assert attrs["at"] == "1.75"
+    assert attrs["at"] == "1.5"
     assert attrs["speed"] == "2"
     assert attrs["data-source-scene-id"] == "scene-offset"
     assert "object-fit:contain" in attrs["style"]
