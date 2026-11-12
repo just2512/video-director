@@ -187,27 +187,33 @@ def _probe_with_ffmpeg_stderr(ffmpeg: str, media: str) -> ProbeResult:
         fm = re.search(r"(\d+(?:\.\d+)?)\s*fps", err)
         if fm:
             result.fps = float(fm.group(1))
-    audio_match = re.search(
-        r"Stream #0:\d+(?:\([^)]*\))?:\s*Audio:\s*([^\s,]+)(?:\s+\([^)]*\))?,\s*(\d+)\s*Hz,\s*([^,\r\n]+)",
-        err,
-    )
-    if audio_match:
+    audio_line = re.search(r"Stream #0:\d+[^:\r\n]*:\s*Audio:\s*([^\r\n]+)", err)
+    if audio_line:
         result.has_audio_stream = True
-        result.audio_codec = audio_match.group(1)
-        result.audio_sample_rate = int(audio_match.group(2))
-        layout = audio_match.group(3).strip().lower()
-        channel_layout = layout.split("(", 1)[0].strip()
-        known_channels = {
-            "mono": 1, "stereo": 2, "2.1": 3, "3.0": 3, "3.0(back)": 3,
-            "4.0": 4, "quad": 4, "5.0": 5, "5.1": 6, "5.1(side)": 6,
-            "5.1(back)": 6, "6.1": 7, "7.1": 8, "7.1(wide)": 8,
-            "7.1(wide-side)": 8, "octagonal": 8,
-        }
-        channels_match = re.search(r"(\d+)\s+channels?", channel_layout)
-        if channels_match:
-            result.audio_channels = int(channels_match.group(1))
-        else:
-            result.audio_channels = known_channels.get(channel_layout)
+        details = audio_line.group(1).strip()
+        codec_match = re.match(r"([^\s,]+)", details)
+        if codec_match:
+            result.audio_codec = codec_match.group(1)
+        sample_match = re.search(r"(\d+)\s*Hz", details)
+        if sample_match:
+            result.audio_sample_rate = int(sample_match.group(1))
+        if sample_match:
+            after_rate = details[sample_match.end():]
+            layout_match = re.match(r"\s*,\s*([^,\r\n]+)", after_rate)
+            if layout_match:
+                layout = layout_match.group(1).strip().lower()
+                channel_layout = layout.split("(", 1)[0].strip()
+                known_channels = {
+                    "mono": 1, "stereo": 2, "2.1": 3, "3.0": 3, "3.0(back)": 3,
+                    "4.0": 4, "quad": 4, "5.0": 5, "5.1": 6, "5.1(side)": 6,
+                    "5.1(back)": 6, "6.1": 7, "7.1": 8, "7.1(wide)": 8,
+                    "7.1(wide-side)": 8, "octagonal": 8,
+                }
+                channels_match = re.search(r"(\d+)\s+channels?", channel_layout)
+                if channels_match:
+                    result.audio_channels = int(channels_match.group(1))
+                else:
+                    result.audio_channels = known_channels.get(channel_layout)
     return result
 
 
