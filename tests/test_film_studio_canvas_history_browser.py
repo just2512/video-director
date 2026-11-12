@@ -413,37 +413,57 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     "typeof window.filmStudioHasCurrentFilmAuthority === 'function'",
                     timeout=15000,
                 )
+                # Activating the editor tab starts editorInit() asynchronously.
+                # Capture and await that initialization and every authority load it starts
+                # before issuing the explicit selector change below; otherwise the late
+                # initialization request can supersede the test's legitimate project load.
+                page.evaluate("""() => {
+                  const originalInit=window.editorInit;
+                  const originalLoad=window.editorLoad;
+                  if(typeof originalInit!=='function'||typeof originalLoad!=='function'){
+                    throw new Error('editor initialization or authority loader is unavailable');
+                  }
+                  window.__testEditorInitCalls=0;
+                  window.__testEditorInitPromise=null;
+                  window.__testEditorLoadPromises=[];
+                  window.editorLoad=function(...args){
+                    const promise=Promise.resolve(originalLoad.apply(this,args));
+                    window.__testEditorLoadPromises.push(promise);
+                    return promise;
+                  };
+                  window.editorInit=function(...args){
+                    window.__testEditorInitCalls+=1;
+                    window.__testEditorInitPromise=Promise.resolve(originalInit.apply(this,args));
+                    return window.__testEditorInitPromise;
+                  };
+                }""")
                 page.locator("#tab-editor").click()
                 page.locator("#pane-editor").wait_for(state="visible")
-                # A reload creates a fresh page/Studio state. Reopen the project
-                # through the real selector change below and await that authority request;
-                # do not wait for an auto-open that is not triggered by merely showing the tab.
+                page.wait_for_function(
+                    "() => window.__testEditorInitCalls > 0 && window.__testEditorInitPromise !== null",
+                    timeout=10000,
+                )
+                page.evaluate("""async () => {
+                  await window.__testEditorInitPromise;
+                  await Promise.all(window.__testEditorLoadPromises);
+                }""")
                 page.evaluate("""(pid) => {
                   const select=document.querySelector('#editor-project');
                   let option=[...select.options].find(item=>item.value===pid);
                   if(!option){option=new Option(pid,pid);select.add(option);}
                   select.value=pid;
-                  // Capture the actual asynchronous authority-load result invoked
-                  // by the select's normal inline onchange handler. Dispatching a
-                  // DOM event alone does not await that Promise.
-                  const original=window.editorLoad;
-                  window.__testEditorLoadPromise=null;
-                  window.__testEditorLoadCalls=0;
-                  window.editorLoad=function(...args){
-                    window.__testEditorLoadCalls+=1;
-                    window.__testEditorLoadPromise=Promise.resolve(original.apply(this,args));
-                    return window.__testEditorLoadPromise;
-                  };
-                  // Invoke the selector's real inline onchange handler exactly once.
-                  // dispatchEvent() also invokes every registered change listener;
-                  // a second project-open request can supersede this authority load
-                  // and correctly return PROJECT_SELECTION_CHANGED.
+                  // Invoke the real inline onchange handler once. The wrapper installed
+                  // before tab activation records this exact Promise without introducing
+                  // a second loader or hiding any concurrent initialization request.
                   if(typeof select.onchange!=='function') throw new Error('editor project onchange handler is missing');
+                  window.__testManualLoadIndex=window.__testEditorLoadPromises.length;
                   select.onchange.call(select,new Event('change',{bubbles:true}));
                 }""", project_id)
                 load_result = page.evaluate("""async () => {
-                  if(!window.__testEditorLoadPromise) return null;
-                  return await window.__testEditorLoadPromise;
+                  const index=window.__testManualLoadIndex;
+                  const promise=window.__testEditorLoadPromises[index];
+                  if(!promise) return null;
+                  return await promise;
                 }""")
                 assert load_result and load_result.get("ok") is True, load_result
                 assert load_result.get("film_document") is True, load_result
