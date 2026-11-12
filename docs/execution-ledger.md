@@ -1831,3 +1831,23 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - Therefore batch-72's integrated SHA is NOT fully accepted: the parallel W2 lane failed one timing-sensitive browser assertion, even though the full suite passed. The failure was not ignored. W2 owner branch SHA `11ffce38b9cdbb2e79dceba5f72cfb63a0be2cfa` now passes 367 tests after synchronizing on the exact redo revision and idle transaction state.
 - Current next-batch final owner evidence: W2 `11ffce38...` run `43165127727` PASS, 367 passed; W3 `55b36f60...` run `43164853975` PASS, 378 passed/1 skipped; W8 `4fce2ab...` run `43165598130` PASS, 11 passed. Their syntax runs `43165127785`, `43164853993`, and `43165598119` all PASS.
 - W6 docs branch has reconciled these results and owns only the two docs. Next step is path-scoped integration W2 → W3 → W8 → W6 against current main `202ab62...`, then all integrated gates on the resulting exact main SHA. No gate from `23ce5d2...` is substituted for the new main SHA.
+
+
+## 75. 2026-11-12 focused storage/watch path parity and integrated-main gates
+
+### W6 CI path correction
+
+- W6 branch `work/w6-focused-watch-path-parity-20261112` workflow-code SHA `37e89c5cd09cbbbc77f7035bc8b279f4be82df57` adds both `tests/test_film_studio_external_watch_browser.py` and `tests/test_film_studio_pending_revision.py` to the focused storage/watch workflow's push paths and pytest command. This was a concrete trigger/execution coverage gap; the workflow now runs the tests it claims to cover.
+- Exact workflow syntax run `43166111037` PASS.
+- Exact focused storage/watch run `43166111105` PASS: 206 passed, 1 skipped, 0 failed. The run checked out `37e89c5...`.
+- Subsequent documentation-only updates on the W6 branch do not change the workflow blob; the syntax/focused run evidence remains bound to workflow-code SHA `37e89c5...`.
+
+### Integrated main exact-SHA evidence
+
+- Current integrated main SHA: `0f75b1c24ff140e151d53bd7026ea5e57232001c`.
+- Parallel workstream run `43165912612` PASS: W1 96 passed; W2 367 passed; W3 378 passed/1 skipped; W8 11 passed; W7 2 passed.
+- Product IA run `43165912628` PASS: W4 36 passed; W5 13 passed.
+- Windows-native publication run `43165912691` PASS: 6 passed.
+- YAML validation run `43165912627` PASS.
+- Full hosted regression run `43165912670`: IN_PROGRESS at ledger update; full Python/browser job `131007613452` and Studio release gate job `131007613250` are still running. Do not close main acceptance until both complete successfully on this same SHA.
+- The focused storage/watch run above is on W6 workflow-code SHA `37e89c5...`, not main SHA `0f75b1c...`; after integrating the W6 path correction, the focused workflow must run again on the resulting main SHA.
