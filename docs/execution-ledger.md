@@ -1754,3 +1754,14 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W3 attempt SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` failed 1 test because the fixture began its first scene layer at 0.25s, violating CompositionIR's contiguous layer-timing validation (a gap is intentionally rejected). The schema behavior is correct.
 - The fixture now starts the first layer at 0 and verifies scene offset 1.5s, source in/out, 2× playback speed and contain fit mode. Latest W3 SHA: `4b4efb24dd05cd4cda803835115f59cc45928f02`; owner CI pending.
 - W2 `25fa22b96902b473bd1fc781a31bf542bed9ad29`: PASS, 366 passed. W8 `cb369c517f888c1de49096f8552f200f25a0e08c`: PASS, 10 browser tests.
+
+
+## 72. 2026-11-12 W3 exact-SHA correction and current batch status
+
+- Frozen integration baseline remains `e52120f267d3eb0fcdc768fd2342086f4c2073bb`; current main has not moved.
+- W2 `work/w2-edit-sequence-boundaries-20261112`, exact SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` PASS, 366 passed, 0 failed; workflow syntax run `43157670801` PASS. Owns only `tests/test_film_document_contract.py`.
+- W8 `work/w8-shotcraft-inspector-state-20261112`, exact SHA `cb369c517f888c1de49096f8552f200f25a0e08c`: owner run `43157349798` PASS, 10 Chromium tests passed; workflow syntax run `43157349734` PASS. Owns only `tests/test_visual_overlay_browser.py`.
+- W3 attempt SHA `59843385ec49c3aa10a6ce06185eca806f3de680`, owner run `43163395218`, failed 1 test because the fixture declared project duration 6.0s while its only scene covered 3.5s. CompositionIR correctly rejected the inconsistent total; no product validation was weakened.
+- W3 correction SHA `9abd6a40f4762218ddd51e86cfe0aef4372acbfc`: the fixture now declares project duration 3.5s and asserts the migrated duration is 3.5s, matching the actual scene/layer timeline. Workflow syntax run `43164057405` PASS. Exact-SHA owner run `43164057418` is IN_PROGRESS; W3 job `131001667210` is executing the lifecycle/export/QC suite. Do not treat skipped W1/W2/W7/W8 jobs as PASS and do not integrate W3 until this owner job completes successfully.
+- W6 docs branch owns only this ledger and `docs/parallel-workstreams.md`; no workflow snapshots are to be copied during integration. Current code branches have mutually exclusive one-file diffs against the frozen baseline; W6 has two documentation-only diffs.
+- Integration order after W3 exact-SHA PASS: W2 → W3 → W8 → W6. Use path-scoped trees against the then-current main, preserve source branch heads as additional parents, and update main with a non-force expected-SHA lease. Then run all required integrated gates on the resulting exact main SHA.
