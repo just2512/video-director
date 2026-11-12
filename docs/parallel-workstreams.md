@@ -229,9 +229,9 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 
 | Workstream | Branch | Owned scope | State |
 |---|---|---|---|
-| W2 | `work/w2-edit-operation-sequence-matrix-20261112` | `tests/test_film_document_contract.py` — three bounded multi-operation sequences and atomic rejection | Owner CI running |
-| W3 | `work/w3-compositionir-semantic-evidence-20261112` | `tests/test_film_subtitle_migration.py` — mapped cue/style output plus archived-lineage warnings | Owner CI rerun after W6 lane wiring |
-| W6 | `work/w6-next-batch-wiring-20261112` | W3 lane test-list update and this register | Workflow syntax validation pending |
+| W2 | `work/w2-edit-operation-sequence-matrix-20261112` | `tests/test_film_document_contract.py` — three bounded multi-operation sequences and atomic rejection | PASS — run `43139051903`, 365 passed |
+| W3 | `work/w3-compositionir-semantic-evidence-20261112` | `tests/test_film_subtitle_migration.py` + recursive field-audit evidence | PASS — run `43140616590`, 370 passed/1 skipped |
+| W6 | `work/w6-next-batch-wiring-20261112` | W3 lane test-list update and this register | PASS — syntax run `43139165110` |
 
 - Frozen baseline for all three branches: `ed8431faac81a5567b28a82e9da972ddab6f701c`.
 - W2 sequence coverage is deliberately bounded; do not describe it as exhaustive permutations.
