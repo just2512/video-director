@@ -68,7 +68,7 @@ At the start of this reconciliation, `main` was `99142d0887fa771bea7c3bd3e5bafd2
 
 ## 3. Workstream partition — what can genuinely run in parallel
 
-Workstreams are logical ownership lanes, not new Git branches. Source writes integrate directly to `main`; CI jobs run on isolated GitHub-hosted runners.
+Workstreams are logical ownership lanes implemented through short-lived, task-scoped Git branches from one frozen `main` SHA. Each branch has disjoint file ownership and an independent GitHub-hosted owner CI lane; completed changes integrate path-scoped and serially to `main`. No long-lived feature branches or PR/manual-review handoff are used. `main` is the sole integration target, not the parallel development workspace.
 
 | Lane | Plan | Owns | Can run concurrently with | Must wait for / must not touch |
 |---|---|---|---|---|
@@ -80,6 +80,7 @@ Workstreams are logical ownership lanes, not new Git branches. Source writes int
 | W5 Settings IA | 07D | Settings-specific JS/CSS modules and settings browser tests | W1/W2/W3/W4 isolated module work | Does not own `index.html`, `app.js`, model_config persistence, API semantics or role/provider IDs |
 | W6 Hosted CI and test orchestration | Both | GitHub Actions workflows, hosted runner migration, test result artifacts and SHA provenance | All read-only audits and isolated test preparation | Must not invoke self-hosted/local runner; cannot mark business work PASS |
 | W7 Shared shell integration | Both | `webui/static/index.html`, `webui/static/js/app.js`, navigation slots and final integration | Only read-only review | Serial after W4/W5 module contracts are stable; no competing writer |
+| W8 Shotcraft creative browser acceptance | 19D | Shotcraft creative-workflow and visual-overlay browser acceptance | W1/W2/W3/W4/W5 isolated work | Does not own deterministic HTML-scene rendering; W3 owns scene frame/resource/export contract |
 
 ### File ownership and collision controls
 
