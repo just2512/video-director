@@ -78,9 +78,9 @@ jobs:
       - name: Install browser and media dependencies
         timeout-minutes: 15
         run: |
-          bash .github/scripts/install-ubuntu-media-deps.sh
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pytest playwright
+          bash .github/scripts/install-ubuntu-media-deps.sh
           python -m playwright install chromium
       - name: Timeline transaction and revision regression
         run: |
