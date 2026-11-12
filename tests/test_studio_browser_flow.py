@@ -1304,7 +1304,8 @@ def test_selected_main_clip_can_be_lifted_to_playhead_from_toolbar(tmp_path, mon
 
 
 
-def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolbar(tmp_path, monkeypatch):
+@pytest.mark.parametrize("activation", ["mouse", "keyboard"])
+def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolbar(tmp_path, monkeypatch, activation):
     """Global overlay selection and toolbar actions must operate on persisted clips."""
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
     results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
@@ -1365,12 +1366,18 @@ def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolba
                 )
                 assert "ed-tl-clip-selected" in (overlay.get_attribute("class") or "")
                 page.evaluate("() => { window.PLAYHEAD.at = 0.6; }")
+                split_button = page.locator('button[data-action="ui.split_layer"]')
                 with page.expect_response(
                     lambda item: item.request.method == "POST"
                     and item.url.endswith("/api/editor/command"),
                     timeout=10000,
                 ) as response_info:
-                    page.locator('button[data-action="ui.split_layer"]').click()
+                    if activation == "keyboard":
+                        split_button.focus()
+                        assert page.evaluate("document.activeElement === document.querySelector('button[data-action=\\\"ui.split_layer\\\"]')")
+                        split_button.press("Enter")
+                    else:
+                        split_button.click()
                 command_response = response_info.value
                 assert command_response.status == 200
                 command_body = command_response.json()
