@@ -1664,3 +1664,104 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W6 owns workflow definitions, branch-lane wiring, and the two execution-plan documents. W6 must not overwrite W3/W8-owned test files.
 - Real-media snapshot performance remains MISSING until representative project media is supplied. NVIDIA live token-stream acceptance remains explicit opt-in and was skipped by the latest hosted full regression.
 - Do not integrate any code branch until its own exact-SHA scoped CI is PASS. Then integrate only owned paths, preserving the frozen main fixes, and rerun all affected owner lanes plus the integrated full hosted gates on one exact main SHA.
+
+
+
+## 2026-11-12 section 70 CI closure and baseline correction
+
+- W3 scene-boundary owner branch `work/w3-semantic-roundtrip-scene-boundaries-20261112`, exact SHA `5ddcb458c016ebec9054e3c14ee3c237d4695815`: Parallel workstream run `43150524520` PASS; W3 lifecycle/export/QC job `130958333714` SUCCESS. Workflow syntax run `43150524521`, focused storage run `43150524462` SUCCESS.
+- W8 Shotcraft owner branch `work/w8-shotcraft-browser-acceptance-20261112`, exact SHA `6dfa77cd6a223d9fe599de82a97756af388dc368`: Parallel workstream run `43150154272` PASS; W8 browser job `130957159894` SUCCESS. Workflow syntax run `43150154254` SUCCESS.
+- These are the owner runs for the branch names recorded in section 70. Separate later runs `43156659597` and `43156641957` belong to different W3/W8 branch names and must not be substituted as evidence for the section 70 branches.
+- Main has since advanced to `e52120f267d3eb0fcdc768fd2342086f4c2073bb` with the W2 Canvas initialization/reload race fix. Section 70's `23bab67...` remains the historical frozen base for its owner branches; it is not the current main integration target. Revalidate path-scoped diffs against current main before any integration.
+- Section 70 code branches are owner-CI PASS and eligible for path-scoped integration only after checking their diffs against the current main SHA and confirming no intervening changes conflict. The W6 documentation branch remains separate.
+
+
+## 2026-11-12 next parallel batch — edit sequence, CompositionIR field groups, Shotcraft inspector
+
+### Frozen baseline and exclusive ownership
+
+- Frozen main baseline: `e52120f267d3eb0fcdc768fd2342086f4c2073bb`. This includes the W2 Canvas initialization/reload race correction. Main remains integration-only.
+- W2 branch `work/w2-edit-sequence-boundaries-20261112`, owns only `tests/test_film_document_contract.py`. Adds a bounded chained edit/reopen/replay invariant; does not claim exhaustive operation permutations.
+- W3 branch `work/w3-compositionir-field-groups-20261112`, owns only `tests/test_film_subtitle_migration.py`. Adds ProjectSpec dimensions/frame-rate/duration semantic evidence and archive preservation; it does not close the remaining mapped-field inventory.
+- W8 branch `work/w8-shotcraft-inspector-state-20261112`, owns only `tests/test_visual_overlay_browser.py`. Adds a real Chromium locked-visual-track pointer-drag rejection contract; no command dispatch or optimistic mutation is allowed.
+- W6 branch `work/w6-ledger-baseline-reconcile-20261112`, owns only `docs/execution-ledger.md` and `docs/parallel-workstreams.md`. It records the exact branch/run evidence and reconciles the current baseline. It must not modify product/test files or copy stale workflow snapshots.
+
+### Acceptance and integration gates
+
+- W2, W3 and W8 each require their own owner lane to pass on the exact final branch SHA. A failure returns only to its owner branch; no test removal, assertion weakening, timeout inflation or synthetic PASS.
+- Integrate only the three owned test paths, then W6 documentation, using path-scoped integration against the latest main. Never replace the current workflow file with a stale branch snapshot.
+- After integration, run W2/W3/W8 owner lanes, W1/W7 unaffected-lane checks, focused storage/watch, Studio release gate, full Python/browser regression, Windows-native publication and workflow YAML validation on one exact main SHA.
+- Real-media snapshot performance remains MISSING until representative project media is supplied. NVIDIA live token-stream acceptance remains explicit opt-in and must not invoke paid/provider calls without the configured secret and authorization.
+
+
+
+## 2026-11-12 section 70 integrated-main closure
+
+- The section 70 W3 and W8 owner branches are already ancestors of main `e52120f267d3eb0fcdc768fd2342086f4c2073bb`; comparing each branch against that main SHA returns no remaining file delta. Do not re-integrate their files.
+- Integrated main `e52120f267d3eb0fcdc768fd2342086f4c2073bb` passed all hosted gates on that exact SHA:
+  - Full Python/browser regression: 1,986 passed, 2 skipped, 0 failed/errors (run `43152316209`).
+  - Studio release gate: 364 passed (same run).
+  - Parallel workstreams W1/W2/W3/W7/W8: all SUCCESS (run `43152316202`).
+  - Product IA W4/W5: both SUCCESS (run `43152316231`).
+  - Windows-native publication: 6 passed (run `43152316198`).
+  - GitHub Actions YAML: SUCCESS (run `43152316207`).
+- NVIDIA live token-stream acceptance was explicitly skipped; it is not a PASS. The earlier failed full-regression attempt on parent SHA `56d8369c48e362ded4b7ed6a5c2a9ebb0bbea116` was superseded by the successful full gate on the exact integrated SHA above.
+
+
+
+### Section 71 owner-lane update
+
+- W8 exact branch SHA `cb369c517f888c1de49096f8552f200f25a0e08c`: owner run `43157349798` SUCCESS; W8 real Chromium browser step SUCCESS. Workflow syntax run `43157349734` SUCCESS.
+- W3 first attempt SHA `620cb7d533198e0d4e3fbd3b4eb39acacdea0f7d` failed 1 test because the new test read `migration/source-composition.json` from disk before the explicit film initialization transaction. This was a test setup error, not a product regression. The assertion now checks the source snapshot returned in `result.pages`, which is the actual build contract before initialization. Corrected branch SHA: `927befdacc8db61bed490e689c9d3b103a78d630`; new owner CI is pending.
+- W2 exact branch SHA `2d3fb039c48eb9a1b044acdaeb15cec25733a216`: owner lane `43157339629` was still running at this update; do not report PASS until its test step completes.
+
+
+
+### Section 71 correction record — W2 sequence boundary
+
+- W2 first attempt SHA `2d3fb039c48eb9a1b044acdaeb15cec25733a216` failed 1 test because the fixture split a 1.5× clip while the following clip remained at timeline time 5, producing a real overlap rejected by document validation. The product rejection was correct; the test sequence was invalid.
+- The corrected sequence now moves the following clip to time 7 before changing speed and splitting, then verifies stable IDs, source ranges, normalized operation order, serialization/reopen, and deterministic replay.
+- Corrected W2 SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` is running; syntax run `43157670801` is running.
+- W3 corrected SHA `927befdacc8db61bed490e689c9d3b103a78d630`: owner run `43157597237` is running; syntax run `43157597386` SUCCESS.
+
+
+
+### Section 71 owner-lane update — W3 closure
+
+- W3 corrected exact SHA `927befdacc8db61bed490e689c9d3b103a78d630`: owner run `43157597237` PASS; lifecycle/export/QC job `130981039920` reports 375 passed, 1 skipped, 0 failed. Workflow syntax run `43157597386` PASS.
+- W2 corrected SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` remains in progress at this update. No integration until it is complete and PASS.
+
+
+
+### Section 71 latest exact-SHA update
+
+- W3 was extended after its prior PASS to cover SceneIR/Layer timing, source range, playback speed and fit-mode mapping. Latest branch SHA is now `5a1000994d3bea2a12f5a501200b0e23ad04f5db`; owner run `43157839805` and syntax run `43157839811` are queued. The earlier `927bef...` PASS does not qualify the new test.
+- W2 latest branch SHA remains `25fa22b96902b473bd1fc781a31bf542bed9ad29`; owner run `43157670771` is still in progress. Do not integrate until the exact latest SHA passes.
+- W8 remains PASS on `cb369c517f888c1de49096f8552f200f25a0e08c`, 10 Chromium tests passed.
+
+
+
+### Section 71 owner-lane update — W2 closure
+
+- W2 corrected exact SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` PASS; timeline transaction/revision job `130981275578` reports 366 passed, 0 failed. Workflow syntax run `43157670801` PASS.
+- W3 latest SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` remains in owner run `43157839805`; its scene/layer semantic extension is not yet accepted.
+- W8 remains PASS on `cb369c517f888c1de49096f8552f200f25a0e08c`, run `43157349798`, 10 passed.
+
+
+
+### Section 71 W3 scene/layer fixture correction
+
+- W3 attempt SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` failed 1 test because the fixture began its first scene layer at 0.25s, violating CompositionIR's contiguous layer-timing validation (a gap is intentionally rejected). The schema behavior is correct.
+- The fixture now starts the first layer at 0 and verifies scene offset 1.5s, source in/out, 2× playback speed and contain fit mode. Latest W3 SHA: `4b4efb24dd05cd4cda803835115f59cc45928f02`; owner CI pending.
+- W2 `25fa22b96902b473bd1fc781a31bf542bed9ad29`: PASS, 366 passed. W8 `cb369c517f888c1de49096f8552f200f25a0e08c`: PASS, 10 browser tests.
+
+
+## 72. 2026-11-12 W3 exact-SHA correction and current batch status
+
+- Frozen integration baseline remains `e52120f267d3eb0fcdc768fd2342086f4c2073bb`; current main has not moved.
+- W2 `work/w2-edit-sequence-boundaries-20261112`, exact SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` PASS, 366 passed, 0 failed; workflow syntax run `43157670801` PASS. Owns only `tests/test_film_document_contract.py`.
+- W8 `work/w8-shotcraft-inspector-state-20261112`, exact SHA `cb369c517f888c1de49096f8552f200f25a0e08c`: owner run `43157349798` PASS, 10 Chromium tests passed; workflow syntax run `43157349734` PASS. Owns only `tests/test_visual_overlay_browser.py`.
+- W3 attempt SHA `59843385ec49c3aa10a6ce06185eca806f3de680`, owner run `43163395218`, failed 1 test because the fixture declared project duration 6.0s while its only scene covered 3.5s. CompositionIR correctly rejected the inconsistent total; no product validation was weakened.
+- W3 correction SHA `9abd6a40f4762218ddd51e86cfe0aef4372acbfc`: the fixture now declares project duration 3.5s and asserts the migrated duration is 3.5s, matching the actual scene/layer timeline. Workflow syntax run `43164057405` PASS. Exact-SHA owner run `43164057418` is IN_PROGRESS; W3 job `131001667210` is executing the lifecycle/export/QC suite. Do not treat skipped W1/W2/W7/W8 jobs as PASS and do not integrate W3 until this owner job completes successfully.
+- W6 docs branch owns only this ledger and `docs/parallel-workstreams.md`; no workflow snapshots are to be copied during integration. Current code branches have mutually exclusive one-file diffs against the frozen baseline; W6 has two documentation-only diffs.
+- Integration order after W3 exact-SHA PASS: W2 → W3 → W8 → W6. Use path-scoped trees against the then-current main, preserve source branch heads as additional parents, and update main with a non-force expected-SHA lease. Then run all required integrated gates on the resulting exact main SHA.

@@ -247,3 +247,91 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 - W3 owns supported HTML scene frame/resource determinism under `docs/film-scene-capability-matrix.md`; arbitrary HTML/WebGL, uncontrolled timers, remote resources, and cross-device pixel identity remain unsupported or UNKNOWN.
 - W8 owns Shotcraft creative browser UX and visual-overlay browser acceptance. W8 is not the HTML scene determinism owner.
 - W6 owns GitHub Actions orchestration and the execution/parallel-workstream documents. W6 must not copy stale workflow snapshots from W3/W8 code branches during integration.
+
+
+
+## 2026-11-12 section 70 owner-CI closure and current baseline
+
+- Section 70 W3 branch `work/w3-semantic-roundtrip-scene-boundaries-20261112`, SHA `5ddcb458c016ebec9054e3c14ee3c237d4695815`: owner run `43150524520` PASS (W3 lifecycle/export/QC job SUCCESS); workflow syntax `43150524521` and focused storage `43150524462` SUCCESS.
+- Section 70 W8 branch `work/w8-shotcraft-browser-acceptance-20261112`, SHA `6dfa77cd6a223d9fe599de82a97756af388dc368`: owner run `43150154272` PASS (W8 Shotcraft browser job SUCCESS); workflow syntax `43150154254` SUCCESS.
+- The current main has advanced to `e52120f267d3eb0fcdc768fd2342086f4c2073bb`; the section 70 frozen baseline remains historical. Rebase is not assumed: inspect path-scoped diffs against the current main before integration and preserve the W2 reload-race fix.
+- Do not confuse runs `43156659597` / `43156641957` with the section 70 owner branches; those runs belong to different W3/W8 branch refs.
+
+## 2026-11-12 next independent parallel batch
+
+| Lane | Frozen-base branch | Exclusive ownership | Acceptance |
+|---|---|---|---|
+| W2 | `work/w2-edit-sequence-boundaries-20261112` | `tests/test_film_document_contract.py` | Exact-SHA W2 timeline transaction owner lane |
+| W3 | `work/w3-compositionir-field-groups-20261112` | `tests/test_film_subtitle_migration.py` | Exact-SHA W3 lifecycle/export/QC owner lane |
+| W8 | `work/w8-shotcraft-inspector-state-20261112` | `tests/test_visual_overlay_browser.py` | Exact-SHA W8 real Chromium Shotcraft owner lane |
+| W6 | `work/w6-ledger-baseline-reconcile-20261112` | `docs/execution-ledger.md`, `docs/parallel-workstreams.md` | Documentation-only reconciliation |
+
+- Frozen main baseline for all four branches: `e52120f267d3eb0fcdc768fd2342086f4c2073bb`. Main remains integration-only.
+- W2 adds one bounded deterministic edit-chain/reopen/replay invariant; this is not exhaustive operation coverage.
+- W3 adds semantic evidence for ProjectSpec dimensions, frame rate, declared duration and source-archive retention. Other mapped groups remain UNKNOWN until independently evidenced.
+- W8 adds a real Chromium pointer interaction proving a locked visual track rejects drag without dispatching an edit command.
+- Owner branches run concurrently. Integrate only exact-SHA PASS branches, by owned path, then run the integrated full gate on one exact main SHA.
+- Real-media performance remains MISSING pending representative user media. NVIDIA live token-stream acceptance remains explicit opt-in.
+
+
+
+## 2026-11-12 section 70 integration verification
+
+- The W3 scene-boundary branch `5ddcb458c016ebec9054e3c14ee3c237d4695815` and W8 Shotcraft branch `6dfa77cd6a223d9fe599de82a97756af388dc368` are both fully contained in main `e52120f267d3eb0fcdc768fd2342086f4c2073bb`; each compare reports no remaining file delta. Their scoped changes are integrated; do not duplicate them.
+- Exact-main release evidence on `e52120f267d3eb0fcdc768fd2342086f4c2073bb`: full regression 1,986 passed/2 skipped; Studio gate 364 passed; W1/W2/W3/W7/W8 all SUCCESS; W4/W5 both SUCCESS; Windows-native 6 passed; YAML SUCCESS. Runs: `43152316209`, `43152316202`, `43152316231`, `43152316198`, `43152316207`.
+- NVIDIA live token-stream acceptance remains explicitly skipped and is not represented as completed.
+
+
+
+### Section 71 owner-lane status
+
+- W8 `cb369c517f888c1de49096f8552f200f25a0e08c`: owner run `43157349798` PASS; workflow syntax `43157349734` PASS.
+- W3 SHA `620cb7d533198e0d4e3fbd3b4eb39acacdea0f7d` exposed a test-fixture lifecycle mistake: the source archive is returned in the build result and is not written to disk until initialization. The test now asserts `result.pages[source_archive.path]`; corrected SHA `927befdacc8db61bed490e689c9d3b103a78d630` is awaiting owner CI.
+- W2 SHA `2d3fb039c48eb9a1b044acdaeb15cec25733a216` owner run `43157339629` remained RUNNING at this update.
+
+
+
+### Section 71 correction record — W2 sequence boundary
+
+- W2 first attempt `2d3fb039c48eb9a1b044acdaeb15cec25733a216` exposed a test sequence that genuinely overlapped the following clip after speed change and split. The validator correctly rejected it. The test now first moves the following clip to a non-overlapping position, then checks stable IDs, source ranges and deterministic replay. Corrected SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29` owner run `43157670771` is RUNNING.
+- W3 corrected SHA `927befdacc8db61bed490e689c9d3b103a78d630` owner run `43157597237` is RUNNING; workflow syntax `43157597386` PASS.
+
+
+
+### Section 71 owner-lane update — W3 closure
+
+- W3 `927befdacc8db61bed490e689c9d3b103a78d630`: owner run `43157597237` PASS (375 passed, 1 skipped); workflow syntax `43157597386` PASS.
+- W2 `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` remains RUNNING. Hold integration.
+
+
+
+### Section 71 latest exact-SHA update
+
+- W3 latest SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` adds SceneIR/Layer mapping assertions after the previous `927bef...` PASS; new owner run `43157839805` and syntax run `43157839811` are QUEUED. The earlier pass does not cover the new test.
+- W2 latest SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29` owner run `43157670771` remains RUNNING.
+- W8 `cb369c517f888c1de49096f8552f200f25a0e08c` owner run PASS: 10 Chromium tests.
+
+
+
+### Section 71 owner-lane update — W2 closure
+
+- W2 `25fa22b96902b473bd1fc781a31bf542bed9ad29`: run `43157670771` PASS, 366 passed; workflow syntax `43157670801` PASS.
+- W3 latest SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` owner run `43157839805` remains RUNNING.
+- W8 `cb369c517f888c1de49096f8552f200f25a0e08c`: run `43157349798` PASS, 10 browser tests.
+
+
+
+### Section 71 W3 scene/layer fixture correction
+
+- W3 SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` failed 1 test: its first layer started at 0.25s, which violates the CompositionIR no-gap continuity rule. The test fixture now begins at 0 and checks scene offset 1.5s plus source range, speed and fit mode. Latest SHA `4b4efb24dd05cd4cda803835115f59cc45928f02` awaits owner CI.
+- W2 `25fa22b96902b473bd1fc781a31bf542bed9ad29`: PASS, 366 passed. W8 `cb369c517f888c1de49096f8552f200f25a0e08c`: PASS, 10 Chromium tests.
+
+
+## 2026-11-12 batch 72 integration and next-batch guardrails
+
+- Current frozen main is `e52120f267d3eb0fcdc768fd2342086f4c2073bb`. W2, W3, W8 and W6 are independent short-lived branches with disjoint file ownership; compare each against the frozen baseline before integration.
+- W2 owns only `tests/test_film_document_contract.py`; W3 owns only `tests/test_film_subtitle_migration.py`; W8 owns only `tests/test_visual_overlay_browser.py`; W6 owns only the two execution-plan documents. Do not cherry-pick or merge stale workflow files from any test branch.
+- Owner PASS is required on the final exact branch SHA. A path-filtered SKIPPED job is not a PASS. Any failed owner test returns to that owner branch; no assertion weakening, timeout inflation, or test removal.
+- Integrate W2 → W3 → W8 → W6 with a tree based on the latest main tree and only the explicitly owned paths. Preserve the original branch heads as additional commit parents. Update main non-force with expected-SHA lease; abort and re-evaluate if main has advanced.
+- After integration, all required workstream lanes, Product IA, full hosted Python/browser regression, Studio release gate, focused storage/watch, Windows-native publication and YAML validation must be checked against the same exact integrated main SHA. Update the ledger with exact run/job/test evidence.
+- Next independent batch is not to be opened until this batch's integrated-main gates pass and the new main baseline is frozen. Candidate parallel scopes are W2 timeline cross-track/ripple/undo-redo/revision-conflict atomicity; W3 AssetRef/Variant/Mask/AudioTrack semantic mapping plus explicit unsupported-field fail-closed behavior; W8 Shotcraft selection/split/Inspector/keyboard/error-feedback/reload consistency; and W6 CI path-filter/owner-lane/provenance maintenance. Assign distinct files or serialize shared-contract changes before creating branches. Real-media performance and NVIDIA live token streaming remain separate MISSING/explicit-opt-in gates.
