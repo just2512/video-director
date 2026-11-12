@@ -1746,3 +1746,11 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W2 corrected exact SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` PASS; timeline transaction/revision job `130981275578` reports 366 passed, 0 failed. Workflow syntax run `43157670801` PASS.
 - W3 latest SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` remains in owner run `43157839805`; its scene/layer semantic extension is not yet accepted.
 - W8 remains PASS on `cb369c517f888c1de49096f8552f200f25a0e08c`, run `43157349798`, 10 passed.
+
+
+
+### Section 71 W3 scene/layer fixture correction
+
+- W3 attempt SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` failed 1 test because the fixture began its first scene layer at 0.25s, violating CompositionIR's contiguous layer-timing validation (a gap is intentionally rejected). The schema behavior is correct.
+- The fixture now starts the first layer at 0 and verifies scene offset 1.5s, source in/out, 2× playback speed and contain fit mode. Latest W3 SHA: `4b4efb24dd05cd4cda803835115f59cc45928f02`; owner CI pending.
+- W2 `25fa22b96902b473bd1fc781a31bf542bed9ad29`: PASS, 366 passed. W8 `cb369c517f888c1de49096f8552f200f25a0e08c`: PASS, 10 browser tests.
