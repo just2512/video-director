@@ -1339,3 +1339,65 @@ def test_benchmark_rejects_missing_or_out_of_project_resource(tmp_path, monkeypa
 
     with pytest.raises(Exception, match="existing regular file"):
         benchmark_snapshot(project_id, ["assets/missing.mp4"])
+
+
+def test_composition_asset_metadata_is_preserved_on_migrated_clip_without_raw_path_leak(tmp_path, monkeypatch):
+    """Mapped asset identity reaches the clip; descriptive/provenance fields remain explicit metadata."""
+    from video_director import film_document as fd
+    from video_director.models import CompositionIR
+
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "asset-metadata-migration-contract"
+    project_root = storage / project_id
+    (project_root / "assets").mkdir(parents=True)
+    (project_root / "assets" / "still.png").write_bytes(b"asset-metadata-fixture")
+    (project_root / "manifest.json").write_text(json.dumps({
+        "assets": [{
+            "id": "asset-still", "kind": "image", "path": "assets/still.png",
+            "filename": "still.png", "mime_type": "image/png",
+        }]
+    }), encoding="utf-8")
+
+    metadata = {
+        "duration": 2.5,
+        "width": 1920,
+        "height": 1080,
+        "fps": 24,
+        "prompt": "wide establishing shot",
+        "description": "A city skyline at dusk",
+        "keywords": ["city", "dusk", "establishing"],
+        "source": "user-upload",
+        "license_note": "licensed for internal project use",
+        "provenance": {"provider": "manual-import", "batch": "batch-17"},
+        "rights_status": "cleared",
+    }
+    ir = CompositionIR.model_validate({
+        "version": 1,
+        "project": {"width": 640, "height": 360, "fps": 24, "duration": 2.5},
+        "assets": [{
+            "id": "asset-still", "type": "image", "file": "assets/still.png", **metadata,
+        }],
+        "scenes": [{
+            "id": "scene-1", "start": 0, "duration": 2.5,
+            "layers": [{
+                "id": "layer-1", "type": "image", "asset_id": "asset-still",
+                "start": 0, "duration": 2.5,
+            }],
+        }],
+    })
+
+    result = fd.build_film_from_composition(project_id, ir)
+    clip = next(
+        clip
+        for track in result["document"]["tracks"]
+        for clip in track["clips"]
+        if clip["attrs"].get("data-asset-id") == "asset-still"
+    )
+    attrs = clip["attrs"]
+    assert attrs["data-asset-id"] == "asset-still"
+    assert attrs["src"].startswith("assets/still.png#t=")
+    preserved = json.loads(attrs["data-source-asset-metadata"])
+    assert preserved == {"type": "image", **metadata}
+    assert "file" not in preserved
+    assert "assets/still.png" not in json.dumps(preserved)
