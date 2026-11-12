@@ -3829,6 +3829,7 @@ def test_multi_operation_sequence_replays_after_document_round_trip():
     """A bounded edit chain must preserve stable IDs and normalized source ranges."""
     original = fd.parse_film(SAMPLE)
     operations = [
+        {"op": "move", "clip": "clip-b", "track_id": "video-main", "at": 7},
         {"op": "set", "clip": "clip-a", "field": "speed", "value": 1.5},
         {"op": "split", "clip": "clip-a", "at": 2, "new_id": "clip-a-right"},
         {"op": "set", "clip": "clip-a-right", "field": "volume", "value": 0.35},
@@ -3845,9 +3846,10 @@ def test_multi_operation_sequence_replays_after_document_round_trip():
         for clip in track["clips"]
     }
     assert {"clip-a", "clip-a-right", "clip-b"} <= set(clips)
+    assert clips["clip-b"]["attrs"]["at"] == "7"
     assert clips["clip-a"]["attrs"]["src"].endswith("#t=2,5")
     assert clips["clip-a-right"]["attrs"]["src"].endswith("#t=5,12")
     assert clips["clip-a-right"]["attrs"]["volume"] == "0.35"
-    assert [item["op"] for item in normalized] == ["set", "split", "set"]
+    assert [item["op"] for item in normalized] == ["move", "set", "split", "set"]
     assert replayed_normalized == normalized
     assert fd.serialize_film(replayed) == serialized
