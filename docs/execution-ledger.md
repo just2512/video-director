@@ -1525,3 +1525,40 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - Windows spawn test for W1 must actually execute on the integrated main SHA.
 - Representative large-media snapshot performance remains MISSING until real representative project media is available; no synthetic fixture is production evidence.
 - NVIDIA live-model acceptance remains explicit opt-in and is not triggered by these CI-only changes.
+
+
+
+## 66. 2026-11-12 media-runtime hardening and scoped-lane revalidation
+
+### Exact baseline and current main
+
+- Frozen integration baseline for this batch remains `4bf9e70fee0b71e701cbc7f5ebc231356e0f3984`.
+- Current main is `f53ed86791b31e74033e0fa059b4b5a4d13853a2`; it includes the W6 dependency-order correction and the W8 creative-browser target update.
+- Do not replace current main workflow files with stale branch snapshots. The W2/W3 branches were created from the frozen baseline and are behind current main; integrate only their exclusively owned test files. W1 Windows additionally owns its Windows-native workflow change. W6 supplies the final CI script/workflow and documentation deltas.
+
+### W6 FFprobe correction
+
+- Main full-hosted run `43132644847` failed with 9 tests: 8 AAC metadata assertions and one template-gallery browser wait for `#tg-render` to become enabled.
+- Root cause for the eight media assertions: the pinned imageio-ffmpeg wheel provides FFmpeg but not FFprobe. The renderer correctly fell back to stderr probing, which cannot provide the codec/sample-rate fields required by the tests.
+- First correction attempt used a dynamic FFprobe build and failed on the hosted runner because `libva.so.2` was absent. That attempt is superseded and must not be integrated.
+- Final W6 correction uses the upstream static Linux x64 FFprobe asset with a pinned SHA-256. Before tests run, the script creates an AAC MP4 with the exact pinned FFmpeg binary and requires FFprobe to report `codec_name=aac` and `sample_rate=48000`. Failure is a hard stop; no silent fallback is accepted as CI readiness.
+- The static FFprobe preflight is PASS on W3 exact branch run `43135695334`; log evidence includes `FFPROBE_SMOKE=PASS`.
+- W6 also adds `test-results/**` to the full-regression artifact so Chromium traces and server diagnostics survive browser failures.
+
+### Exact-SHA scoped evidence
+
+- W1 Linux cross-process submit dedup: `eb602435e63a62d45b9a76f28815cd13622daf15`; 96 passed, focused storage/watch and YAML SUCCESS.
+- W1 Windows spawn lock: `86be7edef26f8ffa54c27296fd56188cfe6bb89e`; W1 owner lane and YAML SUCCESS. Actual Windows spawn execution remains a hard gate on integrated main.
+- W2 external revision after refresh: latest corrected branch SHA `67f871b9af76edea722bb3d60b8369b56190a054`; owner lane run `43135684066` RUNNING at this ledger update.
+- W2 Canvas history startup race: latest corrected branch SHA `7787c342c772f958e17ee21db2cd2073deb0882a`; owner lane run `43135689203` RUNNING at this ledger update.
+- W3 commercial preflight matrix: latest corrected branch SHA `bdbb62ac9f6a30ed8b0d243e09b50cf374cd55f5`; lifecycle/export/QC run `43135695334`: 353 passed, 1 skipped, 0 failures. This exact run also passed the static FFprobe AAC smoke preflight.
+- W6 workflow syntax after the static FFprobe change: run `43135678558` SUCCESS. A later diagnostics-artifact workflow change requires its own YAML validation on the final W6 SHA.
+
+### Remaining hard gates and integration order
+
+- Do not integrate while either W2 owner lane is RUNNING or FAIL.
+- Integrate W1 Linux → W1 Windows → W2 refresh → W2 canvas-history → W3 commercial preflight → W6 CI/docs.
+- For W2/W3 branches, take only the owner test file(s); do not copy their stale workflow snapshots over current main. W6-owned script/workflow changes are integrated from the final W6 branch.
+- After integration, run all affected W1/W2/W3/W7/W8 lanes, focused storage/watch, Studio release gate, full Python/browser, Windows-native publication and YAML validation on one exact main SHA.
+- The template-gallery browser timeout must be rechecked after FFprobe is present. If it persists, use the newly retained trace and server diagnostics to fix the actual readiness/asset-upload condition; do not increase timeouts or weaken the assertion without evidence.
+- NVIDIA live-model acceptance remains explicit opt-in. Representative large-media snapshot performance remains MISSING pending real project media.
