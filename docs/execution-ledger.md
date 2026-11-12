@@ -1886,3 +1886,41 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - Representative real-media snapshot performance remains MISSING until representative project media is supplied. Synthetic fixtures are not a substitute and this external measurement must not be fabricated.
 - User-machine local model-config preservation remains UNKNOWN because repository CI must not read local credentials/configuration. It is a separate manual check only if the user chooses to perform it.
 - Stop adding features and tests. Reopen work only for a reproducible failure against the documented contract or when the missing external acceptance input is supplied.
+
+
+
+## 77. 2026-11-12 public real-media cloud acceptance and final exact-SHA closure
+
+### Integrated media acceptance
+
+- Main executable/test SHA: `ad713e5cbaa633717a4d9151f17b259b9c1aea70`.
+- Added one W3-owned test in `tests/test_film_full_pipeline_e2e.py`; no product source, workflow, or production behavior was changed by this integration.
+- Test source: Big Buck Bunny 480p/30s H.264/AAC from `chthomos/video-media-samples`, pinned to source commit `997cb58f16bc3433652506910734be75bc64d768`. The source is licensed CC BY 3.0. The test downloads the original MP4, records its SHA-256, probes and fully decodes its audio/video, then derives browser-compatible video and separate PCM audio from that same source.
+- Acceptance covers a real FilmDocument with video and audio tracks, Chromium preview/frame checks, an 8-second/12-fps render, MP4 export, output probing, stream/frame/duration checks and QC. It is real public media, not generated synthetic frames.
+- W3 owner lane on the exact integrated SHA: run `43173817436`, job `131033144773`: PASS — 379 passed, 1 skipped.
+- Performance timings and source/output hashes are written to the W3 GitHub Actions step summary. They are not asserted here as user-production performance measurements.
+
+### Required default gates on the exact integrated SHA
+
+All listed runs checked out `ad713e5cbaa633717a4d9151f17b259b9c1aea70`:
+
+| Gate | Run | Result |
+|---|---:|---|
+| Parallel workstreams W1/W2/W3/W7/W8 | `43173817436` | PASS — W1 96; W2 PASS; W3 379 passed / 1 skipped; W7 2; W8 11 |
+| Product IA W4/W5 | `43173817396` | PASS — W4 36; W5 13 |
+| Full hosted Python/browser regression | `43173817321` | PASS — 1,994 passed, 2 skipped; 0 failures, 0 errors |
+| Studio build/timeline/lifecycle/export/QC release gate | `43173817321` | PASS |
+| Windows native publication | `43173817514` | PASS — 6 passed |
+| Workflow YAML validation | `43173817351` | PASS |
+
+- Full regression job `131033144497` completed successfully in 682.69 seconds; JUnit summary reports 1,996 total tests, 0 failures, 0 errors and 2 skipped. Pytest terminal summary: 1,994 passed, 2 skipped.
+- NVIDIA explicit live-provider job was SKIPPED. No paid provider call was made.
+- The integrated commit only adds the W3 real-public-media acceptance test to the existing test file; no feature scope was opened.
+
+### Corrected remaining-evidence boundary
+
+- `PUBLIC_SAMPLE_CLOUD_ACCEPTANCE=PASS`: the public real-media end-to-end path is now exercised on hosted CI.
+- `USER_PRODUCTION_MEDIA_PERFORMANCE=MISSING`: public sample timing is not a substitute for measuring a representative user production project. This is an external benchmark, not a reason to add more product features or synthetic tests.
+- `USER_MACHINE_MODEL_CONFIG_PRESERVATION=UNKNOWN`: repository CI must not access local credentials/configuration; this remains a local manual check only if the user elects to perform it.
+- `NVIDIA_LIVE_PROVIDER_ACCEPTANCE=EXPLICIT_OPT_IN`: do not trigger another live call without separate authorization and hosted secret.
+- The documented product and default-CI delivery plans are closed. Reopen only for a reproducible contract violation or one of the explicitly listed external acceptance inputs; do not open another feature/test batch.
