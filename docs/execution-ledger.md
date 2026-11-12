@@ -1723,3 +1723,10 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - The corrected sequence now moves the following clip to time 7 before changing speed and splitting, then verifies stable IDs, source ranges, normalized operation order, serialization/reopen, and deterministic replay.
 - Corrected W2 SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` is running; syntax run `43157670801` is running.
 - W3 corrected SHA `927befdacc8db61bed490e689c9d3b103a78d630`: owner run `43157597237` is running; syntax run `43157597386` SUCCESS.
+
+
+
+### Section 71 owner-lane update — W3 closure
+
+- W3 corrected exact SHA `927befdacc8db61bed490e689c9d3b103a78d630`: owner run `43157597237` PASS; lifecycle/export/QC job `130981039920` reports 375 passed, 1 skipped, 0 failed. Workflow syntax run `43157597386` PASS.
+- W2 corrected SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` remains in progress at this update. No integration until it is complete and PASS.
