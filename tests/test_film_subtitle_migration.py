@@ -87,7 +87,8 @@ def test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_
     subtitle_track = next(track for track in document["tracks"] if track["id"] == "track-subtitles")
     subtitle_clip = subtitle_track["clips"][0]
     assert subtitle_clip["attrs"]["src"] == "scenes/subtitles.html#t=0,3"
-    assert subtitle_clip["attrs"]["data-render-z-index"] == "200002"
+    assert subtitle_track["attrs"]["data-render-z-index"] == "200002"
+    assert subtitle_track["attrs"]["style"] == "z-index:200002"
 
     subtitle_page = project_root / "scenes" / "subtitles.html"
     assert subtitle_page.is_file()
