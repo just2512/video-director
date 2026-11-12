@@ -348,3 +348,12 @@
 - 单项删除同样先提交 Catalog 移除，再清理媒体文件。Catalog 写入失败时原素材文件保持不动；媒体清理失败时返回 `DELETE_FAILED`，此时可能留下可人工清理的孤立文件。
 
 验收覆盖：同内容并发导入只产生一个 Asset；并发语义更新不丢其他条目；Catalog 原子替换失败保留旧 JSON；被项目引用的素材单项/批量删除均拒绝且不影响同批其他条目。跨平台锁的 Windows 原生行为仍须在 Windows runner 验证。
+
+
+## 2026-11-12 integrated acceptance update
+
+- Integrated code SHA `28fc07f43cf0f01d7c39f40c89273f4395a91c10` passed full hosted regression: 1,980 passed, 2 skipped, 0 failed; Studio release gate 360 passed.
+- The Windows-native workflow executed and passed `test_windows_write_through_replace_and_delete_round_trip`, Windows spawn manifest-writer/delete serialization, and Windows spawn generation-submit locking (6 passed total). The earlier Linux skip remains expected; the separate native Windows gate is now PASS.
+- The full regression passed generation-job list/resolve API tests, including local-path redaction, operator outcome persistence, and ambiguous/conflicting outcome rejection. The earlier "awaiting latest CI" note for these CLI tests is superseded by this exact-main result.
+- FFPROBE AAC smoke passed. The real Chromium workspace smoke rendered and downloaded its template MP4, passed MP4 decode and preview assertions in 76.371s. The 45s faulthandler dump was diagnostic output during the renderer subprocess wait, not a test failure.
+- Still open: continue bounded edit-operation combination regression; do not claim exhaustive permutations. Arbitrary HTML/WebGL frame determinism remains outside the supported claim. NVIDIA live token-stream acceptance remains explicit opt-in and was not run. Representative real-media snapshot performance remains MISSING pending actual project media.
