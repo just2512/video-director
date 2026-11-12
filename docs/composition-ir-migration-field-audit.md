@@ -237,25 +237,25 @@
 | `StyleContract.safe_zone` | MAPPED | 经 0.5–1.0 校验后写入字幕 safe_zone margin；越界值 warning 且不应用。 |
 | `StyleContract.style_id` | MAPPED | 匹配内置 Style Registry 时执行其白名单字幕/动效/BGM 默认值；未注册 ID 只保存在 data-source-style-id 并 warning。 |
 | `StyleContract.typography` | MAPPED | 仅在无显式 subtitle_style/注册风格时，将白名单 font_family/font/font_size/subtitle_font_size 映射为字幕字体与字号；其他字段不执行。 |
-| `SubtitleCue.end` | MAPPED | 写入字幕 cue 结束时间；Runtime 按 start ≤ t < end 决定可见区间。 |
-| `SubtitleCue.start` | MAPPED | 写入字幕 cue 开始时间；Runtime 按 start ≤ t < end 决定可见区间。 |
-| `SubtitleCue.text` | MAPPED | 写入字幕 cue 文本并由字幕页按当前时间渲染；不会从 SceneIR.text 自动补造 cue。 |
-| `SubtitleStyle.alignment` | MAPPED | 映射为字幕 HTML text-align，非法值由模型校验拒绝。 |
-| `SubtitleStyle.animation` | MAPPED | none/fade/pop_spring 映射为字幕页帧驱动动画；其他值由模型校验拒绝。 |
-| `SubtitleStyle.background` | MAPPED | 合法 #RRGGBB[@alpha] 映射为字幕背景 CSS；非法格式不生成背景并产生迁移 warning。 |
-| `SubtitleStyle.background_opacity` | MAPPED | 当 background 未显式携带 @alpha 时作为 rgba alpha；超出 0–1 由渲染校验拒绝。 |
-| `SubtitleStyle.color` | MAPPED | 合法 #RRGGBB 映射为字幕文字颜色；非法颜色回退为默认白色并产生 warning。 |
-| `SubtitleStyle.font` | MAPPED | 白名单字体名映射为字幕 HTML font-family；字体文件不随迁移打包，目标环境可能回退。 |
-| `SubtitleStyle.max_width` | MAPPED | 映射为字幕容器宽度百分比；模型限制 0.3–1.0。 |
-| `SubtitleStyle.mode` | ARCHIVED_ONLY | 当前字幕页不读取该样式字段决定 cue 粒度；word 模式迁移时显式 warning，仍按 cue 自身时间/文本渲染。 |
-| `SubtitleStyle.position` | MAPPED | top/center/bottom 映射为字幕 HTML 定位及 safe-zone margin。 |
-| `SubtitleStyle.size` | MAPPED | 按 54px 基准换算相对字号并限制最终字号 12–160px；越界会 warning/限制。 |
-| `SubtitleStyle.stroke_color` | MAPPED | 合法 #RRGGBB 映射为字幕描边颜色；非法颜色回退默认黑色并产生 warning。 |
-| `SubtitleStyle.stroke_width` | MAPPED | 映射为 -webkit-text-stroke 宽度，限制 0–12px。 |
-| `SubtitleTrack.cues` | MAPPED | 每条 cue 的 start/end/text 进入字幕 HTML 帧驱动渲染。 |
-| `SubtitleTrack.mode` | ARCHIVED_ONLY | 非 sentence 模式产生 warning；Runtime 不执行 mode 切换，按 cue 时间与文本逐条渲染。 |
-| `SubtitleTrack.source` | ARCHIVED_ONLY | 非默认 tts_word_boundary 来源产生 warning；来源 lineage 不写入 Runtime，原值保留在 source snapshot。 |
-| `SubtitleTrack.style_id` | ARCHIVED_ONLY | 当前不解析 Subtitle Registry 引用；存在时产生 warning，原值保留在 source snapshot。 |
+| `SubtitleCue.end` | MAPPED | 写入字幕 cue 结束时间；Runtime 按 start ≤ t < end 决定可见区间。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleCue.start` | MAPPED | 写入字幕 cue 开始时间；Runtime 按 start ≤ t < end 决定可见区间。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleCue.text` | MAPPED | 写入字幕 cue 文本并由字幕页按当前时间渲染；不会从 SceneIR.text 自动补造 cue。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleStyle.alignment` | MAPPED | 映射为字幕 HTML text-align，非法值由模型校验拒绝。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleStyle.animation` | MAPPED | none/fade/pop_spring 映射为字幕页帧驱动动画；其他值由模型校验拒绝。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleStyle.background` | MAPPED | 合法 #RRGGBB[@alpha] 映射为字幕背景 CSS；非法格式不生成背景并产生迁移 warning。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleStyle.background_opacity` | MAPPED | 当 background 未显式携带 @alpha 时作为 rgba alpha；超出 0–1 由渲染校验拒绝。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleStyle.color` | MAPPED | 合法 #RRGGBB 映射为字幕文字颜色；非法颜色回退为默认白色并产生 warning。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleStyle.font` | MAPPED | 白名单字体名映射为字幕 HTML font-family；字体文件不随迁移打包，目标环境可能回退。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleStyle.max_width` | MAPPED | 映射为字幕容器宽度百分比；模型限制 0.3–1.0。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleStyle.mode` | ARCHIVED_ONLY | 当前字幕页不读取该样式字段决定 cue 粒度；word 模式迁移时显式 warning，仍按 cue 自身时间/文本渲染。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleStyle.position` | MAPPED | top/center/bottom 映射为字幕 HTML 定位及 safe-zone margin。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleStyle.size` | MAPPED | 按 54px 基准换算相对字号并限制最终字号 12–160px；越界会 warning/限制。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleStyle.stroke_color` | MAPPED | 合法 #RRGGBB 映射为字幕描边颜色；非法颜色回退默认黑色并产生 warning。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleStyle.stroke_width` | MAPPED | 映射为 -webkit-text-stroke 宽度，限制 0–12px。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleTrack.cues` | MAPPED | 每条 cue 的 start/end/text 进入字幕 HTML 帧驱动渲染。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleTrack.mode` | ARCHIVED_ONLY | 非 sentence 模式产生 warning；Runtime 不执行 mode 切换，按 cue 时间与文本逐条渲染。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleTrack.source` | ARCHIVED_ONLY | 非默认 tts_word_boundary 来源产生 warning；来源 lineage 不写入 Runtime，原值保留在 source snapshot。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
+| `SubtitleTrack.style_id` | ARCHIVED_ONLY | 当前不解析 Subtitle Registry 引用；存在时产生 warning，原值保留在 source snapshot。；回归证据：`tests/test_film_subtitle_migration.py::test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_warnings` |
 | `Transform.anchor` | MAPPED | 通过 `_FILM_ANCHORS` 白名单并写入 `data-film-transform.anchor`，供 FilmRuntime 计算变换原点；变换迁移测试验证 center。 |
 | `Transform.opacity` | MAPPED | 写入 `data-film-transform.opacity` 并作为可执行变换属性；变换迁移测试验证 0.8。 |
 | `Transform.rotation` | MAPPED | 写入 `data-film-transform.rotation`，由 FilmRuntime 执行旋转；变换迁移测试验证 12 度。 |
