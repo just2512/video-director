@@ -126,3 +126,48 @@ def test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_
     serialized = fd.serialize_film(document)
     reparsed = fd.parse_film(serialized)
     assert fd.serialize_film(reparsed) == serialized
+
+
+def test_project_spec_dimensions_rate_and_duration_have_explicit_runtime_semantics(tmp_path, monkeypatch):
+    """ProjectSpec's executable subset must reach FilmDocument; the archive retains its source."""
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "project-spec-migration-contract"
+    project_root = storage / project_id
+    project_root.mkdir(parents=True)
+    assets_root = project_root / "assets"
+    assets_root.mkdir()
+    (assets_root / "still.png").write_bytes(b"project-spec-fixture")
+    (project_root / "manifest.json").write_text(
+        json.dumps({"assets": [{
+            "id": "asset-still", "kind": "image", "path": "assets/still.png",
+            "filename": "still.png", "mime_type": "image/png",
+        }]}),
+        encoding="utf-8",
+    )
+
+    ir = CompositionIR.model_validate({
+        "version": 1,
+        "project": {"width": 1280, "height": 720, "fps": 24, "duration": 8},
+        "assets": [{
+            "id": "asset-still", "type": "image", "file": "assets/still.png",
+            "source": "uploaded", "description": "ProjectSpec migration fixture",
+        }],
+        "scenes": [{
+            "id": "scene-project-spec", "start": 0, "duration": 8,
+            "text": "ProjectSpec contract",
+            "layers": [{
+                "id": "layer-project-spec", "type": "image", "asset_id": "asset-still",
+                "start": 0, "duration": 8, "fit_mode": "contain",
+            }],
+        }],
+    })
+
+    result = fd.build_film_from_composition(project_id, ir)
+    document = result["document"]
+    assert document["stage"] == {"width": 1280, "height": 720}
+    assert document["fps"] == 24
+    assert result["duration"] == 8
+
+    archive = json.loads((project_root / result["source_archive"]["path"]).read_text(encoding="utf-8"))
+    assert archive["project"] == {"width": 1280, "height": 720, "fps": 24, "duration": 8}
