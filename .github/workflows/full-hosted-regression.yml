@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 55
     env:
       VIDEO_DIRECTOR_REQUIRE_REACT_STUDIO: "1"
+      VIDEO_DIRECTOR_TEST_RESULTS: test-results
     steps:
       - name: Check out exact source revision
         uses: actions/checkout@v7
