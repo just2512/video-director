@@ -1664,3 +1664,20 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W6 owns workflow definitions, branch-lane wiring, and the two execution-plan documents. W6 must not overwrite W3/W8-owned test files.
 - Real-media snapshot performance remains MISSING until representative project media is supplied. NVIDIA live token-stream acceptance remains explicit opt-in and was skipped by the latest hosted full regression.
 - Do not integrate any code branch until its own exact-SHA scoped CI is PASS. Then integrate only owned paths, preserving the frozen main fixes, and rerun all affected owner lanes plus the integrated full hosted gates on one exact main SHA.
+
+
+## 71. 2026-11-12 next parallel batch — migration persistence and keyboard-first Shotcraft UX
+
+### Frozen baseline and independent ownership
+
+- Frozen main baseline: `e52120f267d3eb0fcdc768fd2342086f4c2073bb`. Exact-SHA hosted gates PASS: full Python/browser regression (run `43152316209`), Studio release gate (same run), W1/W2/W3/W7 parallel lanes (run `43152316202`), W8 browser acceptance (same run), Product IA W4/W5 (run `43152316231`), Windows-native publication (run `43152316198`), and workflow syntax (run `43152316207`). Explicit NVIDIA live token-stream acceptance was SKIPPED by design; it is not a PASS.
+- W3 branch: `work/w3-migration-roundtrip-matrix-20261112`; owns `tests/test_film_beat_layer_audio_migration.py`, `tests/test_film_visual_track_migration.py`, `tests/test_film_overlay_audio_migration.py`, and `docs/composition-ir-migration-field-audit.md`. Adds serialize→parse→serialize evidence for audio lane order/identity/locked/muted/hidden semantics, visual track order/identity/lock/hidden provenance, and video-overlay source-audio mute/volume semantics. Owner CI must run on the latest exact branch SHA.
+- W8 branch: `work/w8-shotcraft-overlay-accessibility-20261112`; owns only `tests/test_visual_overlay_browser.py`. Extends browser acceptance so overlay/overwrite/insert creation is exercised through pointer, keyboard Enter, and keyboard Space; verifies focus is on the actionable button and each activation emits exactly one command. Owner CI must pass on the exact branch SHA.
+- W6 branch: `work/w6-roundtrip-lane-wiring-20261112`; owns `.github/workflows/parallel-workstream-ci.yml`, `docs/execution-ledger.md`, and `docs/parallel-workstreams.md`. Adds the three migration test modules to the W3 owner lane and records the disjoint branch ownership. It must not edit W3/W8 test files.
+
+### Integration rules and unresolved gates
+
+- The three branches share the frozen baseline and have disjoint owned paths. Run W3 and W8 owner CI independently; W6 validates workflow syntax. Integrate only after exact-SHA owner gates pass, using path-scoped commits rather than merging stale branch snapshots.
+- After integration, rerun the affected W3/W8 lanes, full hosted regression, Studio release gate, Product IA, Windows-native publication, and workflow syntax on one exact main SHA.
+- The W3 round-trip assertions are deliberately limited to the named semantic groups; they do not prove every MAPPED field in the 241-field audit is lossless.
+- Real-media snapshot performance remains MISSING until representative project media is supplied. NVIDIA live token-stream acceptance remains explicit opt-in and requires the dedicated secret and user authorization; no live provider call is implied by CI.
