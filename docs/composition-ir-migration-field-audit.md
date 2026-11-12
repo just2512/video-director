@@ -80,12 +80,12 @@
 | `AssetRef.source` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`，不改变素材 URI 的信任边界或来源类型。 |
 | `AssetRef.type` | MAPPED | 写入 `data-source-asset-metadata`；当 VisualOverlayClip 未声明 type/kind 时，作为叠加媒体类型推断的后备来源；主场景 Layer 类型仍由 Layer.type 决定。 |
 | `AssetRef.width` | ARCHIVED_ONLY | 写入 `data-source-asset-metadata`，不直接决定 clip 宽度或 transform。 |
-| `AudioLane.hidden` | ARCHIVED_ONLY | hidden 仅写入 `data-source-track-hidden`，代表来源时间线折叠状态，不隐藏画面/静音；现有迁移测试验证。 |
-| `AudioLane.id` | MAPPED | 用于 `AudioTrack.track_id` 关联并写入 clip `data-source-track-id`；无匹配 lane 时走默认标签/默认顺序。 |
-| `AudioLane.locked` | MAPPED | 写入 Film 轨道 `attrs.locked`；现有迁移测试验证锁定属性。 |
-| `AudioLane.muted` | MAPPED | 与片段 muted 合并为 Film clip `muted`；现有迁移测试验证轨级静音生效。 |
-| `AudioLane.name` | MAPPED | 用作 Film 轨道 `data-label`；现有迁移测试验证自定义 lane 名称。 |
-| `AudioLane.order` | MAPPED | 决定音频片段构建顺序；新增测试验证不同 lane 的 order 先于片段 start。 |
+| `AudioLane.hidden` | ARCHIVED_ONLY | hidden 仅写入 `data-source-track-hidden`，代表来源时间线折叠状态，不隐藏画面/静音；film.html 序列化/解析往返由 `tests/test_film_beat_layer_audio_migration.py::test_audio_lane_order_controls_film_track_order_not_clip_start` 验证。 |
+| `AudioLane.id` | MAPPED | 用于 `AudioTrack.track_id` 关联并写入 clip `data-source-track-id`；无匹配 lane 时走默认标签/默认顺序；film.html 序列化/解析往返由 `tests/test_film_beat_layer_audio_migration.py::test_audio_lane_order_controls_film_track_order_not_clip_start` 验证。 |
+| `AudioLane.locked` | MAPPED | 写入 Film 轨道 `attrs.locked`；film.html 序列化/解析往返验证轨道锁定属性，见 `tests/test_film_beat_layer_audio_migration.py::test_audio_lane_order_controls_film_track_order_not_clip_start`。 |
+| `AudioLane.muted` | MAPPED | 与片段 muted 合并为 Film clip `muted`；film.html 序列化/解析往返验证轨级静音，见 `tests/test_film_beat_layer_audio_migration.py::test_audio_lane_order_controls_film_track_order_not_clip_start`。 |
+| `AudioLane.name` | MAPPED | 用作 Film 轨道 `data-label`；film.html 序列化/解析往返验证名称，见 `tests/test_film_beat_layer_audio_migration.py::test_audio_lane_order_controls_film_track_order_not_clip_start`。 |
+| `AudioLane.order` | MAPPED | 决定音频片段构建顺序；film.html 序列化/解析往返验证 order 与 clip identity，见 `tests/test_film_beat_layer_audio_migration.py::test_audio_lane_order_controls_film_track_order_not_clip_start`。 |
 | `AudioTrack.asset_id` | MAPPED | 通过 manifest/AssetRef 解析 `src`，写入 `data-asset-id`；资源解析失败按迁移校验处理。 |
 | `AudioTrack.ducking` | ARCHIVED_ONLY | 当前迁移明确发出 ducking 未迁移 warning；完整原值留在 source-composition 快照，不执行自动压低。 |
 | `AudioTrack.duration` | MAPPED | 写入时间线 clip duration 与 source_out 默认计算；模型要求时长为正值。 |
@@ -279,8 +279,8 @@
 | `VisualOverlayClip.id` | MAPPED | 用于稳定生成 Film clip/track ID，并写入 data-source-id。 |
 | `VisualOverlayClip.opacity` | MAPPED | 写入 clip opacity；存在 canonical transform 时与 transform.opacity 相乘。 |
 | `VisualOverlayClip.presentation_mode` | MAPPED | full_frame 使用整画幅；picture_in_picture/sticker 使用归一位置/尺寸；模型拒绝未知模式。 |
-| `VisualOverlayClip.source_audio_enabled` | MAPPED | 仅 video overlay 生效：true 保留源音轨，false 写入 muted；静态图片不适用并 warning。 |
-| `VisualOverlayClip.source_audio_volume` | MAPPED | 仅 video overlay 生效并写入 volume；静态图片不适用且非默认值会 warning。 |
+| `VisualOverlayClip.source_audio_enabled` | MAPPED | 仅 video overlay 生效：true 保留源音轨，false 写入 muted；静态图片不适用并 warning；film.html 序列化/解析往返见 `tests/test_film_overlay_audio_migration.py::test_video_overlay_source_audio_disabled_is_muted_and_enabled_preserves_volume`。 |
+| `VisualOverlayClip.source_audio_volume` | MAPPED | 仅 video overlay 生效并写入 volume；静态图片不适用且非默认值会 warning；film.html 序列化/解析往返见 `tests/test_film_overlay_audio_migration.py::test_video_overlay_source_audio_disabled_is_muted_and_enabled_preserves_volume`。 |
 | `VisualOverlayClip.source_in` | MAPPED | 写入媒体 src 时间区间起点；视频按 speed 换算 source_out。 |
 | `VisualOverlayClip.speed` | MAPPED | video overlay 写入 speed 并按 timeline duration 换算 source_out；image overlay 固定按 1 倍处理。 |
 | `VisualOverlayClip.start` | MAPPED | 写入 Film clip at，决定项目时间线位置。 |
@@ -290,11 +290,11 @@
 | `VisualOverlayClip.x` | MAPPED | picture_in_picture/sticker 模式按归一水平位置换算为 stage 像素；full_frame 忽略该定位并使用全画幅。 |
 | `VisualOverlayClip.y` | MAPPED | picture_in_picture/sticker 模式按归一垂直位置换算为 stage 像素；full_frame 忽略该定位并使用全画幅。 |
 | `VisualOverlayClip.z_index` | MAPPED | 作为片段本地 z-index 写入 style；跨物理轨道的最终 render z-index 按 source track order 与 authored z_index 重新排序。 |
-| `VisualTrack.hidden` | ARCHIVED_ONLY | 源轨 hidden 表示时间线折叠，不隐藏画面；写入 `data-source-track-hidden` 并产生 warning。`tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved` 验证。 |
-| `VisualTrack.id` | MAPPED | 通过 `VisualOverlayClip.track_id` 关联来源视觉轨道，写入 `data-source-track-id`；缺省/未知轨道走默认轨道回退。视觉轨道迁移测试验证。 |
-| `VisualTrack.locked` | MAPPED | 写入生成的 Film overlay 轨道 `attrs.locked`，运行时阻止该轨道编辑；`test_visual_source_track_order_identity_and_lock_are_preserved` 验证。 |
-| `VisualTrack.name` | MAPPED | 写入 Film overlay 轨道 `attrs.data-label`；视觉轨道迁移测试验证自定义名称。 |
-| `VisualTrack.order` | MAPPED | 决定 overlay 轨道生成顺序，并写入来源顺序 provenance；视觉轨道迁移测试验证顺序与 `data-source-track-order`。 |
+| `VisualTrack.hidden` | ARCHIVED_ONLY | 源轨 hidden 表示时间线折叠，不隐藏画面；写入 `data-source-track-hidden` 并产生 warning；film.html 序列化/解析往返见 `tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved`。 |
+| `VisualTrack.id` | MAPPED | 通过 `VisualOverlayClip.track_id` 关联来源视觉轨道，写入 `data-source-track-id`；缺省/未知轨道走默认轨道回退；film.html 序列化/解析往返见 `tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved`。 |
+| `VisualTrack.locked` | MAPPED | 写入生成的 Film overlay 轨道 `attrs.locked`，运行时阻止该轨道编辑；film.html 序列化/解析往返见 `tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved`。 |
+| `VisualTrack.name` | MAPPED | 写入 Film overlay 轨道 `attrs.data-label`；film.html 序列化/解析往返见 `tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved`。 |
+| `VisualTrack.order` | MAPPED | 决定 overlay 轨道生成顺序，并写入来源顺序 provenance；film.html 序列化/解析往返见 `tests/test_film_visual_track_migration.py::test_visual_source_track_order_identity_and_lock_are_preserved`。 |
 | `WatermarkLayer.anchor` | MAPPED | 九宫格 anchor 映射为水印 HTML 定位；不支持值产生 warning 并拒绝该水印。 |
 | `WatermarkLayer.asset_id` | MAPPED | image/logo/svg 水印解析为项目媒体 URL 并写入来源资产元数据；text 水印不消费该字段。 |
 | `WatermarkLayer.duration` | MAPPED | 写入水印 iframe 时间范围；None 表示从 start 持续到项目片尾，超出片尾会截短并 warning。 |
