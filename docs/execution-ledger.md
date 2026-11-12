@@ -1776,3 +1776,27 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W8 owner PASS: run `43157349798`, 10 Chromium tests passed; syntax `43157349734` PASS.
 - This section is recorded in a follow-up ledger-only commit after the path-scoped integration. The resulting latest main SHA must be used for all integrated acceptance gates below; the integration commit SHA alone is not final acceptance evidence.
 - Integrated exact-main acceptance: PENDING. Required: W1/W2/W3/W7/W8 parallel lanes; Product IA W4/W5; full hosted Python/browser regression; Studio release gate; focused storage/watch; Windows-native publication; workflow YAML validation. Every required result must report the same exact latest main SHA. Skipped path-filter jobs are not PASS.
+
+
+## 74. 2026-11-12 next parallel batch — transaction conflict, CompositionIR semantics, Shotcraft keyboard
+
+### Frozen baseline and exclusive ownership
+
+- Frozen main baseline: `202ab62ccb7f01f29240d9b5335df0b41d8ef9eb`. This includes batch 72's path-scoped test integration and the ledger record; batch 72 integrated code SHA was `23ce5d2b39712937f7c65b8b8ca0eb6879919447`.
+- W2 branch `work/w2-cross-track-ripple-atomicity-20261112`, exact SHA `0008d5b0486fb73ab3fd28235103607fbca701a8`, owns only `tests/test_film_studio_pending_revision.py`; adds an explicit undo/redo exact-revision and failed-response no-local-adoption contract.
+- W3 branch `work/w3-compositionir-resource-audio-mask-20261112`, exact SHA `55b36f60fff45cfb51ad5596961e5b77d1ba78fd`, owns only `tests/test_film_subtitle_migration.py`; adds AssetRef provenance metadata, selected Variant/version, AudioTrack physical-lane mapping, supported ellipse mask, and inverted-mask fail-closed/archive assertions.
+- W8 branch `work/w8-shotcraft-inspector-persistence-20261112`, latest exact SHA `19c5b3ae6b4479328c5a13e047573295d6e81a3e`, owns only `tests/test_studio_browser_flow.py`; runs the overlay select/split/Inspector browser journey through both pointer and keyboard activation.
+- W6 branch `work/w6-ci-provenance-next-batch-20261112`, owns only `docs/execution-ledger.md`, `docs/parallel-workstreams.md`, and (only if an audit finds a concrete defect) `.github/workflows/parallel-workstream-ci.yml`. Current workflow audit: main executes all lanes; branch prefixes select one owner lane; each job checks out `github.sha`; concurrency is scoped by `github.ref`; docs-only changes are ignored by product CI; workflow_dispatch is present. No workflow change is justified by this audit.
+
+### Owner CI — pending exact-SHA evidence
+
+- W2 owner run `43164804919` on `0008d5b0486fb73ab3fd28235103607fbca701a8`: IN_PROGRESS. Syntax run `43164804997`: PASS.
+- W3 owner run `43164853975` on `55b36f60fff45cfb51ad5596961e5b77d1ba78fd`: IN_PROGRESS. Syntax run `43164853993`: PASS.
+- W8 owner run `43164924206` on `19c5b3ae6b4479328c5a13e047573295d6e81a3e`: IN_PROGRESS. Syntax run `43164924037`: IN_PROGRESS.
+- No branch is eligible for integration until its latest exact SHA's owner lane is PASS. A syntax pass does not substitute for the owner lane; skipped Product IA jobs are expected path-filter behavior, not PASS evidence.
+
+### Acceptance and integration
+
+- Integrate only the W2, W3 and W8 owned test paths, then the W6 documentation paths. Preserve current main as first parent and each final source branch head as an additional parent. Never copy stale workflow files.
+- After integration, run W1/W2/W3/W7/W8, Product IA W4/W5, full hosted Python/browser regression, Studio release gate, focused storage/watch, Windows-native publication, and YAML validation on the same exact main SHA. This is also the first full-gate evidence on the docs-only successor SHA `202ab62...`; the prior batch-72 runs were on `23ce5d2...` and do not qualify the successor SHA.
+- NVIDIA live token-stream acceptance remains explicit opt-in; representative real-media snapshot performance remains MISSING.
