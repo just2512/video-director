@@ -1692,3 +1692,17 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - Integrate only the three owned test paths, then W6 documentation, using path-scoped integration against the latest main. Never replace the current workflow file with a stale branch snapshot.
 - After integration, run W2/W3/W8 owner lanes, W1/W7 unaffected-lane checks, focused storage/watch, Studio release gate, full Python/browser regression, Windows-native publication and workflow YAML validation on one exact main SHA.
 - Real-media snapshot performance remains MISSING until representative project media is supplied. NVIDIA live token-stream acceptance remains explicit opt-in and must not invoke paid/provider calls without the configured secret and authorization.
+
+
+
+## 2026-11-12 section 70 integrated-main closure
+
+- The section 70 W3 and W8 owner branches are already ancestors of main `e52120f267d3eb0fcdc768fd2342086f4c2073bb`; comparing each branch against that main SHA returns no remaining file delta. Do not re-integrate their files.
+- Integrated main `e52120f267d3eb0fcdc768fd2342086f4c2073bb` passed all hosted gates on that exact SHA:
+  - Full Python/browser regression: 1,986 passed, 2 skipped, 0 failed/errors (run `43152316209`).
+  - Studio release gate: 364 passed (same run).
+  - Parallel workstreams W1/W2/W3/W7/W8: all SUCCESS (run `43152316202`).
+  - Product IA W4/W5: both SUCCESS (run `43152316231`).
+  - Windows-native publication: 6 passed (run `43152316198`).
+  - GitHub Actions YAML: SUCCESS (run `43152316207`).
+- NVIDIA live token-stream acceptance was explicitly skipped; it is not a PASS. The earlier failed full-regression attempt on parent SHA `56d8369c48e362ded4b7ed6a5c2a9ebb0bbea116` was superseded by the successful full gate on the exact integrated SHA above.
