@@ -343,7 +343,7 @@ Frozen baseline: `202ab62ccb7f01f29240d9b5335df0b41d8ef9eb`. The next batch uses
 
 | Lane | Branch | Exclusive path | Acceptance focus |
 |---|---|---|---|
-| W2 | `work/w2-cross-track-ripple-atomicity-20261112` | `tests/test_film_studio_pending_revision.py` | Undo/redo uses the current revision as the transaction base; rejected/stale history operations never replace local document state; pending external revisions are flushed after the transaction. |
+| W2 | `work/w2-cross-track-ripple-atomicity-20261112` | `tests/test_film_studio_pending_revision.py`, `tests/test_film_studio_external_watch_browser.py` | Undo/redo uses the current revision as the transaction base; rejected/stale history operations never replace local document state; pending external revisions are flushed after the transaction. |
 | W3 | `work/w3-compositionir-resource-audio-mask-20261112` | `tests/test_film_subtitle_migration.py` | AssetRef provenance without raw path leakage; selected Variant identity/version and metadata; AudioTrack physical lane and mute semantics; supported mask geometry vs inverted/feather/opacity behavior explicitly warned and archived. |
 | W8 | `work/w8-shotcraft-inspector-persistence-20261112` | `tests/test_studio_browser_flow.py` | Real Chromium pointer and keyboard activation through visual-overlay select → split → persisted result → Inspector. |
 | W6 | `work/w6-ci-provenance-next-batch-20261112` | `docs/execution-ledger.md`, `docs/parallel-workstreams.md`; workflow file only for a proven defect | Register branch heads, exact owner runs, path boundaries and integrated gate provenance. |
