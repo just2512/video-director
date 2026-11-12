@@ -1304,7 +1304,8 @@ def test_selected_main_clip_can_be_lifted_to_playhead_from_toolbar(tmp_path, mon
 
 
 
-def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolbar(tmp_path, monkeypatch):
+@pytest.mark.parametrize("activation", ["mouse", "keyboard"])
+def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolbar(tmp_path, monkeypatch, activation):
     """Global overlay selection and toolbar actions must operate on persisted clips."""
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
     results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
@@ -1365,12 +1366,18 @@ def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolba
                 )
                 assert "ed-tl-clip-selected" in (overlay.get_attribute("class") or "")
                 page.evaluate("() => { window.PLAYHEAD.at = 0.6; }")
+                split_button = page.locator('button[data-action="ui.split_layer"]')
                 with page.expect_response(
                     lambda item: item.request.method == "POST"
                     and item.url.endswith("/api/editor/command"),
                     timeout=10000,
                 ) as response_info:
-                    page.locator('button[data-action="ui.split_layer"]').click()
+                    if activation == "keyboard":
+                        split_button.focus()
+                        assert page.evaluate("document.activeElement === document.querySelector('button[data-action=\"ui.split_layer\"]')")
+                        split_button.press("Enter")
+                    else:
+                        split_button.click()
                 command_response = response_info.value
                 assert command_response.status == 200
                 command_body = command_response.json()
@@ -1399,9 +1406,25 @@ def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolba
                 assert left["source_in"] == right["source_in"] == 0.0
                 assert not page_errors, "Browser runtime errors: " + " | ".join(page_errors)
 
+                # Reload the project from its persisted CompositionIR before opening
+                # Inspector; the split must survive a full browser document reload.
+                page.reload(wait_until="networkidle")
+                reopened = page.evaluate("(projectId) => workspaceOpen(projectId, undefined, {legacyCompositionMode:true})", pid)
+                assert reopened.get("ok"), reopened
+                page.evaluate("() => { ED.timelineView = 'time'; editorRenderTimeline(); }")
+                page.wait_for_function(
+                    "() => ED.comp && Array.isArray(ED.comp.visual_overlays) && ED.comp.visual_overlays.length === 2"
+                )
                 selected_overlay = page.locator('#editor-timeline .ed-visual-overlay-clip[data-visual-overlay-index="0"]')
+                selected_overlay.wait_for(state="visible")
                 selected_overlay.click()
-                page.locator('button[data-action="ui.edit_visual_overlay"]').click()
+                page.wait_for_function(
+                    "() => SEL.selection && SEL.selection.type === 'visual_overlay' && SEL.selection.id === 'e2e-overlay'"
+                )
+                edit_overlay = page.locator('button[data-action="ui.edit_visual_overlay"]')
+                edit_overlay.wait_for(state="visible")
+                edit_overlay.click()
+                page.locator("#visual-overlay-inspector-mask").wait_for(state="visible")
                 assert page.locator("#visual-overlay-inspector-mask").is_visible()
                 page.locator("#visual-overlay-inspector-mask button[onclick='editorVisualOverlayClose()']").first.click()
                 assert not page.locator("#visual-overlay-inspector-mask").count()

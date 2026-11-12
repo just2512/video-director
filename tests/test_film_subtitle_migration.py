@@ -225,3 +225,82 @@ def test_scene_and_video_layer_timing_source_range_and_fit_mode_map_to_film_clip
     assert attrs["data-source-scene-id"] == "scene-offset"
     assert "object-fit:contain" in attrs["style"]
     assert result["duration"] == 3.5
+
+
+def test_asset_variant_audio_lane_and_mask_semantics_are_preserved_or_explicitly_rejected(tmp_path, monkeypatch):
+    """Mapped fields reach Film clips; unsupported mask semantics stay archived with warnings."""
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "asset-variant-audio-mask-contract"
+    project_root = storage / project_id
+    assets_root = project_root / "assets"
+    assets_root.mkdir(parents=True)
+    (assets_root / "still.png").write_bytes(b"still-fixture")
+    (assets_root / "music.wav").write_bytes(b"audio-fixture")
+    (project_root / "manifest.json").write_text(json.dumps([
+        {"id": "asset-image", "kind": "image", "path": "assets/still.png", "filename": "still.png", "mime_type": "image/png"},
+        {"id": "asset-music", "kind": "audio", "path": "assets/music.wav", "filename": "music.wav", "mime_type": "audio/wav"},
+    ]), encoding="utf-8")
+
+    scenes = [{
+        "id": "scene-variant", "start": 0, "duration": 3, "text": "variant semantic mapping",
+        "layers": [
+            {"id": "layer-mask-supported", "type": "image", "asset_id": "asset-image", "start": 0, "duration": 1.5,
+             "mask": {"id": "mask-ellipse", "shape": "ellipse", "x": 0.5, "y": 0.5, "width": 0.7, "height": 0.8, "feather": 2, "opacity": 0.6}},
+            {"id": "layer-mask-inverted", "type": "image", "asset_id": "asset-image", "start": 1.5, "duration": 1.5,
+             "mask": {"id": "mask-inverted", "shape": "polygon", "geometry": [[0.1, 0.1], [0.9, 0.1], [0.5, 0.9]], "inverted": True}},
+        ],
+    }]
+    ir = CompositionIR.model_validate({
+        "version": 1,
+        "project": {"width": 640, "height": 360, "fps": 30, "duration": 3},
+        "assets": [
+            {"id": "asset-image", "type": "image", "file": "assets/still.png", "source": "generated",
+             "description": "generated still", "keywords": ["fixture", "asset-ref"],
+             "provenance": {"provider": "fixture-provider", "model": "fixture-model"},
+             "rights_status": "CLEAR", "license_note": "test-only"},
+            {"id": "asset-music", "type": "audio", "file": "assets/music.wav", "source": "uploaded",
+             "description": "music asset", "rights_status": "REVIEW"},
+        ],
+        "scenes": scenes,
+        "audio_tracks": [{"id": "audio-custom", "name": "Custom BGM", "order": 3, "muted": True, "hidden": True}],
+        "variants": [{
+            "id": "variant-final", "version": 4, "scenes": scenes,
+            "tracks": [{"id": "variant-bgm", "type": "bgm", "track_id": "audio-custom", "asset_id": "asset-music",
+                        "start": 0, "duration": 3, "volume": 0.65, "fadeIn": 0.25}],
+            "metadata": {"editor": "fixture", "approval": "reviewed"},
+        }],
+        "active_variant_id": "variant-final",
+    })
+
+    result = fd.build_film_from_composition(project_id, ir)
+    clips = [clip for track in result["document"]["tracks"] for clip in track["clips"]]
+    supported = next(clip for clip in clips if clip["attrs"].get("data-source-id") == "layer-mask-supported")
+    inverted = next(clip for clip in clips if clip["attrs"].get("data-source-id") == "layer-mask-inverted")
+    audio = next(clip for clip in clips if clip["attrs"].get("data-source-id") == "variant-bgm")
+
+    image_metadata = json.loads(supported["attrs"]["data-source-asset-metadata"])
+    assert image_metadata["source"] == "generated"
+    assert image_metadata["provenance"] == {"provider": "fixture-provider", "model": "fixture-model"}
+    assert image_metadata["rights_status"] == "CLEAR"
+    assert "file" not in image_metadata, "raw filesystem paths must not leak into clip metadata"
+    assert "clip-path:ellipse(" in supported["attrs"].get("style", "")
+    assert "feather 羽化未映射" in " ".join(result["warnings"])
+    assert "蒙版独立 opacity 未映射" in " ".join(result["warnings"])
+    assert "inverted 反向蒙版不能用 CSS clip-path 无损表达" in " ".join(result["warnings"])
+    assert "clip-path:" not in inverted["attrs"].get("style", "")
+
+    assert audio["attrs"]["data-source-variant-id"] == "variant-final"
+    assert audio["attrs"]["data-source-variant-version"] == "4"
+    assert audio["attrs"]["data-source-track-id"] == "audio-custom"
+    assert audio["attrs"]["muted"] == ""
+    audio_metadata = json.loads(audio["attrs"]["data-source-asset-metadata"])
+    assert audio_metadata["rights_status"] == "REVIEW"
+
+    assert any(track["attrs"].get("data-source-variant-metadata") == '{"approval":"reviewed","editor":"fixture"}'
+               for track in result["document"]["tracks"])
+    archive = json.loads(result["pages"][result["source_archive"]["path"]])
+    archived_layer = next(layer for scene in archive["scenes"] for layer in scene["layers"]
+                          if layer["id"] == "layer-mask-inverted")
+    assert archived_layer["mask"]["inverted"] is True
+    assert archived_layer["mask"]["geometry"] == [[0.1, 0.1], [0.9, 0.1], [0.5, 0.9]]

@@ -1776,3 +1776,58 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W8 owner PASS: run `43157349798`, 10 Chromium tests passed; syntax `43157349734` PASS.
 - This section is recorded in a follow-up ledger-only commit after the path-scoped integration. The resulting latest main SHA must be used for all integrated acceptance gates below; the integration commit SHA alone is not final acceptance evidence.
 - Integrated exact-main acceptance: PENDING. Required: W1/W2/W3/W7/W8 parallel lanes; Product IA W4/W5; full hosted Python/browser regression; Studio release gate; focused storage/watch; Windows-native publication; workflow YAML validation. Every required result must report the same exact latest main SHA. Skipped path-filter jobs are not PASS.
+
+
+## 74. 2026-11-12 next parallel batch — transaction conflict, CompositionIR semantics, Shotcraft keyboard
+
+### Frozen baseline and exclusive ownership
+
+- Frozen main baseline: `202ab62ccb7f01f29240d9b5335df0b41d8ef9eb`. This includes batch 72's path-scoped test integration and the ledger record; batch 72 integrated code SHA was `23ce5d2b39712937f7c65b8b8ca0eb6879919447`.
+- W2 branch `work/w2-cross-track-ripple-atomicity-20261112`, exact SHA `0008d5b0486fb73ab3fd28235103607fbca701a8`, owns only `tests/test_film_studio_pending_revision.py`; adds an explicit undo/redo exact-revision and failed-response no-local-adoption contract.
+- W3 branch `work/w3-compositionir-resource-audio-mask-20261112`, exact SHA `55b36f60fff45cfb51ad5596961e5b77d1ba78fd`, owns only `tests/test_film_subtitle_migration.py`; adds AssetRef provenance metadata, selected Variant/version, AudioTrack physical-lane mapping, supported ellipse mask, and inverted-mask fail-closed/archive assertions.
+- W8 branch `work/w8-shotcraft-inspector-persistence-20261112`, latest exact SHA `19c5b3ae6b4479328c5a13e047573295d6e81a3e`, owns only `tests/test_studio_browser_flow.py`; runs the overlay select/split/Inspector browser journey through both pointer and keyboard activation.
+- W6 branch `work/w6-ci-provenance-next-batch-20261112`, owns only `docs/execution-ledger.md`, `docs/parallel-workstreams.md`, and (only if an audit finds a concrete defect) `.github/workflows/parallel-workstream-ci.yml`. Current workflow audit: main executes all lanes; branch prefixes select one owner lane; each job checks out `github.sha`; concurrency is scoped by `github.ref`; docs-only changes are ignored by product CI; workflow_dispatch is present. No workflow change is justified by this audit.
+
+### Owner CI — pending exact-SHA evidence
+
+- W2 owner run `43164804919` on `0008d5b0486fb73ab3fd28235103607fbca701a8`: IN_PROGRESS. Syntax run `43164804997`: PASS.
+- W3 owner run `43164853975` on `55b36f60fff45cfb51ad5596961e5b77d1ba78fd`: IN_PROGRESS. Syntax run `43164853993`: PASS.
+- W8 owner run `43164924206` on `19c5b3ae6b4479328c5a13e047573295d6e81a3e`: IN_PROGRESS. Syntax run `43164924037`: IN_PROGRESS.
+- No branch is eligible for integration until its latest exact SHA's owner lane is PASS. A syntax pass does not substitute for the owner lane; skipped Product IA jobs are expected path-filter behavior, not PASS evidence.
+
+### Acceptance and integration
+
+- Integrate only the W2, W3 and W8 owned test paths, then the W6 documentation paths. Preserve current main as first parent and each final source branch head as an additional parent. Never copy stale workflow files.
+- After integration, run W1/W2/W3/W7/W8, Product IA W4/W5, full hosted Python/browser regression, Studio release gate, focused storage/watch, Windows-native publication, and YAML validation on the same exact main SHA. This is also the first full-gate evidence on the docs-only successor SHA `202ab62...`; the prior batch-72 runs were on `23ce5d2...` and do not qualify the successor SHA.
+- NVIDIA live token-stream acceptance remains explicit opt-in; representative real-media snapshot performance remains MISSING.
+
+
+### Section 74 follow-up — integrated W2 race diagnosis and owner corrections
+
+- Integrated batch-72 W2 lane on `23ce5d2b39712937f7c65b8b8ca0eb6879919447` exposed an existing timing race in `tests/test_film_studio_external_watch_browser.py::test_external_agent_write_hot_reloads_and_recovers_after_broken_document`: after redo, the test observed the disk write before FilmStore released `busy/pendingTransaction`, then started a trim gesture while the previous transaction was still closing. The preview moved but the edit was rejected; the assertion correctly caught the unchanged disk position. This is a test synchronization defect, not a reason to weaken the assertion or change the product contract.
+- W2 now owns both `tests/test_film_studio_pending_revision.py` and `tests/test_film_studio_external_watch_browser.py` in this batch. The correction waits for the exact redo revision, `busy=false`, `pendingTransaction=null`, and no pending external revision before beginning the next trim gesture. Existing 10s gate is unchanged.
+- W2 latest branch SHA is now `11ffce38b9cdbb2e79dceba5f72cfb63a0be2cfa`; owner run `43165127727` is queued; syntax run `43165127785` is queued. Earlier W2 run `43164804919` on SHA `0008d5b...` is superseded and is not final evidence.
+- W3 exact SHA `55b36f60fff45cfb51ad5596961e5b77d1ba78fd`: owner run `43164853975` PASS, 378 passed, 1 skipped, 0 failed; syntax `43164853993` PASS.
+- W8 exact SHA `19c5b3ae6b4479328c5a13e047573295d6e81a3e`: owner run `43164924206` PASS, 11 Chromium tests passed; syntax `43164924037` PASS.
+
+
+### Section 74 follow-up — W2 exact-SHA closure and W8 reload extension
+
+- W2 final exact SHA `11ffce38b9cdbb2e79dceba5f72cfb63a0be2cfa`: owner run `43165127727` PASS, 367 passed, 0 failed; workflow syntax run `43165127785` PASS. This SHA includes both W2-owned test paths and the explicit wait for the redo transaction to release FilmStore before the following trim gesture.
+- W2 first owner run `43164804919` on `0008d5b...` is superseded. The integrated-main failure on `23ce5d2...` was diagnosed and corrected in the W2 branch; do not reuse the earlier owner PASS as evidence for the fix.
+- W8 was extended after its earlier 11-test PASS to reload the browser document, reopen the project, verify both split overlays are still persisted, then select and open Inspector. The latest W8 exact SHA is now `3d76158c979bbc93535fd93587ee6ef6d8218c7e`; owner run `43165363150` and syntax run `43165363110` are IN_PROGRESS. Earlier W8 run `43164924206` is superseded for this extended assertion.
+- W3 remains PASS on `55b36f60fff45cfb51ad5596961e5b77d1ba78fd`: owner run `43164853975`, 378 passed, 1 skipped, 0 failed; syntax `43164853993` PASS.
+
+
+### Section 74 final owner closure and batch-72 integrated gate report
+
+- W8 final exact SHA `4fce2abf5212fd26ece3bbabe67763ab124f9e60`: owner run `43165598130` PASS, 11 Chromium tests passed; workflow syntax run `43165598119` PASS. The test now reloads the full browser document after split, reopens the project, verifies both overlays survived, waits for canonical selection, then opens Inspector.
+- Batch-72 integrated SHA `23ce5d2b39712937f7c65b8b8ca0eb6879919447` gate report:
+  - Full hosted regression run `43164334409`: 1,990 passed, 2 skipped, 0 failures/errors; Studio release gate in the same run: 365 passed.
+  - Parallel lanes run `43164334364`: W1 96 passed; W3 377 passed/1 skipped; W8 10 passed; W7 SUCCESS; W2 365 passed/1 failed. The single W2 failure was the external-watch test race described above.
+  - Product IA run `43164334268`: W4 36 passed; W5 13 passed.
+  - Windows-native publication run `43164334341`: 6 passed.
+  - YAML validation run `43164334395`: SUCCESS.
+- Therefore batch-72's integrated SHA is NOT fully accepted: the parallel W2 lane failed one timing-sensitive browser assertion, even though the full suite passed. The failure was not ignored. W2 owner branch SHA `11ffce38b9cdbb2e79dceba5f72cfb63a0be2cfa` now passes 367 tests after synchronizing on the exact redo revision and idle transaction state.
+- Current next-batch final owner evidence: W2 `11ffce38...` run `43165127727` PASS, 367 passed; W3 `55b36f60...` run `43164853975` PASS, 378 passed/1 skipped; W8 `4fce2ab...` run `43165598130` PASS, 11 passed. Their syntax runs `43165127785`, `43164853993`, and `43165598119` all PASS.
+- W6 docs branch has reconciled these results and owns only the two docs. Next step is path-scoped integration W2 → W3 → W8 → W6 against current main `202ab62...`, then all integrated gates on the resulting exact main SHA. No gate from `23ce5d2...` is substituted for the new main SHA.

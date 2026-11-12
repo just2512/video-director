@@ -249,3 +249,17 @@ def test_asset_insert_revision_conflict_schedules_safe_reload():
     assert "transactionErrorCode==='FILM_REVISION_CONFLICT'||transactionErrorCode==='FILM_EXTERNAL_REVISION_PENDING'" in insert
 
 
+
+
+def test_undo_redo_is_revision_bound_and_failed_history_does_not_replace_local_state():
+    source = (Path(__file__).resolve().parents[1] / "webui" / "static" / "js" / "film-studio.js").read_text(encoding="utf-8")
+    history = source[source.index("async function filmStudioHistory(action)"):source.index("function onMove(e)")]
+
+    # Undo/redo is a document transaction, not a blind stack mutation. The
+    # current revision is sent as the base and the UI adopts only an OK response.
+    assert "dispatchStudioTransaction(action,S.rev,[],async function()" in history
+    assert "apiPost('/api/editor/film/'+action,{project_id:S.projectId,base:S.rev})" in history
+    assert history.index("if(!r||!r.ok)") < history.index("S.data=r;S.rev=r.rev;")
+    assert "finally{flushPendingExternalRevision();}" in history
+    assert "请先应用 Inspector 属性草稿" in history
+    assert "影片文件无效，暂时不能撤销或重做" in history

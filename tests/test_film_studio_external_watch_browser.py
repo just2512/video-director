@@ -2483,6 +2483,19 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     for item in track["clips"] if item["id"] == "clip-b"
                 )
                 assert abs(float(redone_clip["attrs"]["at"]) - 6.0) < 0.15, redone_clip
+                # The disk write can become visible before the browser releases its
+                # transaction lock. Wait for the exact redo revision and idle FilmStore
+                # before starting the next gesture, otherwise the trim is rejected as busy.
+                page.wait_for_function(
+                    """expectedRevision => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return !!state && state.revision === expectedRevision &&
+                        state.busy === false && state.pendingTransaction === null &&
+                        !state.pendingExternalRevision;
+                    }""",
+                    arg=redone_document["rev"],
+                    timeout=10000,
+                )
 
                 # Trim-start preview geometry must be React-owned and transient; only pointerup submits a trim op.
                 trim_clip = page.locator('#fs-timeline .fs-clip[data-clip="clip-a"]')
