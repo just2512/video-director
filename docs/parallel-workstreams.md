@@ -386,3 +386,14 @@ Owner PASS on each latest branch SHA is mandatory before integration. Integrate 
 - Exact-SHA hosted acceptance on final main: Parallel W1/W2/W3/W7/W8 all PASS (96; 367; 378 passed/1 skipped; 2; 11); Product IA W4/W5 PASS (36; 13); Studio gate PASS (366); full Python/browser PASS (1,993 passed/2 skipped); focused storage/watch PASS (187 passed/1 skipped); Windows-native PASS (6); workflow YAML PASS. Run IDs are recorded in execution-ledger.md §76.
 - The initial Studio-gate failure on prior SHA `0f75b1c...` was followed by a successful same-SHA retry and a successful final-main run. No assertions were removed or relaxed.
 - Delivery scope is closed for both documented plans. No further product features or test batches should be opened. Remaining external evidence is limited to representative real-media snapshot performance (MISSING pending real project media), user-machine model-config preservation (UNKNOWN; must not be accessed by CI), and any separately authorized live-provider call (explicit opt-in; not run in this default acceptance).
+
+
+
+## 2026-11-12 final public-media acceptance update and stop condition
+
+- Integrated main SHA: `ad713e5cbaa633717a4d9151f17b259b9c1aea70`. The only executable-tree change in this batch is the W3 real-public-media acceptance test in `tests/test_film_full_pipeline_e2e.py`; no product source or workflow changed.
+- Public source is Big Buck Bunny 480p/30s, CC BY 3.0, pinned to `chthomos/video-media-samples@997cb58f16bc3433652506910734be75bc64d768`. W3 exercises original-source download/hash, full audio/video decode, browser-compatible video plus separate PCM audio, FilmDocument video/audio tracks, Chromium preview, render, MP4 export, stream/frame/duration validation and QC.
+- Exact-SHA hosted results: parallel W1/W2/W3/W7/W8 run `43173817436` SUCCESS (W3 379 passed/1 skipped); Product IA run `43173817396` SUCCESS (W4 36, W5 13); full hosted run `43173817321` SUCCESS (1,994 passed/2 skipped, zero failures/errors; Studio release gate PASS); Windows native run `43173817514` SUCCESS (6); YAML run `43173817351` SUCCESS. See execution-ledger.md §77 for job-level evidence.
+- Public-sample cloud media acceptance is PASS. Performance timings and SHA-256 values are in the W3 Actions step summary. This does not close the distinct user-production-media performance benchmark, which remains MISSING until a representative production project is available.
+- NVIDIA live-provider job remains SKIPPED and requires separate explicit opt-in. Local model-config preservation remains UNKNOWN and must not be inspected by CI.
+- **Stop condition:** both documented product plans and all required default hosted gates are closed. Do not create another W1/W2/W3/W4/W5/W7/W8 feature or test batch. Reopen only for a reproducible documented-contract failure or an explicitly supplied external acceptance input. No further cloud-side product work is pending under the current plans.
