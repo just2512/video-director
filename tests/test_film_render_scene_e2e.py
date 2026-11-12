@@ -1329,3 +1329,36 @@ def test_benchmark_rejects_missing_or_out_of_project_resource(tmp_path, monkeypa
 
     with pytest.raises(Exception, match="existing regular file"):
         benchmark_snapshot(project_id, ["assets/missing.mp4"])
+
+
+def test_ffmpeg_stderr_fallback_preserves_audio_codec_sample_rate_and_channels(monkeypatch):
+    from video_director import prober, renderer
+
+    stderr = """Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'rendered.mp4':
+  Duration: 00:00:02.00, start: 0.000000, bitrate: 128 kb/s
+  Stream #0:0(und): Video: h264 (High), yuv420p, 320x180, 10 fps
+  Stream #0:1(und): Audio: aac (LC), 48000 Hz, stereo, fltp, 128 kb/s
+"""
+    completed = subprocess.CompletedProcess(
+        args=["ffmpeg", "-hide_banner", "-i", "rendered.mp4"],
+        returncode=1,
+        stdout="",
+        stderr=stderr,
+    )
+    monkeypatch.setattr(prober.subprocess, "run", lambda *args, **kwargs: completed)
+    parsed = prober._probe_with_ffmpeg_stderr("ffmpeg", "rendered.mp4")
+    assert parsed.has_audio_stream is True
+    assert parsed.audio_codec == "aac"
+    assert parsed.audio_sample_rate == 48000
+    assert parsed.audio_channels == 2
+
+    monkeypatch.setattr(prober, "_resolve_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(prober, "_resolve_ffprobe", lambda: None)
+    monkeypatch.setattr(prober, "_probe_with_ffmpeg_stderr", lambda ff, path: parsed)
+    monkeypatch.setattr(renderer, "_run", lambda *args, **kwargs: None)
+    report = renderer._verify_muxed_audio("rendered.mp4", expected_duration=2.0)
+    assert report["codec"] == "aac"
+    assert report["sample_rate"] == 48000
+    assert report["channels"] == 2
+    assert report["probe_engine"] == "ffmpeg-stderr"
+    assert report["full_decode"] == "PASS"
