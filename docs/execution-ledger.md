@@ -1714,3 +1714,12 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W8 exact branch SHA `cb369c517f888c1de49096f8552f200f25a0e08c`: owner run `43157349798` SUCCESS; W8 real Chromium browser step SUCCESS. Workflow syntax run `43157349734` SUCCESS.
 - W3 first attempt SHA `620cb7d533198e0d4e3fbd3b4eb39acacdea0f7d` failed 1 test because the new test read `migration/source-composition.json` from disk before the explicit film initialization transaction. This was a test setup error, not a product regression. The assertion now checks the source snapshot returned in `result.pages`, which is the actual build contract before initialization. Corrected branch SHA: `927befdacc8db61bed490e689c9d3b103a78d630`; new owner CI is pending.
 - W2 exact branch SHA `2d3fb039c48eb9a1b044acdaeb15cec25733a216`: owner lane `43157339629` was still running at this update; do not report PASS until its test step completes.
+
+
+
+### Section 71 correction record — W2 sequence boundary
+
+- W2 first attempt SHA `2d3fb039c48eb9a1b044acdaeb15cec25733a216` failed 1 test because the fixture split a 1.5× clip while the following clip remained at timeline time 5, producing a real overlap rejected by document validation. The product rejection was correct; the test sequence was invalid.
+- The corrected sequence now moves the following clip to time 7 before changing speed and splitting, then verifies stable IDs, source ranges, normalized operation order, serialization/reopen, and deterministic replay.
+- Corrected W2 SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` is running; syntax run `43157670801` is running.
+- W3 corrected SHA `927befdacc8db61bed490e689c9d3b103a78d630`: owner run `43157597237` is running; syntax run `43157597386` SUCCESS.
