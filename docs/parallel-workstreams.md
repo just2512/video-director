@@ -302,3 +302,11 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 
 - W3 `927befdacc8db61bed490e689c9d3b103a78d630`: owner run `43157597237` PASS (375 passed, 1 skipped); workflow syntax `43157597386` PASS.
 - W2 `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` remains RUNNING. Hold integration.
+
+
+
+### Section 71 latest exact-SHA update
+
+- W3 latest SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` adds SceneIR/Layer mapping assertions after the previous `927bef...` PASS; new owner run `43157839805` and syntax run `43157839811` are QUEUED. The earlier pass does not cover the new test.
+- W2 latest SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29` owner run `43157670771` remains RUNNING.
+- W8 `cb369c517f888c1de49096f8552f200f25a0e08c` owner run PASS: 10 Chromium tests.
