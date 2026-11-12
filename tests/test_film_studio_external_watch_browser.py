@@ -1515,7 +1515,8 @@ def test_stale_selector_authority_response_cannot_enter_legacy_loader(tmp_path, 
         thread.join(timeout=5)
 
 
-def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp_path, monkeypatch):
+@pytest.mark.parametrize("trim_delta_x", [18, 36, 54])
+def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp_path, monkeypatch, trim_delta_x):
     storage_root = tmp_path / "storage"
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage_root))
     import webui.server as web_server
@@ -2507,7 +2508,6 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 trim_edit_count_before = len(film_edit_requests)
                 trim_x = trim_box["x"] + trim_box["width"] / 2
                 trim_y = trim_box["y"] + trim_box["height"] / 2
-                trim_delta_x = 18
                 page.mouse.move(trim_x, trim_y)
                 page.mouse.down()
                 page.mouse.move(trim_x + trim_delta_x, trim_y, steps=6)
