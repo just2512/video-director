@@ -318,3 +318,10 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 - W2 `25fa22b96902b473bd1fc781a31bf542bed9ad29`: run `43157670771` PASS, 366 passed; workflow syntax `43157670801` PASS.
 - W3 latest SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` owner run `43157839805` remains RUNNING.
 - W8 `cb369c517f888c1de49096f8552f200f25a0e08c`: run `43157349798` PASS, 10 browser tests.
+
+
+
+### Section 71 W3 scene/layer fixture correction
+
+- W3 SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` failed 1 test: its first layer started at 0.25s, which violates the CompositionIR no-gap continuity rule. The test fixture now begins at 0 and checks scene offset 1.5s plus source range, speed and fit mode. Latest SHA `4b4efb24dd05cd4cda803835115f59cc45928f02` awaits owner CI.
+- W2 `25fa22b96902b473bd1fc781a31bf542bed9ad29`: PASS, 366 passed. W8 `cb369c517f888c1de49096f8552f200f25a0e08c`: PASS, 10 Chromium tests.
