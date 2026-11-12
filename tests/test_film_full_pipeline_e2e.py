@@ -405,7 +405,7 @@ def test_real_public_media_full_project_render_and_performance_snapshot(tmp_path
             "-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "8",
             "-lag-in-frames", "0", "-auto-alt-ref", "0", "-g", "1",
             "-keyint_min", "1", "-pix_fmt", "yuv420p",
-            "-c:a", "libvorbis", "-b:a", "64k", "-shortest",
+            "-c:a", "libopus", "-b:a", "64k", "-shortest",
             str(browser_media),
         ],
         capture_output=True, text=True, timeout=180,
@@ -500,7 +500,7 @@ def test_real_public_media_full_project_render_and_performance_snapshot(tmp_path
             },
         },
         "browser_profile": {
-            "container": "WebM", "video_codec": "VP8", "audio_codec": "Vorbis",
+            "container": "WebM", "video_codec": "VP8", "audio_codec": "Opus",
             "width": browser_probe.width, "height": browser_probe.height,
             "fps": browser_probe.fps, "duration_seconds": browser_probe.duration,
         },
