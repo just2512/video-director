@@ -1831,3 +1831,35 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - Therefore batch-72's integrated SHA is NOT fully accepted: the parallel W2 lane failed one timing-sensitive browser assertion, even though the full suite passed. The failure was not ignored. W2 owner branch SHA `11ffce38b9cdbb2e79dceba5f72cfb63a0be2cfa` now passes 367 tests after synchronizing on the exact redo revision and idle transaction state.
 - Current next-batch final owner evidence: W2 `11ffce38...` run `43165127727` PASS, 367 passed; W3 `55b36f60...` run `43164853975` PASS, 378 passed/1 skipped; W8 `4fce2ab...` run `43165598130` PASS, 11 passed. Their syntax runs `43165127785`, `43164853993`, and `43165598119` all PASS.
 - W6 docs branch has reconciled these results and owns only the two docs. Next step is path-scoped integration W2 → W3 → W8 → W6 against current main `202ab62...`, then all integrated gates on the resulting exact main SHA. No gate from `23ce5d2...` is substituted for the new main SHA.
+
+
+## 75. 2026-11-12 integrated batch follow-up and next isolated work
+
+### Integrated baseline and exact-SHA gate status
+
+- Current integrated main SHA: `0f75b1c24ff140e151d53bd7026ea5e57232001c`. It integrates W2/W3/W8 test paths and W6 ledger changes from frozen base `202ab62ccb7f01f29240d9b5335df0b41d8ef9eb`; the integrated commit retains the source branch commits as additional parents.
+- YAML validation run `43165912627`: PASS on exact SHA `0f75b1c24ff140e151d53bd7026ea5e57232001c`.
+- Parallel workstream run `43165912612`: PASS on the same SHA; W1, W2, W3, W7 and W8 owner jobs all PASS. Product IA run `43165912628`: PASS. Windows-native publication run `43165912691`: PASS.
+- Full hosted regression run `43165912670`: Studio release gate job `131007613250` FAILED; full Python/browser job `131007613452` was still IN_PROGRESS at ledger update time. Studio React build and React integration regressions passed; the release gate's 366-test suite reported 365 passed and 1 failed.
+- Failure: `tests/test_film_studio_external_watch_browser.py::test_external_agent_write_hot_reloads_and_recovers_after_broken_document`. The trim-start assertion observed API/disk clip position unchanged at 0.0. The preceding wait accepted any new idle revision, so a background external-watch revision could satisfy it before the trim edit response was authoritative. This is a real integrated-gate failure; do not mark the batch accepted based on parallel W2 PASS alone.
+
+### W2 correction branch reopened from integrated main
+
+- Frozen base: `0f75b1c24ff140e151d53bd7026ea5e57232001c`.
+- Branch: `work/w2-external-watch-trim-atomicity-20261112`; exclusive owner path: `tests/test_film_studio_external_watch_browser.py`.
+- Latest submitted SHA: `a0371d248475d32bba279665e16e9edaf2734677`.
+- Correction: wrap the trim pointer-up in Playwright `expect_response` for POST `/api/editor/film/edit`, require HTTP 200, then wait for preview cleanup and the exact API/FilmStore revision before reading disk state. This prevents an unrelated external-watch revision from satisfying the trim-commit wait. Existing assertions, timeouts and product behavior remain unchanged.
+- Owner CI and syntax evidence: PENDING. Do not integrate until the exact latest SHA owner lane is PASS. The previous integrated Studio release failure remains open until corrected exact-SHA gates pass.
+
+### Next independent branches created from the same frozen base
+
+- W3: `work/w3-compositionir-unsupported-field-contract-20261112`; owner boundary reserved for CompositionIR unsupported-field fail-closed and archival-warning tests. No production schema changes without explicit product contract review.
+- W8: `work/w8-shotcraft-keyboard-command-feedback-20261112`; owner boundary reserved for Shotcraft keyboard command/selection/Inspector error-feedback browser acceptance.
+- W6: `work/w6-next-batch-provenance-20261112`; owns only these two documentation files.
+- All four branches were created from exact base `0f75b1c24ff140e151d53bd7026ea5e57232001c`. W2 has a submitted test correction; W3/W8 are isolated work queues, not yet PASS or integration-ready. W6 must record their eventual exact heads and owner runs.
+
+### Remaining integrated gates and external acceptance
+
+- Full Python/browser regression run `43165912670` job `131007613452`: IN_PROGRESS at the time of this entry; final count/conclusion must be appended when available.
+- The integrated batch remains NOT ACCEPTED until W2's regression is fixed and the corrected exact main SHA passes parallel lanes, Product IA, full Python/browser, Studio release gate, Windows-native publication, focused storage/watch, and YAML validation as applicable.
+- Representative real-media snapshot/performance acceptance remains MISSING. NVIDIA live token-stream acceptance remains explicit opt-in and is not inferred from non-live CI.
