@@ -237,3 +237,12 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 - W2 sequence coverage is deliberately bounded; do not describe it as exhaustive permutations.
 - W3 subtitle migration distinguishes mapped cue/style fields from archived-only `mode`, `source`, and `style_id` semantics. No false claim of lossless migration.
 - Real-media performance and live NVIDIA token streaming remain external/explicit gates, not silently skipped PASS items.
+
+
+## W8 Shotcraft browser acceptance and W3 scene-boundary ownership (2026-11-12)
+
+- W8 is an independent short-lived ownership lane for Shotcraft creative-workflow browser acceptance. Its hosted job is `W8 Shotcraft creative browser acceptance` and runs `tests/test_studio_browser_flow.py` plus `tests/test_visual_overlay_browser.py`.
+- W8 does **not** own deterministic HTML-scene rendering. The supported `window.film.frame(t)` contract, project-local resource readiness, offline network rejection, and render/QC revision pinning belong to W3 lifecycle/export acceptance and are exercised by `tests/test_film_scene_runtime.py` and `tests/test_film_render_scene_e2e.py`.
+- Arbitrary HTML without the frame protocol, arbitrary WebGL/GPU behavior, uncontrolled timers, unawaited asynchronous state, and external resources remain unsupported/fail-closed. No W8 or W3 test may turn these unsupported cases into a positive deterministic-support claim.
+- W8 and W3 can run concurrently because their owned test modules and CI jobs are disjoint. W6 owns any workflow command changes; no branch may copy stale workflow snapshots during integration.
+- Short-lived branches are required execution units for independent work. Freeze one exact main SHA, create task-scoped branches with disjoint file ownership, run each owner lane on GitHub-hosted CI, integrate path-scoped changes serially to main, and rerun exact-main integrated gates. Main is not a development branch for parallel tasks; it is the sole integration target. No PR/manual-review handoff or long-lived feature branches are introduced.
