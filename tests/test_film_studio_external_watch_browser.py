@@ -2537,7 +2537,18 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert "clip-a" in transient_state["activeDragIds"], transient_state
                 assert len(film_edit_requests) == trim_edit_count_before
                 assert fd.read_project_film(project_id)["rev"] == trim_document_before["rev"]
-                page.mouse.up()
+                # Pointer-up clears the transient preview before the async edit
+                # response necessarily reaches the browser. Wait for the authoritative
+                # trim response first; a background external-watch revision alone must
+                # never satisfy the subsequent revision wait.
+                with page.expect_response(
+                    lambda response: response.url.endswith("/api/editor/film/edit")
+                    and response.request.method == "POST",
+                    timeout=10000,
+                ) as trim_edit_response_info:
+                    page.mouse.up()
+                trim_edit_response = trim_edit_response_info.value
+                assert trim_edit_response.status == 200, trim_edit_response.text()
                 page.wait_for_function(
                     """() => document.querySelector('#fs-timeline .fs-clip[data-clip=\\"clip-a\\"]')?.dataset.reactGesturePreview === 'false' """,
                     timeout=10000,
