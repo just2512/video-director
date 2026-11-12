@@ -428,11 +428,18 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                   // DOM event alone does not await that Promise.
                   const original=window.editorLoad;
                   window.__testEditorLoadPromise=null;
+                  window.__testEditorLoadCalls=0;
                   window.editorLoad=function(...args){
+                    window.__testEditorLoadCalls+=1;
                     window.__testEditorLoadPromise=Promise.resolve(original.apply(this,args));
                     return window.__testEditorLoadPromise;
                   };
-                  select.dispatchEvent(new Event('change',{bubbles:true}));
+                  // Invoke the selector's real inline onchange handler exactly once.
+                  // dispatchEvent() also invokes every registered change listener;
+                  // a second project-open request can supersede this authority load
+                  // and correctly return PROJECT_SELECTION_CHANGED.
+                  if(typeof select.onchange!=='function') throw new Error('editor project onchange handler is missing');
+                  select.onchange.call(select,new Event('change',{bubbles:true}));
                 }""", project_id)
                 load_result = page.evaluate("""async () => {
                   if(!window.__testEditorLoadPromise) return null;
