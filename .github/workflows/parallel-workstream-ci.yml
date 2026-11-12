@@ -143,7 +143,7 @@ jobs:
 
   shotcraft-ui:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/work/w8-')
-    name: W8 Shotcraft UI browser acceptance
+    name: W8 Shotcraft creative browser acceptance
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
