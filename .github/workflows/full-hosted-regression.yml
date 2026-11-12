@@ -40,15 +40,18 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: requirements.txt
-      - name: Install native media dependencies
-        timeout-minutes: 15
-        run: |
-          bash .github/scripts/install-ubuntu-media-deps.sh
-      - name: Install Python and Chromium dependencies
+      - name: Install Python runtime dependencies
         timeout-minutes: 15
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
+      - name: Install native media dependencies
+        timeout-minutes: 15
+        run: |
+          bash .github/scripts/install-ubuntu-media-deps.sh
+      - name: Install Chromium dependencies
+        timeout-minutes: 15
+        run: |
           python -m playwright install chromium
       - name: Compile application and test modules
         run: |
