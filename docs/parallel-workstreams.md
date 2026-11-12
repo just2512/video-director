@@ -247,3 +247,28 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 - W3 owns supported HTML scene frame/resource determinism under `docs/film-scene-capability-matrix.md`; arbitrary HTML/WebGL, uncontrolled timers, remote resources, and cross-device pixel identity remain unsupported or UNKNOWN.
 - W8 owns Shotcraft creative browser UX and visual-overlay browser acceptance. W8 is not the HTML scene determinism owner.
 - W6 owns GitHub Actions orchestration and the execution/parallel-workstream documents. W6 must not copy stale workflow snapshots from W3/W8 code branches during integration.
+
+
+
+## 2026-11-12 section 70 owner-CI closure and current baseline
+
+- Section 70 W3 branch `work/w3-semantic-roundtrip-scene-boundaries-20261112`, SHA `5ddcb458c016ebec9054e3c14ee3c237d4695815`: owner run `43150524520` PASS (W3 lifecycle/export/QC job SUCCESS); workflow syntax `43150524521` and focused storage `43150524462` SUCCESS.
+- Section 70 W8 branch `work/w8-shotcraft-browser-acceptance-20261112`, SHA `6dfa77cd6a223d9fe599de82a97756af388dc368`: owner run `43150154272` PASS (W8 Shotcraft browser job SUCCESS); workflow syntax `43150154254` SUCCESS.
+- The current main has advanced to `e52120f267d3eb0fcdc768fd2342086f4c2073bb`; the section 70 frozen baseline remains historical. Rebase is not assumed: inspect path-scoped diffs against the current main before integration and preserve the W2 reload-race fix.
+- Do not confuse runs `43156659597` / `43156641957` with the section 70 owner branches; those runs belong to different W3/W8 branch refs.
+
+## 2026-11-12 next independent parallel batch
+
+| Lane | Frozen-base branch | Exclusive ownership | Acceptance |
+|---|---|---|---|
+| W2 | `work/w2-edit-sequence-boundaries-20261112` | `tests/test_film_document_contract.py` | Exact-SHA W2 timeline transaction owner lane |
+| W3 | `work/w3-compositionir-field-groups-20261112` | `tests/test_film_subtitle_migration.py` | Exact-SHA W3 lifecycle/export/QC owner lane |
+| W8 | `work/w8-shotcraft-inspector-state-20261112` | `tests/test_visual_overlay_browser.py` | Exact-SHA W8 real Chromium Shotcraft owner lane |
+| W6 | `work/w6-ledger-baseline-reconcile-20261112` | `docs/execution-ledger.md`, `docs/parallel-workstreams.md` | Documentation-only reconciliation |
+
+- Frozen main baseline for all four branches: `e52120f267d3eb0fcdc768fd2342086f4c2073bb`. Main remains integration-only.
+- W2 adds one bounded deterministic edit-chain/reopen/replay invariant; this is not exhaustive operation coverage.
+- W3 adds semantic evidence for ProjectSpec dimensions, frame rate, declared duration and source-archive retention. Other mapped groups remain UNKNOWN until independently evidenced.
+- W8 adds a real Chromium pointer interaction proving a locked visual track rejects drag without dispatching an edit command.
+- Owner branches run concurrently. Integrate only exact-SHA PASS branches, by owned path, then run the integrated full gate on one exact main SHA.
+- Real-media performance remains MISSING pending representative user media. NVIDIA live token-stream acceptance remains explicit opt-in.
