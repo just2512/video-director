@@ -31,6 +31,13 @@ def test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_
     ir = CompositionIR.model_validate({
         "version": 1,
         "project": {"width": 640, "height": 360, "fps": 30, "duration": 3},
+        "assets": [{
+            "id": "asset-still",
+            "type": "image",
+            "file": "assets/still.png",
+            "source": "uploaded",
+            "description": "Subtitle migration fixture",
+        }],
         "scenes": [{
             "id": "scene-1",
             "start": 0,
