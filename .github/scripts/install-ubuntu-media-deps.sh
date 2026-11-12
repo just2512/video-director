@@ -74,19 +74,50 @@ fi
 ffmpeg_bin_dir="$RUNNER_TEMP/ffmpeg-bin"
 mkdir -p "$ffmpeg_bin_dir"
 
-# FFmpeg and FFprobe are separate executables in the pinned imageio wheel.
-# Install the matching Ubuntu 24.04 static FFprobe with a release-asset SHA-256
-# so AAC metadata checks never silently fall back to stderr parsing in CI.
-ffprobe_url="https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-2/ffprobe-linux-x64-ubuntu-24.04"
-ffprobe_sha256="2b55ea948bae402d53c517bdadbaff8f480d7f811e93f865a68f21a098b8b5ef"
-ffprobe_download="$RUNNER_TEMP/ffprobe-linux-x64-ubuntu-24.04"
+# FFmpeg and FFprobe are separate executables. Use the upstream static
+# FFprobe 6.1.1 Linux x64 asset (John Van Sickle build), SHA-256 pinned.
+# The static build avoids runner-specific libva/shared-library dependencies.
+ffprobe_url="https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffprobe-linux-x64.gz"
+ffprobe_sha256="25d9b6ccb05e3d9de9e04e31e2506d8dd7f9f0418981965ac6df12e8d3afd067"
+ffprobe_download="$RUNNER_TEMP/ffprobe-linux-x64.gz"
 curl --fail --location --silent --show-error \
   --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 180 \
   "$ffprobe_url" -o "$ffprobe_download"
 echo "$ffprobe_sha256  $ffprobe_download" | sha256sum --check --status
 ffprobe_bin="$ffmpeg_bin_dir/ffprobe"
-install -m 0755 "$ffprobe_download" "$ffprobe_bin"
+gzip -dc "$ffprobe_download" > "$ffprobe_bin"
+chmod 0755 "$ffprobe_bin"
 "$ffprobe_bin" -hide_banner -version
+
+# Prove the standalone probe can read AAC metadata from the pinned FFmpeg
+# build before any renderer tests are allowed to execute.
+probe_smoke="$RUNNER_TEMP/ffprobe-validation.mp4"
+"$ffmpeg_bin" -y -hide_banner -loglevel error \
+  -f lavfi -i "color=c=black:s=32x32:d=0.5" \
+  -f lavfi -i "sine=frequency=1000:sample_rate=48000:duration=0.5" \
+  -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$probe_smoke"
+probe_metadata="$("$ffprobe_bin" -v error -select_streams a:0 \
+  -show_entries stream=codec_name,sample_rate,channels \
+  -of default=noprint_wrappers=1 "$probe_smoke")"
+grep -q '^codec_name=aacln -sfn "$ffmpeg_bin" "$ffmpeg_bin_dir/ffmpeg"
+echo "$ffmpeg_bin_dir" >> "$GITHUB_PATH"
+echo "IMAGEIO_FFMPEG_EXE=$ffmpeg_bin" >> "$GITHUB_ENV"
+
+echo "MEDIA_RUNTIME=PASS"
+echo "FFMPEG=$ffmpeg_bin"
+echo "CJK_FONT=$font_path"
+echo "WQY_FONT_GIT_BLOB=$font_blob"
+ <<< "$probe_metadata"
+grep -q '^sample_rate=48000ln -sfn "$ffmpeg_bin" "$ffmpeg_bin_dir/ffmpeg"
+echo "$ffmpeg_bin_dir" >> "$GITHUB_PATH"
+echo "IMAGEIO_FFMPEG_EXE=$ffmpeg_bin" >> "$GITHUB_ENV"
+
+echo "MEDIA_RUNTIME=PASS"
+echo "FFMPEG=$ffmpeg_bin"
+echo "CJK_FONT=$font_path"
+echo "WQY_FONT_GIT_BLOB=$font_blob"
+ <<< "$probe_metadata"
+echo "FFPROBE_SMOKE=PASS"
 ln -sfn "$ffmpeg_bin" "$ffmpeg_bin_dir/ffmpeg"
 echo "$ffmpeg_bin_dir" >> "$GITHUB_PATH"
 echo "IMAGEIO_FFMPEG_EXE=$ffmpeg_bin" >> "$GITHUB_ENV"
