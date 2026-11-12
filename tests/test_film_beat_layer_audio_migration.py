@@ -115,8 +115,8 @@ def test_audio_lane_order_controls_film_track_order_not_clip_start(tmp_path, mon
             }],
         }],
         "audio_tracks": [
-            {"id": "lane-later", "name": "后置轨", "order": 9},
-            {"id": "lane-first", "name": "前置轨", "order": 1},
+            {"id": "lane-later", "name": "后置轨", "order": 9, "hidden": True},
+            {"id": "lane-first", "name": "前置轨", "order": 1, "locked": True, "muted": True},
         ],
         "audio": [
             {"id": "clip-early", "track_id": "lane-later", "type": "sfx",
@@ -136,3 +136,20 @@ def test_audio_lane_order_controls_film_track_order_not_clip_start(tmp_path, mon
     assert [track["clips"][0]["attrs"]["data-source-id"] for track in audio_tracks] == [
         "clip-late", "clip-early",
     ]
+
+    serialized = fd.serialize_film(result["document"])
+    restored = fd.parse_film(serialized)
+    restored_tracks = [
+        track for track in restored["tracks"]
+        if track.get("clips") and track["clips"][0].get("tag") == "audio"
+    ]
+    assert [track["attrs"]["data-label"] for track in restored_tracks] == ["前置轨", "后置轨"]
+    assert [track["attrs"]["data-source-track-order"] for track in restored_tracks] == ["1", "9"]
+    assert restored_tracks[0]["attrs"]["locked"] == ""
+    assert "muted" in restored_tracks[0]["clips"][0]["attrs"]
+    assert restored_tracks[1]["attrs"]["data-source-track-hidden"] == "true"
+    assert "hidden" not in restored_tracks[1]["attrs"]
+    assert [track["clips"][0]["attrs"]["data-source-id"] for track in restored_tracks] == [
+        "clip-late", "clip-early",
+    ]
+    assert fd.serialize_film(restored) == serialized
