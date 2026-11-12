@@ -140,6 +140,9 @@ jobs:
             tests/test_film_variant_migration_api.py \
             tests/test_composition_ir_migration_field_audit.py \
             tests/test_film_subtitle_migration.py \
+            tests/test_film_beat_layer_audio_migration.py \
+            tests/test_film_visual_track_migration.py \
+            tests/test_film_overlay_audio_migration.py \
             tests/test_shotcraft_integration.py \
             tests/test_commercial_gate.py
 
