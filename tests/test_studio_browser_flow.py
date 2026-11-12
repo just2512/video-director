@@ -1374,7 +1374,7 @@ def test_visual_overlay_can_be_selected_split_and_inspected_from_timeline_toolba
                 ) as response_info:
                     if activation == "keyboard":
                         split_button.focus()
-                        assert page.evaluate("document.activeElement === document.querySelector('button[data-action=\\\"ui.split_layer\\\"]')")
+                        assert page.evaluate("document.activeElement === document.querySelector('button[data-action=\"ui.split_layer\"]')")
                         split_button.press("Enter")
                     else:
                         split_button.click()
