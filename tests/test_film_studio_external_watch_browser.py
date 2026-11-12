@@ -2604,6 +2604,20 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "transaction_journal_exists": fd._transaction_path(project_id).exists(),
                     "api_clip_at": api_clip_after["attrs"].get("at"),
                     "disk_clip_at": trim_clip_after["attrs"].get("at"),
+                    "disk_clip_attrs": trim_clip_after["attrs"],
+                    "api_clip_attrs": api_clip_after["attrs"],
+                    "trim_requests": film_edit_requests[trim_edit_count_before:],
+                    "trim_responses": film_edit_responses[-5:],
+                    "store_transaction": page.evaluate("""() => {
+                      const state = window.filmStudioStore?.getSnapshot();
+                      return state ? {
+                        busy: state.busy,
+                        pendingTransaction: state.pendingTransaction,
+                        revision: state.revision,
+                        pendingExternalRevision: state.pendingExternalRevision,
+                        timelineGestureContext: state.timelineGestureContext
+                      } : null;
+                    }"""),
                     "disk_film_html": trim_document_after["text"],
                 }
                 assert float(trim_clip_after["attrs"]["at"]) > float(next(
