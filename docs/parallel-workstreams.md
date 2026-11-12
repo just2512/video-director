@@ -356,7 +356,7 @@ Frozen baseline: `202ab62ccb7f01f29240d9b5335df0b41d8ef9eb`. The next batch uses
 - The workflow has `workflow_dispatch` for explicit manual execution. Exact run head SHA and job/test output remain the provenance source of truth.
 - No workflow defect was found in this audit; therefore W6 does not change workflow code in this batch.
 
-Owner PASS on each latest branch SHA is mandatory before integration. Integrate W2 → W3 → W8 → W6 with path-scoped trees and source branch heads retained as additional parents. Then execute every integrated release gate against one exact main SHA. A docs-only main successor without fresh exact-SHA full-gate evidence is not considered fully accepted.
+Owner PASS on each latest branch SHA is mandatory before integration. Integrate W2 → W3 → W8 → W6 with path-scoped trees and source branch heads retained as additional parents. Then execute every integrated release gate against one exact executable/workflow main SHA. A later documentation-only successor does not invalidate that acceptance or require rerunning product gates when the executable and workflow trees are unchanged; record the successor SHA and verify the diff is limited to the two execution documents. This follows execution-ledger.md §2 and §76. Any executable or workflow change still requires the applicable exact-SHA hosted gates.
 
 
 ### Latest owner-lane evidence for this batch
