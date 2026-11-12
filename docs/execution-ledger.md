@@ -1924,3 +1924,12 @@ All listed runs checked out `ad713e5cbaa633717a4d9151f17b259b9c1aea70`:
 - `USER_MACHINE_MODEL_CONFIG_PRESERVATION=UNKNOWN`: repository CI must not access local credentials/configuration; this remains a local manual check only if the user elects to perform it.
 - `NVIDIA_LIVE_PROVIDER_ACCEPTANCE=EXPLICIT_OPT_IN`: do not trigger another live call without separate authorization and hosted secret.
 - The documented product and default-CI delivery plans are closed. Reopen only for a reproducible contract violation or one of the explicitly listed external acceptance inputs; do not open another feature/test batch.
+
+
+## 78. 2026-11-12 NVIDIA live-provider retry — endpoint remains blocked
+
+- Explicit live acceptance was authorized and run `43176619085` against exact main SHA `1e79cdf688a91f4ab31e728c3b517ce5a0e0755e`. The Studio release gate and full Python/browser regression both completed SUCCESS on the same SHA; the default regression artifact and Studio artifact were retained.
+- The NVIDIA job was retried once (job `131060218475`; prior attempt job `131047157788`). On the retry, dependency installation and hosted secret configuration passed, but the minimal streaming probe again ended with `APITimeoutError` / `ReadTimeout` after 210.84 seconds. The first attempt recorded the same error after 210.71 seconds.
+- Classifier output: `LIVE_STREAM_ACCEPTANCE=BLOCKED_ENDPOINT`. The actual Film AI token-stream test was SKIPPED because the provider probe did not yield a non-empty token. No live SSE ordering, approval-safety, or Film AI integration result was produced. No live JUnit artifact exists because the test never started; the classifier log is the retained evidence. Do not report this as a product-code FAIL or a model PASS.
+- Current disposition: `NVIDIA_LIVE_PROVIDER_ACCEPTANCE=BLOCKED_ENDPOINT` after two hosted attempts. Stop automatic retries; further calls would repeat a 210-second wait without new diagnostic evidence. The secret was present, so this is not a missing-secret/configuration result. Resolution requires the NVIDIA endpoint/service to respond to the configured model request; once independently confirmed available, a new explicitly authorized live acceptance may be run.
+- No product source, workflow, or test was changed. The only follow-up is this evidence reconciliation. Default CI remains PASS; both documented product delivery plans remain closed. Other external boundaries are unchanged: user-production-media performance `MISSING`; user-machine model-config preservation `UNKNOWN`.
