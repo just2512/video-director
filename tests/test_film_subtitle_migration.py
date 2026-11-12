@@ -126,3 +126,14 @@ def test_composition_ir_subtitle_cues_and_supported_style_migrate_with_archival_
     serialized = fd.serialize_film(document)
     reparsed = fd.parse_film(serialized)
     assert fd.serialize_film(reparsed) == serialized
+
+    # Semantic round-trip: a canonical serialization match must also preserve
+    # the actual subtitle timeline contract after reopening the FilmDocument.
+    reopened_track = next(track for track in reparsed["tracks"] if track["id"] == "track-subtitles")
+    assert reopened_track["attrs"] == subtitle_track["attrs"]
+    assert reopened_track["clips"] == subtitle_track["clips"]
+    assert reopened_track["clips"][0]["attrs"]["src"] == "scenes/subtitles.html#t=0,3"
+    reopened_html = (project_root / "scenes" / "subtitles.html").read_text(encoding="utf-8")
+    assert reopened_html == html
+    reopened_archive = json.loads(archive_path.read_text(encoding="utf-8"))
+    assert reopened_archive == archived
