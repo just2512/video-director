@@ -1738,3 +1738,11 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W3 was extended after its prior PASS to cover SceneIR/Layer timing, source range, playback speed and fit-mode mapping. Latest branch SHA is now `5a1000994d3bea2a12f5a501200b0e23ad04f5db`; owner run `43157839805` and syntax run `43157839811` are queued. The earlier `927bef...` PASS does not qualify the new test.
 - W2 latest branch SHA remains `25fa22b96902b473bd1fc781a31bf542bed9ad29`; owner run `43157670771` is still in progress. Do not integrate until the exact latest SHA passes.
 - W8 remains PASS on `cb369c517f888c1de49096f8552f200f25a0e08c`, 10 Chromium tests passed.
+
+
+
+### Section 71 owner-lane update — W2 closure
+
+- W2 corrected exact SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` PASS; timeline transaction/revision job `130981275578` reports 366 passed, 0 failed. Workflow syntax run `43157670801` PASS.
+- W3 latest SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` remains in owner run `43157839805`; its scene/layer semantic extension is not yet accepted.
+- W8 remains PASS on `cb369c517f888c1de49096f8552f200f25a0e08c`, run `43157349798`, 10 passed.
