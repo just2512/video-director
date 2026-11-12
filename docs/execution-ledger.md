@@ -1568,3 +1568,41 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - After integration, run all affected W1/W2/W3/W7/W8 lanes, focused storage/watch, Studio release gate, full Python/browser, Windows-native publication and YAML validation on one exact main SHA.
 - The template-gallery browser timeout shares the same root cause: `template_runtime_report()` sets `can_render=false` when `prober._resolve_ffprobe()` returns no executable, so `#tg-render` remains disabled after a valid upload. The static FFprobe preflight directly addresses this readiness gate. The integrated full-browser regression must verify the button becomes enabled; if it still fails, use the retained trace and server diagnostics to fix the actual readiness/asset-upload condition rather than increasing timeouts or weakening the assertion.
 - NVIDIA live-model acceptance remains explicit opt-in. Representative large-media snapshot performance remains MISSING pending real project media.
+
+
+
+## 67. 2026-11-12 integrated-main acceptance closure
+
+### Exact integrated code revision
+
+- Integrated code SHA: `28fc07f43cf0f01d7c39f40c89273f4395a91c10`.
+- Six short-lived workstreams were integrated in the documented order with path-scoped trees and source branch heads preserved as merge parents. W2/W3 stale workflow snapshots were not copied over current main.
+- All following GitHub Actions runs are on this exact SHA; no failed jobs remain.
+
+### Integrated CI evidence
+
+| Gate | Run | Result |
+|---|---:|---|
+| Full hosted regression | `43136680598` | 1,980 passed, 2 skipped, 0 failed; 647.24s |
+| Studio release gate | `43136680598` | 360 passed |
+| Parallel workstreams | `43136680531` | W1 96; W2 362; W3 353 passed/1 skipped; W7 2; W8 8 |
+| Product IA | `43136680533` | W4 36; W5 13 passed |
+| Windows native publication | `43136680515` | 6 passed |
+| Focused storage/external edit | `43136680661` | 174 passed, 1 skipped |
+| GitHub Actions YAML | `43136680617` | SUCCESS |
+
+- The Windows-native run executed `test_windows_write_through_replace_and_delete_round_trip`, the Windows spawn manifest-writer/delete serialization test, and the Windows spawn generation-submit lock test. These are no longer merely Linux mocks or branch-only results.
+- Full regression verified generation-job list/resolve API redaction, operator outcome persistence, ambiguous/conflicting outcome rejection, and `submission_unknown` fail-closed behavior.
+- Media runtime emitted `FFPROBE_SMOKE=PASS`, with `codec_name=aac` and `sample_rate=48000`. The prior eight AAC metadata failures are closed.
+- Real Chromium workspace smoke passed in 76.371s. The server log records `POST /api/templates/sample_render` 200 and MP4 download 200; the test's MP4 decode and browser-preview assertions passed. A 45s faulthandler diagnostic dump occurred while waiting for the renderer subprocess, but the test completed successfully. Keep the 300s hard render timeout; optimize actual render time rather than hiding it by loosening acceptance.
+- Full-regression artifact `full-regression-28fc07f43cf0f01d7c39f40c89273f4395a91c10` retained JUnit, pytest output, and `workspace-smoke-server.log`.
+
+### Remaining work — next independent batch
+
+1. **W2 bounded edit-operation sequence matrix.** Extend from individually passing operations to explicit, deterministic operation combinations and state invariants. Do not claim exhaustive permutations; uncovered sequences remain UNKNOWN.
+2. **W3 CompositionIR semantic round-trip matrix.** The 241-field disposition inventory classifies fields as mapped/archive-only/rejected; it is not proof that every mapped field is semantically lossless. Add round-trip tests for mapped field groups and explicit preservation/rejection assertions for archived or unsupported fields.
+3. **W8 HTML scene determinism boundary.** Keep arbitrary HTML/WebGL, nondeterministic animation and unsupported external-resource behavior outside the supported claim. Add or extend fail-closed tests for unsupported capabilities; do not silently render them as deterministic.
+4. **Real-media snapshot performance remains MISSING.** The benchmark harness exists, but representative large project media is required. Do not substitute synthetic media and report it as representative.
+5. **NVIDIA live token-stream acceptance remains explicit opt-in.** No paid/provider live calls were made in this batch. Run only in the configured NVIDIA environment with explicit authorization and retain the acceptance artifacts.
+
+- Do not create the next batch until this exact-main acceptance is recorded and the new baseline is frozen. New work must again use one main baseline, independent W2/W3/W8 branches, a W6 workflow/docs branch, owner CI, then path-scoped serial integration.
