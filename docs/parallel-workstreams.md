@@ -272,3 +272,11 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 - W8 adds a real Chromium pointer interaction proving a locked visual track rejects drag without dispatching an edit command.
 - Owner branches run concurrently. Integrate only exact-SHA PASS branches, by owned path, then run the integrated full gate on one exact main SHA.
 - Real-media performance remains MISSING pending representative user media. NVIDIA live token-stream acceptance remains explicit opt-in.
+
+
+
+## 2026-11-12 section 70 integration verification
+
+- The W3 scene-boundary branch `5ddcb458c016ebec9054e3c14ee3c237d4695815` and W8 Shotcraft branch `6dfa77cd6a223d9fe599de82a97756af388dc368` are both fully contained in main `e52120f267d3eb0fcdc768fd2342086f4c2073bb`; each compare reports no remaining file delta. Their scoped changes are integrated; do not duplicate them.
+- Exact-main release evidence on `e52120f267d3eb0fcdc768fd2342086f4c2073bb`: full regression 1,986 passed/2 skipped; Studio gate 364 passed; W1/W2/W3/W7/W8 all SUCCESS; W4/W5 both SUCCESS; Windows-native 6 passed; YAML SUCCESS. Runs: `43152316209`, `43152316202`, `43152316231`, `43152316198`, `43152316207`.
+- NVIDIA live token-stream acceptance remains explicitly skipped and is not represented as completed.
