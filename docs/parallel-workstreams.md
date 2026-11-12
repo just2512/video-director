@@ -198,3 +198,16 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 - No integration while any relevant owner lane is RUNNING or FAIL.
 - After serial integration, run all affected W1/W2/W3/W7/W8 lanes, focused storage/watch, Studio release gate, full Python/browser, Windows-native publication and YAML validation on one exact main SHA.
 - Do not combine test evidence from different SHAs. Windows spawn must execute on the integrated SHA. NVIDIA live-model and real-media performance gates remain opt-in / MISSING as defined in the execution ledger.
+
+
+
+## 2026-11-12 parallel-batch execution correction
+
+- Frozen baseline: `4bf9e70fee0b71e701cbc7f5ebc231356e0f3984`; current integration target at this update: `f53ed86791b31e74033e0fa059b4b5a4d13853a2`.
+- The active batch remains genuinely parallel: W1 Linux, W1 Windows, W2 refresh, W2 canvas-history, W3 commercial preflight and W6 CI/docs have separate short-lived branches and owner lanes. Main remains integration-only.
+- W6 media-runtime fix is propagated onto W2/W3 code branches solely so their owner lanes test against the corrected CI environment. Workflow ownership remains W6.
+- Integration must be path-scoped, not a blind merge of old branch trees: W2/W3 branch snapshots contain workflow files older than current main's W8 updates. Take only W2/W3-owned test files; take the Windows-native workflow only from W1 Windows; take CI script/workflow/docs from final W6. Preserve source branches as additional parents in integration commits.
+- Static FFprobe is hash-pinned and validated by an actual AAC MP4 smoke test. A first dynamic FFprobe attempt failed due missing `libva.so.2` and was discarded; only the static build is eligible for integration.
+- W3 exact branch owner lane: 353 passed, 1 skipped on `bdbb62ac9f6a30ed8b0d243e09b50cf374cd55f5`. W2 refresh and Canvas-history latest owner lanes remain RUNNING on `67f871b9af76edea722bb3d60b8369b56190a054` and `7787c342c772f958e17ee21db2cd2073deb0882a`.
+- W1 Linux and Windows scoped lanes are PASS. Windows spawn must still execute on integrated main.
+- No integration until both W2 lanes pass. After serial integration, all owner lanes and integrated hosted release gates must pass on one exact main SHA.
