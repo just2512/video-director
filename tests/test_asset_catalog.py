@@ -17,6 +17,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import os
+
 import pytest
 
 from video_director import config
@@ -104,7 +106,7 @@ class TestAssetLibrary:
         def fail_replace(source, destination):
             raise OSError("simulated catalog replace failure")
 
-        monkeypatch.setattr(ac.os, "replace", fail_replace)
+        monkeypatch.setattr(ac, "atomic_replace", fail_replace)
         with pytest.raises(OSError, match="simulated catalog replace failure"):
             ac._save_catalog({"new": {"asset_id": "new"}})
 
@@ -606,6 +608,7 @@ def test_load_catalog_rejects_symlink_without_reading_target(monkeypatch, tmp_pa
     assert exc.value.code == "CATALOG_UNSAFE"
     assert target.read_text(encoding="utf-8") == '{"external": true}'
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation needs Windows developer mode; covered by Linux CI")
 def test_library_root_rejects_symlink_without_creating_catalog_outside(monkeypatch, tmp_path):
     from video_director import asset_catalog as ac
 
@@ -622,6 +625,7 @@ def test_library_root_rejects_symlink_without_creating_catalog_outside(monkeypat
     assert not (outside / "catalog.json").exists()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation needs Windows developer mode; covered by Linux CI")
 def test_library_subdirectories_reject_symlinks_before_following_them(monkeypatch, tmp_path):
     from video_director import asset_catalog as ac
 
