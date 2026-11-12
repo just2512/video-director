@@ -171,3 +171,54 @@ def test_project_spec_dimensions_rate_and_duration_have_explicit_runtime_semanti
 
     archive = json.loads(result["pages"][result["source_archive"]["path"]])
     assert archive["project"] == {"width": 1280, "height": 720, "fps": 24, "duration": 8}
+
+
+def test_scene_and_video_layer_timing_source_range_and_fit_mode_map_to_film_clip(tmp_path, monkeypatch):
+    """SceneIR/Layer timing and supported media properties must map to one Film clip."""
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "scene-layer-migration-contract"
+    project_root = storage / project_id
+    project_root.mkdir(parents=True)
+    assets_root = project_root / "assets"
+    assets_root.mkdir()
+    (assets_root / "clip.mp4").write_bytes(b"scene-layer-fixture")
+    (project_root / "manifest.json").write_text(
+        json.dumps({"assets": [{
+            "id": "asset-video", "kind": "video", "path": "assets/clip.mp4",
+            "filename": "clip.mp4", "mime_type": "video/mp4",
+        }]}),
+        encoding="utf-8",
+    )
+
+    ir = CompositionIR.model_validate({
+        "version": 1,
+        "project": {"width": 1280, "height": 720, "fps": 24, "duration": 6},
+        "assets": [{
+            "id": "asset-video", "type": "video", "file": "assets/clip.mp4",
+            "source": "uploaded", "description": "Scene and layer migration fixture",
+        }],
+        "scenes": [{
+            "id": "scene-offset", "start": 1.5, "duration": 3,
+            "text": "Scene timing contract",
+            "layers": [{
+                "id": "layer-offset", "type": "video", "asset_id": "asset-video",
+                "start": 0.25, "duration": 2, "source_in": 1, "source_out": 5,
+                "speed": 2, "fit_mode": "contain",
+            }],
+        }],
+    })
+
+    result = fd.build_film_from_composition(project_id, ir)
+    clips = [
+        clip for track in result["document"]["tracks"] for clip in track["clips"]
+        if clip["attrs"].get("data-source-id") == "layer-offset"
+    ]
+    assert len(clips) == 1
+    attrs = clips[0]["attrs"]
+    assert attrs["src"].endswith("#t=1,5")
+    assert attrs["at"] == "1.75"
+    assert attrs["speed"] == "2"
+    assert attrs["data-source-scene-id"] == "scene-offset"
+    assert "object-fit:contain" in attrs["style"]
+    assert result["duration"] == 6
