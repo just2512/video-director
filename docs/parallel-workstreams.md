@@ -325,3 +325,13 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 
 - W3 SHA `5a1000994d3bea2a12f5a501200b0e23ad04f5db` failed 1 test: its first layer started at 0.25s, which violates the CompositionIR no-gap continuity rule. The test fixture now begins at 0 and checks scene offset 1.5s plus source range, speed and fit mode. Latest SHA `4b4efb24dd05cd4cda803835115f59cc45928f02` awaits owner CI.
 - W2 `25fa22b96902b473bd1fc781a31bf542bed9ad29`: PASS, 366 passed. W8 `cb369c517f888c1de49096f8552f200f25a0e08c`: PASS, 10 Chromium tests.
+
+
+## 2026-11-12 batch 72 integration and next-batch guardrails
+
+- Current frozen main is `e52120f267d3eb0fcdc768fd2342086f4c2073bb`. W2, W3, W8 and W6 are independent short-lived branches with disjoint file ownership; compare each against the frozen baseline before integration.
+- W2 owns only `tests/test_film_document_contract.py`; W3 owns only `tests/test_film_subtitle_migration.py`; W8 owns only `tests/test_visual_overlay_browser.py`; W6 owns only the two execution-plan documents. Do not cherry-pick or merge stale workflow files from any test branch.
+- Owner PASS is required on the final exact branch SHA. A path-filtered SKIPPED job is not a PASS. Any failed owner test returns to that owner branch; no assertion weakening, timeout inflation, or test removal.
+- Integrate W2 → W3 → W8 → W6 with a tree based on the latest main tree and only the explicitly owned paths. Preserve the original branch heads as additional commit parents. Update main non-force with expected-SHA lease; abort and re-evaluate if main has advanced.
+- After integration, all required workstream lanes, Product IA, full hosted Python/browser regression, Studio release gate, focused storage/watch, Windows-native publication and YAML validation must be checked against the same exact integrated main SHA. Update the ledger with exact run/job/test evidence.
+- Next independent batch is not to be opened until this batch's integrated-main gates pass and the new main baseline is frozen. Candidate parallel scopes are W2 timeline cross-track/ripple/undo-redo/revision-conflict atomicity; W3 AssetRef/Variant/Mask/AudioTrack semantic mapping plus explicit unsupported-field fail-closed behavior; W8 Shotcraft selection/split/Inspector/keyboard/error-feedback/reload consistency; and W6 CI path-filter/owner-lane/provenance maintenance. Assign distinct files or serialize shared-contract changes before creating branches. Real-media performance and NVIDIA live token streaming remain separate MISSING/explicit-opt-in gates.
