@@ -25,6 +25,7 @@ Create independent short-lived branches from one frozen `main` SHA for workstrea
 | W5 Settings IA (07D) | Categorized settings, progressive disclosure, safe save/import/export UX | `tests/test_settings_information_architecture_browser.py` (including export secret redaction and partial-import key preservation), `tests/test_model_config_persistence_contract.py` |
 | W6 Hosted CI orchestration | GitHub Actions workflows, scoped lanes, artifact retention, exact-SHA provenance | Workflow syntax validation plus each lane's scoped suite |
 | W7 Shared shell integration | `index.html`, `app.js`, navigation and view-state integration | Project home/settings navigation and full browser E2E |
+| W8 Shotcraft creative browser acceptance | Shotcraft creative-workflow UI and visual-overlay browser behavior; no scene renderer ownership | `tests/test_studio_browser_flow.py`, `tests/test_visual_overlay_browser.py` |
 
 ## Parallelism and integration
 
