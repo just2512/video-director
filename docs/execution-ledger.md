@@ -1550,9 +1550,9 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W1 Linux cross-process submit dedup: `eb602435e63a62d45b9a76f28815cd13622daf15`; 96 passed, focused storage/watch and YAML SUCCESS.
 - W1 Windows spawn lock: `86be7edef26f8ffa54c27296fd56188cfe6bb89e`; W1 owner lane and YAML SUCCESS. Actual Windows spawn execution remains a hard gate on integrated main.
 - W2 external revision after refresh: latest corrected branch SHA `67f871b9af76edea722bb3d60b8369b56190a054`; owner lane run `43135684066` SUCCESS: 362 passed, 0 failed. The run includes `FFPROBE_SMOKE=PASS`.
-- W2 Canvas history startup race: first static-FFprobe run on `7787c342c772f958e17ee21db2cd2073deb0882a` reached 360 passed but failed one browser test because the test waited for current FilmDocument authority before triggering the project selector's normal `editorLoad` action. The test now explicitly reopens the project through that selector and awaits the actual `editorLoad` promise; latest SHA `a9f6f6b4c1730db53f2dd8d5c5525beb98b2261f`, owner lane run `43136145184` RUNNING.
+- W2 Canvas history startup race: first static-FFprobe run on `7787c342c772f958e17ee21db2cd2073deb0882a` reached 360 passed but failed one browser test because the test waited for current FilmDocument authority before triggering the project selector's normal `editorLoad` action. The test now explicitly reopens the project through that selector and awaits the actual `editorLoad` promise; latest SHA `a9f6f6b4c1730db53f2dd8d5c5525beb98b2261f`, owner lane run `43136145184` SUCCESS: 361 passed, 0 failed.
 - W3 commercial preflight matrix: latest corrected branch SHA `bdbb62ac9f6a30ed8b0d243e09b50cf374cd55f5`; lifecycle/export/QC run `43135695334`: 353 passed, 1 skipped, 0 failures. This exact run also passed the static FFprobe AAC smoke preflight.
-- W6 workflow syntax on CI workflow SHA `afd764e1ea1737015c11e4cbe433f23829745cc1`: run `43136216959` SUCCESS. The full-regression job now sets `VIDEO_DIRECTOR_TEST_RESULTS=test-results` and uploads that directory alongside JUnit and pytest logs, so browser traces are actually retained.
+- W6 workflow syntax on CI workflow SHA `afd764e1ea1737015c11e4cbe433f23829745cc1`: run `43136216959` SUCCESS. The full-regression job sets `VIDEO_DIRECTOR_TEST_RESULTS=test-results` and uploads that directory alongside JUnit and pytest logs, so browser traces are retained.
 
 ### W2 Canvas-history test reconciliation
 
@@ -1562,7 +1562,7 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 
 ### Remaining hard gates and integration order
 
-- Do not integrate while either W2 owner lane is RUNNING or FAIL.
+- All scoped owner lanes are now PASS on their exact SHAs. Integration may proceed serially in the order below; keep the frozen baseline and current main as the first-parent integration base.
 - Integrate W1 Linux → W1 Windows → W2 refresh → W2 canvas-history → W3 commercial preflight → W6 CI/docs.
 - For W2/W3 branches, take only the owner test file(s); do not copy their stale workflow snapshots over current main. W6-owned script/workflow changes are integrated from the final W6 branch.
 - After integration, run all affected W1/W2/W3/W7/W8 lanes, focused storage/watch, Studio release gate, full Python/browser, Windows-native publication and YAML validation on one exact main SHA.
