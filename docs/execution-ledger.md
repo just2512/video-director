@@ -1809,3 +1809,11 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W2 latest branch SHA is now `11ffce38b9cdbb2e79dceba5f72cfb63a0be2cfa`; owner run `43165127727` is queued; syntax run `43165127785` is queued. Earlier W2 run `43164804919` on SHA `0008d5b...` is superseded and is not final evidence.
 - W3 exact SHA `55b36f60fff45cfb51ad5596961e5b77d1ba78fd`: owner run `43164853975` PASS, 378 passed, 1 skipped, 0 failed; syntax `43164853993` PASS.
 - W8 exact SHA `19c5b3ae6b4479328c5a13e047573295d6e81a3e`: owner run `43164924206` PASS, 11 Chromium tests passed; syntax `43164924037` PASS.
+
+
+### Section 74 follow-up — W2 exact-SHA closure and W8 reload extension
+
+- W2 final exact SHA `11ffce38b9cdbb2e79dceba5f72cfb63a0be2cfa`: owner run `43165127727` PASS, 367 passed, 0 failed; workflow syntax run `43165127785` PASS. This SHA includes both W2-owned test paths and the explicit wait for the redo transaction to release FilmStore before the following trim gesture.
+- W2 first owner run `43164804919` on `0008d5b...` is superseded. The integrated-main failure on `23ce5d2...` was diagnosed and corrected in the W2 branch; do not reuse the earlier owner PASS as evidence for the fix.
+- W8 was extended after its earlier 11-test PASS to reload the browser document, reopen the project, verify both split overlays are still persisted, then select and open Inspector. The latest W8 exact SHA is now `3d76158c979bbc93535fd93587ee6ef6d8218c7e`; owner run `43165363150` and syntax run `43165363110` are IN_PROGRESS. Earlier W8 run `43164924206` is superseded for this extended assertion.
+- W3 remains PASS on `55b36f60fff45cfb51ad5596961e5b77d1ba78fd`: owner run `43164853975`, 378 passed, 1 skipped, 0 failed; syntax `43164853993` PASS.
