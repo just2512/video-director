@@ -1379,7 +1379,7 @@ def test_composition_asset_metadata_is_preserved_on_migrated_clip_without_raw_pa
             "id": "asset-still", "type": "image", "file": "assets/still.png", **metadata,
         }],
         "scenes": [{
-            "id": "scene-1", "start": 0, "duration": 2.5,
+            "id": "scene-1", "start": 0, "duration": 2.5, "text": "Asset metadata migration fixture",
             "layers": [{
                 "id": "layer-1", "type": "image", "asset_id": "asset-still",
                 "start": 0, "duration": 2.5,
