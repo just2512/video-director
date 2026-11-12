@@ -392,8 +392,9 @@ def test_real_public_media_full_project_render_and_performance_snapshot(tmp_path
     assert decoded.returncode == 0, decoded.stderr[-4000:]
     source_decode_ms = round((time.perf_counter() - started) * 1000, 2)
 
-    # Keep the real scene content; normalize only to the browser-safe VP8/Vorbis
-    # profile used by the hosted Chromium runtime (H.264 decode is not guaranteed).
+    # Keep the real scene content; normalize video to browser-safe VP8. Extract
+    # the original audio into a separate PCM track so Chromium's video-frame
+    # presentation clock is not coupled to a second decoder on the same element.
     browser_media = assets / "big-buck-bunny-real-content.webm"
     started = time.perf_counter()
     transcoded = subprocess.run(
@@ -405,17 +406,33 @@ def test_real_public_media_full_project_render_and_performance_snapshot(tmp_path
             "-c:v", "libvpx", "-deadline", "realtime", "-cpu-used", "8",
             "-lag-in-frames", "0", "-auto-alt-ref", "0", "-g", "1",
             "-keyint_min", "1", "-pix_fmt", "yuv420p",
-            "-c:a", "libopus", "-b:a", "64k", "-shortest",
-            str(browser_media),
+            "-an", str(browser_media),
         ],
         capture_output=True, text=True, timeout=180,
     )
     assert transcoded.returncode == 0, transcoded.stderr[-4000:]
     transcode_ms = round((time.perf_counter() - started) * 1000, 2)
     browser_probe = prober.probe_media(str(browser_media))
-    assert browser_probe.has_video_stream and browser_probe.has_audio_stream
+    assert browser_probe.has_video_stream and not browser_probe.has_audio_stream
     assert (browser_probe.width, browser_probe.height) == (320, 180)
     assert browser_probe.duration and abs(float(browser_probe.duration) - 8.0) <= 0.25
+
+    audio_media = assets / "big-buck-bunny-original-audio.wav"
+    started = time.perf_counter()
+    audio_extracted = subprocess.run(
+        [
+            ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+            "-ss", "0", "-t", "8", "-i", str(source_path),
+            "-map", "0:a:0", "-vn", "-ac", "2", "-ar", "44100",
+            "-c:a", "pcm_s16le", str(audio_media),
+        ],
+        capture_output=True, text=True, timeout=90,
+    )
+    assert audio_extracted.returncode == 0, audio_extracted.stderr[-3000:]
+    audio_extract_ms = round((time.perf_counter() - started) * 1000, 2)
+    audio_probe = prober.probe_media(str(audio_media))
+    assert audio_probe.has_audio_stream and not audio_probe.has_video_stream
+    assert audio_probe.duration and abs(float(audio_probe.duration) - 8.0) <= 0.25
 
     film_html = '''<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=320,height=180">
@@ -426,7 +443,7 @@ def test_real_public_media_full_project_render_and_performance_snapshot(tmp_path
          at="0" style="left:0px;top:0px;width:320px;height:180px;object-fit:cover"></video>
 </section>
 <section id="audio-track" data-label="原始音轨">
-  <audio id="big-buck-bunny-audio" src="assets/big-buck-bunny-real-content.webm#t=0,8"
+  <audio id="big-buck-bunny-audio" src="assets/big-buck-bunny-original-audio.wav#t=0,8"
          at="0" volume="1"></audio>
 </section>
 </body></html>'''
@@ -500,13 +517,14 @@ def test_real_public_media_full_project_render_and_performance_snapshot(tmp_path
             },
         },
         "browser_profile": {
-            "container": "WebM", "video_codec": "VP8", "audio_codec": "Opus",
+            "container": "WebM + WAV", "video_codec": "VP8", "audio_codec": "PCM s16le",
             "width": browser_probe.width, "height": browser_probe.height,
             "fps": browser_probe.fps, "duration_seconds": browser_probe.duration,
         },
         "measurements_ms": {
             "download": download_ms, "source_probe": source_probe_ms,
-            "full_source_av_decode": source_decode_ms, "browser_profile_transcode": transcode_ms,
+            "full_source_av_decode": source_decode_ms, "browser_video_transcode": transcode_ms,
+            "original_audio_extract": audio_extract_ms,
             "chromium_look_3_frames": look_ms, "film_project_render_and_qc": render_ms,
         },
         "render": {
