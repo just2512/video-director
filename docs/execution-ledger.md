@@ -1646,3 +1646,29 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - W3 subtitle migration test passes after using the real initialization transaction and lock-consistent legacy composition version. It verifies cue timing/text, supported style CSS, subtitle FilmDocument track/stacking, and source-snapshot preservation.
 - The recursive field audit now links all 19 SubtitleCue/SubtitleStyle/SubtitleTrack rows to the exact migration test; the audit test asserts those evidence references exist.
 - Both owner lanes are green on their latest SHAs. Proceed with W2 → W3 → W6 path-scoped serial integration; do not copy W3's propagated workflow snapshot. W6 remains the sole owner of workflow changes.
+
+
+## 70. 2026-11-12 next parallel batch — semantic migration, Shotcraft UX, and execution-policy reconciliation
+
+### Frozen baseline
+
+- Main code/workflow SHA: `23bab67b59d968bcc2c70ef90faa52ca0939d91f`.
+- The exact-SHA Parallel workstreams run `43147459576` completed SUCCESS: full Python/browser regression and Studio build/timeline/lifecycle/export/QC release gate both PASS. The explicit NVIDIA real token-stream job was SKIPPED by design.
+- Product IA run `43147459508` completed SUCCESS: W4 project home/create lifecycle and W5 settings IA/credential safety both PASS.
+- This SHA is the frozen base for the next independent short-lived branches. No code/workflow changes are inferred from documentation-only history.
+
+### Independent branches and ownership
+
+| Lane | Branch | Exclusive ownership | Acceptance |
+|---|---|---|---|
+| W3 | `work/w3-compositionir-mapped-roundtrip-20261112` | CompositionIR migration semantic tests and field-audit evidence; no production migration contract changes without W0 review | Mapped field groups prove semantic values survive source→FilmDocument→reopen; archived-only/rejected fields remain explicitly archived/rejected |
+| W8 | `work/w8-scene-fail-closed-acceptance-20261112` | Shotcraft browser acceptance tests only; no renderer or workflow edits | Real Chromium verifies creative workspace interactions and failure states; W8 does not own scene determinism |
+| W6 | `work/w6-parallel-policy-reconciliation-20261112` | `docs/execution-ledger.md`, `docs/parallel-workstreams.md` only | Remove conflicting ownership descriptions; W3 owns scene/export determinism; W8 owns Shotcraft browser UX; short-lived branch parallelism is normative |
+
+### Integration and acceptance
+
+- W3, W8 and W6 are separate branches created from the same frozen main SHA. Their file ownership is disjoint; W6 is documentation-only.
+- W3 scene/resource fail-closed evidence remains part of W3 lifecycle/export acceptance. W8's existing CI command covers Shotcraft browser UX only.
+- Integrate only after W3 and W8 owner lanes pass on their exact branch heads. Integrate path-scoped test files first, then W6 documentation; never overwrite current main workflow files with branch snapshots.
+- After integration, rerun W3 lifecycle/export/QC, W8 Shotcraft browser acceptance, W1/W2/W7, W4/W5, full Python/browser regression, Studio release gate, focused storage/watch, Windows-native publication and YAML validation on one exact main SHA.
+- Real representative-media performance remains MISSING pending user-supplied representative media. NVIDIA live token-stream acceptance remains explicit opt-in and was SKIPPED on the frozen baseline; no provider call is authorized by this entry.
