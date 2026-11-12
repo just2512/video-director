@@ -1673,3 +1673,11 @@ The next action is serial integration W1 → W2 → W3 → W6 onto main, followe
 - Integrate only after W3 and W8 owner lanes pass on their exact branch heads. Integrate path-scoped test files first, then W6 documentation; never overwrite current main workflow files with branch snapshots.
 - After integration, rerun W3 lifecycle/export/QC, W8 Shotcraft browser acceptance, W1/W2/W7, W4/W5, full Python/browser regression, Studio release gate, focused storage/watch, Windows-native publication and YAML validation on one exact main SHA.
 - Real representative-media performance remains MISSING pending user-supplied representative media. NVIDIA live token-stream acceptance remains explicit opt-in and was SKIPPED on the frozen baseline; no provider call is authorized by this entry.
+
+
+### 2026-11-12 owner-branch execution update
+
+- W3 semantic reopen assertion commit: `cd1e06ace5d12cec3946befc8f8a0194b339c6a9`; lifecycle/export owner run `43156659597` is IN_PROGRESS at this update. It adds post-parse assertions for subtitle track attributes, clip references, generated subtitle HTML bytes, and archived source snapshot equality.
+- W8 locked-track interaction commit: `8fa3fbf521b6687e27aac2f3ffb2f3816e77e432`; Shotcraft browser owner run `43156641957` is IN_PROGRESS at this update. It verifies a real Chromium pointer drag against a locked visual track is rejected with the explicit error and dispatches no edit command.
+- W6 documentation branch latest commit: `b16867c9f2904f30bb68a57882cec92fd34f3221`. It reconciles the short-lived branch protocol, adds W8 to the lane register, and assigns deterministic scene/resource/export acceptance to W3 rather than W8. This branch is documentation-only; it has no product acceptance claim.
+- No branch is ready for integration until its owner lane has completed successfully on the exact recorded SHA. Do not treat IN_PROGRESS as PASS.
