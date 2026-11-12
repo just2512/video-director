@@ -50,6 +50,24 @@ def test_visual_source_track_order_identity_and_lock_are_preserved(tmp_path, mon
     assert any("时间线折叠而不是画面隐藏" in warning for warning in result["warnings"])
     assert not any("组联动编辑尚未迁移" in warning for warning in result["warnings"])
 
+    serialized = fd.serialize_film(result["document"])
+    restored = fd.parse_film(serialized)
+    restored_tracks = [
+        track for track in restored["tracks"]
+        if track["id"].startswith("track-overlay-")
+    ]
+    assert [track["clips"][0]["id"] for track in restored_tracks] == [
+        "overlay-earlier", "overlay-later",
+    ]
+    assert restored_tracks[0]["attrs"]["data-label"] == "Top video"
+    assert restored_tracks[0]["attrs"]["locked"] == ""
+    assert restored_tracks[0]["clips"][0]["attrs"]["data-source-track-id"] == "top"
+    assert restored_tracks[0]["clips"][0]["attrs"]["style"].endswith("z-index:2")
+    assert restored_tracks[1]["attrs"]["data-source-track-hidden"] == "true"
+    assert "hidden" not in restored_tracks[1]["attrs"]
+    assert restored_tracks[1]["clips"][0]["attrs"]["data-source-track-order"] == "1"
+    assert fd.serialize_film(restored) == serialized
+
 
 def test_source_visual_grouping_warning_depends_on_actual_same_lane_membership(tmp_path, monkeypatch):
     storage = tmp_path / "composer"
