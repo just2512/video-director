@@ -73,6 +73,20 @@ fi
 
 ffmpeg_bin_dir="$RUNNER_TEMP/ffmpeg-bin"
 mkdir -p "$ffmpeg_bin_dir"
+
+# FFmpeg and FFprobe are separate executables in the pinned imageio wheel.
+# Install the matching Ubuntu 24.04 static FFprobe with a release-asset SHA-256
+# so AAC metadata checks never silently fall back to stderr parsing in CI.
+ffprobe_url="https://github.com/shaka-project/static-ffmpeg-binaries/releases/download/n8.1.2-2/ffprobe-linux-x64-ubuntu-24.04"
+ffprobe_sha256="2b55ea948bae402d53c517bdadbaff8f480d7f811e93f865a68f21a098b8b5ef"
+ffprobe_download="$RUNNER_TEMP/ffprobe-linux-x64-ubuntu-24.04"
+curl --fail --location --silent --show-error \
+  --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 180 \
+  "$ffprobe_url" -o "$ffprobe_download"
+echo "$ffprobe_sha256  $ffprobe_download" | sha256sum --check --status
+ffprobe_bin="$ffmpeg_bin_dir/ffprobe"
+install -m 0755 "$ffprobe_download" "$ffprobe_bin"
+"$ffprobe_bin" -hide_banner -version
 ln -sfn "$ffmpeg_bin" "$ffmpeg_bin_dir/ffmpeg"
 echo "$ffmpeg_bin_dir" >> "$GITHUB_PATH"
 echo "IMAGEIO_FFMPEG_EXE=$ffmpeg_bin" >> "$GITHUB_ENV"
