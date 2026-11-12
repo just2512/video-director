@@ -715,15 +715,25 @@ def test_offline_render_guard_blocks_external_scene_network_requests():
     blocked = _install_offline_network_policy(page, "http://127.0.0.1:4567")
     local = FakeRoute("http://127.0.0.1:4567/media?src=assets%2Ffont.woff2")
     external = FakeRoute("https://fonts.example.test/font.css")
+    file_url = FakeRoute("file:///etc/passwd")
+    ftp_url = FakeRoute("ftp://assets.example.test/font.woff2")
     data_url = FakeRoute("data:image/png;base64,AAAA")
     page.handler(local)
     page.handler(external)
+    page.handler(file_url)
+    page.handler(ftp_url)
     page.handler(data_url)
     assert page.pattern == "**/*"
     assert local.action == "continue"
     assert external.action == "abort"
+    assert file_url.action == "abort"
+    assert ftp_url.action == "abort"
     assert data_url.action == "continue"
-    assert blocked == ["https://fonts.example.test/font.css"]
+    assert blocked == [
+        "https://fonts.example.test/font.css",
+        "file:///etc/passwd",
+        "ftp://assets.example.test/font.woff2",
+    ]
     with pytest.raises(FilmRenderError) as raised:
         _raise_for_external_scene_resources(blocked)
     assert raised.value.code == "EXTERNAL_SCENE_RESOURCE"
