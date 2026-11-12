@@ -280,3 +280,11 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 - The W3 scene-boundary branch `5ddcb458c016ebec9054e3c14ee3c237d4695815` and W8 Shotcraft branch `6dfa77cd6a223d9fe599de82a97756af388dc368` are both fully contained in main `e52120f267d3eb0fcdc768fd2342086f4c2073bb`; each compare reports no remaining file delta. Their scoped changes are integrated; do not duplicate them.
 - Exact-main release evidence on `e52120f267d3eb0fcdc768fd2342086f4c2073bb`: full regression 1,986 passed/2 skipped; Studio gate 364 passed; W1/W2/W3/W7/W8 all SUCCESS; W4/W5 both SUCCESS; Windows-native 6 passed; YAML SUCCESS. Runs: `43152316209`, `43152316202`, `43152316231`, `43152316198`, `43152316207`.
 - NVIDIA live token-stream acceptance remains explicitly skipped and is not represented as completed.
+
+
+
+### Section 71 owner-lane status
+
+- W8 `cb369c517f888c1de49096f8552f200f25a0e08c`: owner run `43157349798` PASS; workflow syntax `43157349734` PASS.
+- W3 SHA `620cb7d533198e0d4e3fbd3b4eb39acacdea0f7d` exposed a test-fixture lifecycle mistake: the source archive is returned in the build result and is not written to disk until initialization. The test now asserts `result.pages[source_archive.path]`; corrected SHA `927befdacc8db61bed490e689c9d3b103a78d630` is awaiting owner CI.
+- W2 SHA `2d3fb039c48eb9a1b044acdaeb15cec25733a216` owner run `43157339629` remained RUNNING at this update.
