@@ -295,3 +295,10 @@ Any workflow invoking `.github/scripts/install-ubuntu-media-deps.sh` must first 
 
 - W2 first attempt `2d3fb039c48eb9a1b044acdaeb15cec25733a216` exposed a test sequence that genuinely overlapped the following clip after speed change and split. The validator correctly rejected it. The test now first moves the following clip to a non-overlapping position, then checks stable IDs, source ranges and deterministic replay. Corrected SHA `25fa22b96902b473bd1fc781a31bf542bed9ad29` owner run `43157670771` is RUNNING.
 - W3 corrected SHA `927befdacc8db61bed490e689c9d3b103a78d630` owner run `43157597237` is RUNNING; workflow syntax `43157597386` PASS.
+
+
+
+### Section 71 owner-lane update — W3 closure
+
+- W3 `927befdacc8db61bed490e689c9d3b103a78d630`: owner run `43157597237` PASS (375 passed, 1 skipped); workflow syntax `43157597386` PASS.
+- W2 `25fa22b96902b473bd1fc781a31bf542bed9ad29`: owner run `43157670771` remains RUNNING. Hold integration.
