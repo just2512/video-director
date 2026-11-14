@@ -24,12 +24,13 @@ def test_studio_resizable_layout_persists_after_reload(tmp_path, monkeypatch):
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/"
         "x8AAwMCAO+/lYkAAAAASUVORK5CYII="
     ))
-    (project_root / fd.FILM_NAME).write_text(
-        '<!doctype html><html><head><meta charset="utf-8"></head><body>'
-        '<section id="video-main" data-label="主画面">'
-        '<img id="layout-clip" src="../assets/layout.png#t=0,1" at="0">'
-        '</section></body></html>',
-        encoding="utf-8",
+    (project_root / fd.FILM_NAME).write_bytes(
+        (
+            '<!doctype html><html><head><meta charset="utf-8"></head><body>'
+            '<section id="video-main" data-label="主画面">'
+            '<img id="layout-clip" src="../assets/layout.png#t=0,1" at="0">'
+            '</section></body></html>'
+        ).encode("utf-8")
     )
     assert fd.read_project_film(project_id)["exists"]
 

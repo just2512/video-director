@@ -49,14 +49,15 @@ def test_qc_publish_failure_rolls_back_mp4_and_preserves_previous_qc(tmp_path, m
     output, output_temp, report_path, temp_root, report = _publish_fixture(tmp_path, monkeypatch)
     output.write_bytes(b"previous-mp4")
     report_path.write_text('{"status":"PREVIOUS"}', encoding="utf-8")
-    real_replace = film_render.os.replace
+    real_replace = film_render._atomic_replace
 
     def fail_qc_replace(source, destination):
         if Path(destination) == report_path:
             raise OSError("simulated QC manifest publication failure")
         return real_replace(source, destination)
 
-    monkeypatch.setattr(film_render.os, "replace", fail_qc_replace)
+    # Windows 发布走 _atomic_replace（MoveFileExW），monkeypatch os.replace 无效
+    monkeypatch.setattr(film_render, "_atomic_replace", fail_qc_replace)
 
     with pytest.raises(OSError, match="simulated QC manifest"):
         film_render._publish_render_artifacts(

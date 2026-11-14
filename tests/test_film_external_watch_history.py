@@ -4,8 +4,13 @@ from __future__ import annotations
 import os
 import time
 
+import pytest
+
 from video_director import config, film_document as fd
 from video_director.film_watch import FilmRevisionWatcher
+
+# film_path 一律 write_bytes：Windows write_text 会把 LF 写成 CRLF，
+# 而 film_document.revision_of 按原始字节算哈希——CRLF 文件的 revision 会漂移。
 
 
 FILM = '''<!doctype html>
@@ -36,7 +41,7 @@ def test_external_agent_edit_enters_shared_history_and_can_undo_redo(tmp_path, m
     project = config.project_dir(project_id)
     project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     initial = fd.read_project_film(project_id)
 
     events = []
@@ -44,7 +49,7 @@ def test_external_agent_edit_enters_shared_history_and_can_undo_redo(tmp_path, m
     watcher.watch(project_id, initial_revision=initial["rev"])
 
     external = FILM.replace('at="0"', 'at="0.25"')
-    film_path.write_text(external, encoding="utf-8")
+    film_path.write_bytes(external.encode("utf-8"))
     _poll_changed_file(watcher)
 
     history = fd._history_read(project_id)
@@ -82,7 +87,7 @@ def test_watcher_does_not_duplicate_an_edit_already_recorded_by_studio_api(tmp_p
     project = config.project_dir(project_id)
     project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     initial = fd.read_project_film(project_id)
 
     events = []
@@ -108,12 +113,12 @@ def test_external_write_between_initial_read_and_watcher_registration_is_not_los
     project = config.project_dir(project_id)
     project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     initial = fd.read_project_film(project_id)
 
     # An external agent writes after the GET snapshot but before watcher.watch().
     external = FILM.replace('at="0"', 'at="0.75"')
-    film_path.write_text(external, encoding="utf-8")
+    film_path.write_bytes(external.encode("utf-8"))
     events = []
     watcher = FilmRevisionWatcher(lambda topic, payload: events.append((topic, payload)))
     watcher.watch(project_id, initial["rev"], initial_text=initial["text"])
@@ -132,14 +137,14 @@ def test_external_edit_then_studio_undo_redo_does_not_corrupt_shared_history(tmp
     project = config.project_dir(project_id)
     project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     initial = fd.read_project_film(project_id)
 
     events = []
     watcher = FilmRevisionWatcher(lambda topic, payload: events.append((topic, payload)))
     watcher.watch(project_id, initial["rev"], initial_text=initial["text"])
     external = FILM.replace('at="0"', 'at="0.4"')
-    film_path.write_text(external, encoding="utf-8")
+    film_path.write_bytes(external.encode("utf-8"))
     _poll_changed_file(watcher)
     assert len(fd._history_read(project_id)["past"]) == 1
 
@@ -171,21 +176,21 @@ def test_external_agent_can_restore_an_old_snapshot_without_clearing_undoability
     project = config.project_dir(project_id)
     project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     original = fd.read_project_film(project_id)
 
     events = []
     watcher = FilmRevisionWatcher(lambda topic, payload: events.append((topic, payload)))
     watcher.watch(project_id, original["rev"], initial_text=original["text"])
     version_b = FILM.replace('at="0"', 'at="0.25"')
-    film_path.write_text(version_b, encoding="utf-8")
+    film_path.write_bytes(version_b.encode("utf-8"))
     _poll_changed_file(watcher)
     assert len(fd._history_read(project_id)["past"]) == 1
 
     # A new external write, not a Studio undo/redo action, even though these bytes
     # equal the old snapshot already present in history.
     version_a_again = FILM
-    film_path.write_text(version_a_again, encoding="utf-8")
+    film_path.write_bytes(version_a_again.encode("utf-8"))
     _poll_changed_file(watcher)
 
     history = fd._history_read(project_id)
@@ -210,13 +215,13 @@ def test_external_edit_that_restores_a_historical_revision_is_still_recorded(tmp
 
     initial = FILM
     restored = FILM.replace('at="0"', 'at="0.5"')
-    film_path.write_text(restored, encoding="utf-8")
+    film_path.write_bytes(restored.encode("utf-8"))
     first = fd.record_external_film_revision(project_id, initial, restored)
     assert first["status"] == "recorded"
 
     # An independent external write restores the original bytes/revision. It is
     # a new edit event, not a duplicate of the first entry's 'before' snapshot.
-    film_path.write_text(initial, encoding="utf-8")
+    film_path.write_bytes(initial.encode("utf-8"))
     second = fd.record_external_film_revision(project_id, restored, initial)
     assert second["status"] == "recorded"
 
@@ -235,7 +240,7 @@ def test_external_in_place_write_with_restored_mtime_is_detected_by_content_audi
     project = config.project_dir(project_id)
     project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     initial = fd.read_project_film(project_id)
     events = []
 
@@ -279,7 +284,7 @@ def test_external_scene_file_change_publishes_separate_refresh_event_without_fil
     project = config.project_dir(project_id)
     project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     scene_root = project / "scenes" / "titles"
     scene_root.mkdir(parents=True)
     scene_path = scene_root / "opening.html"
@@ -310,13 +315,14 @@ def test_external_scene_file_change_publishes_separate_refresh_event_without_fil
         {"path": "scenes/titles/opening.html", "kind": "modified"}
     ]
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows 创建 symlink 需开发者模式/管理员权限（WinError 1314）")
 def test_scene_watcher_ignores_scenes_root_symlink_to_external_directory(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     project_id = "scene-root-symlink-boundary"
     project = config.project_dir(project_id)
     project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
 
     outside = tmp_path / "outside-scenes"
     outside.mkdir()
@@ -337,13 +343,14 @@ def test_scene_watcher_ignores_scenes_root_symlink_to_external_directory(tmp_pat
     assert fd.read_project_film(project_id)["rev"] == initial["rev"]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows 创建 symlink 需开发者模式/管理员权限（WinError 1314）")
 def test_scene_watcher_does_not_follow_nested_symlink_directories(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     project_id = "nested-scene-symlink-boundary"
     project = config.project_dir(project_id)
     project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
 
     scenes = project / "scenes"
     scenes.mkdir()
@@ -380,7 +387,7 @@ def test_scene_watcher_detects_in_place_write_with_restored_metadata(tmp_path, m
     project = config.project_dir(project_id)
     project.mkdir(parents=True, exist_ok=True)
     film_path = fd._film_path(project_id)
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     scenes = project / "scenes"
     scenes.mkdir()
     scene_path = scenes / "opening.html"

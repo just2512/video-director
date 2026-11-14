@@ -113,7 +113,8 @@ def test_film_markers_commit_as_one_revision_and_share_undo_redo_history(tmp_pat
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(FILM, encoding="utf-8")
+    # write_bytes 保持 LF：Windows write_text 转 CRLF 会让 revision/original_text 漂移
+    film_path.write_bytes(FILM.encode("utf-8"))
     original_text = film_path.read_text(encoding="utf-8")
     before = fd.read_project_film(project_id)
 
@@ -145,7 +146,7 @@ def test_marker_and_clip_mutations_share_one_atomic_revision_and_undo_redo_histo
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
 
     before = fd.read_project_film(project_id)
     original_text = before["text"]

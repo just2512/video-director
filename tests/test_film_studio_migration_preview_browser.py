@@ -58,12 +58,13 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
     target_assets.mkdir(parents=True, exist_ok=True)
     (target_assets / "switch-still.png").write_bytes(still.read_bytes())
     target_film_path = target_root / fd.FILM_NAME
-    target_film_path.write_text(
-        '<!doctype html><html><head><meta charset="utf-8"></head><body>'
-        '<section id="video-main" data-label="主画面">'
-        '<img id="switch-clip" src="../assets/switch-still.png#t=0,1" at="0">'
-        '</section></body></html>',
-        encoding="utf-8",
+    target_film_path.write_bytes(
+        (
+            '<!doctype html><html><head><meta charset="utf-8"></head><body>'
+            '<section id="video-main" data-label="主画面">'
+            '<img id="switch-clip" src="../assets/switch-still.png#t=0,1" at="0">'
+            '</section></body></html>'
+        ).encode("utf-8")
     )
     assert fd.read_project_film(target_project_id)["exists"]
 
@@ -363,7 +364,7 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                     "value": saved_title + " 外部 Agent 修改",
                 }])
                 external_text = fd.serialize_film(external_doc)
-                film_path.write_text(external_text, encoding="utf-8")
+                film_path.write_bytes(external_text.encode("utf-8"))
                 external_revision = fd.revision_of(external_text)
                 page.wait_for_function(
                     """expected => {
@@ -572,7 +573,7 @@ def test_film_preview_rechecks_authority_after_concurrent_initialization(tmp_pat
 
     def initialize_between_authority_probe_and_snapshot(pid):
         if pid == project_id and not initialized:
-            film_path.write_text(film_html, encoding="utf-8")
+            film_path.write_bytes(film_html.encode("utf-8"))
             initialized.append(True)
         return original_snapshot(pid)
 

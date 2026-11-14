@@ -48,7 +48,7 @@ def test_insert_mode_ripples_target_and_sync_locked_tracks_in_real_studio(tmp_pa
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes(SAMPLE.encode("utf-8"))
     initial_text = film_path.read_text(encoding="utf-8")
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
@@ -216,7 +216,7 @@ def test_lift_and_ripple_delete_have_distinct_real_studio_semantics(tmp_path, mo
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(sample, encoding="utf-8")
+    film_path.write_bytes(sample.encode("utf-8"))
     initial_bytes = film_path.read_bytes()
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
@@ -652,7 +652,7 @@ def test_overwrite_mode_replaces_only_the_target_track_in_real_studio(tmp_path, 
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes(SAMPLE.encode("utf-8"))
     initial_text = film_path.read_text(encoding="utf-8")
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
@@ -1023,7 +1023,7 @@ def test_lift_delete_keeps_gap_but_ripple_delete_closes_all_tracks_and_undo_rest
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(LIFT_RIPPLE_SAMPLE, encoding="utf-8")
+    film_path.write_bytes(LIFT_RIPPLE_SAMPLE.encode("utf-8"))
     initial_text = film_path.read_text(encoding="utf-8")
     assert fd.read_project_film(project_id)["exists"]
 
@@ -1333,7 +1333,7 @@ def test_overwrite_rejects_external_revision_change_while_asset_resolution_is_pe
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes(SAMPLE.encode("utf-8"))
     initial_text = film_path.read_text(encoding="utf-8")
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
@@ -1436,7 +1436,7 @@ def test_overwrite_rejects_external_revision_change_while_asset_resolution_is_pe
                         1,
                     )
                     assert external_text != initial_text, "external edit fixture did not match"
-                    film_path.write_text(external_text, encoding="utf-8")
+                    film_path.write_bytes(external_text.encode("utf-8"))
                     external = fd.read_project_film(project_id)
                     assert external["exists"] is True
                     assert external["rev"] != initial["rev"]

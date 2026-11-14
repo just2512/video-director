@@ -892,6 +892,16 @@
     if(S.assetMode==='director'){syncAssetPaneMode();return;}
     syncAssetPaneMode();
     if(window.filmStudioReactAssets&&typeof window.filmStudioReactAssets.render==='function'){
+      // React portal 是追加到宿主，不会替换 index.html 里的静态占位
+      // 「还没有影片文档。」。不清掉的话，有影片文档时那句占位也常驻，
+      // 用户会误判为没载入影片。这里只清静态占位，不动 React 自己挂的节点。
+      var assetsHost=$('fs-assets-list');
+      if(assetsHost){
+        for(var i=assetsHost.children.length-1;i>=0;i--){
+          var child=assetsHost.children[i];
+          if(child.classList&&child.classList.contains('fs-empty')&&!child.hasAttribute('data-react-asset-items'))child.remove();
+        }
+      }
       var assetClips=all.map(function(c){
         var attrs=c.attrs||{},aid=attrs['data-asset-id']||'',label=attrs.title||attrs['data-role']||c.id;
         var thumbnail=aid&&c.tag!=='audio'?'/api/asset_thumbnail?asset_id='+encodeURIComponent(aid)+'&project_id='+encodeURIComponent(S.projectId):'';
@@ -2004,13 +2014,34 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
       bindVolumeEnvelopeCanvas(canvas);
     });
   }
+  function clearStaticInspectorPlaceholder() {
+    // index.html 的静态占位「选择时间线片段后编辑属性。」不会被 React portal
+    // 替换（portal 是追加）。选中片段后 React 表单渲染出来，那句占位仍留在
+    // 表单上方，用户会以为没有选中片段。只清静态占位，不动 React 节点。
+    var host=$('fs-inspector');
+    if(!host)return;
+    for(var i=host.children.length-1;i>=0;i--){
+      var child=host.children[i];
+      if(child.classList&&child.classList.contains('fs-empty')
+         &&!child.hasAttribute('data-react-clip-inspector')
+         &&!child.hasAttribute('data-react-clip-inspector-empty'))child.remove();
+    }
+  }
   function renderInspector() {
     var clip=findClip(S.selectedId);
     if(!clip){
-      if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function')window.filmStudioReactInspector.renderClip();
+      if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function'){
+        clearStaticInspectorPlaceholder();
+        window.filmStudioReactInspector.renderClip();
+      }
       else $('fs-inspector').innerHTML='<div class="fs-empty">选择时间线片段后编辑属性。</div>';
       renderElementInspector(null);
       return;
+    }
+    // React inspector 由 FilmStore 订阅自行渲染（不进这里），所以选中片段时
+    // 也要先清掉静态占位，否则它留在 React 表单上方造成"没有选中片段"的误判。
+    if(window.filmStudioReactInspector&&typeof window.filmStudioReactInspector.renderClip==='function'){
+      clearStaticInspectorPlaceholder();
     }
     var a=clip.attrs||{};
     var projectFps=Math.max(1,Math.min(60,num(S.data&&S.data.fps,30)));
@@ -2472,10 +2503,13 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
           S.selectedElement=null;
           var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
         }else if(S.selectedElement)S.selectedElement=Object.assign({},S.selectedElement,{baseRevision:S.rev});
-        var savedMessage=r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。':'已保存 '+(r.ops||[]).length+' 项编辑。';
+        var savedMessage=r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。'
+          :(r.unchanged?'没有需要保存的变化（值与原值相同）。'
+          :'已保存 '+(r.ops||[]).length+' 项编辑。');
         render();
         var migrationWarnings=S.data.migration&&S.data.migration.warnings||[];
-        showStatus(migrationWarnings.length?'迁移警告：'+migrationWarnings.join('；')+'；'+savedMessage:savedMessage,r.rebased?'':'success');
+        showStatus(migrationWarnings.length?'迁移警告：'+migrationWarnings.join('；')+'；'+savedMessage:savedMessage,
+            (r.rebased||r.unchanged)?'':'success');
         return true;
       });
     }catch(error){
