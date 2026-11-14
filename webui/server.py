@@ -1706,6 +1706,13 @@ class Handler(BaseHTTPRequestHandler):
         except fd.FilmError as exc:
             self._send_json({"ok": False, "code": exc.code, "error": str(exc)}, exc.status)
             return True
+        except ValueError as exc:
+            # validate_project_id 等输入校验抛原生 ValueError：这是客户端错误，
+            # 必须是 4xx。走通用 Exception 分支会返回 500（假称服务器故障），
+            # 妨碍调用方区分"我传错了"与"服务挂了"。
+            self._send_json(
+                {"ok": False, "code": "INVALID_FILM_REQUEST", "error": str(exc)}, 400)
+            return True
         except Exception as exc:
             self._send_json({"ok": False, "code": "FILM_OPERATION_FAILED", "error": str(exc)}, 500)
             return True
