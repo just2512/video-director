@@ -14,7 +14,36 @@ from typing import Iterator
 
 from video_director import config
 
+try:
+    from filelock import FileLock as _FileLockBase
+except ImportError:  # pragma: no cover - filelock 是 requirements 硬依赖，仅防御
+    _FileLockBase = object  # type: ignore[assignment,misc]
+
 _PROJECT_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+class StableFileLock(_FileLockBase):
+    """释放后保留锁文件的 FileLock（filelock 3.x 默认 unlink → 双锁分裂）。
+
+    等待方按旧 inode 排队时，释放方删文件+新进程建同名新文件，两把锁并存。
+    锁文件保留为稳定 inode 后，所有等待方始终竞争同一文件。
+    已验证：Windows 空文件可直接 msvcrt.locking，不需要先写占位字节。
+    """
+
+    def _release(self) -> None:
+        fd = self._context.lock_file_fd
+        self._context.lock_file_fd = None
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 def validate_project_id(value: str) -> str:
@@ -71,19 +100,9 @@ def project_lock(project_id: str) -> Iterator[None]:
         if os.name == "nt":
             import msvcrt
 
-            # msvcrt 锁定区域要求文件至少 1 字节。首次创建时写入占位字节；
-            # 并发下另一进程可能已抢先写入（其锁会拒绝本进程对锁区的写），
-            # 写失败不代表加锁失败——只要文件非空即可继续。
-            try:
-                handle.seek(0, os.SEEK_END)
-                if handle.tell() == 0:
-                    handle.write(b"0")
-                    handle.flush()
-            except OSError:
-                handle.seek(0, os.SEEK_END)
-                if handle.tell() == 0:
-                    raise  # 文件仍为空且写不进——真实故障，不吞
-            handle.seek(0)
+            # 空文件可以直接锁定（已验证），不需要占位字节。写占位字节会在
+            # 并发首建时与持锁方撞车：msvcrt 区域锁拒绝其他句柄重叠写同一区域
+            # → flush() EACCES → 竞态失败。所以这里一行不写，直接加锁。
             # msvcrt.LK_LOCK 只等约 10s 后抛 OSError——不是无限等待（与 POSIX
             # flock LOCK_EX 不同）。持锁方冷启动（registries 加载）+写盘可能
             # 超 10s，等待方就会失败。LK_NBLCK 轮询直到拿到，语义与 flock 对齐。
@@ -96,7 +115,6 @@ def project_lock(project_id: str) -> Iterator[None]:
             try:
                 yield
             finally:
-                handle.seek(0)
                 msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
         else:
             import fcntl

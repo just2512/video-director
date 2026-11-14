@@ -219,7 +219,11 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-slip-mode .fs-clip[data-kind="video"],.fs-slip-mode .fs-clip[data-kind="audio"]{cursor:ew-resize}
 
 .fs-clip-envelope:active{cursor:grabbing}
+/* 文本层不得拦截 clip 上的关键帧标记 / 修剪柄等交互控件的点击。
+   subtitle 是纯展示（无点击处理器）：pointer-events:none + z-index 低于控件。
+   2026-11-14 报障：Playwright click keyframe marker 被 fs-clip-subtitle 拦截 30s 超时。 */
 .fs-clip-title,.fs-clip-subtitle{z-index:6}
+.fs-clip-subtitle{pointer-events:none;z-index:4}
 .fs-trim-handle{z-index:7}
 .fs-clip-envelope:focus-visible{outline:1px solid #ffe08a;outline-offset:-1px}
 

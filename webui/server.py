@@ -3777,8 +3777,9 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/director/brief":
-            # 2026-10-25 用户报障：创作后 brief 消失不可改。GET 读、PUT 写
-            # bundle.brief（写回 director_inputs.json，retry 重建 spec 时消费）。
+            # 2026-10-25 用户报障：创作后 brief 消失不可改。读/写均走 POST，
+            # 以 body 是否含 brief 字段区分（本项目无 do_PUT/apiPut 调用，PUT 会 501）。
+            # 写路径把 bundle.brief 写回 director_inputs.json，retry 重建 spec 时消费。
             length = int(self.headers.get("Content-Length", 0))
             try:
                 payload = json.loads(
@@ -3814,7 +3815,9 @@ class Handler(BaseHTTPRequestHandler):
                         {"ok": False, "error": "项目没有创作要求记录（可能来自旧流程）"},
                         404)
                     return
-                if self.command == "PUT":
+                if "brief" in payload:
+                    # 写路径：directorSaveBrief() 用 POST 提交 {project_id, brief}；
+                    # 读路径只提交 {project_id}。按 body 是否含 brief 区分，不依赖 HTTP 方法。
                     new_brief = str(payload.get("brief") or "").strip()
                     if not new_brief:
                         self._send_json({"ok": False, "error": "创作要求不能为空"}, 400)

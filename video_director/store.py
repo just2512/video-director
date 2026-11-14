@@ -74,14 +74,15 @@ CREATE TABLE IF NOT EXISTS probe_cache (
 
 def init_db() -> None:
     """跨进程串行初始化 schema/WAL，避免并发首次访问互相锁库。"""
-    from filelock import FileLock
+    # StableFileLock：filelock 释放时 unlink 锁文件会让等待方/新进程分裂成两把锁
+    from video_director.project_lock import StableFileLock
 
     path = db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     # threading.Lock only protects this interpreter. probe_media() can call
     # init_db() from several worker processes at once, so the one-time WAL
     # transition and schema creation need an OS-visible lock as well.
-    with FileLock(str(path.with_suffix(path.suffix + ".init.lock")), timeout=60):
+    with StableFileLock(str(path.with_suffix(path.suffix + ".init.lock")), timeout=60):
         with DB_LOCK, _conn() as conn:
             mode = str(conn.execute("PRAGMA journal_mode").fetchone()[0]).lower()
             if mode != "wal":

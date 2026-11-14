@@ -252,12 +252,12 @@ def _jobs_lock(project_id: str):
     并发场景真实存在：webui 线程池的 _update_job + recover_pending_video_jobs
     后台恢复同写一个 project——原来的读-改-写无锁，最后一写覆盖中间更新。
     ponytail: 全局单锁；吞吐不足时再拆 per-job 锁。
-    FileLock 的 lock 文件会在释放后保留为稳定 inode。不要 unlink：
-    其他进程可能已经等待旧 inode，删除后新进程创建同名文件会造成双锁分裂。
+    StableFileLock 必须保留为稳定 inode，绝不 unlink：filelock ≥3.x 释放时
+    会删锁文件，等待方若已按旧 inode 排队，新进程会创建同名新文件 → 双锁分裂。
     """
-    from filelock import FileLock
-    lock_path = _jobs_path(project_id).with_suffix(".lock")
-    return FileLock(str(lock_path), timeout=30)
+    from video_director.project_lock import StableFileLock
+
+    return StableFileLock(str(_jobs_path(project_id).with_suffix(".lock")), timeout=30)
 
 def _video_submission_lock(project_id: str, input_fp: str, variant: str):
     """Serialize provider submission for one project/fingerprint/variant.
@@ -268,10 +268,11 @@ def _video_submission_lock(project_id: str, input_fp: str, variant: str):
     Keep this lock separate from the jobs read/modify/write lock, and never
     unlink its stable lock file.
     """
-    from filelock import FileLock
+    from video_director.project_lock import StableFileLock
+
     key = hashlib.sha256(f"{input_fp}|{variant}".encode("utf-8")).hexdigest()
     lock_path = _jobs_path(project_id).with_name(f".generation-submit-{key}.lock")
-    return FileLock(str(lock_path), timeout=120)
+    return StableFileLock(str(lock_path), timeout=120)
 
 
 def _update_job(project_id: str, job_id: str, fields: dict) -> dict:
@@ -448,9 +449,10 @@ def _video_client(cfg: dict):
 
 def _video_output_lock(project_id: str, job_id: str):
     """Serialize finalization of one provider task across poll/recovery workers."""
-    from filelock import FileLock
+    from video_director.project_lock import StableFileLock
+
     lock_path = _jobs_path(project_id).with_name(f".generation-output-{job_id}.lock")
-    return FileLock(str(lock_path), timeout=120)
+    return StableFileLock(str(lock_path), timeout=120)
 
 
 def _validated_video_output_path(project_id: str, out_file: str) -> Path:

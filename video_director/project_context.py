@@ -146,7 +146,10 @@ def _invalid_film_context(project_id: str, selection: Optional[Dict[str, Any]], 
         )
 
     try:
-        raw = path.read_text(encoding="utf-8")
+        # read_bytes().decode()：Windows read_text 的 universal newlines 会把 CRLF
+        # 归一成 LF，导致这里的 revision 与 film_document.read_project_film
+        # （原始字节口径）对同一文件给出两个不同 revision。必须与 fd 同口径。
+        raw = path.read_bytes().decode("utf-8")
         revision = film_document.revision_of(raw)
     except Exception as read_error:
         return _unknown_authority_context(project_id, selection, read_error)
