@@ -12,7 +12,8 @@ def _ready_project(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     root = tmp_path / "composer" / "film-transaction"
     root.mkdir(parents=True)
-    (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    # write_bytes 保持 LF：Windows write_text 会转 CRLF，与 SAMPLE 常量 revision 不一致
+    (root / fd.FILM_NAME).write_bytes(SAMPLE.encode("utf-8"))
     return root
 
 

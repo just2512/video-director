@@ -74,8 +74,8 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
     project_id = "studio-canvas-history-browser"
     project_root = storage_root / project_id
     (project_root / "scenes").mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
-    (project_root / "scenes" / "title.html").write_text(SCENE, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes(FILM.encode("utf-8"))
+    (project_root / "scenes" / "title.html").write_bytes(SCENE.encode("utf-8"))
     assert fd.read_project_film(project_id)["exists"]
 
     results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
@@ -582,8 +582,8 @@ def test_react_bezier_control_drag_persists_after_browser_reload(tmp_path, monke
         1,
     )
     assert film != FILM
-    (project_root / fd.FILM_NAME).write_text(film, encoding="utf-8")
-    (scene_root / "title.html").write_text(SCENE, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes(film.encode("utf-8"))
+    (scene_root / "title.html").write_bytes(SCENE.encode("utf-8"))
     assert fd.read_project_film(project_id)["exists"]
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)

@@ -66,7 +66,7 @@ def test_configured_film_ai_stream_delivers_tokens_before_result_without_writing
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(FILM_HTML, encoding="utf-8")
+    film_path.write_bytes(FILM_HTML.encode("utf-8"))
     before_bytes = film_path.read_bytes()
     before = fd.read_project_film(project_id)
     assert before["exists"] and before["rev"], "live-stream fixture must parse as FilmDocument"

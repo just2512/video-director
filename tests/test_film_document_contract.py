@@ -414,7 +414,7 @@ def test_attribute_edit_preserves_unrelated_html_text_and_comments(tmp_path, mon
         '<video id="clip-b"',
         '<!-- untouched clip bytes must survive -->\n<video  id = "clip-b"',
     )
-    (root / fd.FILM_NAME).write_text(source, encoding="utf-8")
+    (root / fd.FILM_NAME).write_bytes((source).encode("utf-8"))
     before = fd.read_project_film("film-preserve")
     untouched = '<video  id = "clip-b" src="../assets/b.mp4#t=0,5" at="5"></video>'
     assert untouched in source
@@ -443,7 +443,7 @@ def test_split_preserves_unrelated_comments_and_clip_markup(tmp_path, monkeypatc
         '<video id="clip-b"',
         '<!-- untouched clip comment -->\n<video  id = "clip-b"',
     )
-    (root / fd.FILM_NAME).write_text(source, encoding="utf-8")
+    (root / fd.FILM_NAME).write_bytes((source).encode("utf-8"))
     before = fd.read_project_film("film-structure")
     untouched = '<video  id = "clip-b" src="../assets/b.mp4#t=0,5" at="5"></video>'
 
@@ -468,7 +468,7 @@ def test_insert_into_existing_track_preserves_other_nodes(tmp_path, monkeypatch)
         '<video id="clip-b"',
         '<!-- keep target clip bytes -->\n<video  id = "clip-b"',
     )
-    (root / fd.FILM_NAME).write_text(source, encoding="utf-8")
+    (root / fd.FILM_NAME).write_bytes((source).encode("utf-8"))
     before = fd.read_project_film("film-insert")
     untouched = '<video  id = "clip-b" src="../assets/b.mp4#t=0,5" at="5"></video>'
     updated = fd.edit_project_film(
@@ -528,7 +528,7 @@ def test_proposal_apply_requires_exact_revision_without_breaking_manual_rebase(t
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     root = tmp_path / "composer" / "film-proposal"
     root.mkdir(parents=True)
-    (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    (root / fd.FILM_NAME).write_bytes((SAMPLE).encode("utf-8"))
     original = fd.read_project_film("film-proposal")
     fd.edit_project_film(
         "film-proposal", original["rev"],
@@ -562,7 +562,7 @@ def test_ai_command_has_explicit_apply_proposal_route_and_sse():
 def test_atomic_edits_revision_rebase_and_undo_redo(tmp_path,monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT",str(tmp_path/"composer"))
     root=tmp_path/"composer"/"film-test";root.mkdir(parents=True)
-    (root/fd.FILM_NAME).write_text(SAMPLE,encoding="utf-8")
+    (root/fd.FILM_NAME).write_bytes((SAMPLE).encode("utf-8"))
     original=fd.read_project_film("film-test")
     first=fd.edit_project_film("film-test",original["rev"],[{"op":"set","clip":"clip-b","field":"at","value":7}])
     assert first["rebased"] is False
@@ -579,7 +579,7 @@ def test_film_edit_falls_back_when_source_patch_does_not_apply_new_track(tmp_pat
     root = tmp_path / "composer" / "film-source-patch-fallback"
     root.mkdir(parents=True)
     film_path = root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes((SAMPLE).encode("utf-8"))
 
     original = fd.read_project_film("film-source-patch-fallback")
     # Simulate a source-span patcher that returns syntactically valid but stale
@@ -612,7 +612,7 @@ def test_generated_asset_insert_falls_back_when_source_patch_is_valid_but_stale(
     root = tmp_path / "composer" / "film-generated-asset-source-patch-fallback"
     root.mkdir(parents=True)
     film_path = root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes((SAMPLE).encode("utf-8"))
 
     original = fd.read_project_film("film-generated-asset-source-patch-fallback")
     # Reproduce the dangerous source-patch outcome: valid HTML that omits the
@@ -665,7 +665,7 @@ def test_undo_redo_history_is_isolated_between_projects(tmp_path, monkeypatch):
     for project_id in (project_a, project_b):
         root = tmp_path / "composer" / project_id
         root.mkdir(parents=True)
-        (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+        (root / fd.FILM_NAME).write_bytes((SAMPLE).encode("utf-8"))
 
     a_initial = fd.read_project_film(project_a)
     b_initial = fd.read_project_film(project_b)
@@ -692,7 +692,7 @@ def test_undo_redo_rejects_stale_client_revision(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     root = tmp_path / "composer" / "film-history-stale-base"
     root.mkdir(parents=True)
-    (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    (root / fd.FILM_NAME).write_bytes((SAMPLE).encode("utf-8"))
 
     initial = fd.read_project_film("film-history-stale-base")
     first = fd.edit_project_film(
@@ -741,7 +741,7 @@ def test_film_edit_http_route_can_require_exact_revision_without_disabling_manua
     project_id = "film-edit-exact-gesture-revision"
     root = storage_root / project_id
     root.mkdir(parents=True)
-    (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    (root / fd.FILM_NAME).write_bytes((SAMPLE).encode("utf-8"))
     original = fd.read_project_film(project_id)
 
     # A concurrent writer advances the document after the browser's gesture snapshot.
@@ -820,7 +820,7 @@ def test_insert_asset_route_requires_exact_revision_for_every_placement_mode(tmp
     root = storage_root / project_id
     root.mkdir(parents=True)
     film_path = root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes((SAMPLE).encode("utf-8"))
     original = fd.read_project_film(project_id)
     advanced = fd.edit_project_film(
         project_id, original["rev"],
@@ -892,7 +892,7 @@ def test_insert_asset_route_rejects_revision_change_during_asset_resolution(tmp_
     root = storage_root / project_id
     root.mkdir(parents=True)
     film_path = root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes((SAMPLE).encode("utf-8"))
     original = fd.read_project_film(project_id)
     asset_resolution_started = threading.Event()
     release_asset_resolution = threading.Event()
@@ -1031,7 +1031,7 @@ def test_external_film_revision_watcher_debounces_and_reports_broken_documents(t
     project_root = tmp_path / "film-watch"
     project_root.mkdir()
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes((SAMPLE).encode("utf-8"))
     events = []
     watcher = FilmRevisionWatcher(
         lambda name, payload: events.append((name, payload)),
@@ -1042,7 +1042,7 @@ def test_external_film_revision_watcher_debounces_and_reports_broken_documents(t
     watcher.watch("film-watch", fd.revision_of(SAMPLE))
 
     changed = SAMPLE.replace('speed="2"', 'speed="2.1"')
-    film_path.write_text(changed, encoding="utf-8")
+    film_path.write_bytes((changed).encode("utf-8"))
     watcher.poll_once(now=100.0)
     watcher.poll_once(now=100.05)
     assert events == []
@@ -1053,7 +1053,7 @@ def test_external_film_revision_watcher_debounces_and_reports_broken_documents(t
     assert events[0][1]["revision"] == fd.revision_of(changed)
 
     broken = "<html><body>partial write</body></html>"
-    film_path.write_text(broken, encoding="utf-8")
+    film_path.write_bytes((broken).encode("utf-8"))
     watcher.poll_once(now=200.0)
     watcher.poll_once(now=200.13)
     assert len(events) == 2
@@ -1061,7 +1061,7 @@ def test_external_film_revision_watcher_debounces_and_reports_broken_documents(t
     assert "error" in events[-1][1]
 
     repaired = SAMPLE.replace('speed="2"', 'speed="2.5"')
-    film_path.write_text(repaired, encoding="utf-8")
+    film_path.write_bytes((repaired).encode("utf-8"))
     watcher.poll_once(now=300.0)
     watcher.poll_once(now=300.13)
     assert len(events) == 3
@@ -1651,7 +1651,7 @@ def test_trim_edge_extension_is_bounded_by_real_media_duration(tmp_path, monkeyp
     project_id = "film-trim-source-end"
     project_root = storage / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes((SAMPLE).encode("utf-8"))
     before = fd.read_project_film(project_id)
 
     extended = fd.edit_project_film(
@@ -1690,7 +1690,7 @@ def test_trim_edge_extension_is_bounded_by_real_media_duration(tmp_path, monkeyp
         'volume_envelope=\'[{"t":0,"v":1},{"t":4,"v":0.2}]\' '
         'data-film-keyframes=\'[{"property":"opacity","keyframes":[{"at":0,"value":0,"easing":"linear"},{"at":4,"value":1,"easing":"linear"}]}]\'></video>',
     )
-    (start_root / fd.FILM_NAME).write_text(start_markup, encoding="utf-8")
+    (start_root / fd.FILM_NAME).write_bytes((start_markup).encode("utf-8"))
     start_before = fd.read_project_film(start_project)
     start_extended = fd.edit_project_film(
         start_project, start_before["rev"],
@@ -1757,8 +1757,8 @@ def test_media_endpoint_cannot_read_another_project_but_can_read_shared_librarie
     audio = composer / "audio_library" / "bgm"
     for folder in (current / "scenes", other, shared, audio):
         folder.mkdir(parents=True, exist_ok=True)
-    (current / "scenes" / "subtitles.html").write_text("<html></html>", encoding="utf-8")
-    (other / "secret.txt").write_text("not-for-this-project", encoding="utf-8")
+    (current / "scenes" / "subtitles.html").write_bytes(("<html></html>").encode("utf-8"))
+    (other / "secret.txt").write_bytes(("not-for-this-project").encode("utf-8"))
     (shared / "shared.mp4").write_bytes(b"shared")
     (audio / "music.mp3").write_bytes(b"music")
     assert fd.media_path_for_src("film-test", "scenes/subtitles.html").is_file()
@@ -1971,7 +1971,7 @@ def test_legacy_composition_is_blocked_once_film_html_exists(tmp_path, monkeypat
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
     root = tmp_path / "composer" / "film-test"
     root.mkdir(parents=True)
-    (root / fd.FILM_NAME).write_text("not even valid HTML", encoding="utf-8")
+    (root / fd.FILM_NAME).write_bytes(("not even valid HTML").encode("utf-8"))
 
     with pytest.raises(fd.FilmError) as raised:
         fd.assert_legacy_composition_access("film-test", "导出")
@@ -3123,7 +3123,7 @@ def test_ai_stream_endpoint_delivers_token_fragments_and_rejects_stale_proposal(
     project_id = "film-ai-stream-integration"
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes((SAMPLE).encode("utf-8"))
     original = fd.read_project_film(project_id)
     assert original["exists"]
 
@@ -3333,7 +3333,7 @@ def test_legacy_composition_save_serializes_with_film_initialization(tmp_path, m
         with project_lock(project_id):
             lock_held.set()
             assert release_initializer.wait(timeout=5)
-            (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+            (root / fd.FILM_NAME).write_bytes((SAMPLE).encode("utf-8"))
 
     def legacy_save():
         changed_ir = original_ir.model_copy(deep=True)
@@ -3441,7 +3441,7 @@ def test_legacy_composition_read_waits_for_film_initialization(tmp_path, monkeyp
         with project_lock(project_id):
             lock_held.set()
             assert release_initializer.wait(timeout=5)
-            (root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+            (root / fd.FILM_NAME).write_bytes((SAMPLE).encode("utf-8"))
 
     def legacy_read():
         read_started.set()
@@ -3485,7 +3485,7 @@ def test_apply_proposal_http_route_is_single_use_and_ignores_client_operations(t
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes((SAMPLE).encode("utf-8"))
     before_bytes = film_path.read_bytes()
     before = fd.read_project_film(project_id)
     assert before["exists"] and before["rev"]
@@ -3586,7 +3586,7 @@ def test_apply_proposal_concurrent_http_requests_commit_exactly_once(tmp_path, m
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes((SAMPLE).encode("utf-8"))
     original_bytes = film_path.read_bytes()
     before = fd.read_project_film(project_id)
     assert before["exists"] and before["rev"]
@@ -3711,7 +3711,7 @@ def test_same_project_two_tab_stale_revision_cannot_overwrite_newer_edit(tmp_pat
     project_root = storage / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes((SAMPLE).encode("utf-8"))
 
     tab_a_snapshot = fd.read_project_film(project_id)
     tab_b_snapshot = fd.read_project_film(project_id)

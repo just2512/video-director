@@ -39,7 +39,7 @@ def test_film_initialize_mcp_rejects_an_existing_authoritative_film(tmp_path, mo
     project_id = "mcp-film-already-initialized"
     root = config.project_dir(project_id)
     root.mkdir(parents=True, exist_ok=True)
-    (root / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
+    (root / fd.FILM_NAME).write_bytes((FILM).encode("utf-8"))
 
     result = mcp.call_tool("film.initialize", {
         "project_id": project_id,
@@ -230,7 +230,7 @@ def test_film_edit_mcp_uses_the_same_revision_guard_and_undo_history(tmp_path, m
     project_id = "film-mcp-contract"
     project = config.project_dir(project_id)
     project.mkdir(parents=True, exist_ok=True)
-    (project / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
+    (project / fd.FILM_NAME).write_bytes((FILM).encode("utf-8"))
 
     status = _payload(mcp.call_tool("film.status", {"project_id": project_id}))
     assert status["ok"] is True and status["exists"] is True

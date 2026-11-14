@@ -55,7 +55,7 @@ def test_react_roll_and_slide_snap_previews_use_resolved_candidates(tmp_path, mo
     project_id = "film-studio-roll-slide-snap-browser"
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(SNAP_GESTURE_SAMPLE, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes(SNAP_GESTURE_SAMPLE.encode("utf-8"))
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
 
@@ -948,7 +948,7 @@ def test_studio_export_result_exposes_pinned_revision_mp4_and_qc_links(
     project_id = "film-studio-render-result-browser"
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes(SAMPLE.encode("utf-8"))
     before = fd.read_project_film(project_id)
     assert before["exists"]
 
@@ -1130,13 +1130,13 @@ def test_open_film_project_selection_uses_one_studio_reload_path(tmp_path, monke
     project_id = "film-studio-project-shell-single-load"
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes(SAMPLE.encode("utf-8"))
     assert fd.read_project_film(project_id)["exists"]
 
     broken_project_id = "film-studio-project-shell-broken-document"
     broken_project_root = storage_root / broken_project_id
     broken_project_root.mkdir(parents=True)
-    (broken_project_root / fd.FILM_NAME).write_text("<!doctype html><section", encoding="utf-8")
+    (broken_project_root / fd.FILM_NAME).write_bytes("<!doctype html><section".encode("utf-8"))
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -1401,7 +1401,7 @@ def test_stale_selector_authority_response_cannot_enter_legacy_loader(tmp_path, 
     current_project_id = "film-studio-current-film-authority"
     current_root = storage_root / current_project_id
     current_root.mkdir(parents=True)
-    (current_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    (current_root / fd.FILM_NAME).write_bytes(SAMPLE.encode("utf-8"))
     assert fd.read_project_film(current_project_id)["exists"]
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
@@ -1526,7 +1526,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes(SAMPLE.encode("utf-8"))
     assert fd.read_project_film(project_id)["exists"]
 
     results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
@@ -1539,7 +1539,11 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
     try:
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
-            context = browser.new_context(viewport={"width": 1440, "height": 1600})
+            # 本测试中途新增轨道并把 clip 拖到锁定轨：源片段与目标行都要落在
+            # 视口内，产品用 elementFromPoint(clientX, clientY) 判定目标轨道
+            # （拖到视口外就命中 null）。CI 在小视口下时间轴容器恰好装下全部
+            # 轨道行；视口越大容器越高，源行反而被挤出边缘，故贴近 CI 用小视口。
+            context = browser.new_context(viewport={"width": 1440, "height": 900})
             tracing = False
             page = context.new_page()
             page_errors: list[str] = []
@@ -3130,24 +3134,56 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 target_box = target_row.bounding_box()
                 source_box = clip.bounding_box()
                 assert source_box and target_box, {"source": source_box, "target": target_box}
-                source_x = source_box["x"] + source_box["width"] * 0.5
-                source_y = source_box["y"] + source_box["height"] * 0.5
-                source_hit = page.evaluate(
-                    "([x,y]) => { const hit = document.elementFromPoint(x,y)?.closest('.fs-clip'); "
-                    "return {inViewport:x>=0 && y>=0 && x<innerWidth && y<innerHeight, "
-                    "clipId:hit?.getAttribute('data-clip') || null}; }",
-                    [source_x, source_y],
+                # 先把目标轨道滚进视口（同一 evaluate 内），再在同一 evaluate 取
+                # source 与 target 的中心点：任何一次滚动都会让旧快照坐标失效，
+                # 分开取点就是这次失败（target_box 的 y 与实际滚动状态错一个量）。
+                # 时间轴是内部滚动容器（.fs-timeline-scroll，380px / expand 下 auto）。
+                # 不要 scrollIntoView 滚动整页——那会把源片段推出容器。
+                # 这里只滚容器自身，让目标行进入可视区后立刻取两行的实际 rect：
+                # 同一次 evaluate 内取点，避免任何中间滚动让坐标失效。
+                both_hits = page.evaluate(
+                    """(id) => {
+                      const scroller = document.querySelector('#fs-timeline-scroll');
+                      const row = document.querySelector('#fs-timeline .fs-track[data-track="' + id + '"]');
+                      const clip = document.querySelector('#fs-timeline .fs-clip[data-clip="clip-b"]');
+                      if (!scroller || !row || !clip) return {found: false};
+                      row.scrollIntoView({block: 'nearest'});
+                      const sr = clip.getBoundingClientRect();
+                      const tr = row.getBoundingClientRect();
+                      // 显式视口判定：容器 380px / 5 行轨道时，真实拖拽也需滚动，
+                      // 这里只要求 source 与 target 都完整落在视口内（拖拽可完成）。
+                      const sx = sr.left + sr.width * 0.5, sy = sr.top + sr.height * 0.5;
+                      const tx = tr.left + tr.width * 0.5, ty = tr.top + tr.height * 0.5;
+                      const inView = (r, x, y) =>
+                        x >= r.left && x <= r.right && y >= r.top && y <= r.bottom
+                        && x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
+                      const sHit = document.elementFromPoint(sx, sy);
+                      return {
+                        found: true,
+                        source: {
+                          inViewport: sx >= 0 && sy >= 0 && sx < innerWidth && sy < innerHeight,
+                          clipId: sHit?.closest('.fs-clip')?.getAttribute('data-clip') || null,
+                          center: {x: sx, y: sy},
+                        },
+                        target: {
+                          trackId: row.getAttribute('data-track'),
+                          inViewport: tx >= 0 && ty >= 0 && tx < innerWidth && ty < innerHeight,
+                          center: {x: tx, y: ty},
+                        },
+                        bothInViewport: inView(sr, sx, sy) && inView(tr, tx, ty),
+                      };
+                    }""",
+                    destination_track_id,
                 )
-                assert source_hit == {"inViewport": True, "clipId": "clip-b"}, {
-                    "source": source_box, "source_hit": source_hit, "target": target_box,
+                assert both_hits.get("found") and both_hits["bothInViewport"] is True \
+                    and both_hits["source"]["clipId"] == "clip-b" \
+                    and both_hits["target"]["trackId"] == destination_track_id, {
+                    "source": source_box, "target": target_box, "hits": both_hits,
                     "viewport": page.evaluate("({width:innerWidth,height:innerHeight,scrollY})"),
                 }
-                # Use the row center after bringing a potentially clipped track into view.
-                target_y = target_box["y"] + target_box["height"] * 0.5
-                assert page.evaluate(
-                    "([x,y,id]) => document.elementFromPoint(x,y)?.closest('.fs-track')?.getAttribute('data-track') === id",
-                    [source_x, target_y, destination_track_id],
-                ), {"target": target_box, "track": destination_track_id}
+                source_x = both_hits["source"]["center"]["x"]
+                source_y = both_hits["source"]["center"]["y"]
+                target_y = both_hits["target"]["center"]["y"]
                 page.mouse.move(source_x, source_y)
                 page.mouse.down()
                 page.mouse.move(source_x, target_y, steps=8)
@@ -3265,7 +3301,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert move_external_after != move_external_before
                 expected_move_external_revision = fd.revision_of(move_external_after)
                 assert expected_move_external_revision != move_revision_before
-                film_path.write_text(move_external_after, encoding="utf-8")
+                film_path.write_bytes(move_external_after.encode("utf-8"))
 
                 page.wait_for_function("""expected => {
                   const state = window.filmStudioStore?.getSnapshot();
@@ -3510,7 +3546,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert external_after != external_before
                 expected_external_revision = fd.revision_of(external_after)
                 assert expected_external_revision != conflict_revision_before
-                film_path.write_text(external_after, encoding="utf-8")
+                film_path.write_bytes(external_after.encode("utf-8"))
 
                 # The changed file becomes pending, but must not overwrite the still-active gesture.
                 page.wait_for_function("""expected => {
@@ -3676,14 +3712,14 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes(SAMPLE.encode("utf-8"))
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
 
     same_revision_project_id = project_id + "-same-revision"
     same_revision_root = storage_root / same_revision_project_id
     same_revision_root.mkdir(parents=True)
-    (same_revision_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    (same_revision_root / fd.FILM_NAME).write_bytes(SAMPLE.encode("utf-8"))
     same_revision = fd.read_project_film(same_revision_project_id)
     assert same_revision["exists"] and same_revision["rev"] == initial["rev"]
 
@@ -4093,7 +4129,7 @@ def test_studio_displays_source_after_external_file_revision_reload(tmp_path, mo
                     'id="clip-b" src="../assets/b.mp4#t=0,5" at="5.5"',
                 )
                 assert external != SAMPLE
-                film_path.write_text(external, encoding="utf-8")
+                film_path.write_bytes(external.encode("utf-8"))
                 expected_revision = fd.revision_of(external)
                 page.wait_for_function(
                     """expected => {
@@ -4157,7 +4193,7 @@ def test_external_scene_file_write_hot_reloads_preview_without_changing_film_rev
 window.film={{ready:Promise.resolve(),frame:function(t){{document.body.dataset.frameTime=String(t);}}}};
 </script></body></html>'''
 
-    scene_path.write_text(scene_document("Scene version one"), encoding="utf-8")
+    scene_path.write_bytes(scene_document("Scene version one").encode("utf-8"))
     film_html = '''<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080">
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden}</style></head>
@@ -4166,7 +4202,7 @@ window.film={{ready:Promise.resolve(),frame:function(t){{document.body.dataset.f
 </section></body></html>'''
     project_root.mkdir(parents=True, exist_ok=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(film_html, encoding="utf-8")
+    film_path.write_bytes(film_html.encode("utf-8"))
     before = fd.read_project_film(project_id)
     assert before["exists"]
 
@@ -4208,7 +4244,7 @@ window.film={{ready:Promise.resolve(),frame:function(t){{document.body.dataset.f
                 assert scene_value.inner_text() == "Scene version one"
 
                 # Agent modifies only the scene file; film.html and its revision remain untouched.
-                scene_path.write_text(scene_document("Scene version two"), encoding="utf-8")
+                scene_path.write_bytes(scene_document("Scene version two").encode("utf-8"))
                 deadline = time.monotonic() + 15
                 observed = ""
                 while time.monotonic() < deadline:
@@ -4253,7 +4289,7 @@ def test_film_document_never_falls_back_to_legacy_timeline_when_react_bundle_is_
     project_id = "film-studio-react-timeline-hard-gate"
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(SNAP_GESTURE_SAMPLE, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes(SNAP_GESTURE_SAMPLE.encode("utf-8"))
     initial = fd.read_project_film(project_id)
     assert initial["exists"] and initial["rev"]
 
@@ -4458,7 +4494,7 @@ def test_two_real_browser_tabs_reject_stale_same_project_revision_without_overwr
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes(SAMPLE.encode("utf-8"))
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
     initial_revision = initial["rev"]
@@ -4571,7 +4607,7 @@ def test_full_page_refresh_reopens_latest_external_film_revision_without_stale_s
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes(SAMPLE.encode("utf-8"))
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
 
@@ -4618,7 +4654,7 @@ def test_full_page_refresh_reopens_latest_external_film_revision_without_stale_s
                 at_end = external_before.index('"', at_start, tag_end)
                 external_text = external_before[:at_start] + "8.25" + external_before[at_end:]
                 assert external_text != external_before
-                film_path.write_text(external_text, encoding="utf-8")
+                film_path.write_bytes(external_text.encode("utf-8"))
                 external = fd.read_project_film(project_id)
                 assert external["exists"] and external["rev"] != initial["rev"]
                 expected_revision = external["rev"]
