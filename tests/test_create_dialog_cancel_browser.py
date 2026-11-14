@@ -28,7 +28,7 @@ def test_create_stop_and_edit_waits_for_server_terminal_state(tmp_path, monkeypa
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
-                    wait_until="networkidle",
+                    wait_until="domcontentloaded",
                 )
                 assert response and response.status == 200
                 page.evaluate("openCreate()")

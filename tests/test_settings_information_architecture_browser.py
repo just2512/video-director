@@ -37,7 +37,7 @@ def test_settings_categories_keep_local_credentials_read_only_until_explicit_sav
             errors = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             try:
-                response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 assert response and response.status == 200
                 page.evaluate("switchTab('settings')")
                 page.wait_for_function("Array.isArray(window.MODEL_ROLES) && Array.isArray(window.RENDER_ROLES)")
@@ -51,6 +51,10 @@ def test_settings_categories_keep_local_credentials_read_only_until_explicit_sav
                 assert "fixture-local-llm-secret" not in page.locator("#pane-settings").inner_text()
                 assert config_path.read_bytes() == before
 
+                # audit §3：默认视图只显服务摘要，API 字段折叠，展开后才可编辑。
+                # 这里显式展开「AI 模型」分类再编辑（渐进披露的产品要求）。
+                page.locator("#pane-settings details", has_text="AI 模型").first.evaluate(
+                    "(node) => { node.open = true; }")
                 page.locator("#mc-llm-model").fill("fixture-model-updated")
                 page.locator("#pane-settings button").filter(has_text="保存模型配置").click()
                 page.wait_for_function("document.getElementById('llm-save-status')?.textContent === '已保存并立即生效'")
@@ -96,7 +100,7 @@ def test_settings_export_redacts_keys_and_partial_import_preserves_local_keys(tm
             errors = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             try:
-                response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 assert response and response.status == 200
                 page.evaluate("switchTab('settings')")
                 config_section = page.locator("#pane-settings details.settings-section").filter(has_text="配置管理")

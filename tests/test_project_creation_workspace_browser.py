@@ -34,7 +34,7 @@ def test_project_creation_uses_full_workspace_without_touching_local_api_keys(tm
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             try:
-                response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 assert response and response.status == 200
                 page.evaluate("openCreate()")
                 page.locator("#cf-form").wait_for(state="visible")

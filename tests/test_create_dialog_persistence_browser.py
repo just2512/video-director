@@ -45,7 +45,7 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             try:
-                response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                response = page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 assert response and response.status == 200
                 assert page.locator("#director-history-launch").is_visible()
 
@@ -126,7 +126,7 @@ def test_create_dialog_backdrop_is_inert_and_draft_survives_reload(tmp_path, mon
                 assert saved["cf-platform"] == "xhs"
                 assert page.evaluate("JSON.parse(localStorage.getItem('video-director:create-draft:v1') || 'null')?.data?.fields?.['cf-script']") == "持久化测试：保留我的权威文案"
 
-                page.reload(wait_until="networkidle")
+                page.reload(wait_until="domcontentloaded")
                 page.evaluate("openCreate()")
                 page.wait_for_function("""() =>
                   document.getElementById('cf-project-name')?.value === '复利知识科普'
@@ -153,7 +153,7 @@ def test_script_generation_and_polish_reveal_and_persist_content(tmp_path, monke
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.route(
                     "**/api/script/generate",
                     lambda route: route.fulfill(
@@ -274,7 +274,7 @@ def test_switching_projects_clears_fields_and_context_from_previous_project(tmp_
                 "**/api/project_detail?project_id=project-without-context",
                 lambda route: route.fulfill(status=404, content_type="application/json", body='{"error":"no legacy script"}'),
             )
-            page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+            page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
 
             page.evaluate("openCreate('project-with-context')")
             page.wait_for_function("""() =>
@@ -371,7 +371,7 @@ def test_late_project_prefill_response_cannot_overwrite_newer_project(tmp_path, 
             )
 
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("openCreate()")
                 page.wait_for_function("!!window.CF_DEFAULTS_READY")
 
@@ -454,7 +454,7 @@ def test_close_create_cancels_inflight_project_prefill_and_restores_previous_dra
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.route("**/api/director/brief", hold_project_brief)
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("openCreate()")
                 page.wait_for_function("""() =>
                     document.getElementById('cf-director-brief')?.value === '收起前必须保留的创作目标'
@@ -561,7 +561,7 @@ def test_late_asset_upload_response_is_discarded_after_project_switch(tmp_path, 
                     "**/api/project_detail?project_id=project-after-upload",
                     lambda route: route.fulfill(status=404, content_type="application/json", body='{"error":"no legacy script"}'),
                 )
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("openCreate()")
                 page.wait_for_function("!!window.CF_DEFAULTS_READY")
                 page.locator("#cf-input-context-details summary").click()
@@ -694,7 +694,7 @@ def test_history_is_available_without_create_dialog_and_can_restore_snapshot(tmp
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.locator("#director-history-launch").click()
                 page.locator("#cf-history-drawer").wait_for(state="visible")
                 page.wait_for_function("document.getElementById('cf-history-list')?.innerText.includes('独立历史入口验收')")
@@ -836,7 +836,7 @@ def test_blank_persisted_draft_with_default_radio_does_not_prompt_on_history_res
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 saved = page.evaluate("""async () => {
                     const response = await fetch('/api/director/drafts/active', {
                       method: 'POST',
@@ -929,7 +929,7 @@ def test_history_restore_supports_legacy_director_inputs_snapshot(tmp_path, monk
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.locator("#director-history-launch").click()
                 page.locator("#cf-history-list button[data-conversation-id='conv-legacy-director-inputs']").click()
                 page.wait_for_function(
@@ -1011,7 +1011,7 @@ def test_scope_change_during_draft_restore_preserves_other_saved_fields(tmp_path
 
             page.route("**/api/director/drafts/active", hold_draft_read)
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("""() => {
                     window.__restorePromiseState = {done:false};
                     window.__restorePromise = openCreate().finally(() => { window.__restorePromiseState.done = true; });
@@ -1074,7 +1074,7 @@ def test_history_detail_ignores_late_response_from_previous_selection(tmp_path, 
                 lambda route: deferred.__setitem__("slow", route),
             )
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.locator("#director-history-launch").click()
                 page.locator("#cf-history-list button[data-conversation-id='conv-history-slow']").wait_for(
                     state="visible"
@@ -1133,7 +1133,7 @@ def test_history_drawer_loads_all_pages_without_repeating_conversations(tmp_path
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.locator("#director-history-launch").click()
                 page.wait_for_function(
                     "document.querySelectorAll('#cf-history-list [data-conversation-id]').length === 50"
@@ -1201,7 +1201,7 @@ def test_draft_restore_merges_context_sources_independently_during_asset_upload(
             page.route("**/api/director/drafts/active", draft_route)
             page.route("**/api/assets/upload", hold_upload)
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("""() => {
                     const state = {done:false};
                     window.__draftRestoreState = state;
@@ -1287,7 +1287,7 @@ def test_local_only_draft_is_synced_to_server_after_restore_finishes(tmp_path, m
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("""() => {
                     const data = {
                       version:1,
@@ -1360,7 +1360,7 @@ def test_new_create_after_finalizing_old_project_clears_in_memory_project_contex
                 )
             ))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("openCreate('old-project')")
                 page.wait_for_function("""() =>
                     window.CF_DRAFT_CONTEXT?.projectId === 'old-project'
@@ -1436,7 +1436,7 @@ def test_pending_history_restore_is_cancelled_when_user_selects_another_conversa
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.route("**/api/director/drafts/active", hold_first_active_draft_read)
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.locator("#director-history-launch").click()
                 page.locator("#cf-history-list button[data-conversation-id='conv-restore-stale']").click()
                 page.wait_for_function(
@@ -1513,7 +1513,7 @@ def test_history_drawer_does_not_resave_or_replace_active_progress_form(tmp_path
                 )
             ))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("openCreate()")
                 page.locator("#cf-director-brief").fill("正在执行的任务输入")
                 page.locator("#cf-history-inline-launch").click()
@@ -1621,7 +1621,7 @@ def test_cancel_and_edit_saves_draft_after_server_confirms_stop(tmp_path, monkey
                 body=json.dumps({"ok": True, "status": "CANCELLED"}),
             ))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("openCreate()")
                 page.locator("#cf-director-brief").fill("停止后必须重新保存的创作目标")
                 page.locator("#cf-input-context-details summary").click()
@@ -1680,7 +1680,7 @@ def test_history_restore_preserves_explicitly_collapsed_advanced_settings(tmp_pa
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.locator("#director-history-launch").click()
                 page.locator("#cf-history-list button[data-conversation-id='conv-modern-collapsed-advanced']").click()
                 page.wait_for_function(
@@ -1734,7 +1734,7 @@ def test_direct_project_entry_confirms_before_replacing_saved_draft(tmp_path, mo
                 )
             ))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("""() => {
                     window.__projectEntryConfirmMessages = [];
                     window.confirm = message => {
@@ -1810,7 +1810,7 @@ def test_project_draft_with_changes_from_prefill_baseline_prompts_after_reload(t
                 )
             ))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("""() => {
                     window.__baselineConfirmMessages = [];
                     window.confirm = message => {
@@ -1883,7 +1883,7 @@ def test_failed_project_prefill_restores_the_previous_draft_and_persists_it(tmp_
                 )
             ))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("""() => {
                     window.__failedProjectConfirmMessages = [];
                     window.confirm = message => {
@@ -1950,7 +1950,7 @@ def test_confirmed_project_switch_clears_old_dirty_markers_before_next_project(t
 
             page.route("**/api/director/brief", project_brief)
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("openCreate()")
                 page.locator("#cf-director-brief").fill("需要由项目 A 替换的旧草稿")
                 page.evaluate("""() => {
@@ -2019,7 +2019,7 @@ def test_cleared_submitted_draft_does_not_prompt_from_stale_project_context(tmp_
                 )
             ))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("openCreate()")
                 page.locator("#cf-director-brief").fill("提交后已清理的旧草稿")
                 page.evaluate("""() => {
@@ -2090,7 +2090,7 @@ def test_open_associated_project_closes_history_drawer_before_create_panel(tmp_p
                         "spec_settings": {},
                     }),
                 ))
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.locator("#director-history-launch").click()
                 page.locator("#cf-history-list button[data-conversation-id='conv-associated-project-navigation']").click()
                 page.wait_for_function(
@@ -2135,7 +2135,7 @@ def test_open_associated_project_preserves_active_draft_when_switch_is_cancelled
                 )
             ))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("openCreate()")
                 page.locator("#cf-director-brief").fill("必须保留的当前创作目标")
                 page.locator("#cf-input-context-details summary").click()
@@ -2185,7 +2185,7 @@ def test_sfx_duplicate_labels_are_disambiguated_and_select_options_are_safe(tmp_
                 ], ensure_ascii=False),
             ))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("openCreate()")
                 page.wait_for_function("""() =>
                     [...document.querySelectorAll('#cf-sfx option')]
@@ -2245,7 +2245,7 @@ def test_project_only_active_draft_is_visible_and_resumable_from_history(tmp_pat
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.locator("#director-history-launch").click()
                 card = page.locator("#cf-history-draft .panel")
                 card.wait_for(state="visible")
@@ -2274,7 +2274,7 @@ def test_active_draft_with_only_explicit_settings_is_resumable_from_history(tmp_
             errors: list[str] = []
             page.on("pageerror", lambda error: errors.append(str(error)))
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("openCreate()")
                 page.locator("#cf-input-context-details").wait_for(state="attached")
                 page.locator("#cf-platform").select_option("xhs")
@@ -2311,7 +2311,7 @@ def test_app_html_escape_prevents_dynamic_text_and_attribute_injection(tmp_path,
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 result = page.evaluate("""() => {
                     const payload = String.fromCharCode(39) + '" autofocus onfocus="window.__escapeInjected=true"><img src=x onerror="window.__escapeInjected=true">&';
                     window.__escapeInjected = false;
@@ -2353,7 +2353,7 @@ def test_history_restore_confirms_before_replacing_active_draft(tmp_path, monkey
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 page.evaluate("openCreate()")
                 page.locator("#cf-director-brief").fill("当前未提交的创作要求")
                 page.locator("#cf-input-context-details summary").click()
@@ -2446,7 +2446,7 @@ def test_restored_settings_only_draft_prompts_before_history_overwrite(tmp_path,
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page(viewport={"width": 1440, "height": 1000})
             try:
-                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
+                page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded")
                 saved = page.evaluate("""async () => {
                     const response = await fetch('/api/director/drafts/active', {
                       method: 'POST',
@@ -2553,7 +2553,7 @@ def test_project_metadata_prefills_from_project_row_and_is_submitted_with_create
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
-                    wait_until="networkidle",
+                    wait_until="domcontentloaded",
                 )
                 assert response and response.status == 200
 
@@ -2646,7 +2646,7 @@ def test_create_dialog_contains_keyboard_focus_and_restores_invoker(tmp_path, mo
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
-                    wait_until="networkidle",
+                    wait_until="domcontentloaded",
                 )
                 assert response and response.status == 200
                 opener = page.locator(".topbar button").filter(has_text="新建项目")

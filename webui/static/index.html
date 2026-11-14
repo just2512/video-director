@@ -516,9 +516,15 @@
       <button class="btn-primary" onclick="saveModelConfig('all')">保存全部配置</button>
     </div>
 
-    <details class="panel settings-section" open>
+    <!-- 默认折叠：audit §3 要求「默认展示服务摘要，而不是一次性铺开所有 API 字段」。
+     硬编码 open 会让 6 个角色的 key/base URL/model 字段一进设置页就全部摊开
+     （实测 21 个可见 API 字段）。展开后才可编辑密钥与地址。 -->
+    <details class="panel settings-section">
       <summary><b>AI 模型</b><span class="hint">文本创作、生图、生视频与视觉理解</span><span class="hint" id="llm-badge-inline"></span></summary>
-      <div id="llm-panel" style="display:block;margin-top:12px">
+      <!-- 不要给折叠区子容器写 display:block：浏览器原生规则
+         details:not([open]) > *:not(summary){display:none} 会被内联 style 覆盖，
+         导致 details 收起后内容仍可见可交互（实测 offsetParent=true、有实际尺寸）。 -->
+      <div id="llm-panel" style="margin-top:12px">
         <div id="model-roles"></div>
         <div class="btn-row"><button class="btn-secondary" onclick="saveModelConfig('models')">保存模型配置</button><span class="hint" id="llm-save-status"></span></div>
       </div>
