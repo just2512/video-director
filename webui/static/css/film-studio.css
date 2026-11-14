@@ -348,7 +348,10 @@ html.fs-studio-open,html.fs-studio-open body{overflow:hidden!important}
 .fs-context-menu button:hover,.fs-context-menu button:focus-visible{outline:none;background:var(--fs-hover,#2a2a2a)}
 .fs-context-separator{height:1px;margin:3px 4px;background:var(--fs-border,#3a3a3a)}
 
-.fs-clip-keyframe-marker{position:absolute;bottom:3px;z-index:6;width:7px;height:7px;min-width:0;padding:0;border:1px solid #fff1a8;border-radius:1px;background:#f4d57a;transform:translateX(-50%) rotate(45deg);box-shadow:0 0 0 1px rgba(0,0,0,.45);cursor:pointer;pointer-events:auto}
+/* z-index 8 > .fs-trim-handle 的 7：关键帧标记落在片段首尾约 7px 内时与修剪柄
+   重叠（修剪柄是全高竖条，垂直覆盖标记所在底部）。不平级时标记被修剪柄吞掉，
+   首尾关键帧完全点不动。让标记优先：那 7px 内点中是标记，修剪仍可从相邻像素拖。 */
+.fs-clip-keyframe-marker{position:absolute;bottom:3px;z-index:8;width:7px;height:7px;min-width:0;padding:0;border:1px solid #fff1a8;border-radius:1px;background:#f4d57a;transform:translateX(-50%) rotate(45deg);box-shadow:0 0 0 1px rgba(0,0,0,.45);cursor:pointer;pointer-events:auto}
 .fs-clip-keyframe-marker:hover,.fs-clip-keyframe-marker:focus-visible{outline:2px solid #f4d57a;outline-offset:3px}
 .fs-clip-keyframe-marker:active{background:#fff}
 
