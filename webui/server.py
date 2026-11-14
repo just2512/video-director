@@ -1330,9 +1330,13 @@ class Handler(BaseHTTPRequestHandler):
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"], "source": result["source"],
                              "inserted_clip_id": clip["id"], "inserted_track_id": track_id,
-                             "placement_mode": placement_mode})
-                sse_publish("film", {"phase": "revision_changed", "project_id": pid, "revision": data["rev"],
-                                     "source": "asset_insert", "operations": result["ops"]})
+                             "placement_mode": placement_mode,
+                             "unchanged": bool(result.get("unchanged"))})
+                if not result.get("unchanged"):
+                    sse_publish("film", {"phase": "revision_changed", "project_id": pid,
+                                         "revision": data["rev"],
+                                         "source": "asset_insert",
+                                         "operations": result["ops"]})
                 self._send_json(data)
                 return True
 
@@ -1342,10 +1346,16 @@ class Handler(BaseHTTPRequestHandler):
                     require_base=payload.get("require_base") is True, source="studio",
                 )
                 data = fd.film_payload(pid, fd.read_project_film(pid))
-                data.update({"ops": result["ops"], "rebased": result["rebased"], "base": result["base"],
-                             "source": result["source"]})
-                sse_publish("film", {"phase": "revision_changed", "project_id": pid, "revision": data["rev"],
-                                     "source": "manual_edit", "operations": result["ops"]})
+                # unchanged 必须透传：前端只按 ops.length 报「已保存 N 项编辑」，
+                # 拿不到这个字段就无法区分「真改了」与「值没变、字节零变化」。
+                data.update({"ops": result["ops"], "rebased": result["rebased"],
+                             "base": result["base"], "source": result["source"],
+                             "unchanged": bool(result.get("unchanged"))})
+                if not result.get("unchanged"):
+                    sse_publish("film", {"phase": "revision_changed", "project_id": pid,
+                                         "revision": data["rev"],
+                                         "source": "manual_edit",
+                                         "operations": result["ops"]})
                 self._send_json(data)
                 return True
 
@@ -1696,11 +1706,13 @@ class Handler(BaseHTTPRequestHandler):
                 data = fd.film_payload(pid, fd.read_project_film(pid))
                 data.update({"ops": result["ops"], "rebased": result["rebased"],
                              "base": approved["base_revision"], "source": result["source"],
-                             "applied_proposal": proposal_id})
-                sse_publish("film", {"phase": "revision_changed", "project_id": pid,
-                                     "revision": data["rev"], "source": "ai_proposal",
-                                     "proposal_id": payload.get("proposal_id"),
-                                     "operations": result["ops"]})
+                             "applied_proposal": proposal_id,
+                             "unchanged": bool(result.get("unchanged"))})
+                if not result.get("unchanged"):
+                    sse_publish("film", {"phase": "revision_changed", "project_id": pid,
+                                         "revision": data["rev"], "source": "ai_proposal",
+                                         "proposal_id": payload.get("proposal_id"),
+                                         "operations": result["ops"]})
                 self._send_json(data)
                 return True
         except fd.FilmError as exc:

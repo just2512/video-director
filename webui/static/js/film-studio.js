@@ -2503,10 +2503,13 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
           S.selectedElement=null;
           var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
         }else if(S.selectedElement)S.selectedElement=Object.assign({},S.selectedElement,{baseRevision:S.rev});
-        var savedMessage=r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。':'已保存 '+(r.ops||[]).length+' 项编辑。';
+        var savedMessage=r.rebased?'操作已按片段 ID 重放到较新 revision；请检查结果。'
+          :(r.unchanged?'没有需要保存的变化（值与原值相同）。'
+          :'已保存 '+(r.ops||[]).length+' 项编辑。');
         render();
         var migrationWarnings=S.data.migration&&S.data.migration.warnings||[];
-        showStatus(migrationWarnings.length?'迁移警告：'+migrationWarnings.join('；')+'；'+savedMessage:savedMessage,r.rebased?'':'success');
+        showStatus(migrationWarnings.length?'迁移警告：'+migrationWarnings.join('；')+'；'+savedMessage:savedMessage,
+            (r.rebased||r.unchanged)?'':'success');
         return true;
       });
     }catch(error){
