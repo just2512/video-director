@@ -2188,6 +2188,13 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       }
     }
     mask.style.display='none';mask.setAttribute('aria-hidden','true');
+    // 创建页是模板/风格画廊的宿主：创建页关闭时子画廊的 fixed 全屏遮罩必须一并
+    // 移除，否则 sg-mask/tg-mask 会留在 body 上拦截整个工作台的指针事件
+    // （z-index 14000 全屏遮罩 → 关窗后用户点不到工作台任何控件）。
+    for (const id of ['sg-mask', 'tg-mask']) {
+      const child = document.getElementById(id);
+      if (child) child.remove();
+    }
     if(window.CF)window.CF.state='idle';
     cfRestoreCreateDialogFocus();
     return true;

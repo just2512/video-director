@@ -36,7 +36,7 @@ def test_ai_proposal_diff_is_readable_and_deleted_target_blocks_preview_apply(tm
     project_id = "film-studio-ai-proposal-stale-browser"
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes(SAMPLE.encode("utf-8"))
     before = fd.read_project_film(project_id)
     assert before["exists"]
 
@@ -196,16 +196,15 @@ def test_ai_proposal_timeline_preview_and_apply_are_one_undoable_transaction(tmp
     project_root=root/project_id
     project_root.mkdir(parents=True)
     film_path=project_root/fd.FILM_NAME
-    film_path.write_text(
-        """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"></head><body>
+    film_path.write_bytes(
+        ("""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=1920,height=1080"></head><body>
 <section id="video-main" data-label="主画面">
 <video id="clip-a" src="../assets/a.mp4#t=0,4" at="0"></video>
 <video id="clip-b" src="../assets/b.mp4#t=0,4" at="4"></video>
 <video id="clip-c" src="../assets/c.mp4#t=0,4" at="8"></video></section>
 <section id="video-spare" data-label="备用空轨道"></section>
 <section id="audio-bed" data-label="背景音乐">
-<audio id="audio-1" src="../assets/music.wav#t=0,20" at="0" volume="0.2"></audio></section></body></html>""",
-        encoding="utf-8")
+<audio id="audio-1" src="../assets/music.wav#t=0,20" at="0" volume="0.2"></audio></section></body></html>""").encode("utf-8"))
     original=film_path.read_bytes()
     before=fd.read_project_film(project_id)
     ops=[
@@ -401,7 +400,7 @@ def test_ai_director_renders_streamed_tokens_before_final_proposal_without_writi
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes(SAMPLE.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     before = fd.read_project_film(project_id)
     assert before["exists"]
@@ -580,7 +579,7 @@ def test_ai_director_steering_cancels_upstream_and_replans_without_writing(tmp_p
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes(SAMPLE.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     before = fd.read_project_film(project_id)
     assert before["exists"]
@@ -747,7 +746,7 @@ def test_ai_proposal_returned_after_external_revision_during_generation_is_never
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes(SAMPLE.encode("utf-8"))
     before = fd.read_project_film(project_id)
     assert before["exists"]
 
@@ -927,7 +926,7 @@ def test_active_film_director_tab_submits_revision_bound_ai_proposal_without_leg
     project_id = "film-studio-director-bridge-browser"
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes(SAMPLE.encode("utf-8"))
     plans_dir = project_root / "plans"
     plans_dir.mkdir(parents=True)
     (plans_dir / "shotbook.json").write_text(json.dumps({
@@ -1184,7 +1183,7 @@ def test_late_ai_response_from_previous_project_cannot_clear_new_project_busy_st
     for project_id in (project_a, project_b):
         project_root = storage_root / project_id
         project_root.mkdir(parents=True)
-        (project_root / fd.FILM_NAME).write_text(SAMPLE, encoding="utf-8")
+        (project_root / fd.FILM_NAME).write_bytes(SAMPLE.encode("utf-8"))
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)

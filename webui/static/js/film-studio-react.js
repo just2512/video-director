@@ -26,9 +26,9 @@
     mod
   ));
 
-  // ../remotion_runtime/node_modules/react/cjs/react.development.js
+  // node_modules/react/cjs/react.development.js
   var require_react_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react.development.js"(exports, module) {
+    "node_modules/react/cjs/react.development.js"(exports, module) {
       "use strict";
       (function() {
         function defineDeprecationWarning(methodName, info) {
@@ -1023,9 +1023,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/index.js
+  // node_modules/react/index.js
   var require_react = __commonJS({
-    "../remotion_runtime/node_modules/react/index.js"(exports, module) {
+    "node_modules/react/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1035,9 +1035,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js
+  // node_modules/react-dom/cjs/react-dom.development.js
   var require_react_dom_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
       "use strict";
       (function() {
         function noop() {
@@ -1290,9 +1290,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/index.js
+  // node_modules/react-dom/index.js
   var require_react_dom = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/index.js"(exports, module) {
+    "node_modules/react-dom/index.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -1303,9 +1303,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js
+  // node_modules/scheduler/cjs/scheduler.development.js
   var require_scheduler_development = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+    "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
       "use strict";
       (function() {
         function performWorkUntilDeadline() {
@@ -1562,9 +1562,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/scheduler/index.js
+  // node_modules/scheduler/index.js
   var require_scheduler = __commonJS({
-    "../remotion_runtime/node_modules/scheduler/index.js"(exports, module) {
+    "node_modules/scheduler/index.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -1574,9 +1574,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js
+  // node_modules/react-dom/cjs/react-dom-client.development.js
   var require_react_dom_client_development = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+    "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
       "use strict";
       (function() {
         function findHook(fiber, id) {
@@ -23535,9 +23535,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react-dom/client.js
+  // node_modules/react-dom/client.js
   var require_client = __commonJS({
-    "../remotion_runtime/node_modules/react-dom/client.js"(exports, module) {
+    "node_modules/react-dom/client.js"(exports, module) {
       "use strict";
       if (false) {
         checkDCE();
@@ -23548,9 +23548,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js
+  // node_modules/react/cjs/react-jsx-runtime.development.js
   var require_react_jsx_runtime_development = __commonJS({
-    "../remotion_runtime/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+    "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
       "use strict";
       (function() {
         function getComponentNameFromType(type) {
@@ -23819,9 +23819,9 @@
     }
   });
 
-  // ../remotion_runtime/node_modules/react/jsx-runtime.js
+  // node_modules/react/jsx-runtime.js
   var require_jsx_runtime = __commonJS({
-    "../remotion_runtime/node_modules/react/jsx-runtime.js"(exports, module) {
+    "node_modules/react/jsx-runtime.js"(exports, module) {
       "use strict";
       if (false) {
         module.exports = null;
@@ -27403,6 +27403,7 @@
     }, []);
     const startReactDragAutoScroll = (0, import_react.useCallback)(() => {
       if (dragAutoScrollFrame.current !== null) return;
+      const clampScroll = (value, max) => Math.max(0, Math.min(max, value));
       const tick = (timestamp) => {
         dragAutoScrollFrame.current = null;
         const sample = dragPointerSample.current;
@@ -27416,20 +27417,24 @@
           return;
         }
         const rect = scroll.getBoundingClientRect();
-        const direction = sample.clientX < rect.left + 28 ? -1 : sample.clientX > rect.right - 28 ? 1 : 0;
-        if (!direction) {
+        const dirX = sample.clientX < rect.left + 28 ? -1 : sample.clientX > rect.right - 28 ? 1 : 0;
+        const dirY = sample.clientY < rect.top + 28 ? -1 : sample.clientY > rect.bottom - 28 ? 1 : 0;
+        if (!dirX && !dirY) {
           dragAutoScrollLastFrameTime.current = null;
           return;
         }
-        const maxScroll = Math.max(0, scroll.scrollWidth - scroll.clientWidth);
-        const before = scroll.scrollLeft;
+        const maxScrollLeft = Math.max(0, scroll.scrollWidth - scroll.clientWidth);
+        const maxScrollTop = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+        const beforeLeft = scroll.scrollLeft;
+        const beforeTop = scroll.scrollTop;
         const previous = dragAutoScrollLastFrameTime.current;
         const elapsed = previous === null ? 16 : Math.max(0, Math.min(32, timestamp - previous));
         dragAutoScrollLastFrameTime.current = timestamp;
         const delta = Math.max(1, elapsed * 0.65);
-        scroll.scrollLeft = Math.max(0, Math.min(maxScroll, before + direction * delta));
-        const moved = Math.abs(scroll.scrollLeft - before) >= 0.5;
-        const atBoundary = direction < 0 ? scroll.scrollLeft <= 0 : scroll.scrollLeft >= maxScroll;
+        if (dirX) scroll.scrollLeft = clampScroll(beforeLeft + dirX * delta, maxScrollLeft);
+        if (dirY) scroll.scrollTop = clampScroll(beforeTop + dirY * delta, maxScrollTop);
+        const moved = Math.abs(scroll.scrollLeft - beforeLeft) >= 0.5 || Math.abs(scroll.scrollTop - beforeTop) >= 0.5;
+        const atBoundary = (dirX === 0 || (dirX < 0 ? scroll.scrollLeft <= 0 : scroll.scrollLeft >= maxScrollLeft)) && (dirY === 0 || (dirY < 0 ? scroll.scrollTop <= 0 : scroll.scrollTop >= maxScrollTop));
         if (moved) {
           const current = dragPointerSample.current;
           if (current && current.pointerId === sample.pointerId) {
@@ -27462,7 +27467,7 @@
         return;
       }
       const rect = scroll.getBoundingClientRect();
-      const atEdge = event.clientX < rect.left + 28 || event.clientX > rect.right - 28;
+      const atEdge = event.clientX < rect.left + 28 || event.clientX > rect.right - 28 || event.clientY < rect.top + 28 || event.clientY > rect.bottom - 28;
       if (atEdge) startReactDragAutoScroll();
       else stopReactDragAutoScroll();
     }, [startReactDragAutoScroll, stopReactDragAutoScroll]);

@@ -74,7 +74,7 @@ def test_generated_project_asset_is_manually_adopted_and_survives_full_page_relo
         silent_audio.setframerate(44100)
         silent_audio.writeframes(b"\x00\x00" * (44100 * 5))
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(FILM_HTML, encoding="utf-8")
+    film_path.write_bytes(FILM_HTML.encode("utf-8"))
     initial = fd.read_project_film(project_id)
     assert initial["exists"] is True and initial["rev"]
 

@@ -65,7 +65,9 @@ def test_timed_text_watermark_appears_and_disappears_on_shared_live_preview_cloc
                 page_errors: list[str] = []
                 page.on("pageerror", lambda error: page_errors.append(str(error)))
                 response = page.goto(
-                    f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle"
+                    # /api/events 是 SSE 长连接（心跳 + 实时进度），networkidle 永不满足。
+                    # domcontentloaded + 后续 wait_for_function 才是正确的就绪判据。
+                    f"http://127.0.0.1:{server.server_port}/", wait_until="domcontentloaded"
                 )
                 assert response and response.status == 200
                 page.wait_for_function(

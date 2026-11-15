@@ -160,7 +160,7 @@ def test_react_multi_select_drag_is_one_transaction_and_undo_redo_keeps_ui_in_sy
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     original_text = film_path.read_text(encoding="utf-8")
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
@@ -614,7 +614,7 @@ def test_react_pointer_cancel_clears_snap_drop_and_preview_without_writing(tmp_p
 </section>
 <section id="video-secondary" data-label="备用画面"></section>
 </body></html>'''
-    film_path.write_text(source_text, encoding="utf-8")
+    film_path.write_bytes(source_text.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     original = fd.read_project_film(project_id)
     assert original["exists"]
@@ -891,7 +891,7 @@ def test_react_cross_track_drag_commits_one_revision_and_undo_redo_restores_trac
   <video id="clip-target" src="../assets/target.mp4#t=0,2" at="8"></video>
 </section>
 </body></html>'''
-    film_path.write_text(source_text, encoding="utf-8")
+    film_path.write_bytes(source_text.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     original = fd.read_project_film(project_id)
     assert original["exists"]
@@ -1336,7 +1336,7 @@ def test_react_multi_select_drag_is_discarded_when_revision_changes_mid_gesture(
   <video id="clip-b" src="../assets/b.mp4#t=0,2" at="6"></video>
 </section>
 </body></html>'''
-    film_path.write_text(source_text, encoding="utf-8")
+    film_path.write_bytes(source_text.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     original = fd.read_project_film(project_id)
     assert original["exists"]
@@ -1518,7 +1518,7 @@ def test_react_clip_drag_revision_conflict_reloads_when_notifications_are_delaye
   <video id="clip-b" src="../assets/b.mp4#t=0,2" at="6"></video>
 </section>
 </body></html>'''
-    film_path.write_text(source_text, encoding="utf-8")
+    film_path.write_bytes(source_text.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     original = fd.read_project_film(project_id)
     assert original["exists"]
@@ -1721,7 +1721,7 @@ def test_react_zoom_stays_anchored_and_drag_autoscroll_keeps_preview_synced(
   <video id="clip-b" src="../assets/b.mp4#t=0,2" at="30"></video>
   <video id="clip-c" src="../assets/c.mp4#t=0,2" at="60"></video>
 </section></body></html>"""
-    film_path.write_text(long_film, encoding="utf-8")
+    film_path.write_bytes(long_film.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
@@ -1962,7 +1962,7 @@ def test_react_dock_dividers_persist_layout_and_keep_inspector_and_ai_visible(tm
     project_id = "film-studio-dock-layout-browser"
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes(FILM.encode("utf-8"))
     initial_revision = fd.read_project_film(project_id)["rev"]
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
@@ -2119,7 +2119,7 @@ def test_react_timeline_markers_persist_and_share_revisioned_undo_redo(tmp_path,
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     original_text = film_path.read_text(encoding="utf-8")
     before = fd.read_project_film(project_id)
 
@@ -2286,7 +2286,7 @@ def test_react_speed_preset_commits_one_operation_and_undo_redo_restores_duratio
         'speed="1" volume="1" fade="0,0" title="clip-a"',
     )
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(film_source, encoding="utf-8")
+    film_path.write_bytes(film_source.encode("utf-8"))
     original_text = film_path.read_text(encoding="utf-8")
     initial = fd.read_project_film(project_id)
     assert initial["exists"]
@@ -2462,7 +2462,7 @@ def test_react_context_menu_fade_transition_is_one_reversible_two_clip_transacti
   <video id="clip-b" src="../assets/b.mp4#t=0,2" at="2"></video>
   <video id="clip-c" src="../assets/c.mp4#t=0,2" at="4"></video>
 </section></body></html>'''
-    film_path.write_text(source_text, encoding="utf-8")
+    film_path.write_bytes(source_text.encode("utf-8"))
     before_text = film_path.read_text(encoding="utf-8")
     before = fd.read_project_film(project_id)
     assert before["exists"]
@@ -2605,7 +2605,7 @@ def test_react_context_menu_crossfade_overlaps_two_clips_in_one_reversible_trans
   <video id="clip-b" src="../assets/b.mp4#t=0,2" at="2"></video>
   <video id="clip-c" src="../assets/c.mp4#t=0,2" at="4"></video>
 </section></body></html>'''
-    film_path.write_text(source_text, encoding="utf-8")
+    film_path.write_bytes(source_text.encode("utf-8"))
     before_text = film_path.read_text(encoding="utf-8")
     before = fd.read_project_film(project_id)
     assert before["exists"]
@@ -2805,7 +2805,7 @@ def test_fade_handoff_rejects_gaps_and_locked_clips_or_tracks_without_writing(
   <video id="crossfade-envelope-next" src="../assets/m.mp4#t=0,2" at="2"></video>
 </section>
 </body></html>'''
-    film_path.write_text(source_text, encoding="utf-8")
+    film_path.write_bytes(source_text.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     original = fd.read_project_film(project_id)
     assert original["exists"]
@@ -2919,7 +2919,7 @@ def test_react_typed_gesture_start_controller_validates_modes_and_context_in_chr
     project_id = "film-studio-typed-gesture-start-browser"
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(FILM, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes(FILM.encode("utf-8"))
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -3036,7 +3036,7 @@ def test_react_timeline_rejects_gesture_without_typed_controller_instead_of_lega
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     original_text = film_path.read_text(encoding="utf-8")
     original = fd.read_project_film(project_id)
     edit_requests: list[dict] = []
@@ -3168,7 +3168,7 @@ def test_react_clip_gesture_cancels_if_bridge_contract_disappears_midgesture(
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     original_text = film_path.read_text(encoding="utf-8")
     original = fd.read_project_film(project_id)
     edit_requests: list[dict] = []
@@ -3400,7 +3400,7 @@ def test_react_volume_envelope_gesture_is_store_owned_and_commits_exactly_once(t
     volume_envelope='[{"t":0,"v":1},{"t":1,"v":0.5},{"t":2,"v":0.25}]'></video>
 </section>
 </body></html>'''
-    film_path.write_text(source_text, encoding="utf-8")
+    film_path.write_bytes(source_text.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     initial = fd.read_project_film(project_id)
     assert initial["exists"]

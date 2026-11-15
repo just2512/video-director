@@ -258,7 +258,7 @@ def test_film_authority_blocks_legacy_agent_paths_but_preserves_asset_preparatio
     # The legacy Python CLI must not bypass the same authority boundary.
     from video_director.__main__ import main as cli_main
     script = tmp_path / "legacy-script.txt"
-    script.write_text("不应覆盖已初始化影片的旧 CLI", encoding="utf-8")
+    script.write_bytes(("不应覆盖已初始化影片的旧 CLI").encode("utf-8"))
     with pytest.raises(SystemExit) as cli_exit:
         cli_main(["text", "--script", str(script), "--project-id", project_id])
     assert cli_exit.value.code == 2

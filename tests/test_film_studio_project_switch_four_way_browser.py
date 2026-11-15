@@ -29,7 +29,7 @@ def test_project_switch_reconciles_request_response_store_and_disk(tmp_path, mon
     for pid, html in ((project_a, html_a), (project_b, html_b)):
         root = storage_root / pid
         root.mkdir(parents=True)
-        (root / fd.FILM_NAME).write_text(html, encoding="utf-8")
+        (root / fd.FILM_NAME).write_bytes(html.encode("utf-8"))
     disk_a = fd.read_project_film(project_a)
     disk_b = fd.read_project_film(project_b)
     assert disk_a["exists"] and disk_b["exists"]

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from pathlib import Path
 
 import pytest
@@ -30,7 +32,8 @@ FILM_HTML = """<!doctype html>
 
 def _write_film(project_id: str, source: str) -> None:
     project_dir = config.project_dir(project_id)
-    (project_dir / film_document.FILM_NAME).write_text(source, encoding="utf-8")
+    # write_bytes 保持 LF：Windows write_text 转 CRLF 会让 revision 漂移（fd 按原始字节算哈希）
+    (project_dir / film_document.FILM_NAME).write_bytes(source.encode("utf-8"))
 
 
 def test_project_context_uses_film_revision_without_requiring_composition(tmp_path, monkeypatch):
@@ -94,14 +97,15 @@ def test_unreadable_film_authority_is_unknown_and_blocks_legacy_tool(tmp_path, m
     project_id = "context-unreadable-film"
     _write_film(project_id, FILM_HTML)
     film_path = config.project_dir(project_id) / film_document.FILM_NAME
-    original_read_text = Path.read_text
+    original_read_bytes = Path.read_bytes
 
     def deny_film_read(path, *args, **kwargs):
         if path == film_path:
             raise PermissionError("film.html read denied")
-        return original_read_text(path, *args, **kwargs)
+        return original_read_bytes(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_text", deny_film_read)
+    # read_project_film 走 read_bytes（CRLF 口径修复），deny 也必须拦 read_bytes
+    monkeypatch.setattr(Path, "read_bytes", deny_film_read)
     context = inspect_project_context(project_id, {"type": "clip", "id": "shot-1"})
 
     assert context["authority"] == "unknown"
@@ -240,6 +244,7 @@ def test_all_legacy_pipeline_and_renderer_entrypoints_fail_closed_for_film_proje
     assert not render_workdir.exists()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows 创建 symlink 需开发者模式/管理员权限（WinError 1314）")
 def test_dangling_film_symlink_never_reactivates_legacy_authority(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage"))
     project_id = "context-dangling-film-link"

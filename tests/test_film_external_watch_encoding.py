@@ -16,10 +16,14 @@ FILM = '''<!doctype html>
 </body></html>'''
 
 
+# film.html 一律 write_bytes：Windows write_text 会把 LF 写成 CRLF，
+# 而 film_document.revision_of 按原始字节算哈希——CRLF 文件的 revision 会漂移。
+
+
 def test_invalid_utf8_external_write_publishes_broken_state_then_recovers(tmp_path: Path):
     project_id = "film-watch-utf8-recovery"
     film_path = tmp_path / "film.html"
-    film_path.write_text(FILM, encoding="utf-8")
+    film_path.write_bytes(FILM.encode("utf-8"))
     events = []
     watcher = FilmRevisionWatcher(
         lambda topic, payload: events.append((topic, payload)),
@@ -42,7 +46,7 @@ def test_invalid_utf8_external_write_publishes_broken_state_then_recovers(tmp_pa
     assert "UTF-8" in broken["error"]
 
     repaired = FILM.replace('at="0"', 'at="0.5"')
-    film_path.write_text(repaired, encoding="utf-8")
+    film_path.write_bytes(repaired.encode("utf-8"))
     watcher.poll_once(now=now + 2)
     watcher.poll_once(now=now + 3)
 
@@ -84,7 +88,7 @@ def test_same_project_id_on_new_storage_path_does_not_reuse_broken_state(tmp_pat
     second_path = tmp_path / "second" / "film.html"
     first_path.parent.mkdir(parents=True)
     second_path.parent.mkdir(parents=True)
-    first_path.write_text(FILM, encoding="utf-8")
+    first_path.write_bytes(FILM.encode("utf-8"))
     active_path = {"value": first_path}
     events = []
     watcher = FilmRevisionWatcher(
@@ -106,7 +110,7 @@ def test_same_project_id_on_new_storage_path_does_not_reuse_broken_state(tmp_pat
     # The same project ID can be re-created in a new storage root. The new
     # monitor state must not inherit the previous document_broken revision/error.
     events.clear()
-    second_path.write_text(FILM, encoding="utf-8")
+    second_path.write_bytes(FILM.encode("utf-8"))
     active_path["value"] = second_path
     watcher.watch(project_id)
     second_path.write_bytes(broken_bytes)

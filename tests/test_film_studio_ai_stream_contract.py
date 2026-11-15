@@ -46,7 +46,7 @@ def test_streaming_http_route_flushes_model_tokens_before_read_only_proposal(
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(FILM_HTML, encoding="utf-8")
+    film_path.write_bytes(FILM_HTML.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     before = fd.read_project_film(project_id)
     assert before["exists"] and before["rev"]
@@ -200,7 +200,7 @@ def test_stream_disconnect_after_last_token_discards_undelivered_proposal(
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(FILM_HTML, encoding="utf-8")
+    film_path.write_bytes(FILM_HTML.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     before = fd.read_project_film(project_id)
     assert before["exists"] and before["rev"]
@@ -337,7 +337,7 @@ def test_cancel_during_finalization_is_too_late_and_does_not_create_tombstone(
     request_id = "finalizing-cancel-" + uuid.uuid4().hex
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
-    (project_root / fd.FILM_NAME).write_text(FILM_HTML, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes(FILM_HTML.encode("utf-8"))
 
     key = (project_id, request_id)
     cancel_event = threading.Event()
@@ -397,7 +397,7 @@ def test_stream_cancel_stops_cancellable_provider_without_creating_proposal(
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(FILM_HTML, encoding="utf-8")
+    film_path.write_bytes(FILM_HTML.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     before = fd.read_project_film(project_id)
     assert before["exists"] and before["rev"]
@@ -528,7 +528,7 @@ def test_stream_cancel_before_registration_blocks_provider_start(
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(FILM_HTML, encoding="utf-8")
+    film_path.write_bytes(FILM_HTML.encode("utf-8"))
     original_bytes = film_path.read_bytes()
     before = fd.read_project_film(project_id)
     request_id = "cancel-before-register-" + uuid.uuid4().hex

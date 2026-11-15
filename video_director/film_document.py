@@ -3565,16 +3565,30 @@ def edit_project_film(
                 "影片文档序列化后与编辑结果不一致；拒绝提交不完整的 revision。",
                 500,
             )
+        new_revision = revision_of(updated)
+        unchanged_edit = new_revision == current["rev"]
+        if unchanged_edit:
+            # 值没变的编辑（把字段设成它已有值等）序列化后文本与原文完全相同。
+            # 不写事务、不进撤销历史、不改文件——但必须如实标 unchanged：
+            # 前端只按 ops.length 报「已保存 N 项编辑」，不标的话用户会看到成功
+            # 提示而 film.html 一个字节都没变（静默失败的经典形态）。
+            # 写一个 before_rev == after_rev 的 transaction journal 更糟：
+            # 崩溃恢复会拿到一个前后相同的待恢复事务。
+            return {"ok": True, "project_id": pid, "rev": new_revision, "base": base,
+                    "rebased": bool(base and base != current["rev"]),
+                    "unchanged": True,
+                    "document": doc, "ops": normalized, "source": source_label}
         history = _history_read(pid)
         history["past"].append({"before": current["text"], "after": updated,
-                                "before_rev": current["rev"], "after_rev": revision_of(updated),
+                                "before_rev": current["rev"], "after_rev": new_revision,
                                 "source": source_label, "ops": normalized})
         history["past"] = history["past"][-200:]
         history["future"] = []
         _commit_film_transaction(pid, current["text"], updated, history)
-        return {"ok": True, "project_id": pid, "rev": revision_of(updated), "base": base,
-                "rebased": bool(base and base != current["rev"]), "document": doc,
-                "ops": normalized, "source": source_label}
+        return {"ok": True, "project_id": pid, "rev": new_revision, "base": base,
+                "rebased": bool(base and base != current["rev"]),
+                "unchanged": False,
+                "document": doc, "ops": normalized, "source": source_label}
 
 
 def undo_redo_project_film(project_id: str, base: str | None, action: str) -> dict:

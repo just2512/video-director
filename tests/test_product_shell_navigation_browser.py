@@ -32,7 +32,7 @@ def test_top_level_navigation_keeps_one_active_pane_and_global_create_action(tmp
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
-                    wait_until="networkidle",
+                    wait_until="domcontentloaded",
                 )
                 assert response and response.status == 200
                 initial_url = page.url
@@ -156,7 +156,7 @@ def test_home_create_resume_then_settings_round_trip_in_one_browser_journey(tmp_
             try:
                 response = page.goto(
                     f"http://127.0.0.1:{server.server_port}/",
-                    wait_until="networkidle",
+                    wait_until="domcontentloaded",
                 )
                 assert response and response.status == 200
                 assert page.locator("#pane-home").is_visible()
@@ -183,7 +183,7 @@ def test_home_create_resume_then_settings_round_trip_in_one_browser_journey(tmp_
                 page.wait_for_function("document.getElementById('cf-mask')?.style.display === 'none'")
 
                 # A browser reload is the real recovery boundary for the draft.
-                page.reload(wait_until="networkidle")
+                page.reload(wait_until="domcontentloaded")
                 page.locator(".topbar button").filter(has_text="新建项目").click()
                 page.locator("#cf-form").wait_for(state="visible")
                 page.wait_for_function("""() =>
@@ -205,6 +205,9 @@ def test_home_create_resume_then_settings_round_trip_in_one_browser_journey(tmp_
                 assert config_path.read_bytes() == config_before_ui
                 assert "journey-local-llm-secret" not in page.locator("#pane-settings").inner_text()
 
+                # audit §3：API 字段默认折叠，展开后才可编辑（渐进披露）。
+                page.locator("#pane-settings details", has_text="AI 模型").first.evaluate(
+                    "(node) => { node.open = true; }")
                 page.locator("#mc-llm-model").fill("journey-model-updated")
                 page.locator("#pane-settings button").filter(has_text="保存模型配置").click()
                 page.wait_for_function(

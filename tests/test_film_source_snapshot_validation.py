@@ -14,7 +14,8 @@ def _write_archive(project_id: str, snapshot: dict) -> tuple[object, str]:
     archive = root / "migration" / "source-composition.json"
     archive.parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
-    archive.write_text(text, encoding="utf-8")
+    # write_bytes 保持 LF：Windows write_text 转 CRLF 会让文件哈希 ≠ text 哈希
+    archive.write_bytes(text.encode("utf-8"))
     manifest = {
         "format": "video-director-film-migration/1",
         "source_snapshot_path": "migration/source-composition.json",

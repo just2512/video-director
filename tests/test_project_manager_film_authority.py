@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -102,6 +103,7 @@ def test_project_index_refreshes_film_authority_when_initial_metadata_is_stale()
     assert timeline["clip_count"] == 2
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows 创建 symlink 需开发者模式/管理员权限（WinError 1314）")
 def test_project_index_keeps_dangling_film_symlink_authoritative():
     project_id = "web-film-dangling-link"
     _project_with_film(project_id, FILM_HTML)

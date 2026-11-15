@@ -102,7 +102,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
     project_root = storage_root / project_id
     project_root.mkdir(parents=True)
     film_path = project_root / fd.FILM_NAME
-    film_path.write_text(SAMPLE, encoding="utf-8")
+    film_path.write_bytes(SAMPLE.encode("utf-8"))
     assert fd.read_project_film(project_id)["exists"]
 
     results_dir = Path(os.environ.get("VIDEO_DIRECTOR_TEST_RESULTS", str(tmp_path / "test-results")))
@@ -1035,7 +1035,7 @@ def test_film_studio_cross_track_drag_shows_react_ghost_and_commits_target_track
             '<section id="video-alt" data-label="备用画面" locked>',
         )
         assert film_source != CROSS_TRACK_SAMPLE
-    (project_root / fd.FILM_NAME).write_text(film_source, encoding="utf-8")
+    (project_root / fd.FILM_NAME).write_bytes(film_source.encode("utf-8"))
     before = fd.read_project_film(project_id)
     assert before["exists"] and before["doc"]["tracks"]
 
