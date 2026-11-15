@@ -1392,90 +1392,6 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
-            if video_diagnostics_enabled:
-                # Opt-in, read-only telemetry for media seek/presentation diagnosis.
-                # The wrapper forwards the original callback synchronously and is never
-                # installed in normal renders or ordinary CI.
-                page.add_init_script(r"""
-                (() => {
-                  if (window.__filmFrameDiagnosticsInstalled) return;
-                  window.__filmFrameDiagnosticsInstalled = true;
-                  const eventNames = ["loadedmetadata", "loadeddata", "seeking", "seeked",
-                    "timeupdate", "waiting", "stalled", "error", "emptied", "canplay"];
-                  function record(video, type, extra) {
-                    const rows = video.__filmFrameTrace || (video.__filmFrameTrace = []);
-                    rows.push(Object.assign({
-                      type, perfNow: performance.now(), currentTime: video.currentTime,
-                      seeking: video.seeking, readyState: video.readyState,
-                      networkState: video.networkState, paused: video.paused
-                    }, extra || {}));
-                    if (rows.length > 500) rows.splice(0, rows.length - 500);
-                  }
-                  function attach(video) {
-                    if (video.__filmFrameTraceAttached) return;
-                    video.__filmFrameTraceAttached = true;
-                    eventNames.forEach(type => video.addEventListener(type, () => record(video, type)));
-                  }
-                  const descriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "currentTime");
-                  if (descriptor && descriptor.configurable && descriptor.get && descriptor.set) {
-                    Object.defineProperty(HTMLMediaElement.prototype, "currentTime", {
-                      configurable: true, enumerable: descriptor.enumerable,
-                      get() { return descriptor.get.call(this); },
-                      set(value) {
-                        if (this instanceof HTMLVideoElement) {
-                          record(this, "currentTime-set", { requestedTime: Number(value) });
-                        }
-                        return descriptor.set.call(this, value);
-                      }
-                    });
-                  }
-                  const prototype = HTMLVideoElement.prototype;
-                  const originalRequestFrame = prototype.requestVideoFrameCallback;
-                  if (typeof originalRequestFrame === "function") {
-                    prototype.requestVideoFrameCallback = function(callback) {
-                      return originalRequestFrame.call(this, (now, metadata) => {
-                        const detail = {
-                          callbackNow: Number(now),
-                          mediaTime: metadata ? Number(metadata.mediaTime) : null,
-                          presentedFrames: metadata ? Number(metadata.presentedFrames) : null,
-                          expectedDisplayTime: metadata ? Number(metadata.expectedDisplayTime) : null,
-                          presentationTime: metadata ? Number(metadata.presentationTime) : null,
-                          width: metadata ? Number(metadata.width) : null,
-                          height: metadata ? Number(metadata.height) : null
-                        };
-                        this.__filmFrameLastPresented = detail;
-                        record(this, "requestVideoFrameCallback", detail);
-                        return callback.call(this, now, metadata);
-                      });
-                    };
-                  }
-                  function scan(root) {
-                    if (root && root.querySelectorAll) root.querySelectorAll("video").forEach(attach);
-                  }
-                  scan(document);
-                  new MutationObserver(records => records.forEach(recordItem =>
-                    recordItem.addedNodes.forEach(node => {
-                      if (node.nodeType === 1) {
-                        if (node.tagName === "VIDEO") attach(node);
-                        scan(node);
-                      }
-                    })
-                  )).observe(document.documentElement, {childList:true, subtree:true});
-                  window.__filmFrameDiagnosticsSnapshot = () => ({
-                    href: location.href,
-                    perfNow: performance.now(),
-                    videos: Array.from(document.querySelectorAll("video")).map(video => ({
-                      id: video.id, src: video.currentSrc || video.src || "",
-                      currentTime: video.currentTime, seeking: video.seeking,
-                      readyState: video.readyState, networkState: video.networkState,
-                      paused: video.paused, duration: video.duration,
-                      videoWidth: video.videoWidth, videoHeight: video.videoHeight,
-                      lastPresented: video.__filmFrameLastPresented || null,
-                      trace: (video.__filmFrameTrace || []).slice()
-                    }))
-                  });
-                })();
-                """)
             blocked_external = _install_offline_network_policy(page, base_url)
             failed_project_resources = _install_scene_resource_failure_monitor(page, base_url)
             page.goto(base_url + "/host", wait_until="load", timeout=30000)
@@ -1763,6 +1679,90 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
+            if video_diagnostics_enabled:
+                # Opt-in, read-only telemetry for media seek/presentation diagnosis.
+                # The wrapper forwards the original callback synchronously and is never
+                # installed in normal renders or ordinary CI.
+                page.add_init_script(r"""
+                (() => {
+                  if (window.__filmFrameDiagnosticsInstalled) return;
+                  window.__filmFrameDiagnosticsInstalled = true;
+                  const eventNames = ["loadedmetadata", "loadeddata", "seeking", "seeked",
+                    "timeupdate", "waiting", "stalled", "error", "emptied", "canplay"];
+                  function record(video, type, extra) {
+                    const rows = video.__filmFrameTrace || (video.__filmFrameTrace = []);
+                    rows.push(Object.assign({
+                      type, perfNow: performance.now(), currentTime: video.currentTime,
+                      seeking: video.seeking, readyState: video.readyState,
+                      networkState: video.networkState, paused: video.paused
+                    }, extra || {}));
+                    if (rows.length > 500) rows.splice(0, rows.length - 500);
+                  }
+                  function attach(video) {
+                    if (video.__filmFrameTraceAttached) return;
+                    video.__filmFrameTraceAttached = true;
+                    eventNames.forEach(type => video.addEventListener(type, () => record(video, type)));
+                  }
+                  const descriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "currentTime");
+                  if (descriptor && descriptor.configurable && descriptor.get && descriptor.set) {
+                    Object.defineProperty(HTMLMediaElement.prototype, "currentTime", {
+                      configurable: true, enumerable: descriptor.enumerable,
+                      get() { return descriptor.get.call(this); },
+                      set(value) {
+                        if (this instanceof HTMLVideoElement) {
+                          record(this, "currentTime-set", { requestedTime: Number(value) });
+                        }
+                        return descriptor.set.call(this, value);
+                      }
+                    });
+                  }
+                  const prototype = HTMLVideoElement.prototype;
+                  const originalRequestFrame = prototype.requestVideoFrameCallback;
+                  if (typeof originalRequestFrame === "function") {
+                    prototype.requestVideoFrameCallback = function(callback) {
+                      return originalRequestFrame.call(this, (now, metadata) => {
+                        const detail = {
+                          callbackNow: Number(now),
+                          mediaTime: metadata ? Number(metadata.mediaTime) : null,
+                          presentedFrames: metadata ? Number(metadata.presentedFrames) : null,
+                          expectedDisplayTime: metadata ? Number(metadata.expectedDisplayTime) : null,
+                          presentationTime: metadata ? Number(metadata.presentationTime) : null,
+                          width: metadata ? Number(metadata.width) : null,
+                          height: metadata ? Number(metadata.height) : null
+                        };
+                        this.__filmFrameLastPresented = detail;
+                        record(this, "requestVideoFrameCallback", detail);
+                        return callback.call(this, now, metadata);
+                      });
+                    };
+                  }
+                  function scan(root) {
+                    if (root && root.querySelectorAll) root.querySelectorAll("video").forEach(attach);
+                  }
+                  scan(document);
+                  new MutationObserver(records => records.forEach(recordItem =>
+                    recordItem.addedNodes.forEach(node => {
+                      if (node.nodeType === 1) {
+                        if (node.tagName === "VIDEO") attach(node);
+                        scan(node);
+                      }
+                    })
+                  )).observe(document.documentElement, {childList:true, subtree:true});
+                  window.__filmFrameDiagnosticsSnapshot = () => ({
+                    href: location.href,
+                    perfNow: performance.now(),
+                    videos: Array.from(document.querySelectorAll("video")).map(video => ({
+                      id: video.id, src: video.currentSrc || video.src || "",
+                      currentTime: video.currentTime, seeking: video.seeking,
+                      readyState: video.readyState, networkState: video.networkState,
+                      paused: video.paused, duration: video.duration,
+                      videoWidth: video.videoWidth, videoHeight: video.videoHeight,
+                      lastPresented: video.__filmFrameLastPresented || null,
+                      trace: (video.__filmFrameTrace || []).slice()
+                    }))
+                  });
+                })();
+                """)
             blocked_external = _install_offline_network_policy(page, base_url)
             failed_project_resources = _install_scene_resource_failure_monitor(page, base_url)
             page.goto(base_url + "/host", wait_until="load", timeout=30000)
@@ -1854,7 +1854,7 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                     if video_diagnostic_dir is not None:
                         trace_path = video_diagnostic_dir / f"look-{timestamp:.3f}.json"
                         trace_path.write_text(
-                            json.dumps(diagnostic_record, ensure_ascii=False, indent=2, sort_keys=True) + "\\n",
+                            json.dumps(diagnostic_record, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
                             encoding="utf-8",
                         )
                         if changed > allowed:
