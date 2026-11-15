@@ -1541,9 +1541,11 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
             browser = playwright.chromium.launch(headless=True)
             # 本测试中途新增轨道并把 clip 拖到锁定轨：源片段与目标行都要落在
             # 视口内，产品用 elementFromPoint(clientX, clientY) 判定目标轨道
-            # （拖到视口外就命中 null）。CI 在小视口下时间轴容器恰好装下全部
-            # 轨道行；视口越大容器越高，源行反而被挤出边缘，故贴近 CI 用小视口。
-            context = browser.new_context(viewport={"width": 1440, "height": 900})
+            # （拖到视口外就命中 null）。React 时间轴在 900px 高视口下可视滚动
+            # 区仅约 233px，4~5 条轨道纵向溢出，源片段被挤出屏幕、pointerdown
+            # 落空。用更高视口让时间轴容器足够装下本次用到的轨道行，源行与
+            # 目标行才能同屏被真实指针命中。
+            context = browser.new_context(viewport={"width": 1440, "height": 1400})
             tracing = False
             page = context.new_page()
             page_errors: list[str] = []
@@ -2802,6 +2804,10 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
 
                 # A one-row translation would move audio-1 to video-main and overlap clip-a.
                 # The UI must reject it before the FilmDocument write path is called.
+                # The two index-0 track-adds push video-main below the timeline's
+                # scroll viewport; scroll the source clip into view so the real pointerdown
+                # lands on clip-b (Playwright scrolls the inner #fs-timeline-scroll).
+                clip.scroll_into_view_if_needed()
                 cross_before = fd.read_project_film(project_id)
                 cross_request_count = len(film_edit_requests)
                 cross_video_before_left = clip.evaluate("(node) => node.style.left")
@@ -3097,17 +3103,23 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 }""")
 
                 # Dropping a clip onto a locked destination track is rejected before POST /edit.
-                page.evaluate("""() => {
-                  window.prompt = () => 'Locked destination';
+                # Insert the locked destination adjacent to the source track (video-main)
+                # rather than at index 0: an index-0 track pushes video-main below the
+                # timeline's scroll viewport, so source and locked target are never
+                # on-screen together and the real pointer drag cannot reach the target.
+                destination_track_id = page.evaluate("""async () => {
+                  const store = window.filmStudioStore;
+                  const tracks = store.getSnapshot().film.tracks || [];
+                  const videoIndex = tracks.findIndex(track => track && track.id === 'video-main');
+                  const adjacentIndex = videoIndex >= 0 ? videoIndex + 1 : 0;
+                  const id = 'track-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+                  await window.filmStudioCommitPreparedClipOperations(
+                    [{op:'track_add', track_id:id, label:'Locked destination', index:adjacentIndex}]
+                  );
+                  return id;
                 }""")
-                page.evaluate("window.filmStudioAddTrack()")
-                page.wait_for_function("""() => [...document.querySelectorAll('#fs-timeline .fs-track-label')]
-                  .some(label => label.textContent.trim() === 'Locked destination')""")
-                destination_track_id = page.evaluate("""() => {
-                  const label = [...document.querySelectorAll('#fs-timeline .fs-track-label')]
-                    .find(node => node.textContent.trim() === 'Locked destination');
-                  return label?.closest('.fs-track')?.getAttribute('data-track') || null;
-                }""")
+                page.wait_for_function("""id => [...document.querySelectorAll('#fs-timeline .fs-track-label')]
+                  .some(label => label.textContent.trim() === 'Locked destination')""", arg=destination_track_id)
                 assert destination_track_id
                 page.evaluate("(id) => window.filmStudioToggleTrackLock(id)", destination_track_id)
                 page.wait_for_function("""id => {

@@ -2008,6 +2008,7 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
 
   const startReactDragAutoScroll = useCallback(() => {
     if (dragAutoScrollFrame.current !== null) return;
+    const clampScroll = (value:number,max:number):number => Math.max(0,Math.min(max,value));
     const tick = (timestamp:number) => {
       dragAutoScrollFrame.current = null;
       const sample = dragPointerSample.current;
@@ -2021,22 +2022,30 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
         return;
       }
       const rect = scroll.getBoundingClientRect();
-      const direction = sample.clientX < rect.left + 28 ? -1
+      const dirX = sample.clientX < rect.left + 28 ? -1
         : sample.clientX > rect.right - 28 ? 1 : 0;
-      if (!direction) {
+      const dirY = sample.clientY < rect.top + 28 ? -1
+        : sample.clientY > rect.bottom - 28 ? 1 : 0;
+      if (!dirX && !dirY) {
         dragAutoScrollLastFrameTime.current = null;
         return;
       }
-      const maxScroll = Math.max(0,scroll.scrollWidth-scroll.clientWidth);
-      const before = scroll.scrollLeft;
+      const maxScrollLeft = Math.max(0,scroll.scrollWidth-scroll.clientWidth);
+      const maxScrollTop = Math.max(0,scroll.scrollHeight-scroll.clientHeight);
+      const beforeLeft = scroll.scrollLeft;
+      const beforeTop = scroll.scrollTop;
       const previous = dragAutoScrollLastFrameTime.current;
       const elapsed = previous === null ? 16 : Math.max(0,Math.min(32,timestamp-previous));
       dragAutoScrollLastFrameTime.current = timestamp;
       // Keep a steady ~650px/s edge scroll independent of display refresh rate.
       const delta = Math.max(1,elapsed*0.65);
-      scroll.scrollLeft = Math.max(0,Math.min(maxScroll,before+direction*delta));
-      const moved = Math.abs(scroll.scrollLeft-before) >= 0.5;
-      const atBoundary = direction < 0 ? scroll.scrollLeft <= 0 : scroll.scrollLeft >= maxScroll;
+      if (dirX) scroll.scrollLeft = clampScroll(beforeLeft+dirX*delta,maxScrollLeft);
+      if (dirY) scroll.scrollTop = clampScroll(beforeTop+dirY*delta,maxScrollTop);
+      const moved = Math.abs(scroll.scrollLeft-beforeLeft) >= 0.5 ||
+        Math.abs(scroll.scrollTop-beforeTop) >= 0.5;
+      const atBoundary =
+        (dirX === 0 || (dirX < 0 ? scroll.scrollLeft <= 0 : scroll.scrollLeft >= maxScrollLeft)) &&
+        (dirY === 0 || (dirY < 0 ? scroll.scrollTop <= 0 : scroll.scrollTop >= maxScrollTop));
       if (moved) {
         const current = dragPointerSample.current;
         if (current && current.pointerId === sample.pointerId) {
@@ -2069,7 +2078,8 @@ const TimelineSurface: React.FC<{model: FilmTimelineSurfaceModel}> = React.memo(
       return;
     }
     const rect = scroll.getBoundingClientRect();
-    const atEdge = event.clientX < rect.left + 28 || event.clientX > rect.right - 28;
+    const atEdge = event.clientX < rect.left + 28 || event.clientX > rect.right - 28 ||
+      event.clientY < rect.top + 28 || event.clientY > rect.bottom - 28;
     if (atEdge) startReactDragAutoScroll();
     else stopReactDragAutoScroll();
   }, [startReactDragAutoScroll, stopReactDragAutoScroll]);
