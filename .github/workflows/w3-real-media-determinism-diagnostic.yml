@@ -54,6 +54,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p diagnostic-results
+          set +e
           failures=0
           passes=0
           for attempt in 1 2 3 4 5; do
@@ -61,6 +62,8 @@ jobs:
             env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
               -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
               -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+              VIDEO_DIRECTOR_FRAME_DIAGNOSTICS=1 \
+              VIDEO_DIRECTOR_FRAME_DIAGNOSTIC_DIR="diagnostic-results/attempt-${attempt}-media" \
               python -m pytest -vv --tb=short -o faulthandler_timeout=45 \
                 --junitxml="diagnostic-results/attempt-${attempt}.xml" \
                 tests/test_film_full_pipeline_e2e.py::test_real_public_media_full_project_render_and_performance_snapshot \

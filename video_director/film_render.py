@@ -1392,6 +1392,90 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
+            if video_diagnostics_enabled:
+                # Opt-in, read-only telemetry for media seek/presentation diagnosis.
+                # The wrapper forwards the original callback synchronously and is never
+                # installed in normal renders or ordinary CI.
+                page.add_init_script(r"""
+                (() => {
+                  if (window.__filmFrameDiagnosticsInstalled) return;
+                  window.__filmFrameDiagnosticsInstalled = true;
+                  const eventNames = ["loadedmetadata", "loadeddata", "seeking", "seeked",
+                    "timeupdate", "waiting", "stalled", "error", "emptied", "canplay"];
+                  function record(video, type, extra) {
+                    const rows = video.__filmFrameTrace || (video.__filmFrameTrace = []);
+                    rows.push(Object.assign({
+                      type, perfNow: performance.now(), currentTime: video.currentTime,
+                      seeking: video.seeking, readyState: video.readyState,
+                      networkState: video.networkState, paused: video.paused
+                    }, extra || {}));
+                    if (rows.length > 500) rows.splice(0, rows.length - 500);
+                  }
+                  function attach(video) {
+                    if (video.__filmFrameTraceAttached) return;
+                    video.__filmFrameTraceAttached = true;
+                    eventNames.forEach(type => video.addEventListener(type, () => record(video, type)));
+                  }
+                  const descriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "currentTime");
+                  if (descriptor && descriptor.configurable && descriptor.get && descriptor.set) {
+                    Object.defineProperty(HTMLMediaElement.prototype, "currentTime", {
+                      configurable: true, enumerable: descriptor.enumerable,
+                      get() { return descriptor.get.call(this); },
+                      set(value) {
+                        if (this instanceof HTMLVideoElement) {
+                          record(this, "currentTime-set", { requestedTime: Number(value) });
+                        }
+                        return descriptor.set.call(this, value);
+                      }
+                    });
+                  }
+                  const prototype = HTMLVideoElement.prototype;
+                  const originalRequestFrame = prototype.requestVideoFrameCallback;
+                  if (typeof originalRequestFrame === "function") {
+                    prototype.requestVideoFrameCallback = function(callback) {
+                      return originalRequestFrame.call(this, (now, metadata) => {
+                        const detail = {
+                          callbackNow: Number(now),
+                          mediaTime: metadata ? Number(metadata.mediaTime) : null,
+                          presentedFrames: metadata ? Number(metadata.presentedFrames) : null,
+                          expectedDisplayTime: metadata ? Number(metadata.expectedDisplayTime) : null,
+                          presentationTime: metadata ? Number(metadata.presentationTime) : null,
+                          width: metadata ? Number(metadata.width) : null,
+                          height: metadata ? Number(metadata.height) : null
+                        };
+                        this.__filmFrameLastPresented = detail;
+                        record(this, "requestVideoFrameCallback", detail);
+                        return callback.call(this, now, metadata);
+                      });
+                    };
+                  }
+                  function scan(root) {
+                    if (root && root.querySelectorAll) root.querySelectorAll("video").forEach(attach);
+                  }
+                  scan(document);
+                  new MutationObserver(records => records.forEach(recordItem =>
+                    recordItem.addedNodes.forEach(node => {
+                      if (node.nodeType === 1) {
+                        if (node.tagName === "VIDEO") attach(node);
+                        scan(node);
+                      }
+                    })
+                  )).observe(document.documentElement, {childList:true, subtree:true});
+                  window.__filmFrameDiagnosticsSnapshot = () => ({
+                    href: location.href,
+                    perfNow: performance.now(),
+                    videos: Array.from(document.querySelectorAll("video")).map(video => ({
+                      id: video.id, src: video.currentSrc || video.src || "",
+                      currentTime: video.currentTime, seeking: video.seeking,
+                      readyState: video.readyState, networkState: video.networkState,
+                      paused: video.paused, duration: video.duration,
+                      videoWidth: video.videoWidth, videoHeight: video.videoHeight,
+                      lastPresented: video.__filmFrameLastPresented || null,
+                      trace: (video.__filmFrameTrace || []).slice()
+                    }))
+                  });
+                })();
+                """)
             blocked_external = _install_offline_network_policy(page, base_url)
             failed_project_resources = _install_scene_resource_failure_monitor(page, base_url)
             page.goto(base_url + "/host", wait_until="load", timeout=30000)
@@ -1661,6 +1745,11 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
     temp_output = None
     snapshot_temp = tempfile.TemporaryDirectory(prefix="film-look-resources-")
     resource_snapshot = None
+    diagnostic_dir_value = os.environ.get("VIDEO_DIRECTOR_FRAME_DIAGNOSTIC_DIR", "")
+    video_diagnostics_enabled = os.environ.get("VIDEO_DIRECTOR_FRAME_DIAGNOSTICS") == "1"
+    video_diagnostic_dir = Path(diagnostic_dir_value) if video_diagnostics_enabled and diagnostic_dir_value else None
+    if video_diagnostic_dir is not None:
+        video_diagnostic_dir.mkdir(parents=True, exist_ok=True)
     try:
         resource_snapshot = _snapshot_project_resources(pid, doc, Path(snapshot_temp.name) / "resources")
         _validate_source_ranges(pid, doc, resource_snapshot)
@@ -1685,6 +1774,28 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
             )
             page.wait_for_function("arg => window.__runtimeRev === arg", arg=revision, timeout=30000)
             frame_pngs = {}
+            forward_video_diagnostics = {}
+
+            def capture_video_diagnostic(pass_name, sample_time, screenshot_png):
+                if not video_diagnostics_enabled:
+                    return None
+                try:
+                    browser_state = page.locator("#runtime").evaluate("""(iframe) => {
+                      const win = iframe.contentWindow;
+                      const doc = iframe.contentDocument;
+                      return win && win.__filmFrameDiagnosticsSnapshot
+                        ? win.__filmFrameDiagnosticsSnapshot()
+                        : {snapshot_missing:true, href:doc && doc.location.href};
+                    }""")
+                except Exception as exc:
+                    browser_state = {"capture_error": type(exc).__name__ + ": " + str(exc)[:500]}
+                return {
+                    "pass": pass_name,
+                    "requested_time": sample_time,
+                    "capture_sha256": hashlib.sha256(screenshot_png).hexdigest(),
+                    "browser": browser_state,
+                }
+
             for frame_number, timestamp in enumerate(samples):
                 page.evaluate(
                     "(arg) => {window.__lastFrameReady=null;window.__frameError=null;"
@@ -1702,6 +1813,10 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                 frame_pngs[timestamp] = page.locator("#runtime").screenshot(
                     animations="disabled", timeout=20000
                 )
+                if video_diagnostics_enabled:
+                    forward_video_diagnostics[timestamp] = capture_video_diagnostic(
+                        "forward", timestamp, frame_pngs[timestamp]
+                    )
 
             # A contact sheet is not accepted as deterministic evidence until the
             # same timestamps are visited in a different order and compared.
@@ -1723,6 +1838,38 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                 repeated = page.locator("#runtime").screenshot(animations="disabled", timeout=20000)
                 changed, total, frame_width, frame_height = _frame_diff_stats(frame_pngs[timestamp], repeated)
                 allowed = max(16, int(total * 0.0005))
+                if video_diagnostics_enabled:
+                    reverse_video_diagnostics = capture_video_diagnostic(
+                        "reverse", timestamp, repeated
+                    )
+                    diagnostic_record = {
+                        "timestamp": timestamp,
+                        "changed_pixels": changed,
+                        "total_pixels": total,
+                        "allowed_pixels": allowed,
+                        "channel_tolerance": 32,
+                        "forward": forward_video_diagnostics.get(timestamp),
+                        "reverse": reverse_video_diagnostics,
+                    }
+                    if video_diagnostic_dir is not None:
+                        trace_path = video_diagnostic_dir / f"look-{timestamp:.3f}.json"
+                        trace_path.write_text(
+                            json.dumps(diagnostic_record, ensure_ascii=False, indent=2, sort_keys=True) + "\\n",
+                            encoding="utf-8",
+                        )
+                        if changed > allowed:
+                            (video_diagnostic_dir / f"look-{timestamp:.3f}-forward.png").write_bytes(
+                                frame_pngs[timestamp]
+                            )
+                            (video_diagnostic_dir / f"look-{timestamp:.3f}-reverse.png").write_bytes(repeated)
+                            with Image.open(BytesIO(frame_pngs[timestamp])) as first_image:
+                                with Image.open(BytesIO(repeated)) as second_image:
+                                    ImageChops.difference(
+                                        first_image.convert("RGB"), second_image.convert("RGB")
+                                    ).save(video_diagnostic_dir / f"look-{timestamp:.3f}-diff.png")
+                    print("FILM_VIDEO_FRAME_DIAGNOSTIC=" + json.dumps(
+                        diagnostic_record, ensure_ascii=False, sort_keys=True
+                    ))
                 if changed > allowed:
                     raise FilmRenderError(
                         "NON_DETERMINISTIC_FRAME",
