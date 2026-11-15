@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   focused-real-media-test:
-    name: Repeat the Big Buck Bunny deterministic-look test five times
+    name: Repeat the Big Buck Bunny deterministic-look test twenty times
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -57,8 +57,8 @@ jobs:
           set +e
           failures=0
           passes=0
-          for attempt in 1 2 3 4 5; do
-            echo "=== REAL_MEDIA_ATTEMPT=${attempt}/5 ==="
+          for attempt in $(seq 1 20); do
+            echo "=== REAL_MEDIA_ATTEMPT=${attempt}/20 ==="
             env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
               -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
               -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
@@ -84,7 +84,7 @@ jobs:
             echo
             echo "- Exact code SHA: ${GITHUB_SHA}"
             echo '- Target: `tests/test_film_full_pipeline_e2e.py::test_real_public_media_full_project_render_and_performance_snapshot`'
-            echo "- Attempts: 5"
+            echo "- Attempts: 20"
             echo "- PASS: ${passes}"
             echo "- FAIL: ${failures}"
             echo "- The job result reflects the repeated test outcome; no threshold or assertion was changed."

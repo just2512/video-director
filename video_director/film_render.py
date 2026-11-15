@@ -6,6 +6,7 @@ from the same stable clip IDs / source ranges.
 """
 from __future__ import annotations
 
+import base64
 import errno
 import hashlib
 import json
@@ -1782,20 +1783,71 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                 if not video_diagnostics_enabled:
                     return None
                 try:
-                    browser_state = runtime_frame.evaluate("""() => (
-                      window.__filmFrameDiagnosticsSnapshot
+                    browser_state = runtime_frame.evaluate("""() => {
+                      const snapshot = window.__filmFrameDiagnosticsSnapshot
                         ? window.__filmFrameDiagnosticsSnapshot()
-                        : {snapshot_missing:true, href:location.href}
-                    )""")
+                        : {snapshot_missing:true, href:location.href};
+                      const video = document.querySelector("video");
+                      if (!video) return Object.assign(snapshot, {videoElementMissing:true});
+                      const style = getComputedStyle(video);
+                      const rect = video.getBoundingClientRect();
+                      const element = {
+                        rect: {x:rect.x,y:rect.y,width:rect.width,height:rect.height},
+                        display: style.display, visibility: style.visibility,
+                        opacity: style.opacity, zIndex: style.zIndex,
+                        transform: style.transform, filter: style.filter,
+                        objectFit: style.objectFit,
+                        totalVideoFrames: null, droppedVideoFrames: null,
+                        corruptedVideoFrames: null
+                      };
+                      try {
+                        if (typeof video.getVideoPlaybackQuality === "function") {
+                          const quality = video.getVideoPlaybackQuality();
+                          element.totalVideoFrames = quality.totalVideoFrames;
+                          element.droppedVideoFrames = quality.droppedVideoFrames;
+                          element.corruptedVideoFrames = quality.corruptedVideoFrames;
+                        }
+                      } catch (_) {}
+                      const result = Object.assign(snapshot, {videoElement:element});
+                      try {
+                        const width = video.videoWidth || 320;
+                        const height = video.videoHeight || 180;
+                        const canvas = document.createElement("canvas");
+                        canvas.width = width;
+                        canvas.height = height;
+                        const context = canvas.getContext("2d", {willReadFrequently:true});
+                        context.drawImage(video, 0, 0, width, height);
+                        const pixels = context.getImageData(0, 0, width, height).data;
+                        let sum = 0, nonBlack = 0, min = 255, max = 0;
+                        for (let i=0; i<pixels.length; i+=4) {
+                          const luma = (pixels[i]*0.2126)+(pixels[i+1]*0.7152)+(pixels[i+2]*0.0722);
+                          sum += luma;
+                          if (luma > 12) nonBlack += 1;
+                          if (luma < min) min = luma;
+                          if (luma > max) max = luma;
+                        }
+                        result.videoCanvas = {
+                          width, height,
+                          meanLuma: sum / Math.max(1, width*height),
+                          nonBlackPixels: nonBlack,
+                          minLuma: min, maxLuma: max
+                        };
+                        result.videoCanvasPngDataUrl = canvas.toDataURL("image/png");
+                      } catch (error) {
+                        result.videoCanvasError = String(error && error.message || error).slice(0,500);
+                      }
+                      return result;
+                    }""")
                 except Exception as exc:
                     browser_state = {"capture_error": type(exc).__name__ + ": " + str(exc)[:500]}
+                canvas_data_url = browser_state.pop("videoCanvasPngDataUrl", None)
                 return {
                     "pass": pass_name,
                     "requested_time": sample_time,
                     "capture_sha256": hashlib.sha256(screenshot_png).hexdigest(),
                     "browser": browser_state,
+                    "video_canvas_png_data_url": canvas_data_url,
                 }
-
             for frame_number, timestamp in enumerate(samples):
                 page.evaluate(
                     "(arg) => {window.__lastFrameReady=null;window.__frameError=null;"
@@ -1852,9 +1904,21 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                         "reverse": reverse_video_diagnostics,
                     }
                     if video_diagnostic_dir is not None:
+                        # Save independent decoded-frame captures for the known 4s sample.
+                        # A canvas draw from <video> bypasses iframe/compositor screenshot capture.
+                        for phase, phase_data in (
+                            ("forward", diagnostic_record.get("forward")),
+                            ("reverse", diagnostic_record.get("reverse")),
+                        ):
+                            data_url = (phase_data or {}).pop("video_canvas_png_data_url", None)
+                            if timestamp == 4.0 and isinstance(data_url, str) and data_url.startswith("data:image/png;base64,"):
+                                canvas_png = base64.b64decode(data_url.split(",", 1)[1])
+                                (video_diagnostic_dir / f"look-{timestamp:.3f}-{phase}-video-canvas.png").write_bytes(
+                                    canvas_png
+                                )
                         trace_path = video_diagnostic_dir / f"look-{timestamp:.3f}.json"
                         trace_path.write_text(
-                            json.dumps(diagnostic_record, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                            json.dumps(diagnostic_record, ensure_ascii=False, indent=2, sort_keys=True) + "\\n",
                             encoding="utf-8",
                         )
                         if changed > allowed:
