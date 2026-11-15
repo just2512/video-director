@@ -83,7 +83,7 @@ jobs:
             echo "## Real-media determinism focused repeat"
             echo
             echo "- Exact code SHA: ${GITHUB_SHA}"
-            echo "- Target: `tests/test_film_full_pipeline_e2e.py::test_real_public_media_full_project_render_and_performance_snapshot`"
+            echo '- Target: `tests/test_film_full_pipeline_e2e.py::test_real_public_media_full_project_render_and_performance_snapshot`'
             echo "- Attempts: 5"
             echo "- PASS: ${passes}"
             echo "- FAIL: ${failures}"

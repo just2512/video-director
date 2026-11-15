@@ -1679,14 +1679,20 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
             page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
+            blocked_external = _install_offline_network_policy(page, base_url)
+            failed_project_resources = _install_scene_resource_failure_monitor(page, base_url)
+            page.goto(base_url + "/host", wait_until="load", timeout=30000)
+            page.wait_for_function("window.__runtimeReady === true", timeout=30000)
+            runtime_frame = None
             if video_diagnostics_enabled:
-                # Opt-in, read-only telemetry for media seek/presentation diagnosis.
-                # The wrapper forwards the original callback synchronously and is never
-                # installed in normal renders or ordinary CI.
-                page.add_init_script(r"""
-                (() => {
-                  if (window.__filmFrameDiagnosticsInstalled) return;
-                  window.__filmFrameDiagnosticsInstalled = true;
+                runtime_frame = next(
+                    (frame for frame in page.frames if frame.url.endswith("/static/film-runtime.html")),
+                    None,
+                )
+                if runtime_frame is None:
+                    raise RuntimeError("real-media diagnostic could not locate the Film Runtime iframe")
+                runtime_frame.evaluate(r"""
+                () => {
                   const eventNames = ["loadedmetadata", "loadeddata", "seeking", "seeked",
                     "timeupdate", "waiting", "stalled", "error", "emptied", "canplay"];
                   function record(video, type, extra) {
@@ -1747,7 +1753,7 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                         scan(node);
                       }
                     })
-                  )).observe(document.documentElement, {childList:true, subtree:true});
+                  )).observe(document, {childList:true, subtree:true});
                   window.__filmFrameDiagnosticsSnapshot = () => ({
                     href: location.href,
                     perfNow: performance.now(),
@@ -1761,12 +1767,8 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                       trace: (video.__filmFrameTrace || []).slice()
                     }))
                   });
-                })();
+                }
                 """)
-            blocked_external = _install_offline_network_policy(page, base_url)
-            failed_project_resources = _install_scene_resource_failure_monitor(page, base_url)
-            page.goto(base_url + "/host", wait_until="load", timeout=30000)
-            page.wait_for_function("window.__runtimeReady === true", timeout=30000)
             page.evaluate(
                 "(arg) => document.getElementById('runtime').contentWindow.postMessage("
                 "{type:'film-runtime:load',data:arg.data,rev:arg.rev},location.origin)",
@@ -1780,13 +1782,11 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                 if not video_diagnostics_enabled:
                     return None
                 try:
-                    browser_state = page.locator("#runtime").evaluate("""(iframe) => {
-                      const win = iframe.contentWindow;
-                      const doc = iframe.contentDocument;
-                      return win && win.__filmFrameDiagnosticsSnapshot
-                        ? win.__filmFrameDiagnosticsSnapshot()
-                        : {snapshot_missing:true, href:doc && doc.location.href};
-                    }""")
+                    browser_state = runtime_frame.evaluate("""() => (
+                      window.__filmFrameDiagnosticsSnapshot
+                        ? window.__filmFrameDiagnosticsSnapshot()
+                        : {snapshot_missing:true, href:location.href}
+                    )""")
                 except Exception as exc:
                     browser_state = {"capture_error": type(exc).__name__ + ": " + str(exc)[:500]}
                 return {
