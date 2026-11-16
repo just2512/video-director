@@ -31,6 +31,14 @@ from video_director import film_document as fd
 from video_director.film_resource_snapshot import ResourceSnapshotError, SceneResourceSnapshot
 from video_director.storage_durability import fsync_directory, posix_atomic_replace, windows_atomic_replace
 
+def _chromium_render_args() -> list[str]:
+    """Return isolated Chromium flags; GPU disabling is opt-in for compositor A/B."""
+    args = ["--no-sandbox", "--disable-dev-shm-usage"]
+    if os.environ.get("VIDEO_DIRECTOR_DISABLE_GPU") == "1":
+        args.append("--disable-gpu")
+    return args
+
+
 def _is_windows_platform() -> bool:
     return os.name == "nt"
 
@@ -1391,7 +1399,7 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
         payload["render_css"] = style_css
         from playwright.sync_api import sync_playwright
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+            browser = playwright.chromium.launch(headless=True, args=_chromium_render_args())
             page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
             blocked_external = _install_offline_network_policy(page, base_url)
             failed_project_resources = _install_scene_resource_failure_monitor(page, base_url)
