@@ -7,6 +7,15 @@ on:
       - 'docs/**'
       - '**/*.md'
       - 'README*'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'video_director/**'
+      - 'webui/**'
+      - 'tests/**'
+      - 'studio_ui/**'
+      - 'requirements.txt'
+      - '.github/workflows/full-hosted-regression.yml'
   workflow_dispatch:
     inputs:
       run_live_nvidia:
