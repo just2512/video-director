@@ -502,7 +502,7 @@ def test_full_hosted_regression_gate_is_main_sha_pinned_and_uses_no_self_hosted_
 
     assert "branches: [main]" in workflow
     assert "runs-on: ubuntu-24.04" in workflow
-    assert "ref: ${{ github.sha }}" in workflow
+    assert "ref: ${{ github.event.pull_request.head.sha || github.sha }}" in workflow
     assert "runs-on: [self-hosted" not in workflow
     assert "python -m pytest" in workflow
     assert "junit.xml" in workflow
