@@ -57,6 +57,8 @@ def test_render_media_server_returns_byte_exact_ranges_and_falls_back_to_full_bo
     media = project / "assets" / "clip.mp4"
     media.parent.mkdir(parents=True, exist_ok=True)
     media.write_bytes(payload)
+    empty_media = project / "assets" / "empty.mp4"
+    empty_media.write_bytes(b"")
 
     server = film_render._RenderHTTPServer(("127.0.0.1", 0), project_id)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -82,6 +84,12 @@ def test_render_media_server_returns_byte_exact_ranges_and_falls_back_to_full_bo
             assert response.status == 206
             assert response.headers["Content-Range"] == "bytes 8-9/10"
             assert response.read() == b"89"
+
+        empty_url = base.replace("clip.mp4", "empty.mp4")
+        with urlopen(empty_url, timeout=5) as response:
+            assert response.status == 200
+            assert response.headers["Content-Length"] == "0"
+            assert response.read() == b""
 
         # The implementation intentionally does not emit multipart/byteranges.
         # Unsupported multi-ranges are ignored and returned as a complete body.
