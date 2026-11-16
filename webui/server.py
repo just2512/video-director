@@ -1041,7 +1041,8 @@ class Handler(BaseHTTPRequestHandler):
                     start, end, status = 0, total - 1, 200
                     # No validator is emitted by this endpoint; If-Range cannot be verified.
                     # Ignore Range when If-Range is present and serve a complete representation.
-                    range_header = "" if self.headers.get("If-Range") else self.headers.get("Range", "")
+                    disable_range = os.environ.get("VIDEO_DIRECTOR_DISABLE_MEDIA_RANGE") == "1"
+                    range_header = "" if disable_range or self.headers.get("If-Range") else self.headers.get("Range", "")
                     try:
                         selected_range = parse_byte_range(range_header, total)
                     except UnsatisfiableByteRange:
@@ -1055,7 +1056,8 @@ class Handler(BaseHTTPRequestHandler):
                         status = 206
                     self.send_response(status)
                     self.send_header("Content-Type", mimetypes.guess_type(str(media_path))[0] or "application/octet-stream")
-                    self.send_header("Accept-Ranges", "bytes")
+                    if not disable_range:
+                        self.send_header("Accept-Ranges", "bytes")
                     self.send_header("Content-Length", str(max(0, end - start + 1)))
                     self.send_header("Cache-Control", "no-cache")
                     if status == 206:
