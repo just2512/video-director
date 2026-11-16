@@ -98,6 +98,15 @@ def test_render_media_server_returns_byte_exact_ranges_and_falls_back_to_full_bo
                 assert response.status == 200
                 assert response.read() == payload
 
+        # Opt-in A/B arm: keep the same media server and browser request path,
+        # but ignore Range and do not advertise byte-range support.
+        monkeypatch.setenv("VIDEO_DIRECTOR_DISABLE_MEDIA_RANGE", "1")
+        with request({"Range": "bytes=2-5"}) as response:
+            assert response.status == 200
+            assert response.headers.get("Accept-Ranges") is None
+            assert response.read() == payload
+        monkeypatch.delenv("VIDEO_DIRECTOR_DISABLE_MEDIA_RANGE")
+
         # Without a validator, If-Range cannot be proven to match; send the full body.
         with request({"Range": "bytes=2-5", "If-Range": '"stale-validator"'}) as response:
             assert response.status == 200
