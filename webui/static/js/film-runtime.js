@@ -691,24 +691,143 @@
     }
     return metadata;
   }
-  function waitForPresentedVideoFrame(el,clip,desired,previousPresentedFrames){
+  function mediaFrameRangeSnapshot(ranges){
+    var output=[];
+    try{
+      var count=Math.min(8,Math.max(0,Number(ranges&&ranges.length)||0));
+      for(var i=0;i<count;i++){
+        var start=Number(ranges.start(i)),end=Number(ranges.end(i));
+        output.push({start:Number.isFinite(start)?start:null,end:Number.isFinite(end)?end:null});
+      }
+    }catch(_){}
+    return output;
+  }
+  function mediaFrameTimeoutTelemetry(el,clip,desired,sourceFps,timeTolerance,previousPresentedFrames,
+      previousPresentedMediaTime,frameNumber,timelineTime,startedAt,callbackCount,callbackPending,callbackTrace,eventTrace,markers){
+    function numberOrNull(value){
+      var number=Number(value);
+      return Number.isFinite(number)?number:null;
+    }
+    var mediaError=null,quality=null;
+    try{
+      var error=el&&el.error;
+      if(error)mediaError={code:numberOrNull(error.code),message:String(error.message||'').slice(0,180)};
+    }catch(_){}
+    try{
+      if(el&&typeof el.getVideoPlaybackQuality==='function'){
+        var q=el.getVideoPlaybackQuality();
+        if(q)quality={
+          totalVideoFrames:numberOrNull(q.totalVideoFrames),
+          droppedVideoFrames:numberOrNull(q.droppedVideoFrames),
+          corruptedVideoFrames:numberOrNull(q.corruptedVideoFrames)
+        };
+      }
+    }catch(_){}
+    var elapsed=0;
+    try{elapsed=Math.max(0,performance.now()-startedAt);}catch(_){}
+    return {
+      kind:'MEDIA_FRAME_TIMEOUT_TELEMETRY',
+      clip:{
+        id:String(clip&&clip.id||'').slice(0,120),
+        tag:String(clip&&clip.tag||'').slice(0,20),
+        at:numberOrNull(clip&&clip.at),
+        end:numberOrNull(clip&&clip.end),
+        sourceFps:numberOrNull(sourceFps),
+        source:String(el&&(el.currentSrc||el.src)||'').slice(0,320)
+      },
+      request:{
+        frameNumber:numberOrNull(frameNumber),
+        timelineTime:numberOrNull(timelineTime),
+        desiredMediaTime:numberOrNull(desired),
+        timeTolerance:numberOrNull(timeTolerance),
+        baselinePresentedFrames:numberOrNull(previousPresentedFrames),
+        baselineMediaTime:numberOrNull(previousPresentedMediaTime)
+      },
+      video:{
+        currentTime:numberOrNull(el&&el.currentTime),
+        duration:numberOrNull(el&&el.duration),
+        seeking:!!(el&&el.seeking),
+        paused:!!(el&&el.paused),
+        ended:!!(el&&el.ended),
+        readyState:numberOrNull(el&&el.readyState),
+        networkState:numberOrNull(el&&el.networkState),
+        videoWidth:numberOrNull(el&&el.videoWidth),
+        videoHeight:numberOrNull(el&&el.videoHeight),
+        playbackRate:numberOrNull(el&&el.playbackRate),
+        muted:!!(el&&el.muted),
+        mediaError:mediaError
+      },
+      ranges:{
+        buffered:mediaFrameRangeSnapshot(el&&el.buffered),
+        seekable:mediaFrameRangeSnapshot(el&&el.seekable),
+        played:mediaFrameRangeSnapshot(el&&el.played)
+      },
+      playbackQuality:quality,
+      page:{
+        visibilityState:String(document.visibilityState||'unknown'),
+        userAgent:String(navigator&&navigator.userAgent||'').slice(0,180)
+      },
+      wait:{
+        elapsedMs:numberOrNull(elapsed),
+        callbackCount:callbackCount,
+        callbackPending:!!callbackPending,
+        callbacks:callbackTrace.slice(-12),
+        events:eventTrace.slice(-24),
+        markers:markers.slice(-12)
+      }
+    };
+  }
+  function waitForPresentedVideoFrame(el,clip,desired,previousPresentedFrames,previousPresentedMediaTime,frameNumber,timelineTime){
     var resolvePromise,rejectPromise,done=false,timer=0,callbackId=null;
     var sourceFps=finite(clip.source_fps,finite(state.fps,30));
     var timeTolerance=0.5/Math.max(1,sourceFps)+0.002;
+    var startedAt=performance.now(),callbackCount=0,callbackTrace=[],eventTrace=[],markers=[];
+    var watchedEvents=['seeking','seeked','timeupdate','loadedmetadata','loadeddata','canplay',
+      'play','playing','pause','ended','ratechange','waiting','stalled','suspend','progress','error','abort','emptied'];
     if(!Number.isFinite(previousPresentedFrames)){
       throw new Error('视频片段 '+clip.id+' 无法建立先前的呈现帧计数基线；拒绝确认可能过期的帧');
     }
     var promise=new Promise(function(resolve,reject){resolvePromise=resolve;rejectPromise=reject;});
+    function elapsed(){
+      return Math.max(0,performance.now()-startedAt);
+    }
+    function recordMarker(name){
+      markers.push({
+        name:String(name).slice(0,60),
+        atMs:elapsed(),
+        currentTime:Number.isFinite(Number(el.currentTime))?Number(el.currentTime):null,
+        seeking:!!el.seeking,
+        readyState:finite(el.readyState,-1),
+        networkState:finite(el.networkState,-1)
+      });
+      if(markers.length>24)markers.shift();
+    }
+    function onMediaEvent(event){
+      eventTrace.push({
+        type:String(event&&event.type||'unknown').slice(0,32),
+        atMs:elapsed(),
+        currentTime:Number.isFinite(Number(el.currentTime))?Number(el.currentTime):null,
+        seeking:!!el.seeking,
+        readyState:finite(el.readyState,-1),
+        networkState:finite(el.networkState,-1),
+        mediaErrorCode:el.error?finite(el.error.code,0):0
+      });
+      if(eventTrace.length>48)eventTrace.shift();
+    }
+    watchedEvents.forEach(function(name){try{el.addEventListener(name,onMediaEvent);}catch(_){}});
     function cleanup(){
       if(timer)clearTimeout(timer);
       if(callbackId!=null&&typeof el.cancelVideoFrameCallback==='function'){
         try{el.cancelVideoFrameCallback(callbackId);}catch(_){}
       }
       callbackId=null;
+      watchedEvents.forEach(function(name){try{el.removeEventListener(name,onMediaEvent);}catch(_){}});
     }
     function finish(error,metadata){
       if(done)return;
       done=true;cleanup();
+      // A confirmed frame or a failed wait must never leave an offline-render video playing.
+      try{el.pause();}catch(_){}
       if(error)rejectPromise(error);else resolvePromise(metadata||null);
     }
     function requestNext(){
@@ -716,9 +835,21 @@
       try{callbackId=el.requestVideoFrameCallback(onFrame);}
       catch(error){finish(new Error('无法等待视频呈现帧：'+clip.id+' '+String(error&&error.message||error)));}
     }
-    function onFrame(_now,metadata){
+    function onFrame(now,metadata){
       callbackId=null;
       if(done)return;
+      callbackCount+=1;
+      callbackTrace.push({
+        atMs:elapsed(),
+        callbackNow:numberOrNull(now),
+        expectedDisplayTime:numberOrNull(metadata&&metadata.expectedDisplayTime),
+        mediaTime:numberOrNull(metadata&&metadata.mediaTime),
+        presentedFrames:numberOrNull(metadata&&metadata.presentedFrames),
+        width:numberOrNull(metadata&&metadata.width),
+        height:numberOrNull(metadata&&metadata.height),
+        processingDuration:numberOrNull(metadata&&metadata.processingDuration)
+      });
+      if(callbackTrace.length>32)callbackTrace.shift();
       var mediaTime=metadata?Number(metadata.mediaTime):NaN;
       var presentedFrames=metadata?Number(metadata.presentedFrames):NaN;
       var frameAdvanced=Number.isFinite(presentedFrames)&&presentedFrames>previousPresentedFrames;
@@ -729,12 +860,43 @@
       }
       requestNext();
     }
+    function numberOrNull(value){
+      var number=Number(value);
+      return Number.isFinite(number)?number:null;
+    }
+    recordMarker('frame-wait-registered');
     timer=setTimeout(function(){
-      finish(new Error('视频片段 '+clip.id+' 在源时间 '+desired.toFixed(6)+'s 等待新的呈现帧超时；拒绝导出可能过期的画面'));
+      var telemetry;
+      try{
+        telemetry=JSON.stringify(mediaFrameTimeoutTelemetry(
+          el,clip,desired,sourceFps,timeTolerance,previousPresentedFrames,previousPresentedMediaTime,
+          frameNumber,timelineTime,startedAt,callbackCount,callbackId!=null,callbackTrace,eventTrace,markers
+        ));
+      }catch(error){
+        telemetry=JSON.stringify({kind:'MEDIA_FRAME_TIMEOUT_TELEMETRY',captureError:String(error&&error.message||error).slice(0,180)});
+      }
+      finish(new Error('视频片段 '+clip.id+' 在源时间 '+desired.toFixed(6)+'s 等待新的呈现帧超时；拒绝导出可能过期的画面；MEDIA_FRAME_TIMEOUT_TELEMETRY='+telemetry));
     },12000);
     requestNext();
     return {
       promise:promise,
+      mark:function(name){recordMarker(name);},
+      startPlayback:function(){
+        // A paused seek can submit an earlier frame, then stop producing compositor frames.
+        // Advance only until the existing exact RVFC predicate confirms the requested PTS.
+        if(done)return;
+        recordMarker('frame-play-requested');
+        try{
+          var playback=el.play();
+          if(playback&&typeof playback.then==='function'){
+            playback.then(function(){recordMarker('frame-play-started');},function(error){
+              finish(new Error('无法推进视频呈现帧：'+clip.id+' '+String(error&&error.message||error)));
+            });
+          }else recordMarker('frame-play-started');
+        }catch(error){
+          finish(new Error('无法推进视频呈现帧：'+clip.id+' '+String(error&&error.message||error)));
+        }
+      },
       cancel:function(){
         // Resolve rather than leave an unobserved rejection when assigning currentTime itself fails.
         finish(null,null);
@@ -745,7 +907,8 @@
   async function prepareFrameEntry(entry,t,frameNumber){
     var clip=entry.clip,el=entry.el,tag=clip.tag;
     var at=finite(clip.at,0),end=clip.end;
-    if(!(at<=t&&(end==null||t<end||Math.abs(t-end)<0.0001)))return;
+    // Offline export uses half-open clip intervals [at, end); the incoming clip owns the cut timestamp.
+    if(!(at<=t&&(end==null||t<end)))return;
     if(tag==='video'||tag==='audio'){
       el.muted=true;
       try{el.pause();}catch(_){}
@@ -779,7 +942,7 @@
         cancelInitialVideoFrameWait(entry);
         // Register before changing currentTime; after seeked, the requested frame
         // may already have reached the compositor and a late callback can hang.
-        frameWait=waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames);
+        frameWait=waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames,entry.lastPresentedMediaTime,frameNumber,t);
       }
       if(tag==='video'&&!needsSeek&&!Number.isFinite(entry.lastPresentedMediaTime)){
         var initialPresented=await awaitInitialVideoFrame(entry,desired);
@@ -798,18 +961,26 @@
       }
       if(needsSeek){
         var seeked=waitForEvent(el,'seeked',12000);
-        try{el.currentTime=desired;}
+        try{
+          if(frameWait)frameWait.mark('seek-assignment-start');
+          el.currentTime=desired;
+          if(frameWait)frameWait.mark('seek-assignment-returned');
+        }
         catch(error){
           if(frameWait)frameWait.cancel();
           throw new Error('无法定位素材时间：'+clip.id+' '+error.message);
         }
-        try{await seeked;}
+        try{
+          await seeked;
+          if(frameWait)frameWait.mark('seeked-resolved');
+        }
         catch(error){
           if(frameWait)frameWait.cancel();
           throw error;
         }
       }
       if(frameWait){
+        frameWait.startPlayback();
         var presented=await frameWait.promise;
         if(!presented)throw new Error('视频片段 '+clip.id+' 未确认所需时间的呈现帧');
         if(Number.isFinite(presented.presentedFrames))entry.lastPresentedFrames=presented.presentedFrames;
@@ -1013,7 +1184,9 @@
           var clipId=String(clip.id||'(unknown)');
           var clipTag=String(clip.tag||'unknown');
           jobs.push(prepareFrameEntry(entry,state.time,message.frame).catch(function(error){
-            var detail=String(error&&error.message||error||'未知渲染错误').slice(0,1800);
+            var rawDetail=String(error&&error.message||error||'未知渲染错误');
+            var detailLimit=rawDetail.indexOf('MEDIA_FRAME_TIMEOUT_TELEMETRY=')>=0?16*1024:1800;
+            var detail=rawDetail.slice(0,detailLimit);
             if(detail.indexOf(clipId)>=0)return Promise.reject(new Error(detail));
             return Promise.reject(new Error('片段 '+clipId+' ('+clipTag+') 渲染失败：'+detail));
           }));
