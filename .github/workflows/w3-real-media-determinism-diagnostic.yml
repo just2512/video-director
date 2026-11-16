@@ -32,6 +32,8 @@ jobs:
     name: Repeat the Big Buck Bunny deterministic-look test twenty times
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+    env:
+      W3_CODE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Check out the exact diagnostic revision
         uses: actions/checkout@v7
@@ -91,7 +93,7 @@ jobs:
           {
             echo "## Real-media determinism focused repeat"
             echo
-            echo "- Exact code SHA: ${GITHUB_SHA}"
+            echo "- Exact code SHA: ${W3_CODE_SHA}"
             echo '- Target: `tests/test_film_full_pipeline_e2e.py::test_real_public_media_full_project_render_and_performance_snapshot`'
             echo "- Attempts: 20"
             echo "- Chromium flag: default (GPU enabled); canvas capture overlay enabled only in offline render mode"
