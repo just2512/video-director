@@ -1545,6 +1545,7 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
             page_errors: list[str] = []
             event_requests: list[str] = []
             film_edit_responses: list[str] = []
+            film_edit_response_payloads: list[dict] = []
             film_edit_requests: list[dict] = []
             film_render_requests: list[str] = []
             film_history_requests: list[str] = []
@@ -1559,7 +1560,20 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
             page.on("request", capture_film_edit_request)
             page.on("request", lambda request: film_render_requests.append(request.url) if request.url.endswith("/api/editor/film/render") else None)
             page.on("request", lambda request: film_history_requests.append(request.url) if request.url.endswith(("/api/editor/film/undo", "/api/editor/film/redo")) else None)
-            page.on("response", lambda response: film_edit_responses.append(f"{response.status} {response.url}") if response.url.endswith("/api/editor/film/edit") else None)
+            def capture_film_edit_response(response):
+                if response.url.endswith("/api/editor/film/edit"):
+                    film_edit_responses.append(f"{response.status} {response.url}")
+                    try:
+                        film_edit_response_payloads.append({
+                            "status": response.status,
+                            "body": response.json(),
+                        })
+                    except Exception as error:
+                        film_edit_response_payloads.append({
+                            "status": response.status,
+                            "body_error": str(error),
+                        })
+            page.on("response", capture_film_edit_response)
 
             # When a browser wait fails, emit the exact predicate and observable
             # editor state into the CI log; otherwise the runner's short summary
@@ -2537,7 +2551,34 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                 assert "clip-a" in transient_state["activeDragIds"], transient_state
                 assert len(film_edit_requests) == trim_edit_count_before
                 assert fd.read_project_film(project_id)["rev"] == trim_document_before["rev"]
-                page.mouse.up()
+                with page.expect_response(
+                    lambda response: response.request.method == "POST"
+                    and response.url.endswith("/api/editor/film/edit"),
+                    timeout=10000,
+                ) as trim_edit_response_info:
+                    page.mouse.up()
+                trim_edit_response = trim_edit_response_info.value
+                trim_edit_response_body = trim_edit_response.json()
+                trim_clip_before_at = float(next(
+                    item for track in trim_document_before["doc"]["tracks"]
+                    for item in track["clips"] if item["id"] == "clip-a"
+                )["attrs"]["at"])
+                trim_response_clip = next(
+                    item for track in trim_edit_response_body.get("tracks", [])
+                    for item in track.get("clips", []) if item["id"] == "clip-a"
+                )
+                assert trim_edit_response.status == 200, {
+                    "status": trim_edit_response.status, "body": trim_edit_response_body,
+                }
+                assert trim_edit_response_body.get("rev") != trim_document_before["rev"], {
+                    "before_revision": trim_document_before["rev"],
+                    "response": trim_edit_response_body,
+                }
+                assert float(trim_response_clip["attrs"]["at"]) > trim_clip_before_at + 0.1, {
+                    "before_at": trim_clip_before_at,
+                    "response_clip": trim_response_clip,
+                    "response": trim_edit_response_body,
+                }
                 page.wait_for_function(
                     """() => document.querySelector('#fs-timeline .fs-clip[data-clip=\\"clip-a\\"]')?.dataset.reactGesturePreview === 'false' """,
                     timeout=10000,
@@ -2605,11 +2646,21 @@ def test_external_agent_write_hot_reloads_and_recovers_after_broken_document(tmp
                     "api_clip_at": api_clip_after["attrs"].get("at"),
                     "disk_clip_at": trim_clip_after["attrs"].get("at"),
                     "disk_film_html": trim_document_after["text"],
+                    "trim_request_payloads": film_edit_requests[trim_edit_count_before:],
+                    "trim_response_payloads": film_edit_response_payloads[-4:],
+                    "transaction_journal": (
+                        fd._transaction_path(project_id).read_text(encoding="utf-8")
+                        if fd._transaction_path(project_id).is_file() else None
+                    ),
+                    "history_tail": (
+                        fd._history_read(project_id)["past"][-3:]
+                        if fd._history_path(project_id).is_file() else []
+                    ),
                 }
-                assert float(trim_clip_after["attrs"]["at"]) > float(next(
-                    item for track in trim_document_before["doc"]["tracks"]
-                    for item in track["clips"] if item["id"] == "clip-a"
-                )["attrs"]["at"]) + 0.1, diagnostic
+                assert trim_edit_response_body["rev"] == trim_document_after["rev"], diagnostic
+                assert api_snapshot["rev"] == trim_edit_response_body["rev"], diagnostic
+                assert float(trim_clip_after["attrs"]["at"]) > trim_clip_before_at + 0.1, diagnostic
+                assert not fd._transaction_path(project_id).exists(), diagnostic
                 trim_requests = film_edit_requests[trim_edit_count_before:]
                 assert len(trim_requests) == 1, trim_requests
                 assert len(trim_requests[0].get("ops") or []) == 1, trim_requests
