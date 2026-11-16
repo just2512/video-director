@@ -907,7 +907,8 @@
   async function prepareFrameEntry(entry,t,frameNumber){
     var clip=entry.clip,el=entry.el,tag=clip.tag;
     var at=finite(clip.at,0),end=clip.end;
-    if(!(at<=t&&(end==null||t<end||Math.abs(t-end)<0.0001)))return;
+    // Offline export uses half-open clip intervals [at, end); the incoming clip owns the cut timestamp.
+    if(!(at<=t&&(end==null||t<end)))return;
     if(tag==='video'||tag==='audio'){
       el.muted=true;
       try{el.pause();}catch(_){}
