@@ -599,10 +599,16 @@ class _RenderHTTPHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        try:
-            self.wfile.write(body)
-        except OSError:
-            pass
+        if self.command != "HEAD":
+            try:
+                self.wfile.write(body)
+            except OSError:
+                pass
+
+    def do_HEAD(self):
+        # Reuse GET status and headers; do_GET suppresses the representation body
+        # while self.command remains HEAD.
+        self.do_GET()
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -613,7 +619,8 @@ class _RenderHTTPHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(body)
+            if self.command != "HEAD":
+                self.wfile.write(body)
             return
 
         if parsed.path in {"/static/film-runtime.html", "/static/js/film-runtime.js"}:
@@ -634,7 +641,8 @@ class _RenderHTTPHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
-            self.wfile.write(body)
+            if self.command != "HEAD":
+                self.wfile.write(body)
             return
 
         if parsed.path != "/media":
@@ -678,7 +686,8 @@ class _RenderHTTPHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             try:
-                self.wfile.write(body)
+                if self.command != "HEAD":
+                    self.wfile.write(body)
             except OSError:
                 pass
             return
@@ -696,7 +705,8 @@ class _RenderHTTPHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             try:
-                self.wfile.write(body)
+                if self.command != "HEAD":
+                    self.wfile.write(body)
             except OSError:
                 pass
             return
@@ -728,15 +738,16 @@ class _RenderHTTPHandler(BaseHTTPRequestHandler):
             if status == 206:
                 self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
             self.end_headers()
-            with media_path.open("rb") as stream:
-                stream.seek(start)
-                remaining = max(0, end - start + 1)
-                while remaining:
-                    chunk = stream.read(min(_MEDIA_CHUNK, remaining))
-                    if not chunk:
-                        break
-                    self.wfile.write(chunk)
-                    remaining -= len(chunk)
+            if self.command != "HEAD":
+                with media_path.open("rb") as stream:
+                    stream.seek(start)
+                    remaining = max(0, end - start + 1)
+                    while remaining:
+                        chunk = stream.read(min(_MEDIA_CHUNK, remaining))
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
         except (BrokenPipeError, ConnectionResetError, OSError):
             return
 
