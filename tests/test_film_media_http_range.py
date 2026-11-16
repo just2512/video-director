@@ -65,8 +65,8 @@ def test_render_media_server_returns_byte_exact_ranges_and_falls_back_to_full_bo
     thread.start()
     base = f"http://127.0.0.1:{server.server_address[1]}/media?project_id={project_id}&src=assets%2Fclip.mp4"
 
-    def request(headers=None):
-        return urlopen(Request(base, headers=headers or {}), timeout=5)
+    def request(headers=None, method="GET"):
+        return urlopen(Request(base, headers=headers or {}, method=method), timeout=5)
 
     try:
         with request({"Range": "bytes=2-5"}) as response:
@@ -74,6 +74,17 @@ def test_render_media_server_returns_byte_exact_ranges_and_falls_back_to_full_bo
             assert response.headers["Content-Range"] == "bytes 2-5/10"
             assert response.headers["Content-Length"] == "4"
             assert response.read() == b"2345"
+
+        with request({"Range": "bytes=2-5"}, method="HEAD") as response:
+            assert response.status == 206
+            assert response.headers["Content-Range"] == "bytes 2-5/10"
+            assert response.headers["Content-Length"] == "4"
+            assert response.read() == b""
+
+        with request(method="HEAD") as response:
+            assert response.status == 200
+            assert response.headers["Content-Length"] == "10"
+            assert response.read() == b""
 
         with request({"Range": "bytes=-3"}) as response:
             assert response.status == 206
@@ -119,6 +130,74 @@ def test_render_media_server_returns_byte_exact_ranges_and_falls_back_to_full_bo
             assert error.headers["Content-Range"] == "bytes */10"
         else:
             raise AssertionError("an unsatisfiable single range must return 416")
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_studio_film_media_endpoint_range_and_head_get_header_parity(tmp_path, monkeypatch):
+    from http.server import ThreadingHTTPServer
+
+    from video_director import config
+    from webui.server import Handler
+
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "composer"))
+    project_id = "studio-media-range"
+    project = config.project_dir(project_id)
+    project.mkdir(parents=True, exist_ok=True)
+    media_dir = project / "assets"
+    media_dir.mkdir(parents=True, exist_ok=True)
+    payload = b"0123456789"
+    (media_dir / "clip.mp4").write_bytes(payload)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    url = (
+        f"http://127.0.0.1:{server.server_address[1]}/api/editor/film/media"
+        f"?project_id={project_id}&src=assets%2Fclip.mp4"
+    )
+
+    def request(method="GET", headers=None):
+        return urlopen(Request(url, headers=headers or {}, method=method), timeout=5)
+
+    try:
+        with request("GET", {"Range": "bytes=3-6"}) as response:
+            assert response.status == 206
+            assert response.headers["Content-Range"] == "bytes 3-6/10"
+            assert response.headers["Content-Length"] == "4"
+            assert response.read() == b"3456"
+
+        with request("HEAD", {"Range": "bytes=3-6"}) as response:
+            assert response.status == 206
+            assert response.headers["Content-Range"] == "bytes 3-6/10"
+            assert response.headers["Content-Length"] == "4"
+            assert response.read() == b""
+
+        with request("HEAD") as response:
+            assert response.status == 200
+            assert response.headers["Content-Length"] == "10"
+            assert response.headers["Accept-Ranges"] == "bytes"
+            assert response.read() == b""
+
+        monkeypatch.setenv("VIDEO_DIRECTOR_DISABLE_MEDIA_RANGE", "1")
+        with request("HEAD", {"Range": "bytes=3-6"}) as response:
+            assert response.status == 200
+            assert response.headers["Content-Length"] == "10"
+            assert response.headers.get("Accept-Ranges") is None
+            assert response.read() == b""
+        monkeypatch.delenv("VIDEO_DIRECTOR_DISABLE_MEDIA_RANGE")
+
+        try:
+            request("HEAD", {"Range": "bytes=10-"})
+        except HTTPError as error:
+            assert error.code == 416
+            assert error.headers["Content-Range"] == "bytes */10"
+            assert error.headers["Content-Length"] == "0"
+            assert error.read() == b""
+        else:
+            raise AssertionError("an unsatisfiable HEAD range must return 416")
     finally:
         server.shutdown()
         server.server_close()
