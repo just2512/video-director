@@ -112,6 +112,12 @@ def test_video_frame_timeout_contains_bounded_seek_and_presentation_telemetry():
     # Preserve the existing wait deadline and success predicate; telemetry must not weaken acceptance.
     assert "if(frameAdvanced&&timeMatches)" in helper
     assert "},12000);" in helper
+    assert "var playback=el.play();" in helper
+    assert "frame-play-requested" in helper and "frame-play-started" in helper
+    assert "try{el.pause();}catch(_){}" in helper
+    assert "frameWait.startPlayback();" in prepare
+    assert prepare.index("frameWait.mark('seeked-resolved')") < prepare.index("frameWait.startPlayback();") < prepare.index("await frameWait.promise")
+    assert "'play','playing','pause'" in helper
     render_frame = runtime[runtime.index("async function renderFrame"):runtime.index("function pause()", runtime.index("async function renderFrame"))]
     # Preserve the complete bounded telemetry envelope across the iframe bridge;
     # ordinary render errors retain their existing compact 1,800-character cap.

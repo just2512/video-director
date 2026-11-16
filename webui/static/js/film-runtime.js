@@ -783,7 +783,7 @@
     var timeTolerance=0.5/Math.max(1,sourceFps)+0.002;
     var startedAt=performance.now(),callbackCount=0,callbackTrace=[],eventTrace=[],markers=[];
     var watchedEvents=['seeking','seeked','timeupdate','loadedmetadata','loadeddata','canplay',
-      'waiting','stalled','suspend','progress','error','abort','emptied'];
+      'play','playing','pause','ended','ratechange','waiting','stalled','suspend','progress','error','abort','emptied'];
     if(!Number.isFinite(previousPresentedFrames)){
       throw new Error('视频片段 '+clip.id+' 无法建立先前的呈现帧计数基线；拒绝确认可能过期的帧');
     }
@@ -826,6 +826,8 @@
     function finish(error,metadata){
       if(done)return;
       done=true;cleanup();
+      // A confirmed frame or a failed wait must never leave an offline-render video playing.
+      try{el.pause();}catch(_){}
       if(error)rejectPromise(error);else resolvePromise(metadata||null);
     }
     function requestNext(){
@@ -879,6 +881,22 @@
     return {
       promise:promise,
       mark:function(name){recordMarker(name);},
+      startPlayback:function(){
+        // A paused seek can submit an earlier frame, then stop producing compositor frames.
+        // Advance only until the existing exact RVFC predicate confirms the requested PTS.
+        if(done)return;
+        recordMarker('frame-play-requested');
+        try{
+          var playback=el.play();
+          if(playback&&typeof playback.then==='function'){
+            playback.then(function(){recordMarker('frame-play-started');},function(error){
+              finish(new Error('无法推进视频呈现帧：'+clip.id+' '+String(error&&error.message||error)));
+            });
+          }else recordMarker('frame-play-started');
+        }catch(error){
+          finish(new Error('无法推进视频呈现帧：'+clip.id+' '+String(error&&error.message||error)));
+        }
+      },
       cancel:function(){
         // Resolve rather than leave an unobserved rejection when assigning currentTime itself fails.
         finish(null,null);
@@ -961,6 +979,7 @@
         }
       }
       if(frameWait){
+        frameWait.startPlayback();
         var presented=await frameWait.promise;
         if(!presented)throw new Error('视频片段 '+clip.id+' 未确认所需时间的呈现帧');
         if(Number.isFinite(presented.presentedFrames))entry.lastPresentedFrames=presented.presentedFrames;
