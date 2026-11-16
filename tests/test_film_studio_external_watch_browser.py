@@ -4485,14 +4485,16 @@ def _open_multitab_project(page, base_url: str, project_id: str) -> None:
         }""",
         project_id,
     )
-    page.evaluate("window.filmStudioToggle()")
-    page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible")
+    # Selecting an existing FilmDocument project routes through the wrapped
+    # editorLoad(), which opens Studio asynchronously. Calling the toggle here
+    # races that authoritative open path and can immediately close the panel
+    # (especially on the second tab sharing the same browser context).
+    page.locator("#film-studio-panel.fs-studio-expanded").wait_for(state="visible", timeout=15000)
     page.wait_for_function(
         "() => typeof window.filmStudioToggleTrackLock === 'function' "
         "&& !!document.querySelector('.fs-react-timeline-surface')",
-        timeout=10000,
+        timeout=15000,
     )
-
 
 def test_two_real_browser_tabs_reject_stale_same_project_revision_without_overwrite(
     tmp_path, monkeypatch
