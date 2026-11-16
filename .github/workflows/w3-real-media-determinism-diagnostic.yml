@@ -10,6 +10,13 @@ on:
       - tests/test_film_full_pipeline_e2e.py
       - video_director/**
       - webui/static/js/film-runtime.js
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/w3-real-media-determinism-diagnostic.yml
+      - tests/test_film_full_pipeline_e2e.py
+      - video_director/**
+      - webui/static/js/film-runtime.js
   workflow_dispatch:
 
 permissions:
@@ -21,6 +28,7 @@ concurrency:
 
 jobs:
   focused-real-media-test:
+    if: github.event_name != 'pull_request' || github.head_ref == 'work/w3-software-compositor-ab-20261116'
     name: Repeat the Big Buck Bunny deterministic-look test twenty times
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -28,7 +36,7 @@ jobs:
       - name: Check out the exact diagnostic revision
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python 3.11
         uses: actions/setup-python@v7
@@ -63,7 +71,6 @@ jobs:
             env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
               -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
               -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
-              VIDEO_DIRECTOR_DISABLE_GPU=1 \
               VIDEO_DIRECTOR_FRAME_DIAGNOSTICS=1 \
               VIDEO_DIRECTOR_FRAME_DIAGNOSTIC_DIR="diagnostic-results/attempt-${attempt}-media" \
               python -m pytest -vv --tb=short -o faulthandler_timeout=45 \
@@ -87,7 +94,7 @@ jobs:
             echo "- Exact code SHA: ${GITHUB_SHA}"
             echo '- Target: `tests/test_film_full_pipeline_e2e.py::test_real_public_media_full_project_render_and_performance_snapshot`'
             echo "- Attempts: 20"
-            echo "- Chromium flag: --disable-gpu (isolated compositor A/B arm)"
+            echo "- Chromium flag: default (GPU enabled); canvas capture overlay enabled only in offline render mode"
             echo "- PASS: ${passes}"
             echo "- FAIL: ${failures}"
             echo "- The job result reflects the repeated test outcome; no threshold or assertion was changed."
@@ -103,7 +110,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: real-media-determinism-${{ github.sha }}
+          name: real-media-determinism-${{ github.event.pull_request.head.sha || github.sha }}
           path: diagnostic-results/**
           if-no-files-found: error
           retention-days: 14
