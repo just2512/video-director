@@ -703,7 +703,7 @@ class _RenderHTTPHandler(BaseHTTPRequestHandler):
 
         try:
             total = media_path.stat().st_size
-            start, end, status = 0, max(0, total - 1), 200
+            start, end, status = 0, total - 1, 200
             # No validator is emitted by this endpoint; If-Range cannot be verified.
             # Ignore Range when If-Range is present and serve a complete representation.
             range_header = "" if self.headers.get("If-Range") else self.headers.get("Range", "")
