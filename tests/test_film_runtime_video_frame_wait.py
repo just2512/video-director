@@ -123,3 +123,21 @@ def test_video_frame_timeout_contains_bounded_seek_and_presentation_telemetry():
     # ordinary render errors retain their existing compact 1,800-character cap.
     assert "rawDetail.indexOf('MEDIA_FRAME_TIMEOUT_TELEMETRY=')>=0?16*1024:1800" in render_frame
     assert "var detail=rawDetail.slice(0,detailLimit);" in render_frame
+
+
+def test_offline_frame_preparation_uses_half_open_clip_ranges_at_cut_boundaries():
+    root = Path(__file__).resolve().parents[1]
+    runtime = (root / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
+
+    prepare = runtime[runtime.index("async function prepareFrameEntry"):runtime.index(
+        "function renderFrame", runtime.index("async function prepareFrameEntry")
+    )]
+    # The outgoing clip owns [at, end), not the exact cut timestamp.
+    # At t == end it must not seek or wait for a frame that belongs to no
+    # part of that clip; the incoming clip starts at the same timestamp.
+    assert "if(!(at<=t&&(end==null||t<end)))return;" in prepare
+    assert "Math.abs(t-end)<0.0001" not in prepare
+
+    # Preview may retain its near-end tolerance while offline capture is strict.
+    render_time = runtime[runtime.index("function renderTime"):runtime.index("function frame()", runtime.index("function renderTime"))]
+    assert "(!state.renderMode&&Math.abs(state.time-end)<0.0001)" in render_time
