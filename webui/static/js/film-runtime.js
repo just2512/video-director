@@ -958,6 +958,7 @@
     if(canvas.height!==video.videoHeight)canvas.height=video.videoHeight;
     var context=canvas.getContext('2d');
     if(!context)throw new Error('视频片段 '+String(entry.clip.id||'(unknown)')+' 无法创建离线帧捕获 canvas');
+    context.clearRect(0,0,canvas.width,canvas.height);
     try{context.drawImage(video,0,0,canvas.width,canvas.height);}
     catch(error){throw new Error('视频片段 '+String(entry.clip.id||'(unknown)')+' 无法将已确认的视频帧绘制到离线 canvas：'+String(error&&error.message||error));}
 
@@ -976,7 +977,11 @@
       'border-top-left-radius','border-top-right-radius','border-bottom-right-radius','border-bottom-left-radius',
       'object-fit','object-position','opacity','transform','transform-origin','transform-box',
       'rotate','translate','scale','filter','clip-path','clip-rule','z-index',
-      'visibility','mix-blend-mode','isolation','will-change','contain'
+      'visibility','mix-blend-mode','isolation','will-change','contain',
+      'overflow-x','overflow-y','box-shadow',
+      'outline-width','outline-style','outline-color','outline-offset',
+      'mask-image','mask-clip','mask-mode','mask-origin','mask-position','mask-repeat','mask-size','mask-composite',
+      'backdrop-filter','perspective','perspective-origin','transform-style','backface-visibility'
     ];
     canvas.style.cssText='';
     visualProperties.forEach(function(name){
