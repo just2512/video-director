@@ -1101,7 +1101,9 @@
           var clipId=String(clip.id||'(unknown)');
           var clipTag=String(clip.tag||'unknown');
           jobs.push(prepareFrameEntry(entry,state.time,message.frame).catch(function(error){
-            var detail=String(error&&error.message||error||'未知渲染错误').slice(0,1800);
+            var rawDetail=String(error&&error.message||error||'未知渲染错误');
+            var detailLimit=rawDetail.indexOf('MEDIA_FRAME_TIMEOUT_TELEMETRY=')>=0?16*1024:1800;
+            var detail=rawDetail.slice(0,detailLimit);
             if(detail.indexOf(clipId)>=0)return Promise.reject(new Error(detail));
             return Promise.reject(new Error('片段 '+clipId+' ('+clipTag+') 渲染失败：'+detail));
           }));
