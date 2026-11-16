@@ -1786,6 +1786,8 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
             page.wait_for_function("arg => window.__runtimeRev === arg", arg=revision, timeout=30000)
             frame_pngs = {}
             forward_video_diagnostics = {}
+            forward_parent_clip_pngs = {}
+            forward_parent_clip_errors = {}
 
             def capture_video_diagnostic(pass_name, sample_time, screenshot_png):
                 if not video_diagnostics_enabled:
@@ -1877,6 +1879,15 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                     forward_video_diagnostics[timestamp] = capture_video_diagnostic(
                         "forward", timestamp, frame_pngs[timestamp]
                     )
+                    try:
+                        runtime_box = page.locator("#runtime").bounding_box()
+                        if runtime_box is None:
+                            raise FilmRenderError("FRAME_CAPTURE_FAILED", "runtime iframe bounding box is unavailable", 500)
+                        forward_parent_clip_pngs[timestamp] = page.screenshot(
+                            clip=runtime_box, animations="disabled", timeout=20000
+                        )
+                    except Exception as exc:
+                        forward_parent_clip_errors[timestamp] = type(exc).__name__ + ": " + str(exc)[:500]
 
             # A contact sheet is not accepted as deterministic evidence until the
             # same timestamps are visited in a different order and compared.
@@ -1898,16 +1909,47 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                 repeated = page.locator("#runtime").screenshot(animations="disabled", timeout=20000)
                 changed, total, frame_width, frame_height = _frame_diff_stats(frame_pngs[timestamp], repeated)
                 allowed = max(16, int(total * 0.0005))
+                parent_clip_repeated = None
+                parent_clip_error = None
+                if video_diagnostics_enabled:
+                    try:
+                        runtime_box = page.locator("#runtime").bounding_box()
+                        if runtime_box is None:
+                            raise FilmRenderError("FRAME_CAPTURE_FAILED", "runtime iframe bounding box is unavailable", 500)
+                        parent_clip_repeated = page.screenshot(
+                            clip=runtime_box, animations="disabled", timeout=20000
+                        )
+                    except Exception as exc:
+                        parent_clip_error = type(exc).__name__ + ": " + str(exc)[:500]
                 if video_diagnostics_enabled:
                     reverse_video_diagnostics = capture_video_diagnostic(
                         "reverse", timestamp, repeated
                     )
+                    parent_clip_forward = forward_parent_clip_pngs.get(timestamp)
+                    parent_clip_comparison = {
+                        "forward_sha256": hashlib.sha256(parent_clip_forward).hexdigest()
+                            if parent_clip_forward is not None else None,
+                        "reverse_sha256": hashlib.sha256(parent_clip_repeated).hexdigest()
+                            if parent_clip_repeated is not None else None,
+                        "forward_error": forward_parent_clip_errors.get(timestamp),
+                        "reverse_error": parent_clip_error,
+                    }
+                    if parent_clip_forward is not None and parent_clip_repeated is not None:
+                        parent_changed, parent_total, _parent_width, _parent_height = _frame_diff_stats(
+                            parent_clip_forward, parent_clip_repeated
+                        )
+                        parent_clip_comparison.update({
+                            "changed_pixels": parent_changed,
+                            "total_pixels": parent_total,
+                            "allowed_pixels": max(16, int(parent_total * 0.0005)),
+                        })
                     diagnostic_record = {
                         "timestamp": timestamp,
                         "changed_pixels": changed,
                         "total_pixels": total,
                         "allowed_pixels": allowed,
                         "channel_tolerance": 32,
+                        "parent_page_clip": parent_clip_comparison,
                         "forward": forward_video_diagnostics.get(timestamp),
                         "reverse": reverse_video_diagnostics,
                     }
@@ -1929,11 +1971,15 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                             json.dumps(diagnostic_record, ensure_ascii=False, indent=2, sort_keys=True) + "\\n",
                             encoding="utf-8",
                         )
-                        if changed > allowed:
+                        if changed > allowed or parent_clip_comparison.get("changed_pixels", 0) > parent_clip_comparison.get("allowed_pixels", 0):
                             (video_diagnostic_dir / f"look-{timestamp:.3f}-forward.png").write_bytes(
                                 frame_pngs[timestamp]
                             )
                             (video_diagnostic_dir / f"look-{timestamp:.3f}-reverse.png").write_bytes(repeated)
+                            if parent_clip_forward is not None:
+                                (video_diagnostic_dir / f"look-{timestamp:.3f}-forward-parent-clip.png").write_bytes(parent_clip_forward)
+                            if parent_clip_repeated is not None:
+                                (video_diagnostic_dir / f"look-{timestamp:.3f}-reverse-parent-clip.png").write_bytes(parent_clip_repeated)
                             with Image.open(BytesIO(frame_pngs[timestamp])) as first_image:
                                 with Image.open(BytesIO(repeated)) as second_image:
                                     ImageChops.difference(
