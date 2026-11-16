@@ -241,7 +241,7 @@ jobs:
               tests/test_film_runtime_mask_keyframes_browser.py \
               tests/test_studio_build_contract.py
       - name: Check JavaScript syntax
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           for file in webui/static/js/*.js; do node --check "$file"; done
           for file in $(find third_party/huashu-art-motion/clip -name '*.js'); do node --check "$file"; done
