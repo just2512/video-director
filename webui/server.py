@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import os
 import mimetypes
 import re
 import shutil
@@ -37,6 +38,7 @@ from video_director import model_config as vd_model_config  # noqa: E402
 from video_director import pipeline  # noqa: E402
 from video_director import prober as vd_prober  # noqa: E402
 from video_director import store as vd_store  # noqa: E402
+from video_director.http_byte_range import UnsatisfiableByteRange, parse_byte_range  # noqa: E402
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 # §五 测试/生产 storage 隔离：项目数据根统一走 config.composer_storage_root()
@@ -505,7 +507,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         try:
             self.end_headers()
-            self.wfile.write(data)
+            if self.command != "HEAD":
+                self.wfile.write(data)
         except ConnectionError:
             pass
 
@@ -981,16 +984,18 @@ class Handler(BaseHTTPRequestHandler):
                        "/api/editor/film/undo", "/api/editor/film/redo",
                        "/api/editor/film/command", "/api/editor/film/command/cancel",
                        "/api/editor/film/apply-proposal", "/api/editor/film/render"}
-        if method == "GET" and route not in get_routes:
+        if method in {"GET", "HEAD"} and route not in get_routes:
+            return False
+        if method == "HEAD" and route != "/api/editor/film/media":
             return False
         if method == "POST" and route not in post_routes:
             return False
-        if method not in {"GET", "POST"}:
+        if method not in {"GET", "HEAD", "POST"}:
             return False
 
         from video_director import film_document as fd
 
-        if method == "GET":
+        if method in {"GET", "HEAD"}:
             qs = parse_qs(parsed.query)
             pid = (qs.get("project_id", [""])[0] or "").strip()
             if not pid:
@@ -1018,7 +1023,8 @@ class Handler(BaseHTTPRequestHandler):
                         self.send_header("Content-Length", str(len(rendered)))
                         self.send_header("Cache-Control", "no-cache")
                         self.end_headers()
-                        self.wfile.write(rendered)
+                        if method != "HEAD":
+                            self.wfile.write(rendered)
                         return True
                     if media_path.suffix.lower() == ".css":
                         from video_director.film_scene_runtime import inject_scene_css
@@ -1034,46 +1040,45 @@ class Handler(BaseHTTPRequestHandler):
                         self.send_header("Content-Length", str(len(rendered)))
                         self.send_header("Cache-Control", "no-cache")
                         self.end_headers()
-                        self.wfile.write(rendered)
+                        if method != "HEAD":
+                            self.wfile.write(rendered)
                         return True
                     total = media_path.stat().st_size
-                    start, end, status = 0, max(0, total - 1), 200
-                    range_header = self.headers.get("Range", "")
-                    if range_header:
-                        match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip())
-                        if not match or (not match.group(1) and not match.group(2)):
-                            self.send_response(416)
-                            self.send_header("Content-Range", f"bytes */{total}")
-                            self.end_headers()
-                            return True
-                        if not match.group(1):
-                            start = max(0, total - int(match.group(2)))
-                        else:
-                            start = int(match.group(1))
-                            end = int(match.group(2)) if match.group(2) else total - 1
-                        if start >= total or end < start:
-                            self.send_response(416)
-                            self.send_header("Content-Range", f"bytes */{total}")
-                            self.end_headers()
-                            return True
-                        end, status = min(end, total - 1), 206
+                    start, end, status = 0, total - 1, 200
+                    # No validator is emitted by this endpoint; If-Range cannot be verified.
+                    # Ignore Range when If-Range is present and serve a complete representation.
+                    disable_range = os.environ.get("VIDEO_DIRECTOR_DISABLE_MEDIA_RANGE") == "1"
+                    range_header = "" if disable_range or self.headers.get("If-Range") else self.headers.get("Range", "")
+                    try:
+                        selected_range = parse_byte_range(range_header, total)
+                    except UnsatisfiableByteRange:
+                        self.send_response(416)
+                        self.send_header("Content-Range", f"bytes */{total}")
+                        self.send_header("Content-Length", "0")
+                        self.end_headers()
+                        return True
+                    if selected_range is not None:
+                        start, end = selected_range
+                        status = 206
                     self.send_response(status)
                     self.send_header("Content-Type", mimetypes.guess_type(str(media_path))[0] or "application/octet-stream")
-                    self.send_header("Accept-Ranges", "bytes")
+                    if not disable_range:
+                        self.send_header("Accept-Ranges", "bytes")
                     self.send_header("Content-Length", str(max(0, end - start + 1)))
                     self.send_header("Cache-Control", "no-cache")
                     if status == 206:
                         self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
                     self.end_headers()
-                    with media_path.open("rb") as stream:
-                        stream.seek(start)
-                        remaining = max(0, end - start + 1)
-                        while remaining:
-                            chunk = stream.read(min(65536, remaining))
-                            if not chunk:
-                                break
-                            self.wfile.write(chunk)
-                            remaining -= len(chunk)
+                    if method != "HEAD":
+                        with media_path.open("rb") as stream:
+                            stream.seek(start)
+                            remaining = max(0, end - start + 1)
+                            while remaining:
+                                chunk = stream.read(min(65536, remaining))
+                                if not chunk:
+                                    break
+                                self.wfile.write(chunk)
+                                remaining -= len(chunk)
                     return True
 
                 state = fd.read_project_film(pid)
@@ -2819,6 +2824,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "not found"}, 404)
 
     # ------------------------------------------------------------------
+    def do_HEAD(self):
+        parsed = urlparse(self.path)
+        if self._film_document_api("HEAD", parsed):
+            return
+        self.send_error(405, "HEAD is only supported for Film media")
+
     def do_POST(self):
         parsed = urlparse(self.path)
         if self._film_document_api("POST", parsed):
