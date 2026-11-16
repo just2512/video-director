@@ -522,7 +522,9 @@ def test_full_hosted_regression_gate_is_main_sha_pinned_and_uses_no_self_hosted_
     assert "LIVE_STREAM_ACCEPTANCE=MISSING" in workflow
     assert "VIDEO_DIRECTOR_STORAGE_ROOT" in workflow
 
-    ignored = workflow.split("paths-ignore:", 1)[1].split("  workflow_dispatch:", 1)[0]
+    ignored = (workflow.split("paths-ignore:", 1)[1]
+                .split("  pull_request:", 1)[0]
+                .split("  workflow_dispatch:", 1)[0])
     assert "'docs/**'" in ignored
     assert "'**/*.md'" in ignored
     assert "'README*'" in ignored
