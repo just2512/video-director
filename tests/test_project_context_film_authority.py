@@ -94,14 +94,24 @@ def test_unreadable_film_authority_is_unknown_and_blocks_legacy_tool(tmp_path, m
     project_id = "context-unreadable-film"
     _write_film(project_id, FILM_HTML)
     film_path = config.project_dir(project_id) / film_document.FILM_NAME
+    original_read_bytes = Path.read_bytes
     original_read_text = Path.read_text
 
-    def deny_film_read(path, *args, **kwargs):
+    def deny_film_read_bytes(path, *args, **kwargs):
+        if path == film_path:
+            raise PermissionError("film.html read denied")
+        return original_read_bytes(path, *args, **kwargs)
+
+    def deny_film_read_text(path, *args, **kwargs):
         if path == film_path:
             raise PermissionError("film.html read denied")
         return original_read_text(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_text", deny_film_read)
+    # The authoritative reader uses read_bytes() to preserve CRLF revisions;
+    # the invalid-context recovery path uses read_text(). Deny both so this
+    # test exercises a genuinely unreadable film document in both paths.
+    monkeypatch.setattr(Path, "read_bytes", deny_film_read_bytes)
+    monkeypatch.setattr(Path, "read_text", deny_film_read_text)
     context = inspect_project_context(project_id, {"type": "clip", "id": "shot-1"})
 
     assert context["authority"] == "unknown"
