@@ -469,7 +469,32 @@ def test_real_public_media_full_project_render_and_performance_snapshot(tmp_path
     assert look["ok"] is True
     assert look["revision"] == revision
     assert look["determinism_status"] == "PASS"
-    assert Path(look["image_path"]).is_file()
+    look_sheet_path = Path(look["image_path"])
+    assert look_sheet_path.is_file()
+    # The 4s Big Buck Bunny sample must be a visible video frame in the
+    # published contact sheet, not a black compositor surface. This checks
+    # the capture output separately from the unchanged forward/reverse
+    # pixel-determinism contract enforced by look_project_film().
+    with Image.open(look_sheet_path) as contact_sheet:
+        assert contact_sheet.size == (1920, 388), contact_sheet.size
+        four_second_frame = contact_sheet.convert("RGB").crop((640, 0, 1280, 360))
+        pixels = list(four_second_frame.getdata())
+        mean_luma = sum(
+            red * 0.2126 + green * 0.7152 + blue * 0.0722
+            for red, green, blue in pixels
+        ) / max(1, len(pixels))
+        visible_fraction = sum(
+            1 for red, green, blue in pixels
+            if red * 0.2126 + green * 0.7152 + blue * 0.0722 > 16
+        ) / max(1, len(pixels))
+        assert mean_luma > 30, {
+            "mean_luma": mean_luma,
+            "visible_fraction": visible_fraction,
+        }
+        assert visible_fraction > 0.90, {
+            "mean_luma": mean_luma,
+            "visible_fraction": visible_fraction,
+        }
 
     started = time.perf_counter()
     rendered = film_render.render_project_film(project_id, revision, fps=12)
