@@ -27,6 +27,7 @@ from PIL import Image, ImageChops, ImageStat
 
 from video_director import config
 from video_director import film_document as fd
+from video_director.http_byte_range import UnsatisfiableByteRange, parse_byte_range
 from video_director.film_resource_snapshot import ResourceSnapshotError, SceneResourceSnapshot
 from video_director.storage_durability import fsync_directory, posix_atomic_replace, windows_atomic_replace
 
@@ -703,27 +704,20 @@ class _RenderHTTPHandler(BaseHTTPRequestHandler):
         try:
             total = media_path.stat().st_size
             start, end, status = 0, max(0, total - 1), 200
-            range_header = self.headers.get("Range", "")
-            if range_header:
-                match = re.fullmatch(r"bytes=(\d*)-(\d*)", range_header.strip())
-                if not match or (not match.group(1) and not match.group(2)):
-                    self.send_response(416)
-                    self.send_header("Content-Range", f"bytes */{total}")
-                    self.end_headers()
-                    return
-                if not match.group(1):
-                    count = int(match.group(2))
-                    start = max(0, total - count)
-                else:
-                    start = int(match.group(1))
-                    end = int(match.group(2)) if match.group(2) else total - 1
-                if start >= total or end < start:
-                    self.send_response(416)
-                    self.send_header("Content-Range", f"bytes */{total}")
-                    self.end_headers()
-                    return
-                end, status = min(end, total - 1), 206
-
+            # No validator is emitted by this endpoint; If-Range cannot be verified.
+            # Ignore Range when If-Range is present and serve a complete representation.
+            range_header = "" if self.headers.get("If-Range") else self.headers.get("Range", "")
+            try:
+                selected_range = parse_byte_range(range_header, total)
+            except UnsatisfiableByteRange:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{total}")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            if selected_range is not None:
+                start, end = selected_range
+                status = 206
             self.send_response(status)
             self.send_header("Content-Type", mimetypes.guess_type(str(media_path))[0] or "application/octet-stream")
             self.send_header("Accept-Ranges", "bytes")
