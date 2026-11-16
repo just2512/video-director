@@ -11,7 +11,7 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert "if(!state.renderMode&&(forceSeek||!entry.active||drift>(state.playing?0.45:0.04)))" in sync_media
     helper = runtime[runtime.index("function waitForPresentedVideoFrame"):runtime.index("function nextFrame()", runtime.index("function waitForPresentedVideoFrame"))]
     prepare = runtime[runtime.index("async function prepareFrameEntry"):runtime.index("function renderFrame", runtime.index("async function prepareFrameEntry"))]
-    assert "frameWait=waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames);" in prepare
+    assert "frameWait=waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames,entry.lastPresentedMediaTime,frameNumber,t);" in prepare
     assert "el.currentTime=desired;" in prepare
     assert "requestVideoFrameCallback" in helper
     assert "metadata.mediaTime" in helper
@@ -21,7 +21,7 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert "var frameAdvanced=Number.isFinite(presentedFrames)&&presentedFrames>previousPresentedFrames;" in helper
     assert "var baseline=await awaitInitialVideoFrame(entry,baselineTime);" in prepare
     assert "缺少有效初始呈现帧计数" in prepare
-    assert prepare.index("awaitInitialVideoFrame(entry,baselineTime)") < prepare.index("waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames)")
+    assert prepare.index("awaitInitialVideoFrame(entry,baselineTime)") < prepare.index("waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames,entry.lastPresentedMediaTime,frameNumber,t)")
     assert "function startInitialVideoFrameWait(entry)" in runtime
     assert "function cancelInitialVideoFrameWait(entry)" in runtime
     make_clip = runtime[runtime.index("function makeClip(track,clip)"):runtime.index("function pauseAll()", runtime.index("function makeClip(track,clip)"))]
@@ -39,7 +39,7 @@ def test_video_seek_registers_and_validates_a_presented_frame_before_screenshot(
     assert "var confirmedTolerance=0.5/Math.max(1,sourceFps)+0.002;" in prepare
     assert "seekThreshold=Math.max(0.001,0.5/Math.max(1,sourceFps))" in prepare
     assert helper.index("requestNext();") < helper.index("return {")
-    assert prepare.index("waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames)") < prepare.index("el.currentTime=desired")
+    assert prepare.index("waitForPresentedVideoFrame(el,clip,desired,entry.lastPresentedFrames,entry.lastPresentedMediaTime,frameNumber,t)") < prepare.index("el.currentTime=desired")
     assert "await frameWait.promise" in prepare
     assert "等待新的呈现帧超时" in helper
     event_helpers = runtime[runtime.index("function mediaFailureDescription"):runtime.index("function startInitialVideoFrameWait")]
