@@ -782,6 +782,50 @@ def test_offline_scene_renderer_fails_for_missing_project_local_css_or_media_res
     assert "background.webp" in str(error.value)
 
 
+def test_scene_resource_monitor_ignores_aborted_media_requests():
+    """Chromium 视频 seek/重初始化会主动取消在途媒体请求（net::ERR_ABORTED）。
+
+    这不是资源缺失；否则逐帧渲染多轨道 H.264 视频时，正常取消会被误判为
+    SCENE_RESOURCE_FAILED 而拒绝导出。
+    """
+    from video_director.film_render import _install_scene_resource_failure_monitor
+
+    class FakePage:
+        def __init__(self):
+            self.handlers = {}
+
+        def on(self, event, handler):
+            self.handlers[event] = handler
+
+    class FakeRequest:
+        def __init__(self, url, resource_type="media", failure=None):
+            self.url = url
+            self.resource_type = resource_type
+            self.failure = failure
+
+    class FakeResponse:
+        def __init__(self, url, status, resource_type="stylesheet"):
+            self.url = url
+            self.status = status
+            self.request = FakeRequest(url, resource_type)
+
+    base_url = "http://127.0.0.1:4567"
+    page = FakePage()
+    failures = _install_scene_resource_failure_monitor(page, base_url)
+
+    # 真正的网络失败仍被记录
+    page.handlers["requestfailed"](
+        FakeRequest(base_url + "/media?src=assets%2Fmissing.mp4", failure="net::ERR_CONNECTION_REFUSED")
+    )
+    # 浏览器主动取消的请求不算资源失败
+    page.handlers["requestfailed"](
+        FakeRequest(base_url + "/media?src=assets%2F1.mp4", failure="net::ERR_ABORTED")
+    )
+
+    assert len(failures) == 1
+    assert "missing.mp4" in failures[0]
+
+
 
 def test_film_render_aborts_when_document_changes_during_export(tmp_path, monkeypatch):
     """A render must use the revision captured before work starts and abort on mutation."""

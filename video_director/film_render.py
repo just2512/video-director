@@ -521,6 +521,15 @@ def _install_scene_resource_failure_monitor(page, base_url: str) -> list[str]:
             resource_type = request.resource_type
         except Exception:
             resource_type = ""
+        # 浏览器在 seek / 重初始化时主动取消在途媒体请求（net::ERR_ABORTED）是正常
+        # 行为，不是资源缺失或加载失败；否则逐帧渲染多轨道视频会被误判为致命资源失败。
+        fail_reason = ""
+        try:
+            fail_reason = str(getattr(request, "failure", None) or "")
+        except Exception:
+            pass
+        if "ERR_ABORTED" in fail_reason:
+            return
         if is_local_asset_url(request.url, resource_type):
             record(request.url, "项目资源请求失败")
 
