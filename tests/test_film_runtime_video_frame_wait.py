@@ -112,3 +112,8 @@ def test_video_frame_timeout_contains_bounded_seek_and_presentation_telemetry():
     # Preserve the existing wait deadline and success predicate; telemetry must not weaken acceptance.
     assert "if(frameAdvanced&&timeMatches)" in helper
     assert "},12000);" in helper
+    render_frame = runtime[runtime.index("async function renderFrame"):runtime.index("function pause()", runtime.index("async function renderFrame"))]
+    # Preserve the complete bounded telemetry envelope across the iframe bridge;
+    # ordinary render errors retain their existing compact 1,800-character cap.
+    assert "rawDetail.indexOf('MEDIA_FRAME_TIMEOUT_TELEMETRY=')>=0?16*1024:1800" in render_frame
+    assert "var detail=rawDetail.slice(0,detailLimit);" in render_frame
