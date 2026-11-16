@@ -1,0 +1,118 @@
+name: W3 real-media seek determinism diagnostic
+
+on:
+  push:
+    branches:
+      - work/w3-real-media-determinism-20261115
+      - work/w3-software-compositor-ab-20261116
+    paths:
+      - .github/workflows/w3-real-media-determinism-diagnostic.yml
+      - tests/test_film_full_pipeline_e2e.py
+      - video_director/**
+      - webui/static/js/film-runtime.js
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/w3-real-media-determinism-diagnostic.yml
+      - tests/test_film_full_pipeline_e2e.py
+      - video_director/**
+      - webui/static/js/film-runtime.js
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: w3-real-media-determinism-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  focused-real-media-test:
+    if: github.event_name != 'pull_request' || github.head_ref == 'work/w3-software-compositor-ab-20261116'
+    name: Repeat the Big Buck Bunny deterministic-look test twenty times
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      W3_CODE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - name: Check out the exact diagnostic revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install application and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest playwright
+
+      - name: Install native media dependencies
+        timeout-minutes: 15
+        run: bash .github/scripts/install-ubuntu-media-deps.sh
+
+      - name: Install Chromium
+        timeout-minutes: 15
+        run: python -m playwright install chromium
+
+      - name: Repeat only the real public-media test
+        id: repeated_test
+        shell: bash
+        run: |
+          mkdir -p diagnostic-results
+          set +e
+          failures=0
+          passes=0
+          for attempt in $(seq 1 20); do
+            echo "=== REAL_MEDIA_ATTEMPT=${attempt}/20 ==="
+            env -u VD_LLM_API_KEY -u VD_LLM_BASE_URL -u VD_LLM_MODEL \
+              -u VD_LLM_LIVE_STREAM_TEST -u VD_LLM_REQUEST_TIMEOUT_SECONDS -u VD_LLM_MAX_RETRIES \
+              -u VIDEO_DIRECTOR_STORAGE_ROOT -u OPENAI_API_KEY -u ANTHROPIC_API_KEY \
+              VIDEO_DIRECTOR_FRAME_DIAGNOSTICS=1 \
+              VIDEO_DIRECTOR_FRAME_DIAGNOSTIC_DIR="diagnostic-results/attempt-${attempt}-media" \
+              python -m pytest -vv --tb=short -o faulthandler_timeout=45 \
+                --junitxml="diagnostic-results/attempt-${attempt}.xml" \
+                tests/test_film_full_pipeline_e2e.py::test_real_public_media_full_project_render_and_performance_snapshot \
+                2>&1 | tee "diagnostic-results/attempt-${attempt}.log"
+            status=${PIPESTATUS[0]}
+            if [[ "${status}" -eq 0 ]]; then
+              passes=$((passes + 1))
+              outcome="PASS"
+            else
+              failures=$((failures + 1))
+              outcome="FAIL"
+            fi
+            printf 'attempt=%s outcome=%s exit_code=%s\n' "${attempt}" "${outcome}" "${status}" | tee -a diagnostic-results/summary.txt
+          done
+
+          {
+            echo "## Real-media determinism focused repeat"
+            echo
+            echo "- Exact code SHA: ${W3_CODE_SHA}"
+            echo '- Target: `tests/test_film_full_pipeline_e2e.py::test_real_public_media_full_project_render_and_performance_snapshot`'
+            echo "- Attempts: 20"
+            echo "- Chromium flag: default (GPU enabled); canvas capture overlay enabled only in offline render mode"
+            echo "- PASS: ${passes}"
+            echo "- FAIL: ${failures}"
+            echo "- The job result reflects the repeated test outcome; no threshold or assertion was changed."
+            echo
+            cat diagnostic-results/summary.txt
+          } | tee -a "${GITHUB_STEP_SUMMARY}"
+
+          if [[ "${failures}" -gt 0 ]]; then
+            exit 1
+          fi
+
+      - name: Upload per-attempt JUnit and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: real-media-determinism-${{ github.event.pull_request.head.sha || github.sha }}
+          path: diagnostic-results/**
+          if-no-files-found: error
+          retention-days: 14

@@ -7,6 +7,15 @@ on:
       - 'docs/**'
       - '**/*.md'
       - 'README*'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'video_director/**'
+      - 'webui/**'
+      - 'tests/**'
+      - 'studio_ui/**'
+      - 'requirements.txt'
+      - '.github/workflows/full-hosted-regression.yml'
   workflow_dispatch:
     inputs:
       run_live_nvidia:
@@ -34,7 +43,7 @@ jobs:
       - name: Check out exact source revision
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Set up Python 3.11
         uses: actions/setup-python@v7
         with:
@@ -115,7 +124,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: full-regression-${{ github.sha }}
+          name: full-regression-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             junit.xml
             pytest-output.log
@@ -133,7 +142,7 @@ jobs:
       - name: Check out exact source revision
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Set up Node 22
         uses: actions/setup-node@v7
         with:
@@ -232,7 +241,7 @@ jobs:
               tests/test_film_runtime_mask_keyframes_browser.py \
               tests/test_studio_build_contract.py
       - name: Check JavaScript syntax
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           for file in webui/static/js/*.js; do node --check "$file"; done
           for file in $(find third_party/huashu-art-motion/clip -name '*.js'); do node --check "$file"; done
@@ -241,7 +250,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: studio-release-gate-${{ github.sha }}
+          name: studio-release-gate-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
             timeline-junit.xml
           if-no-files-found: warn
@@ -261,7 +270,7 @@ jobs:
       - name: Check out exact source revision
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Set up Python 3.11
         uses: actions/setup-python@v7
         with:
@@ -395,7 +404,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: nvidia-live-stream-${{ github.sha }}
+          name: nvidia-live-stream-${{ github.event.pull_request.head.sha || github.sha }}
           path: live-stream-junit.xml
           if-no-files-found: warn
           retention-days: 30
