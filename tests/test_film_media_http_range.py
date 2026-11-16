@@ -38,6 +38,14 @@ def test_parse_byte_range_rejects_valid_but_unsatisfiable_ranges(header):
         parse_byte_range(header, 10)
 
 
+def test_empty_representation_has_zero_length_and_cannot_satisfy_a_range():
+    from video_director.http_byte_range import UnsatisfiableByteRange, parse_byte_range
+
+    assert parse_byte_range(None, 0) is None
+    with pytest.raises(UnsatisfiableByteRange):
+        parse_byte_range("bytes=0-", 0)
+
+
 def test_render_media_server_returns_byte_exact_ranges_and_falls_back_to_full_body(tmp_path, monkeypatch):
     from video_director import config, film_render
 
