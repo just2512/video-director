@@ -87,3 +87,27 @@ def test_source_video_fps_fails_closed_instead_of_using_composition_fps(monkeypa
     monkeypatch.setattr(prober, "probe_media", fail)
     with pytest.raises(FilmRenderError, match="ffprobe could not parse stream"):
         _source_video_fps("film-project", "assets/source.mp4")
+
+
+def test_video_frame_timeout_contains_bounded_seek_and_presentation_telemetry():
+    root = Path(__file__).resolve().parents[1]
+    runtime = (root / "webui" / "static" / "js" / "film-runtime.js").read_text(encoding="utf-8")
+    helper = runtime[runtime.index("function waitForPresentedVideoFrame"):runtime.index("function nextFrame()", runtime.index("function waitForPresentedVideoFrame"))]
+    prepare = runtime[runtime.index("async function prepareFrameEntry"):runtime.index("function renderFrame", runtime.index("async function prepareFrameEntry"))]
+
+    # Failure-only telemetry is bounded and captures both media state and RVFC/event history.
+    assert "MEDIA_FRAME_TIMEOUT_TELEMETRY=" in helper
+    assert "callbacks:callbackTrace.slice(-12)" in helper
+    assert "events:eventTrace.slice(-24)" in helper
+    assert "markers:markers.slice(-12)" in helper
+    for field in ("currentTime", "seeking", "readyState", "networkState", "videoWidth", "videoHeight",
+                  "mediaError", "buffered", "seekable", "playbackQuality", "desiredMediaTime",
+                  "baselinePresentedFrames", "baselineMediaTime", "presentedFrames", "mediaTime",
+                  "expectedDisplayTime", "processingDuration"):
+        assert field in helper
+    assert "frameWait.mark('seek-assignment-start')" in prepare
+    assert "frameWait.mark('seek-assignment-returned')" in prepare
+    assert "frameWait.mark('seeked-resolved')" in prepare
+    # Preserve the existing wait deadline and success predicate; telemetry must not weaken acceptance.
+    assert "if(frameAdvanced&&timeMatches)" in helper
+    assert "},12000);" in helper
