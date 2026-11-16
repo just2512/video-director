@@ -194,6 +194,7 @@
       filmKeyframes:filmKeyframes,maskKeyframes:maskKeyframes,baseClipPath:baseClipPath,
       maskHost:maskHost,hostElement:maskHost,
       fade:parseClipFade(clip.attrs&&clip.attrs.fade),baseOpacity:clamp(finite(clip.attrs&&clip.attrs.opacity,finite(el.style.opacity||1,1)),0,1),
+      renderCaptureCanvas:null,
       lastPresentedFrames:NaN,lastPresentedMediaTime:NaN,initialFrameCallbackId:null,initialFramePromise:null,initialFrameResolve:null};
     byId[clip.id]=entry;
     // Register before assigning src; this captures the first frame even when it
@@ -496,6 +497,7 @@
     var muted=has(track.attrs,'hidden')||has(track.attrs,'muted')||has(attrs,'muted');
     if(!active||has(track.attrs,'hidden')){
       el.style.display='none';entry.active=false;
+      if(entry.renderCaptureCanvas)entry.renderCaptureCanvas.style.display='none';
       if(tag==='video'||tag==='audio'){try{el.pause();}catch(_){}}
       return;
     }
@@ -934,6 +936,67 @@
       });
     });
   }
+  function syncRenderCaptureCanvas(entry){
+    if(!entry||!entry.clip||entry.clip.tag!=='video'||!entry.el)return;
+    var video=entry.el,canvas=entry.renderCaptureCanvas;
+    if(!entry.active||video.style.display==='none'){
+      if(canvas)canvas.style.display='none';
+      return;
+    }
+    if(video.readyState<2||!video.videoWidth||!video.videoHeight){
+      throw new Error('视频片段 '+String(entry.clip.id||'(unknown)')+' 在帧确认后没有可绘制的解码图像');
+    }
+    if(!canvas){
+      canvas=document.createElement('canvas');
+      canvas.className=video.className;
+      canvas.removeAttribute('id');
+      canvas.setAttribute('aria-hidden','true');
+      canvas.setAttribute('data-render-capture-for',String(entry.clip.id||''));
+      entry.renderCaptureCanvas=canvas;
+    }
+    if(canvas.width!==video.videoWidth)canvas.width=video.videoWidth;
+    if(canvas.height!==video.videoHeight)canvas.height=video.videoHeight;
+    var context=canvas.getContext('2d');
+    if(!context)throw new Error('视频片段 '+String(entry.clip.id||'(unknown)')+' 无法创建离线帧捕获 canvas');
+    context.clearRect(0,0,canvas.width,canvas.height);
+    try{context.drawImage(video,0,0,canvas.width,canvas.height);}
+    catch(error){throw new Error('视频片段 '+String(entry.clip.id||'(unknown)')+' 无法将已确认的视频帧绘制到离线 canvas：'+String(error&&error.message||error));}
+
+    // Chromium may expose the decoded frame to drawImage(video) while its
+    // composited video layer is still black in page screenshots. During offline
+    // frame capture only, paint the same confirmed frame as a DOM canvas sibling.
+    // The video element remains attached and continues to own decode/seek state.
+    var computed=window.getComputedStyle(video);
+    var visualProperties=[
+      'position','left','top','right','bottom','width','height','box-sizing',
+      'margin-top','margin-right','margin-bottom','margin-left',
+      'padding-top','padding-right','padding-bottom','padding-left',
+      'border-top-width','border-right-width','border-bottom-width','border-left-width',
+      'border-top-style','border-right-style','border-bottom-style','border-left-style',
+      'border-top-color','border-right-color','border-bottom-color','border-left-color',
+      'border-top-left-radius','border-top-right-radius','border-bottom-right-radius','border-bottom-left-radius',
+      'object-fit','object-position','opacity','transform','transform-origin','transform-box',
+      'rotate','translate','scale','filter','clip-path','clip-rule','z-index',
+      'visibility','mix-blend-mode','isolation','will-change','contain',
+      'overflow-x','overflow-y','box-shadow',
+      'outline-width','outline-style','outline-color','outline-offset',
+      'mask-image','mask-clip','mask-mode','mask-origin','mask-position','mask-repeat','mask-size','mask-composite',
+      'backdrop-filter','perspective','perspective-origin','transform-style','backface-visibility'
+    ];
+    canvas.style.cssText='';
+    visualProperties.forEach(function(name){
+      var value=computed.getPropertyValue(name);
+      if(value)canvas.style.setProperty(name,value);
+    });
+    canvas.style.setProperty('display','block','important');
+    canvas.style.setProperty('pointer-events','none','important');
+    canvas.style.setProperty('overflow','hidden');
+    if(video.parentNode&&(
+      canvas.parentNode!==video.parentNode||canvas.previousElementSibling!==video
+    )){
+      video.parentNode.insertBefore(canvas,video.nextSibling);
+    }
+  }
   async function renderFrame(message){
     state.renderMode=true;state.playing=false;
     if(state.raf)cancelAnimationFrame(state.raf);state.raf=0;
@@ -957,6 +1020,11 @@
         });
       });
       await Promise.all(jobs);
+      state.tracks.forEach(function(track){
+        track.clips.forEach(function(entry){
+          if(entry&&entry.clip&&entry.clip.tag==='video')syncRenderCaptureCanvas(entry);
+        });
+      });
       await nextFrame();await nextFrame();
       post({type:'film-runtime:frame-ready',frame:message.frame,time:state.time,rev:state.rev});
     }catch(error){
