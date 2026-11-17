@@ -3721,6 +3721,10 @@ class Handler(BaseHTTPRequestHandler):
                     ok=history.append_message(cid,str(payload.get("role") or "assistant"),
                         str(payload.get("content") or ""),payload.get("metadata") or {})
                     self._send_json({"ok":ok,"error":"" if ok else "历史对话不存在"})
+                elif suffix.endswith("/delete"):
+                    cid=suffix[:-7].strip("/")
+                    ok=history.delete_conversation(cid)
+                    self._send_json({"ok":ok,"error":"" if ok else "历史对话不存在"})
                 else:self._send_json({"ok":False,"error":"不支持的历史对话操作"},404)
             except (json.JSONDecodeError,ValueError) as exc:self._send_json({"ok":False,"error":str(exc)[:240]},400)
             except Exception as exc:self._send_json({"ok":False,"error":str(exc)[:240]},500)

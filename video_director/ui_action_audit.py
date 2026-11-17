@@ -76,6 +76,8 @@ UI_ONLY_PREFIXES = (
     "styleGalleryOpen(", "styleGalleryClose(", "styleGalleryLoad(",
     "templateGallerySelectByIndex(", "templateGalleryRenderSample(", "templateGalleryInstantiate(",
     "cfMakeGraphicPlan(", "cfAnalyzeReference(", "cfImportArticle(", "cfClearArticleSource(", "cfScanRepo(", "editorGenerate(",
+    # 创建流素材/参考视频移除（读 draft context 移除后重存，纯 UI 收集器）
+    "cfRemoveReference(", "cfRemoveAsset(",
     # 历史创作对话：列表切换、消息查看、将历史输入恢复为新草稿。
     "cfHistoryToggle(", "cfHistoryOpenConversation(", "cfHistoryRestoreSnapshot(",
     # Inspector 表单收集器（读输入框收集 → 内部 executeAction）

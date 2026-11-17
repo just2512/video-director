@@ -84,6 +84,16 @@ def delete_draft(draft_id: str = "active") -> bool:
         cur = conn.execute("DELETE FROM director_drafts WHERE draft_id=?", (str(draft_id or "active")[:128],))
     return cur.rowcount > 0
 
+def delete_conversation(conversation_id: str) -> bool:
+    cid = str(conversation_id or "").strip()
+    if not cid:
+        return False
+    with _LOCK, _connect() as conn:
+        _ensure(conn)
+        conn.execute("DELETE FROM director_messages WHERE conversation_id=?", (cid,))
+        cur = conn.execute("DELETE FROM director_conversations WHERE conversation_id=?", (cid,))
+    return cur.rowcount > 0
+
 def create_conversation(*, conversation_id: str = "", project_id: str = "", title: str = "",
                         initial_message: str = "", snapshot: dict | None = None) -> dict:
     cid = str(conversation_id or f"conv-{uuid.uuid4().hex[:16]}").strip()
