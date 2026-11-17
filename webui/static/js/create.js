@@ -873,9 +873,7 @@ function cfRefreshAssetSummary(){
 
 window.cfRenderAssetsList=function(){
   const host=document.getElementById('cf-assets-list');
-  const summary=document.getElementById('cf-assets-summary');
   const refs=Array.isArray(window.CF_DRAFT_CONTEXT&&window.CF_DRAFT_CONTEXT.assetRefs)?window.CF_DRAFT_CONTEXT.assetRefs:[];
-  if(summary)summary.textContent=refs.length?'已暂存 '+refs.length+' 个素材，可直接用于创作':'未添加本地素材';
   if(!host)return;
   if(!refs.length){host.innerHTML='';return;}
   host.innerHTML='<div class="hint" style="margin-bottom:4px">已暂存素材（可单独移除）：</div>'+refs.map(ref=>{
@@ -896,6 +894,8 @@ window.cfRemoveAsset=async function(key){
   ctx.assetRefs=ctx.assetRefs.filter(ref=>(ref.asset_id||ref.file||'')!==key);
   if(ctx.assetRefs.length===before)return;
   window.cfRenderAssetsList();
+  const sum=document.getElementById('cf-assets-summary');
+  if(sum)sum.textContent=ctx.assetRefs.length?('已暂存 '+ctx.assetRefs.length+' 个素材，可直接用于创作'):'未添加本地素材';
   try{await saveNow();}catch(e){/* 保存失败由 saveNow 内部提示 */}
 };
 
