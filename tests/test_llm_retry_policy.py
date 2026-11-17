@@ -136,8 +136,9 @@ class TestTextChannelRetry:
         p._client = None
         p._ensure_client()
         timeout = captured["timeout"]
-        assert timeout.connect == llm_provider.LLM_CONNECT_TIMEOUT_S == 10.0
-        assert timeout.read == llm_provider.LLM_ATTEMPT_TIMEOUT_S == 120.0
+        assert isinstance(timeout, dict)
+        assert timeout["connect"] == llm_provider.LLM_CONNECT_TIMEOUT_S == 10.0
+        assert timeout["read"] == llm_provider.LLM_ATTEMPT_TIMEOUT_S == 120.0
 
     def test_retry_drops_dead_client_connection(self, monkeypatch):
         """2026-10-25 生产事故回归锁：网关挂死时 httpx 连接池里的死连接

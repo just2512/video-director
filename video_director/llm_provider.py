@@ -142,7 +142,6 @@ class OpenAICompatibleProvider:
             return
         # __init__ 已验证 openai 可 import；这里再取一次（sys.modules 缓存，零成本）
         from openai import OpenAI  # type: ignore[import-untyped]
-        import httpx
         client_options = {}
         timeout_raw = os.environ.get("VD_LLM_REQUEST_TIMEOUT_SECONDS", "").strip()
         read_timeout = LLM_ATTEMPT_TIMEOUT_S
@@ -156,12 +155,12 @@ class OpenAICompatibleProvider:
         # 分离连接超时与读超时：网关挂死时 TCP connect 只等 LLM_CONNECT_TIMEOUT_S
         # 快速失败暴露，不再被统一 120s 标量拖成「Connection error 2 分钟后才进 10s
         # 重试」。读超时保持长（流式=相邻块间隔、非流式=首字节），长生成不被误杀。
-        client_options["timeout"] = httpx.Timeout(
-            connect=LLM_CONNECT_TIMEOUT_S,
-            read=read_timeout,
-            write=read_timeout,
-            pool=LLM_CONNECT_TIMEOUT_S,
-        )
+        client_options["timeout"] = {
+            "connect": LLM_CONNECT_TIMEOUT_S,
+            "read": read_timeout,
+            "write": read_timeout,
+            "pool": LLM_CONNECT_TIMEOUT_S,
+        }  # dict → SDK 内部转 httpx.Timeout；不直接 import httpx（CI 环境未单装）
 
         retries_raw = os.environ.get("VD_LLM_MAX_RETRIES", "").strip()
         if retries_raw:
