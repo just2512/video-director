@@ -287,9 +287,12 @@ def _check_vision() -> CheckResult:
                 "（glm-5.3-flash 实测单图 25~150s 波动）。创作可用但视觉步骤"
                 "会显著拖慢，建议换更快的视觉模型", optional=True)
         if "body" in probe_box:
-            content = (((probe_box["body"].get("choices") or [{}])[0].get("message") or {})
-                       .get("content") or "")
-            if content:
+            message = ((probe_box["body"].get("choices") or [{}])[0].get("message") or {})
+            content = message.get("content") or ""
+            # 思考型视觉模型（step-5-preview / GLM-4.6V 系）会先吐 reasoning，内容精炼
+            # 到 content 甚至为空；此时任一输出即证明图文链路通，不误判「返回空内容」。
+            reasoning = message.get("reasoning_content") or message.get("reasoning") or ""
+            if content or reasoning:
                 return CheckResult("Vision 增强（可选）", "PASS",
                                    f"真实图文调用成功（model={cfg.get('model')}）")
             return CheckResult("Vision 增强（可选）", "FAIL",
