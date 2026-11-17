@@ -355,6 +355,7 @@ async function cfPrefillFromProject(pid){
       const summary = document.getElementById('cf-assets-summary');
       if (summary) summary.textContent = '已入库素材 ' + refs.length + ' 个：' + names.join('、') + '（重新创作沿用，无需重新上传）';
       if (window.CF_DRAFT_CONTEXT) window.CF_DRAFT_CONTEXT.assetRefs = refs;
+      if (typeof window.cfRenderAssetsList === 'function') window.cfRenderAssetsList();
     }
     // bundle 缺失时用 project_detail 兜底补文案（兼容旧流程项目）
     if (!scriptText) {
@@ -370,6 +371,7 @@ async function cfPrefillFromProject(pid){
     if (window._cfReference) {
       const node=document.getElementById('cf-reference-result');
       if(node)node.innerHTML='<div class="ok-box">已恢复项目关联参考视频与分析结果。</div>';
+      if(typeof window.cfSyncReferenceButton==='function')window.cfSyncReferenceButton();
     }
     if (window._cfRepo) {
       const node=document.getElementById('cf-repo-result');
@@ -468,12 +470,14 @@ function _createPanelHtml(){
       <b>我的素材</b><span class="hint"> 可选；图片 / 视频可多选</span>
       <input type="file" id="cf-assets" multiple accept=".mp4,.mov,.mkv,.webm,.m4v,.jpg,.jpeg,.png,.webp,.bmp" style="margin-top:6px">
       <div class="hint" id="cf-assets-summary">未添加本地素材</div>
+      <div id="cf-assets-list" style="margin-top:6px"></div>
     </div>
     <div class="panel" style="margin-top:8px;padding:10px">
       <b>参考视频</b><span class="hint"> 可选；只用于分析节奏、镜头语言和风格</span>
       <input type="file" id="cf-reference" accept=".mp4,.mov,.mkv,.webm" style="margin-top:6px">
       <div class="btn-row" style="margin-top:6px">
         <button class="btn-secondary btn-sm" onclick="cfAnalyzeReference()">分析参考视频</button>
+        <button class="btn-secondary btn-sm" id="cf-remove-reference-btn" onclick="cfRemoveReference()" style="display:none">移除参考视频</button>
         <span class="hint" id="cf-reference-status">分析完成后加入导演上下文。</span>
       </div>
       <div id="cf-reference-result"></div>
@@ -867,6 +871,53 @@ function cfRefreshAssetSummary(){
   el.textContent = `已添加 ${files.length} 个：视频 ${videos} · 图片 ${images}`;
 }
 
+window.cfRenderAssetsList=function(){
+  const host=document.getElementById('cf-assets-list');
+  const summary=document.getElementById('cf-assets-summary');
+  const refs=Array.isArray(window.CF_DRAFT_CONTEXT&&window.CF_DRAFT_CONTEXT.assetRefs)?window.CF_DRAFT_CONTEXT.assetRefs:[];
+  if(summary)summary.textContent=refs.length?'已暂存 '+refs.length+' 个素材，可直接用于创作':'未添加本地素材';
+  if(!host)return;
+  if(!refs.length){host.innerHTML='';return;}
+  host.innerHTML='<div class="hint" style="margin-bottom:4px">已暂存素材（可单独移除）：</div>'+refs.map(ref=>{
+    const key=ref.asset_id||ref.file||'';
+    const name=String(ref.file||ref.asset_id||'素材');
+    const kind=ref.type==='video'?'视频':(ref.type==='image'?'图片':'素材');
+    return '<div class="btn-row" style="align-items:center;margin-top:3px">'+
+      '<span class="hint" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(name)+' · '+esc(kind)+'</span>'+
+      '<button type="button" class="btn-secondary btn-sm" data-asset-key="'+esc(key)+'" onclick="cfRemoveAsset(this.dataset.assetKey)">移除</button></div>';
+  }).join('');
+};
+
+window.cfRemoveAsset=async function(key){
+  const ctx=window.CF_DRAFT_CONTEXT;
+  if(!ctx||!Array.isArray(ctx.assetRefs))return;
+  key=String(key||'');
+  const before=ctx.assetRefs.length;
+  ctx.assetRefs=ctx.assetRefs.filter(ref=>(ref.asset_id||ref.file||'')!==key);
+  if(ctx.assetRefs.length===before)return;
+  window.cfRenderAssetsList();
+  try{await saveNow();}catch(e){/* 保存失败由 saveNow 内部提示 */}
+};
+
+window.cfRemoveReference=async function(){
+  window._cfReference=null;
+  window._cfReferenceFileObject=null;
+  const input=document.getElementById('cf-reference');
+  if(input)input.value='';
+  const result=document.getElementById('cf-reference-result');
+  if(result)result.innerHTML='';
+  const btn=document.getElementById('cf-remove-reference-btn');
+  if(btn)btn.style.display='none';
+  const status=document.getElementById('cf-reference-status');
+  if(status)status.textContent='已移除参考视频；分析完成后加入导演上下文。';
+  try{await saveNow();}catch(e){/* 保存失败由 saveNow 内部提示 */}
+};
+
+window.cfSyncReferenceButton=function(){
+  const btn=document.getElementById('cf-remove-reference-btn');
+  if(btn)btn.style.display=window._cfReference?'':'none';
+};
+
 function cfVisualSourceSync(){
   const source = document.getElementById('cf-visual-source');
   const hint = document.getElementById('cf-visual-source-hint');
@@ -999,6 +1050,7 @@ async function cfAnalyzeReference(){
     if (out) out.innerHTML = `<div class="ok-box">分析完成 · ${sg.length} 个镜头 · 节奏 ${esc(String(vl.pace||'—'))} · 运动语言 ${esc(String(vl.motion||'—'))}
       <div class="hint">参考视频已作为结构化风格输入保存，AI 导演创作时与文案、素材、软件项目一起使用；不会复制参考内容。</div></div>`;
     if (st) st.textContent = '分析完成，已加入 AI 导演输入。';
+    window.cfSyncReferenceButton();
     return true;
   } catch (e) {
     if(window.CF_DRAFT_CONTEXT!==context)return false;
@@ -1796,6 +1848,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const summary=document.getElementById('cf-assets-summary');
     if(summary)summary.textContent=liveContext.assetRefs.length?
       '已暂存 '+liveContext.assetRefs.length+' 个素材，可直接用于创作':'未添加本地素材';
+    if(typeof window.cfRenderAssetsList==='function')window.cfRenderAssetsList();
+    if(typeof window.cfSyncReferenceButton==='function')window.cfSyncReferenceButton();
     if(typeof cfVoiceModeSync==='function')cfVoiceModeSync();
     if(typeof cfVisualSourceSync==='function')cfVisualSourceSync();
     if(typeof cfSeriesSync==='function')cfSeriesSync();
@@ -1872,8 +1926,10 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     if(header){
       const history=document.createElement('button');history.id='cf-history-inline-launch';history.type='button';history.className='btn-secondary btn-sm';history.textContent='历史对话';history.title='打开历史创作对话';history.onclick=cfHistoryToggle;
       header.insertBefore(history,header.querySelector('span[style*="flex:1"]'));
+      const clear=document.createElement('button');clear.type='button';clear.className='btn-secondary btn-sm';clear.textContent='删除草稿';clear.title='清空当前未提交草稿，重新开始';clear.onclick=()=>window.cfDeleteDraft();
+      header.insertBefore(clear,history);
       const status=document.createElement('span');status.id='cf-draft-status';status.className='hint';status.style.marginLeft='8px';status.textContent='草稿待保存';
-      header.insertBefore(status,history);
+      header.insertBefore(status,clear);
       const close=header.querySelector('button[onclick="closeCreate()"]');if(close){close.textContent='收起';close.title='隐藏窗口，保留当前草稿';}
     }
     const brief=document.getElementById('cf-director-brief');
@@ -1990,6 +2046,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       const refs=context.assetRefs,seen=new Set(refs.map(x=>x.asset_id||x.file));
       for(const a of (r.imported||[])){const key=a.asset_id||a.file;if(key&&!seen.has(key)){refs.push({asset_id:a.asset_id,type:a.type,file:a.file,width:a.width,height:a.height,duration:a.duration,commercial_status:a.commercial_status});seen.add(key);}}
       if(status)status.textContent='已暂存 '+refs.length+' 个素材，关闭窗口或刷新后仍可恢复。';
+      window.cfRenderAssetsList();
       await saveNow();
       return true;
     }catch(e){
@@ -2209,6 +2266,36 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     }
   }
   window.cfClearSavedDraft=clearSavedDraft;
+  window.cfDeleteDraft=async function(){
+    if(!window.confirm('删除当前未提交草稿？此操作不可撤销。'))return false;
+    try{
+      if(typeof window.cfClearSavedDraft==='function')await window.cfClearSavedDraft();
+      cfResetProjectPrefillState('');
+      const st=document.getElementById('cf-draft-status');
+      if(st)st.textContent='草稿已删除，可重新开始新创作。';
+      if(typeof window.cfRenderAssetsList==='function')window.cfRenderAssetsList();
+      if(typeof window.cfSyncReferenceButton==='function')window.cfSyncReferenceButton();
+      cfHistorySetNotice('草稿已删除。');
+      if(typeof window.cfHistoryRefresh==='function')window.cfHistoryRefresh();
+    }catch(e){
+      cfHistorySetNotice('删除草稿失败：'+(e.message||e));
+    }
+    return true;
+  };
+  window.cfDeleteConversation=async function(id){
+    if(!id)return false;
+    if(!window.confirm('删除这条历史对话？此操作不可撤销。'))return false;
+    cfHistorySetNotice('正在删除对话…');
+    try{
+      const r=await apiPost('/api/director/conversations/'+encodeURIComponent(id)+'/delete',{});
+      if(!r||!r.ok)throw new Error(r?.error||'删除未确认');
+      cfHistorySetNotice('');
+      if(typeof window.cfHistoryRefresh==='function')window.cfHistoryRefresh();
+    }catch(e){
+      cfHistorySetNotice('删除对话失败：'+(e.message||e));
+    }
+    return true;
+  };
   window.cfFinalizeCreateDialog=async function(){
     if(timer){clearTimeout(timer);timer=null;}
     document.getElementById('cf-mask')?.remove();
@@ -2223,7 +2310,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     const content=rows.length?rows.map(x=>
       '<div class="proj-row"><span style="flex:1;min-width:0"><b>'+esc(x.title||'未命名对话')+'</b><span class="hint">'+
       esc(x.project_id||'未关联项目')+' · '+new Date((x.updated_at||0)*1000).toLocaleString()+' · '+esc(x.status||'')+
-      '</span></span><button class="btn-secondary btn-sm" type="button" data-conversation-id="'+esc(x.conversation_id||'')+'">查看</button></div>'
+      '</span></span><button class="btn-secondary btn-sm" type="button" data-conversation-id="'+esc(x.conversation_id||'')+'">查看</button>'+
+      '<button class="btn-secondary btn-sm" type="button" data-history-action="delete" data-conversation-id="'+esc(x.conversation_id||'')+'">删除</button></div>'
     ).join(''):'<div class="hint">暂无历史对话。成功提交创作后会自动记录；未提交内容请从上方「当前草稿」继续。</div>';
     const more=historyHasMore
       ?'<div style="display:flex;justify-content:center;padding:10px 0"><button class="btn-secondary btn-sm" type="button" data-history-action="load-more"'+
@@ -2265,7 +2353,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     host.innerHTML='<div class="panel" style="padding:10px;margin:0 0 10px">'+
       '<div class="btn-row" style="align-items:center;margin:0"><b>当前未提交草稿</b><span class="hint">'+source+
       (updated?' · '+new Date(updated*1000).toLocaleString():'')+'</span><span class="tb-sep"></span>'+
-      '<button class="btn-sm" type="button" data-history-action="resume-draft">继续编辑</button></div>'+
+      '<button class="btn-sm" type="button" data-history-action="resume-draft">继续编辑</button>'+
+      '<button class="btn-secondary btn-sm" type="button" data-history-action="delete-draft">删除草稿</button></div>'+
       '<div class="hint" style="margin-top:6px">'+esc(preview)+'</div></div>';
   }
   function cfHistoryInProgressMode(){
@@ -2356,8 +2445,11 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     // The unsent-draft card is a sibling of the conversation list, so it needs
     // its own delegated handler rather than relying on the list's click listener.
     drawer.querySelector('#cf-history-draft').addEventListener('click',event=>{
-      const actionButton=event.target.closest('[data-history-action="resume-draft"]');
-      if(actionButton)window.cfHistoryResumeDraft();
+      const actionButton=event.target.closest('[data-history-action]');
+      if(!actionButton)return;
+      const action=actionButton.dataset.historyAction;
+      if(action==='resume-draft')window.cfHistoryResumeDraft();
+      else if(action==='delete-draft')window.cfDeleteDraft();
     });
     drawer.querySelector('#cf-history-list').addEventListener('click',event=>{
       // Detail actions also carry the conversation ID; handle explicit actions first.
@@ -2367,6 +2459,8 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         if(action==='list'){historyRequestVersion++;cfHistoryRenderList();}
         else if(action==='restore')window.cfHistoryRestoreSnapshot(actionButton.dataset.conversationId);
         else if(action==='resume-draft')window.cfHistoryResumeDraft();
+        else if(action==='delete-draft')window.cfDeleteDraft();
+        else if(action==='delete')window.cfDeleteConversation(actionButton.dataset.conversationId);
         else if(action==='load-more')window.cfHistoryLoadMore();
         return;
       }
