@@ -187,7 +187,9 @@ def test_openai_compatible_provider_applies_explicit_request_bounds(monkeypatch,
     provider = OpenAICompatibleProvider(api_key="test-key", base_url="https://example.invalid/v1", model="test-model")
     provider._ensure_client()
 
-    assert captured["timeout"] == float(timeout_seconds)
+    # connect 恒短（10s），env 只覆盖 read——网关挂死时连接失败快速暴露。
+    assert captured["timeout"]["read"] == float(timeout_seconds)
+    assert captured["timeout"]["connect"] == 10.0
     assert captured["max_retries"] == 0
     assert captured["api_key"] == "test-key"
     assert captured["base_url"] == "https://example.invalid/v1"

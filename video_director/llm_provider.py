@@ -47,7 +47,8 @@ DEFAULT_MODEL = "gpt-4o-mini"
 # 2026-10-27 用户裁决：重试次数 10 → 3（10 次太久）。
 LLM_MAX_RETRIES = 3
 LLM_RETRY_WAIT_S = 10.0       # 固定重试间隔（用户裁决 2026-10-25）
-LLM_ATTEMPT_TIMEOUT_S = 120   # 单次尝试超时：正常长生成 60~150s，挂死网关 120s 内暴露
+LLM_ATTEMPT_TIMEOUT_S = 120   # 单次尝试读超时：正常长生成 60~150s，流式=相邻块间隔
+LLM_CONNECT_TIMEOUT_S = 10.0  # 连接超时：网关挂死时 connect 10s 内快速失败暴露，不再拖 120s
 
 # 进程级 LLM 重试状态（诊断）：最近一次 generate 的重试进度——健康检查/
 # 状态查询读它区分「长时间生成」与「LLM 正在重试」。
@@ -143,14 +144,23 @@ class OpenAICompatibleProvider:
         from openai import OpenAI  # type: ignore[import-untyped]
         client_options = {}
         timeout_raw = os.environ.get("VD_LLM_REQUEST_TIMEOUT_SECONDS", "").strip()
+        read_timeout = LLM_ATTEMPT_TIMEOUT_S
         if timeout_raw:
             try:
-                timeout_seconds = float(timeout_raw)
+                read_timeout = float(timeout_raw)
             except ValueError as exc:
                 raise ValueError("VD_LLM_REQUEST_TIMEOUT_SECONDS must be a positive number") from exc
-            if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            if not math.isfinite(read_timeout) or read_timeout <= 0:
                 raise ValueError("VD_LLM_REQUEST_TIMEOUT_SECONDS must be a positive number")
-            client_options["timeout"] = timeout_seconds
+        # 分离连接超时与读超时：网关挂死时 TCP connect 只等 LLM_CONNECT_TIMEOUT_S
+        # 快速失败暴露，不再被统一 120s 标量拖成「Connection error 2 分钟后才进 10s
+        # 重试」。读超时保持长（流式=相邻块间隔、非流式=首字节），长生成不被误杀。
+        client_options["timeout"] = {
+            "connect": LLM_CONNECT_TIMEOUT_S,
+            "read": read_timeout,
+            "write": read_timeout,
+            "pool": LLM_CONNECT_TIMEOUT_S,
+        }  # dict → SDK 内部转 httpx.Timeout；不直接 import httpx（CI 环境未单装）
 
         retries_raw = os.environ.get("VD_LLM_MAX_RETRIES", "").strip()
         if retries_raw:
@@ -162,11 +172,9 @@ class OpenAICompatibleProvider:
                 raise ValueError("VD_LLM_MAX_RETRIES must be an integer from 0 to 5")
             client_options["max_retries"] = max_retries
 
-        # 默认值：SDK 内部重试必须点掉（max_retries=0，重试纪律由本模块显式
-        # 循环独占），单次超时默认 120s（流式=相邻块间隔、非流式=首字节前总时长）。
-        # env 已设则保留覆盖（VD_LLM_REQUEST_TIMEOUT_SECONDS / VD_LLM_MAX_RETRIES，
-        # 供 live smoke / 测试调大超时或显式控制 SDK 重试）。
-        client_options.setdefault("timeout", LLM_ATTEMPT_TIMEOUT_S)
+        # 默认值：SDK 内部重试必须点掉（max_retries=0，重试纪律由本模块显式循环独占）。
+        # timeout 已在上面固定为 httpx.Timeout（connect 短/read 长）；env 覆盖的
+        # VD_LLM_REQUEST_TIMEOUT_SECONDS 只作用于 read，connect 恒短。
         client_options.setdefault("max_retries", 0)
         self._client = OpenAI(
             api_key=self._api_key,
