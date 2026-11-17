@@ -76,6 +76,26 @@ class TestIntentLlmFastFail:
         finally:
             lp.get_llm = orig
 
+    def test_intent_llm_layer_default_off_and_optin(self, monkeypatch):
+        """思考型模型的 LLM 泛化层默认关（不白烧 15s），VD_LLM_INTENT_ENABLED=1 才启用。"""
+        import video_director.llm_provider as lp
+
+        calls = {"n": 0}
+
+        class _Fast:
+            def generate(self, prompt, system=None):
+                calls["n"] += 1
+                return '{"voice": "温柔女声"}'
+
+        monkeypatch.setattr(lp, "get_llm", lambda: _Fast())
+        monkeypatch.delenv("VD_LLM_INTENT_ENABLED", raising=False)
+        assert dint._llm_resolve("要温柔女声") == {}
+        assert calls["n"] == 0, "默认关闭时不得调用 LLM"
+
+        monkeypatch.setenv("VD_LLM_INTENT_ENABLED", "1")
+        assert dint._llm_resolve("要温柔女声") == {"voice": "温柔女声"}
+        assert calls["n"] == 1
+
 class TestRetryPathUsesRuleLayerOnly:
     """2026-10-27 用户报障「意图 15s 超时一直报」：retry 路径重建 spec 时
     与 create 同分层——同步只跑规则层（毫秒级），LLM 泛化层由 understand

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -275,6 +276,12 @@ def _llm_resolve(brief: str) -> Dict[str, str]:
     失败立刻降规则层（规则层兜底完整，损失仅泛化解析）。
     """
     from video_director import llm_provider
+    # 意图 LLM 泛化层默认关闭：思考型模型（step-5/o1 系）会先吐大段 reasoning、
+    # 内容 token 远晚于 15s 预算，导致每次白烧 15s 且恒返回空。规则层已确定性
+    # 兜底完整。设置 VD_LLM_INTENT_ENABLED=1 显式启用（换到快模型/快供应商后再开）。
+    if os.environ.get("VD_LLM_INTENT_ENABLED", "").strip() != "1":
+        logger.info("意图解析 LLM 层默认关闭（VD_LLM_INTENT_ENABLED≠1），仅规则层解析")
+        return {}
     provider = llm_provider.get_llm()
     if provider is None:
         logger.info("意图解析 LLM 层跳过：未配置文本大模型，仅规则层解析")
