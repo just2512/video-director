@@ -118,10 +118,23 @@ def _normalize_assets(spec: dict, source_assets: dict) -> dict:
     unique = []
     seen = set()
     for ref in refs:
-        key = ref.get("asset_id") or ref.get("file")
-        if not key or key in seen:
+        aid = _string(ref.get("asset_id"))
+        file_value = _string(ref.get("file"))
+        # `video_paths`/`image_paths` raw paths and registered asset_refs can point
+        # at the same file (the create form populates both channels). Dedupe by
+        # file identity so the registered asset_ref (with asset_id) wins and no
+        # asset_id-less "path" ghost survives into the Director bundle — those
+        # ghosts later break film.initialize with ASSET_ID_MISSING.
+        if file_value and file_value in seen:
             continue
-        seen.add(key)
+        if aid and aid in seen:
+            continue
+        if not file_value and not aid:
+            continue
+        if file_value:
+            seen.add(file_value)
+        if aid:
+            seen.add(aid)
         unique.append(ref)
     return {
         "policy": _string(source_assets.get("policy") or "user_first"),

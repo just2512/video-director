@@ -80,6 +80,40 @@ def test_unified_bundle_keeps_script_assets_reference_and_repo(monkeypatch):
     ]
 
 
+def test_normalize_assets_dedupes_path_duplicates_of_registered_asset(monkeypatch):
+    # The create form populates both `asset_refs` (registered, has asset_id) and the
+    # legacy `video_paths` (raw path) for the same file. The bundle must keep only
+    # the registered ref; a raw-path ghost with empty asset_id later breaks
+    # film.initialize with ASSET_ID_MISSING.
+    monkeypatch.setattr(
+        di.asset_catalog,
+        "get_asset",
+        lambda asset_id: {
+            "asset_id": asset_id,
+            "type": "video",
+            "source": "user",
+            "file": "/tmp/local-001.mp4",
+            "description": "",
+            "commercial_status": "USER_SUPPLIED",
+            "license_note": "",
+        },
+    )
+    spec = {
+        "video_paths": ["/tmp/local-001.mp4"],
+        "image_paths": [],
+        "director_inputs": {
+            "assets": {"asset_refs": [{"asset_id": "local-001"}]},
+        },
+    }
+
+    bundle = di.build_bundle(spec)
+    refs = bundle["assets"]["asset_refs"]
+
+    assert len(refs) == 1, refs
+    assert refs[0]["asset_id"] == "local-001"
+    assert refs[0]["source"] == "user"
+
+
 def test_director_plan_declares_all_node_io_and_sources(monkeypatch):
     bundle = {
         "version": di.VERSION,
