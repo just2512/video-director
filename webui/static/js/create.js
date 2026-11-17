@@ -2311,7 +2311,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       '<div class="proj-row"><span style="flex:1;min-width:0"><b>'+esc(x.title||'未命名对话')+'</b><span class="hint">'+
       esc(x.project_id||'未关联项目')+' · '+new Date((x.updated_at||0)*1000).toLocaleString()+' · '+esc(x.status||'')+
       '</span></span><button class="btn-secondary btn-sm" type="button" data-conversation-id="'+esc(x.conversation_id||'')+'">查看</button>'+
-      '<button class="btn-secondary btn-sm" type="button" data-history-action="delete" data-conversation-id="'+esc(x.conversation_id||'')+'">删除</button></div>'
+      '<button class="btn-secondary btn-sm" type="button" data-history-action="delete" data-delete-key="'+esc(x.conversation_id||'')+'">删除</button></div>'
     ).join(''):'<div class="hint">暂无历史对话。成功提交创作后会自动记录；未提交内容请从上方「当前草稿」继续。</div>';
     const more=historyHasMore
       ?'<div style="display:flex;justify-content:center;padding:10px 0"><button class="btn-secondary btn-sm" type="button" data-history-action="load-more"'+
@@ -2460,7 +2460,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
         else if(action==='restore')window.cfHistoryRestoreSnapshot(actionButton.dataset.conversationId);
         else if(action==='resume-draft')window.cfHistoryResumeDraft();
         else if(action==='delete-draft')window.cfDeleteDraft();
-        else if(action==='delete')window.cfDeleteConversation(actionButton.dataset.conversationId);
+        else if(action==='delete')window.cfDeleteConversation(actionButton.dataset.deleteKey);
         else if(action==='load-more')window.cfHistoryLoadMore();
         return;
       }
