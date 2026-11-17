@@ -115,6 +115,30 @@ class TestTextChannelRetry:
         # 单次尝试超时 120s：流式语义=相邻数据块间隔（长生成不再误杀）。
         assert llm_provider.LLM_ATTEMPT_TIMEOUT_S == 120
 
+    def test_connect_and_read_timeout_are_split(self, monkeypatch):
+        """网关挂死时 connect 只等 10s（快速失败暴露），read 保持 120s（长生成不被误杀）。
+
+        回归锁：生产曾把标量 timeout=120 统一套到 connect/read，导致网关挂死时
+        「Connection error」拖 2 分钟才进入 10s 重试。
+        """
+        import openai as openai_mod
+        captured = {}
+
+        def fake_openai(**kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+
+            class _Stub:
+                pass
+            return _Stub()
+
+        monkeypatch.setattr(openai_mod, "OpenAI", fake_openai)
+        p = self._provider()
+        p._client = None
+        p._ensure_client()
+        timeout = captured["timeout"]
+        assert timeout.connect == llm_provider.LLM_CONNECT_TIMEOUT_S == 10.0
+        assert timeout.read == llm_provider.LLM_ATTEMPT_TIMEOUT_S == 120.0
+
     def test_retry_drops_dead_client_connection(self, monkeypatch):
         """2026-10-25 生产事故回归锁：网关挂死时 httpx 连接池里的死连接
         必须在重试时被丢弃（self._client = None + 重建），不能复用。"""
