@@ -106,65 +106,46 @@ class LLMProvider(Protocol):
 # ---------------------------------------------------------------------------
 # OpenAI 兼容实现
 # ---------------------------------------------------------------------------
-def _probe_timeout_dict_support() -> bool:
-    """探测当前安装的 openai 是否接受 per-call dict timeout。
+def _openai_timeout(connect: float, read: float):
+    """构造 openai.Timeout（=httpx.Timeout）拆 connect/read；不可用返回 None。
 
-    生产实录 2026-11-18：openai 3.29.0（生产 venv）下 dict timeout 会在真正发
-    请求时炸 `'dict' object cannot be interpreted as an integer`，分镜规划三连败
-    全创作中断。而新版（2.x 之后的部分版本）已支持。版本号不可靠（major 3 < major
-    2 的语义混乱），改为基于请求链路的功能探测：构造一个通向本地不可达端点的
-    请求，看它在 timeout 归一化阶段是否抛 TypeError。
-
-    只在首次 _ensure_client 时探测一次（成本=一次必然失败的本地请求）。
+    openai 2.x 与 3.x 都 re-export `openai.Timeout` 且都接受对象。dict 在 3.x
+    会炸 `'dict' object cannot be interpreted as an integer`（生产实录 2026-11-18，
+    分镜规划三连败）；标量则无法拆分 connect/read，网关黑洞时 connect 要等满
+    read 预算才报 Connection error（生产实录 2026-11-18，重试间隔被拖到 165s）。
+    openai 不可用（CI 无 openai / fake 缺 Timeout 属性）时返回 None。
     """
     import sys
-    try:
-        mod = sys.modules.get("openai")
-        if mod is None:
+    mod = sys.modules.get("openai")
+    if mod is None:
+        try:
             from importlib import import_module
             mod = import_module("openai")
-        openai_cls = getattr(mod, "OpenAI", None)
-        if openai_cls is None:
-            return False
-        client = openai_cls(
-            api_key="probe-key",
-            base_url="http://127.0.0.1:1/v1",
-            max_retries=0,
-            timeout=1.0,
-        )
-        client.chat.completions.create(
-            model="probe-model",
-            messages=[{"role": "user", "content": "hi"}],
-            stream=False,
-            timeout={"connect": 1.0, "read": 1.0, "write": 1.0, "pool": 1.0},
-        )
-        return True
-    except TypeError:
-        # timeout dict 在归一化阶段就被拒 —— 旧版路径
-        return False
+        except Exception:
+            return None
+    TO = getattr(mod, "Timeout", None)
+    if TO is None:
+        return None
+    try:
+        return TO(connect=float(connect), read=float(read), write=float(read), pool=float(connect))
     except Exception:
-        # 网络/其它错误说明 dict 已被接受（走到了发请求阶段）
-        return True
+        return None
 
 
-def _request_timeout_kwargs(provider, connect: float, read: float) -> dict:
+def _request_timeout_kwargs(connect: float, read: float) -> dict:
     """给 chat.completions.create 的 per-call timeout 参数。
 
-    支持 dict 时拆 connect/read（网关挂死时 connect 10s 内快速失败暴露）；
-    否则只传标量 read（不炸，connect 等待与 read 同预算）。
-    版本探测结果缓存在 provider 上；测试用 __new__ 构造的实例没有该属性时
-    重新探测（结果一致）。read 缺失（测试实例）时退回 LLM_ATTEMPT_TIMEOUT_S。
+    优先用 openai.Timeout 对象拆 connect/read（connect 短 10s，网关黑洞快速失败，
+    不再等满 read 预算）；openai 不可用时退回标量 read（慢一点，但不炸）。
     """
-    supports = getattr(provider, "_supports_timeout_dict", None)
-    if supports is None:
-        supports = _probe_timeout_dict_support()
     if read is None:
         read = LLM_ATTEMPT_TIMEOUT_S
     read = float(read)
     if not math.isfinite(read) or read <= 0:
         read = LLM_ATTEMPT_TIMEOUT_S
-    if supports:
-        return {"timeout": {"connect": float(connect), "read": read, "write": read, "pool": float(connect)}}
+    t = _openai_timeout(connect, read)
+    if t is not None:
+        return {"timeout": t}
     return {"timeout": read}
 
 
@@ -208,9 +189,7 @@ class OpenAICompatibleProvider:
         self._model = model or os.environ.get(ENV_MODEL) or DEFAULT_MODEL
         # 延迟初始化：client 在首次 generate 时构造
         self._client = None  # type: ignore[assignment]
-        # per-call timeout 参数（实测 openai 版本后由 _ensure_client 覆写）；
         # __new__ 构造的测试实例没有 _ensure_client，用默认值保持安全。
-        self._supports_timeout_dict = False
         self._read_timeout_s = LLM_ATTEMPT_TIMEOUT_S
 
     def _ensure_client(self):
@@ -230,17 +209,11 @@ class OpenAICompatibleProvider:
             if not math.isfinite(read_timeout) or read_timeout <= 0:
                 raise ValueError("VD_LLM_REQUEST_TIMEOUT_SECONDS must be a positive number")
         # connect 分离：网关挂死时 TCP connect 只等 LLM_CONNECT_TIMEOUT_S 就快速失败
-        # 暴露，不再被 120s 读超时拖成「Connection error 2 分钟后才进重试」。
-        # 只用标量 timeout——dict timeout 在 openai <2.x（生产 venv 3.29.0）下会
-        # 炸 'dict' object cannot be interpreted as an integer（生产实录 2026-11-18，
-        # 分镜规划三连败）。
+        # 暴露，不再被 read 超时拖成「Connection error 数分钟后才进重试」。client
+        # 层用标量（新旧版 SDK 都安全），connect/read 拆分通过 per-call openai.Timeout
+        # 对象实现（见 _request_timeout_kwargs）。
         client_options["timeout"] = float(read_timeout)
         self._read_timeout_s = float(read_timeout)
-
-        # 新版 openai（>=2.x）把 timeout 转成 httpx.Timeout，接受 per-call dict；
-        # 旧版（生产 venv 3.29.0）只认标量 float。探测一次，connect 分离只在
-        # 受支持时启用——不支持就退回标量（慢一点，但不炸）。
-        self._supports_timeout_dict = _probe_timeout_dict_support()
 
         retries_raw = os.environ.get("VD_LLM_MAX_RETRIES", "").strip()
         if retries_raw:
@@ -363,7 +336,7 @@ class OpenAICompatibleProvider:
                         messages=messages,
                         stream=True,
                         **_request_timeout_kwargs(
-                            self, LLM_CONNECT_TIMEOUT_S,
+                            LLM_CONNECT_TIMEOUT_S,
                             getattr(self, "_read_timeout_s", None)),
                         **self._model_request_options(),
                     )
@@ -420,7 +393,7 @@ class OpenAICompatibleProvider:
                         model=self._model,
                         messages=messages,
                         **_request_timeout_kwargs(
-                            self, LLM_CONNECT_TIMEOUT_S,
+                            LLM_CONNECT_TIMEOUT_S,
                             min(getattr(self, "_read_timeout_s", None)
                                 or LLM_ATTEMPT_TIMEOUT_S,
                                 EMPTY_STREAM_FALLBACK_TIMEOUT_S)),
@@ -528,7 +501,7 @@ class OpenAICompatibleProvider:
             stream = self._client.chat.completions.create(
                 model=self._model, messages=messages, stream=True,
                 **_request_timeout_kwargs(
-                    self, LLM_CONNECT_TIMEOUT_S,
+                    LLM_CONNECT_TIMEOUT_S,
                     getattr(self, "_read_timeout_s", LLM_ATTEMPT_TIMEOUT_S)),
                 **self._model_request_options(),
             )
