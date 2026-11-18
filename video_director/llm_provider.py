@@ -294,6 +294,7 @@ class OpenAICompatibleProvider:
                         **self._model_request_options(),
                     )
                     pieces: list = []
+                    reasoning_only_fallback = ""
                     for chunk in stream:
                         if _cancel_check is not None and _cancel_check():
                             # 流式间隙同样响应停止（不等整段生成完）
@@ -306,18 +307,20 @@ class OpenAICompatibleProvider:
                             delta_obj = chunk.choices[0].delta
                         except (AttributeError, IndexError):
                             delta_obj = None
-                        # 思考型模型（step-5/o1/DeepSeek-R1/GLM-4.6V 等 OpenAI 兼容
-                        # 协议）把答案放在 reasoning_content，content 可能为空或极晚
-                        # 才来。两者都收：否则大 prompt 下推理占满时段被误判「空流」，
-                        # 触发第二次非流式请求，一次调用变两次、必然超时。
                         delta = None
+                        reasoning = None
                         if delta_obj is not None:
                             delta = getattr(delta_obj, "content", None)
-                            if not delta:
-                                delta = getattr(delta_obj, "reasoning_content", None)
+                            reasoning = getattr(delta_obj, "reasoning_content", None)
                         if delta:
                             pieces.append(delta)
-                    content = "".join(pieces)
+                        elif reasoning:
+                            # reasoning_content 是私有思考，绝不进可见输出（不进 on_delta、
+                            # 不写日志）。仅在此整次调用最终零 visible content 时作兜底——
+                            # 否则思考型模型（step-5/o1 系）会因 content 全空被误判「空流」，
+                            # 多打一发非流式请求，一次调用变两次、必然超时。
+                            reasoning_only_fallback += reasoning
+                    content = "".join(pieces) or reasoning_only_fallback
                 except GenerationCancelled:
                     raise
                 except (TypeError, AttributeError, StopIteration) as stream_exc:

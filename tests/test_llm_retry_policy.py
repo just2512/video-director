@@ -170,8 +170,9 @@ class TestTextChannelRetry:
         monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
         assert p.generate_optional("hi", timeout_s=30.0) == "好的"
 
-    def test_generate_streaming_collects_reasoning_content(self, monkeypatch):
-        """思考型模型：content 空但 reasoning_content 有值 → 不当空流丢掉。"""
+    def test_generate_streaming_collects_reasoning_content(self):
+        """思考型模型：content 空但 reasoning_content 有值 → 不当「空流」丢掉，
+        不再多打一发非流式请求（一次调用变两次、必然超时）。"""
 
         class _Delta:
             def __init__(self, content=None, reasoning=None):
@@ -193,6 +194,39 @@ class TestTextChannelRetry:
         p = self._provider()
         p._client = _C()
         assert p.generate("hi") == '{"duration": 30}'
+
+    def test_generate_prefers_visible_content_over_private_reasoning(self):
+        """契约：reasoning_content 是私有思考绝不外流——只要有任何 visible
+        content，返回值就只用 content（reasoning 不得混入，也不得进 on_delta 流）。"""
+
+        class _Delta:
+            def __init__(self, content=None, reasoning=None):
+                self.content = content
+                self.reasoning_content = reasoning
+
+        class _Chunk:
+            def __init__(self, delta):
+                self.choices = [type("c", (), {"delta": delta})()]
+
+        def fake_create(**kwargs):
+            return iter([
+                _Chunk(_Delta(reasoning="private reasoning must never be streamed")),
+                _Chunk(_Delta(content="O")),
+                _Chunk(_Delta(content="K")),
+            ])
+
+        class _C:
+            chat = type("chat", (), {})()
+        _C.chat.completions = type("completions", (), {
+            "create": staticmethod(fake_create)})()
+        p = self._provider()
+        p._client = _C()
+        assert p.generate("reply OK") == "OK"
+
+        fragments = []
+        assert p.generate_stream("reply OK", on_delta=fragments.append) == "OK"
+        assert fragments == ["O", "K"]
+        assert "private reasoning" not in "".join(fragments)
 
     def test_retry_drops_dead_client_connection(self, monkeypatch):
         """2026-10-25 生产事故回归锁：网关挂死时 httpx 连接池里的死连接
