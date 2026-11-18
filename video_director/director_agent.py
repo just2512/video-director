@@ -475,8 +475,9 @@ def _tool_material(spec: dict, state: dict) -> dict:
         from video_director import llm_provider
         provider = llm_provider.get_llm()
         if provider is not None:
-            # 可选增强短耐心：超时即降确定性兜底，不拖主链 3×120s 重试。
-            llm_call = lambda prompt: provider.generate_optional(prompt)
+            # 素材匹配是理解剪辑指令的核心，走主链 generate()（充分推理 + 3 次重试），
+            # 不许短刀砍推理。
+            llm_call = lambda prompt: provider.generate(prompt)
     except Exception:
         pass
 

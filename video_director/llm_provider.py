@@ -49,13 +49,16 @@ LLM_MAX_RETRIES = 3
 LLM_RETRY_WAIT_S = 10.0       # 固定重试间隔（用户裁决 2026-10-25）
 LLM_ATTEMPT_TIMEOUT_S = 120.0  # 单次尝试读超时（秒）：正常长生成 60~150s，流式=相邻块间隔
 LLM_CONNECT_TIMEOUT_S = 10.0  # 连接超时：网关挂死时 connect 10s 内快速失败暴露，不再拖 120s
-# 可选增强（素材匹配/规划等「有则更好」步骤）的短耐心上限：网关挂死或模型极慢时
-# 到点即放弃并降级确定性兜底，不把 3×120s 主链重试拖进可选步骤。
-OPTIONAL_LLM_TIMEOUT_S = 45.0
 # 空流兜底（非流式重发）的短耐心上限：网关偶发返回 0 chunk 的完全空流，非流式
 # 兜底在大 prompt 下会跑满 120s 读超时，把单次调用打成「流式 + 非流式 120s」。
 # 兜底不给比流式更长的预算，到点即进正常重试循环。
 EMPTY_STREAM_FALLBACK_TIMEOUT_S = 45.0
+# 通用输出预算：思考型模型（step-5 / glm-5.3-flash 系）的 reasoning 与可见
+# content 共享同一份 max_tokens 预算，网关默认往往只有 1024，推理阶段就会把它
+# 吃光、content 永远为空（实测 max_tokens=20 时 content='' + finish=length）。
+# 给所有 OpenAI 兼容模型一个足够容纳「推理 + 分镜 JSON」的默认上限；VD_LLM_MAX_TOKENS
+# 可覆盖。这是协议通用参数，非思考型模型只是输出上限变大，无副作用。
+LLM_DEFAULT_MAX_TOKENS = 8192
 
 # 进程级 LLM 重试状态（诊断）：最近一次 generate 的重试进度——健康检查/
 # 状态查询读它区分「长时间生成」与「LLM 正在重试」。
@@ -76,10 +79,6 @@ def set_cancel_check(fn: Optional[Callable[[], bool]]) -> None:
 
 class GenerationCancelled(Exception):
     """LLM 调用因用户停止创作被中断（重试循环内检测到取消标志）。"""
-
-
-class OptionalLLMUnavailable(Exception):
-    """可选增强的 LLM 短耐心调用不可用（超时/异常/空内容）——调用方降级兜底。"""
 
 
 class _EmptyGeneration(Exception):
@@ -245,39 +244,49 @@ class OpenAICompatibleProvider:
         return self._base_url
 
     def _model_request_options(self) -> dict:
-        """Use NVIDIA's documented low-latency settings for GLM-5.3-Flash.
+        """思考型模型通用参数 + NVIDIA GLM-5.3-Flash 官方低延迟特例。
 
-        NVIDIA documents reasoning_effort=max and clear_thinking=false as
-        defaults for this model. Long hidden reasoning can delay user-facing
-        content deltas, so the Flash model uses low effort by default. The
-        setting is narrowly scoped to NVIDIA's official endpoint and this exact
-        model; other OpenAI-compatible providers are not changed.
+        通用：给所有 OpenAI 兼容模型一个 `max_tokens` 默认（见 LLM_DEFAULT_MAX_TOKENS），
+        否则思考型模型的 reasoning 会吃光网关默认的 1024 预算、content 永远为空。
+        NVIDIA glm-5.3-flash 额外带官方低延迟参数（reasoning_effort + clear_thinking）。
         """
         # Some callers/tests construct the provider via __new__ to isolate the
         # streaming loop. Missing endpoint state must preserve generic OpenAI
         # compatibility rather than turning a stream/cancel path into AttributeError.
         endpoint = str(getattr(self, "_base_url", "") or "").strip()
         model = str(getattr(self, "_model", "") or "").strip().lower()
+
+        def _default_max_tokens() -> int:
+            raw = os.environ.get("VD_LLM_MAX_TOKENS", "").strip()
+            if raw:
+                try:
+                    v = int(raw)
+                    if v > 0:
+                        return v
+                except ValueError:
+                    pass
+            return LLM_DEFAULT_MAX_TOKENS
+
         if not endpoint or not model:
-            return {}
+            return {"max_tokens": _default_max_tokens()}
         if "://" not in endpoint:
             endpoint = "https://" + endpoint
         host = (urlparse(endpoint).hostname or "").lower().rstrip(".")
-        if host != "integrate.api.nvidia.com" or model != "z-ai/glm-5.3-flash":
-            return {}
-
-        effort = os.environ.get("VD_LLM_REASONING_EFFORT", "low").strip().lower() or "low"
-        if effort not in {"low", "high", "max"}:
-            raise ValueError("VD_LLM_REASONING_EFFORT must be low, high, or max")
-        return {
-            # NVIDIA documents that GLM-5.3-Flash reasoning tokens consume the
-            # same max_tokens budget as the visible answer. Its endpoint defaults
-            # this budget to 1024; set the documented 8192 floor so the reasoning
-            # phase cannot consume the entire response budget before JSON begins.
-            "reasoning_effort": effort,
-            "max_tokens": 8192,
-            "extra_body": {"chat_template_kwargs": {"clear_thinking": True}},
+        if host == "integrate.api.nvidia.com" and model == "z-ai/glm-5.3-flash":
+            effort = os.environ.get("VD_LLM_REASONING_EFFORT", "low").strip().lower() or "low"
+            if effort not in {"low", "high", "max"}:
+                raise ValueError("VD_LLM_REASONING_EFFORT must be low, high, or max")
+            return {
+                # NVIDIA documents that GLM-5.3-Flash reasoning tokens consume the
+                # same max_tokens budget as the visible answer. Its endpoint defaults
+                # this budget to 1024; set the documented 8192 floor so the reasoning
+                # phase cannot consume the entire response budget before JSON begins.
+                "reasoning_effort": effort,
+                "max_tokens": _default_max_tokens(),
+                "extra_body": {"chat_template_kwargs": {"clear_thinking": True}},
         }
+        # 其它所有 OpenAI 兼容模型：通用 max_tokens 默认，防思考型模型 reasoning 占满预算
+        return {"max_tokens": _default_max_tokens()}
 
     def _refresh_runtime_config(self) -> bool:
         """重试前刷新当前生效配置（前端/环境变量变更）；有变化返回 True。
@@ -450,37 +459,6 @@ class OpenAICompatibleProvider:
                         time.sleep(1.0)
         raise RuntimeError(
             f"LLM generate 失败（重试 {LLM_MAX_RETRIES} 次后）: {last_exc}") from last_exc
-
-    def generate_optional(self, prompt: str, system: Optional[str] = None,
-                          timeout_s: float = OPTIONAL_LLM_TIMEOUT_S) -> str:
-        """可选增强专用：短耐心调用，超时/异常一律抛 OptionalLLMUnavailable。
-
-        素材语义匹配、BGM 语义选曲等「有则更好、无则降级」的增强点，绝不能
-        把主链的 3×120s 重试纪律拖进可选步骤——生产实录：画面匹配读超时
-        卡 6 分钟才降级，用户看到创作流程停摆。这里用守护线程 join(timeout)
-        丢弃法：超时即放弃，调用方立刻走确定性/顺序兜底（与意图层同一模式）。
-        """
-        import threading
-        box: dict = {}
-
-        def _worker():
-            try:
-                box["raw"] = self.generate(prompt, system=system)
-            except Exception as exc:
-                box["exc"] = exc
-
-        t = threading.Thread(target=_worker, daemon=True)
-        t.start()
-        t.join(timeout=timeout_s)
-        if t.is_alive():
-            logger.warning(f"可选 LLM 增强 {timeout_s:.0f}s 超时，调用方降级兜底")
-            raise OptionalLLMUnavailable(f"可选 LLM 增强 {timeout_s:.0f}s 超时")
-        if "exc" in box:
-            raise OptionalLLMUnavailable(str(box["exc"])) from box["exc"]
-        raw = box.get("raw") or ""
-        if not raw:
-            raise OptionalLLMUnavailable("可选 LLM 增强返回空内容")
-        return raw
 
     supports_stream_cancellation = True
 
