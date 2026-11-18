@@ -247,6 +247,45 @@ class TestTextChannelRetry:
         p._client = _C()
         assert p.generate("hi") == '{"duration": 30}'
 
+    def test_empty_stream_fallback_uses_short_patience(self, monkeypatch):
+        """回归锁（生产 2026-11-18）：网关返回 0 chunk 的完全空流时，非流式兜底
+        不得沿用 120s 读超时——实测慢网关上非流式单发 96~131s 且半数失败，把单次
+        调用打成「流式 + 非流式 120s」再叠加 3 次重试 = 十几分钟卡死。兜底预算必须
+        被压到 EMPTY_STREAM_FALLBACK_TIMEOUT_S。"""
+        p = self._provider()
+        seen_timeouts = []
+
+        class _Completions:
+            def create(self, **kwargs):
+                seen_timeouts.append(kwargs.get("timeout"))
+                # 流式一律空（0 chunk）；非流式也返回空 → 进重试
+                return iter([])
+
+        class _C:
+            chat = type("chat", (), {})()
+        _C.chat.completions = type("completions", (), {
+            "create": staticmethod(_Completions().create)})()
+        p._client = _C()
+        p._supports_timeout_dict = True
+        p._read_timeout_s = llm_provider.LLM_ATTEMPT_TIMEOUT_S
+        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
+
+        try:
+            p.generate("hi")
+            raise AssertionError("3 次全空后应抛 RuntimeError")
+        except RuntimeError:
+            pass
+
+        # 第 1 发是流式（read=120s）；从第 2 发起是空流兜底的非流式，read 必须被压到 45s
+        assert seen_timeouts, seen_timeouts
+        fallback_reads = [
+            t["read"] if isinstance(t, dict) else t
+            for t in seen_timeouts[1:]
+        ]
+        assert fallback_reads, seen_timeouts
+        for r in fallback_reads:
+            assert r == llm_provider.EMPTY_STREAM_FALLBACK_TIMEOUT_S == 45.0, seen_timeouts
+
     def test_generate_prefers_visible_content_over_private_reasoning(self):
         """契约：reasoning_content 是私有思考绝不外流——只要有任何 visible
         content，返回值就只用 content（reasoning 不得混入，也不得进 on_delta 流）。"""
