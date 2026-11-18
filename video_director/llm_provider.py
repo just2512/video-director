@@ -49,6 +49,9 @@ LLM_MAX_RETRIES = 3
 LLM_RETRY_WAIT_S = 10.0       # 固定重试间隔（用户裁决 2026-10-25）
 LLM_ATTEMPT_TIMEOUT_S = 120   # 单次尝试读超时：正常长生成 60~150s，流式=相邻块间隔
 LLM_CONNECT_TIMEOUT_S = 10.0  # 连接超时：网关挂死时 connect 10s 内快速失败暴露，不再拖 120s
+# 可选增强（素材匹配/规划等「有则更好」步骤）的短耐心上限：网关挂死或模型极慢时
+# 到点即放弃并降级确定性兜底，不把 3×120s 主链重试拖进可选步骤。
+OPTIONAL_LLM_TIMEOUT_S = 45.0
 
 # 进程级 LLM 重试状态（诊断）：最近一次 generate 的重试进度——健康检查/
 # 状态查询读它区分「长时间生成」与「LLM 正在重试」。
@@ -69,6 +72,10 @@ def set_cancel_check(fn: Optional[Callable[[], bool]]) -> None:
 
 class GenerationCancelled(Exception):
     """LLM 调用因用户停止创作被中断（重试循环内检测到取消标志）。"""
+
+
+class OptionalLLMUnavailable(Exception):
+    """可选增强的 LLM 短耐心调用不可用（超时/异常/空内容）——调用方降级兜底。"""
 
 
 class _EmptyGeneration(Exception):
@@ -287,6 +294,7 @@ class OpenAICompatibleProvider:
                         **self._model_request_options(),
                     )
                     pieces: list = []
+                    reasoning_only_fallback = ""
                     for chunk in stream:
                         if _cancel_check is not None and _cancel_check():
                             # 流式间隙同样响应停止（不等整段生成完）
@@ -296,12 +304,23 @@ class OpenAICompatibleProvider:
                                 pass
                             raise GenerationCancelled("创作已停止，文本模型调用被中断")
                         try:
-                            delta = chunk.choices[0].delta.content
+                            delta_obj = chunk.choices[0].delta
                         except (AttributeError, IndexError):
-                            delta = None
+                            delta_obj = None
+                        delta = None
+                        reasoning = None
+                        if delta_obj is not None:
+                            delta = getattr(delta_obj, "content", None)
+                            reasoning = getattr(delta_obj, "reasoning_content", None)
                         if delta:
                             pieces.append(delta)
-                    content = "".join(pieces)
+                        elif reasoning:
+                            # reasoning_content 是私有思考，绝不进可见输出（不进 on_delta、
+                            # 不写日志）。仅在此整次调用最终零 visible content 时作兜底——
+                            # 否则思考型模型（step-5/o1 系）会因 content 全空被误判「空流」，
+                            # 多打一发非流式请求，一次调用变两次、必然超时。
+                            reasoning_only_fallback += reasoning
+                    content = "".join(pieces) or reasoning_only_fallback
                 except GenerationCancelled:
                     raise
                 except (TypeError, AttributeError, StopIteration) as stream_exc:
@@ -369,6 +388,37 @@ class OpenAICompatibleProvider:
                         time.sleep(1.0)
         raise RuntimeError(
             f"LLM generate 失败（重试 {LLM_MAX_RETRIES} 次后）: {last_exc}") from last_exc
+
+    def generate_optional(self, prompt: str, system: Optional[str] = None,
+                          timeout_s: float = OPTIONAL_LLM_TIMEOUT_S) -> str:
+        """可选增强专用：短耐心调用，超时/异常一律抛 OptionalLLMUnavailable。
+
+        素材语义匹配、BGM 语义选曲等「有则更好、无则降级」的增强点，绝不能
+        把主链的 3×120s 重试纪律拖进可选步骤——生产实录：画面匹配读超时
+        卡 6 分钟才降级，用户看到创作流程停摆。这里用守护线程 join(timeout)
+        丢弃法：超时即放弃，调用方立刻走确定性/顺序兜底（与意图层同一模式）。
+        """
+        import threading
+        box: dict = {}
+
+        def _worker():
+            try:
+                box["raw"] = self.generate(prompt, system=system)
+            except Exception as exc:
+                box["exc"] = exc
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+        t.join(timeout=timeout_s)
+        if t.is_alive():
+            logger.warning(f"可选 LLM 增强 {timeout_s:.0f}s 超时，调用方降级兜底")
+            raise OptionalLLMUnavailable(f"可选 LLM 增强 {timeout_s:.0f}s 超时")
+        if "exc" in box:
+            raise OptionalLLMUnavailable(str(box["exc"])) from box["exc"]
+        raw = box.get("raw") or ""
+        if not raw:
+            raise OptionalLLMUnavailable("可选 LLM 增强返回空内容")
+        return raw
 
     supports_stream_cancellation = True
 
