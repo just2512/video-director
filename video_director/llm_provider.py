@@ -52,6 +52,10 @@ LLM_CONNECT_TIMEOUT_S = 10.0  # 连接超时：网关挂死时 connect 10s 内�
 # 可选增强（素材匹配/规划等「有则更好」步骤）的短耐心上限：网关挂死或模型极慢时
 # 到点即放弃并降级确定性兜底，不把 3×120s 主链重试拖进可选步骤。
 OPTIONAL_LLM_TIMEOUT_S = 45.0
+# 空流兜底（非流式重发）的短耐心上限：网关偶发返回 0 chunk 的完全空流，非流式
+# 兜底在大 prompt 下会跑满 120s 读超时，把单次调用打成「流式 + 非流式 120s」。
+# 兜底不给比流式更长的预算，到点即进正常重试循环。
+EMPTY_STREAM_FALLBACK_TIMEOUT_S = 45.0
 
 # 进程级 LLM 重试状态（诊断）：最近一次 generate 的重试进度——健康检查/
 # 状态查询读它区分「长时间生成」与「LLM 正在重试」。
@@ -394,21 +398,32 @@ class OpenAICompatibleProvider:
                 except GenerationCancelled:
                     raise
                 except (TypeError, AttributeError, StopIteration) as stream_exc:
-                    # 仅「流式不兼容」降级非流式（网关不支持 stream/响应结构
-                    # 异常）。网络/HTTP 错误（连接超时/4xx/5xx）不重复请求，
-                    # 直接向上抛走统一重试——避免一次失败打两发。
+                    # 流式响应结构异常（网关不支持 stream / chunk 结构不符）。
+                    # 2026-11-18：不再原地降级重打非流式——实测同一慢网关上非流式
+                    # 更慢且半数失败。置空后统一按可重试失败进重试循环（重试用新
+                    # 连接重发同样的流式请求）。网络/HTTP 错误不在此列，直接上抛。
                     content = ""
-                    logger.debug(f"LLM 流式不兼容，降级非流式: {stream_exc}")
+                    logger.debug(f"LLM 流式响应结构异常，按可重试失败处理: {stream_exc}")
                 if not content:
-                    # 2026-10-27：空流/流式失败兜底——部分 OpenAI 兼容网关
-                    # 对 stream 支持不完整。降级同请求非流式一次；仍空则
-                    # 走正常重试循环（可能是瞬时故障）。
+                    # 2026-10-27：空流兜底——部分 OpenAI 兼容网关对 stream 支持
+                    # 不完整（流式返回非流式响应对象，或 0 chunk）。降级同请求非流式
+                    # 一次；仍空则进正常重试循环。
+                    #
+                    # 2026-11-18 生产实录：step-5 在大 prompt 上流式单发就要
+                    # 80~272s，网关还会偶发返回完全空的流（0 chunk）。若兜底沿用
+                    # 120s 读超时，单次调用被打成「流式 + 非流式 120s」，再叠加
+                    # 3 次重试 = 十几分钟卡死（前端「Request timed out」与
+                    # 「Connection error」交替）。兜底改为短耐心：非流式同样受该
+                    # 慢网关影响，不给它比流式更长的预算，到点即进重试循环（重试
+                    # 用新连接重发同样的流式请求——那才是对网关抖动有效的恢复）。
                     resp = self._client.chat.completions.create(
                         model=self._model,
                         messages=messages,
                         **_request_timeout_kwargs(
                             self, LLM_CONNECT_TIMEOUT_S,
-                            getattr(self, "_read_timeout_s", None)),
+                            min(getattr(self, "_read_timeout_s", None)
+                                or LLM_ATTEMPT_TIMEOUT_S,
+                                EMPTY_STREAM_FALLBACK_TIMEOUT_S)),
                         **self._model_request_options(),
                     )
                     try:
