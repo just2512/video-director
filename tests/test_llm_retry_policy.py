@@ -173,35 +173,6 @@ class TestTextChannelRetry:
         assert kw == {"timeout": 120.0}
         assert isinstance(kw["timeout"], float)
 
-    def test_generate_optional_times_out_fast(self, monkeypatch):
-        """可选增强短耐心：generate 挂死时到点即抛 OptionalLLMUnavailable，
-        不把主链 3×120s 重试拖进可选步骤（生产：匹配画面卡 6 分钟）。"""
-        p = self._provider()
-
-        class _Hung:
-            def chat_completions_create(self, **kwargs):
-                import time as _t
-                _t.sleep(30)
-                raise AssertionError("不应被消化为返回值")
-        p._client = self._fake_client(_Hung())
-        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
-
-        t0 = time.time()
-        try:
-            p.generate_optional("hi", timeout_s=1.0)
-            raise AssertionError("应抛 OptionalLLMUnavailable")
-        except llm_provider.OptionalLLMUnavailable:
-            pass
-        elapsed = time.time() - t0
-        assert elapsed < 10, f"短耐心应在 10s 内返回，实际 {elapsed:.1f}s"
-
-    def test_generate_optional_passes_success_through(self, monkeypatch):
-        p = self._provider()
-        flaky = _Flaky(fail_times=0, exc_factory=lambda: TimeoutError("t"))
-        p._client = self._fake_client(flaky)
-        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
-        assert p.generate_optional("hi", timeout_s=30.0) == "好的"
-
     def test_reasoning_never_reaches_the_caller_as_content(self, monkeypatch):
         """回归锁（生产 2026-11-18）：reasoning_content 是私有思考，绝不能作为
         返回值给调用方。分镜规划/素材匹配都期望 JSON——若把模型的自然语言推理

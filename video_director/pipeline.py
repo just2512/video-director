@@ -1184,9 +1184,9 @@ def compose_auto(
         try:
             _llm_provider = llm_provider.get_llm()
             if _llm_provider is not None:
-                # 可选增强（素材语义匹配/规划）走短耐心：超时即降级确定性兜底，
-                # 不把 3×120s 主链重试拖成「匹配画面卡 6 分钟」。
-                llm_call = lambda prompt: _llm_provider.generate_optional(prompt)
+                # 语义匹配/叙事规划是理解剪辑指令的核心，不是「可有可无」的增强——
+                # 走主链 generate()（充分推理耐心 + 3 次重试），不许 45s 短刀砍断推理。
+                llm_call = lambda prompt: _llm_provider.generate(prompt)
                 logger.info("LLM 已接入：素材匹配/规划将用大模型增强")
         except Exception:
             llm_call = None
