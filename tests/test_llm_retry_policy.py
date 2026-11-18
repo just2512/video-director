@@ -222,9 +222,11 @@ class TestTextChannelRetry:
         monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
         assert p.generate_optional("hi", timeout_s=30.0) == "好的"
 
-    def test_generate_streaming_collects_reasoning_content(self):
-        """思考型模型：content 空但 reasoning_content 有值 → 不当「空流」丢掉，
-        不再多打一发非流式请求（一次调用变两次、必然超时）。"""
+    def test_reasoning_never_reaches_the_caller_as_content(self, monkeypatch):
+        """回归锁（生产 2026-11-18）：reasoning_content 是私有思考，绝不能作为
+        返回值给调用方。分镜规划/素材匹配都期望 JSON——若把模型的自然语言推理
+        文本当 content 返回，调用方 find("{") 失败，报「分镜节点没有返回合法
+        JSON」。只吐 reasoning（content 全空）时必须按空 content 处理。"""
 
         class _Delta:
             def __init__(self, content=None, reasoning=None):
@@ -237,7 +239,8 @@ class TestTextChannelRetry:
 
         def fake_create(**kwargs):
             assert kwargs.get("stream") is True
-            return iter([_Chunk(_Delta(reasoning='{"duration": 30}'))])
+            # 思考型模型：只有推理、没有任何可见内容
+            return iter([_Chunk(_Delta(reasoning="让我想想分镜该怎么设计……"))])
 
         class _C:
             chat = type("chat", (), {})()
@@ -245,7 +248,13 @@ class TestTextChannelRetry:
             "create": staticmethod(fake_create)})()
         p = self._provider()
         p._client = _C()
-        assert p.generate("hi") == '{"duration": 30}'
+        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
+        # 不得把推理文本当返回值；3 次尝试后按 RuntimeError 收口
+        try:
+            p.generate("hi")
+            raise AssertionError("只吐 reasoning 不应作为成功返回")
+        except RuntimeError:
+            pass
 
     def test_empty_stream_fallback_uses_short_patience(self, monkeypatch):
         """回归锁（生产 2026-11-18）：网关返回 0 chunk 的完全空流时，非流式兜底
