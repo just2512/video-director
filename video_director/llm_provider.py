@@ -368,7 +368,7 @@ class OpenAICompatibleProvider:
                         **self._model_request_options(),
                     )
                     pieces: list = []
-                    reasoning_only_fallback = ""
+                    reasoning_chunks = 0
                     for chunk in stream:
                         if _cancel_check is not None and _cancel_check():
                             # 流式间隙同样响应停止（不等整段生成完）
@@ -390,11 +390,11 @@ class OpenAICompatibleProvider:
                             pieces.append(delta)
                         elif reasoning:
                             # reasoning_content 是私有思考，绝不进可见输出（不进 on_delta、
-                            # 不写日志）。仅在此整次调用最终零 visible content 时作兜底——
-                            # 否则思考型模型（step-5/o1 系）会因 content 全空被误判「空流」，
-                            # 多打一发非流式请求，一次调用变两次、必然超时。
-                            reasoning_only_fallback += reasoning
-                    content = "".join(pieces) or reasoning_only_fallback
+                            # 不写日志）。仅计数用于诊断「模型确实产出了、只是内容为空」，
+                            # 不作为返回值——调用方（分镜规划/素材匹配）都期望 JSON，
+                            # 自然语言推理文本会让它们报「没有返回合法 JSON」。
+                            reasoning_chunks += 1
+                    content = "".join(pieces)
                 except GenerationCancelled:
                     raise
                 except (TypeError, AttributeError, StopIteration) as stream_exc:
@@ -433,7 +433,8 @@ class OpenAICompatibleProvider:
                     if content:
                         return content
                     # 空内容走可重试路径（瞬时故障可能下轮恢复）
-                    raise _EmptyGeneration("LLM 返回空内容")
+                    raise _EmptyGeneration(
+                        f"LLM 流式返回空 content（reasoning_chunks={reasoning_chunks}）")
                 return content
             except RuntimeError:
                 raise  # 结构异常类，不重试
