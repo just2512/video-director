@@ -116,12 +116,10 @@ class TestTextChannelRetry:
         # 单次尝试超时 120s：流式语义=相邻数据块间隔（长生成不再误杀）。
         assert llm_provider.LLM_ATTEMPT_TIMEOUT_S == 120
 
-    def test_connect_and_read_timeout_are_split(self, monkeypatch):
-        """网关挂死时 connect 只等 10s（快速失败暴露），read 保持 120s（长生成不被误杀）。
-
-        回归锁：生产曾把标量 timeout=120 统一套到 connect/read，导致网关挂死时
-        「Connection error」拖 2 分钟才进入 10s 重试。
-        """
+    def test_client_timeout_is_scalar_for_old_sdk_safety(self, monkeypatch):
+        """回归锁（生产实录 2026-11-18）：openai 3.29.0（生产 venv）下 dict timeout
+        会在真正发请求时炸 `'dict' object cannot be interpreted as an integer`。
+        client 层只能用标量；dict 只允许出现在受支持的 per-call 上。"""
         import openai as openai_mod
         captured = {}
 
@@ -136,10 +134,64 @@ class TestTextChannelRetry:
         p = self._provider()
         p._client = None
         p._ensure_client()
-        timeout = captured["timeout"]
-        assert isinstance(timeout, dict)
-        assert timeout["connect"] == llm_provider.LLM_CONNECT_TIMEOUT_S == 10.0
-        assert timeout["read"] == llm_provider.LLM_ATTEMPT_TIMEOUT_S == 120.0
+        assert isinstance(captured["timeout"], float)
+        assert captured["timeout"] == llm_provider.LLM_ATTEMPT_TIMEOUT_S
+
+    def test_request_timeout_kwargs_version_aware(self):
+        """per-call：新版给 dict（connect/read 拆分），旧版只给标量（不炸）。"""
+
+        class _New:
+            _supports_timeout_dict = True
+
+        class _Old:
+            _supports_timeout_dict = False
+
+        new = llm_provider._request_timeout_kwargs(_New(), 10.0, 120.0)
+        assert new == {"timeout": {"connect": 10.0, "read": 120.0, "write": 120.0, "pool": 10.0}}
+        old = llm_provider._request_timeout_kwargs(_Old(), 10.0, 120.0)
+        assert old == {"timeout": 120.0}
+        assert isinstance(old["timeout"], float)
+
+    def test_probe_timeout_dict_support_detects_old_sdk_typeerror(self, monkeypatch):
+        """功能探测：openai 旧版在 timeout 归一化阶段抛 TypeError → 判不支持。
+    （版本号不可靠——生产 venv openai 3.29.0 反而是「不支持 dict」的那一档。）"""
+        import sys
+        import types
+
+        class _OldCompletions:
+            def create(self, **kwargs):
+                raise TypeError("'dict' object cannot be interpreted as an integer")
+
+        class _OldClient:
+            chat = types.SimpleNamespace(completions=_OldCompletions())
+
+        def fake_openai(**kwargs):
+            return _OldClient()
+
+        fake = types.ModuleType("openai")
+        fake.OpenAI = fake_openai
+        monkeypatch.setitem(sys.modules, "openai", fake)
+        assert not llm_provider._probe_timeout_dict_support()
+
+    def test_probe_timeout_dict_support_accepts_new_sdk(self, monkeypatch):
+        """新 SDK：dict 被接受、请求走到发请求阶段（网络错误）→ 判支持。"""
+        import sys
+        import types
+
+        class _NewCompletions:
+            def create(self, **kwargs):
+                raise ConnectionError("unreachable (dict was accepted)")
+
+        class _NewClient:
+            chat = types.SimpleNamespace(completions=_NewCompletions())
+
+        def fake_openai(**kwargs):
+            return _NewClient()
+
+        fake = types.ModuleType("openai")
+        fake.OpenAI = fake_openai
+        monkeypatch.setitem(sys.modules, "openai", fake)
+        assert llm_provider._probe_timeout_dict_support()
 
     def test_generate_optional_times_out_fast(self, monkeypatch):
         """可选增强短耐心：generate 挂死时到点即抛 OptionalLLMUnavailable，
