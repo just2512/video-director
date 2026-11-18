@@ -137,61 +137,41 @@ class TestTextChannelRetry:
         assert isinstance(captured["timeout"], float)
         assert captured["timeout"] == llm_provider.LLM_ATTEMPT_TIMEOUT_S
 
-    def test_request_timeout_kwargs_version_aware(self):
-        """per-call：新版给 dict（connect/read 拆分），旧版只给标量（不炸）。"""
-
-        class _New:
-            _supports_timeout_dict = True
-
-        class _Old:
-            _supports_timeout_dict = False
-
-        new = llm_provider._request_timeout_kwargs(_New(), 10.0, 120.0)
-        assert new == {"timeout": {"connect": 10.0, "read": 120.0, "write": 120.0, "pool": 10.0}}
-        old = llm_provider._request_timeout_kwargs(_Old(), 10.0, 120.0)
-        assert old == {"timeout": 120.0}
-        assert isinstance(old["timeout"], float)
-
-    def test_probe_timeout_dict_support_detects_old_sdk_typeerror(self, monkeypatch):
-        """功能探测：openai 旧版在 timeout 归一化阶段抛 TypeError → 判不支持。
-    （版本号不可靠——生产 venv openai 3.29.0 反而是「不支持 dict」的那一档。）"""
+    def test_request_timeout_kwargs_uses_openai_timeout_object(self, monkeypatch):
+        """per-call：用 openai.Timeout 对象拆 connect/read（openai 2.x/3.x 都接受，
+        能快速失败 connect 黑洞，不再等满 read 预算）。"""
         import sys
         import types
 
-        class _OldCompletions:
-            def create(self, **kwargs):
-                raise TypeError("'dict' object cannot be interpreted as an integer")
+        class _FakeTimeout:
+            def __init__(self, connect, read, write, pool):
+                self.connect = connect
+                self.read = read
+                self.write = write
+                self.pool = pool
 
-        class _OldClient:
-            chat = types.SimpleNamespace(completions=_OldCompletions())
-
-        def fake_openai(**kwargs):
-            return _OldClient()
+        class _FakeOpenAI:
+            Timeout = _FakeTimeout
 
         fake = types.ModuleType("openai")
-        fake.OpenAI = fake_openai
+        fake.Timeout = _FakeTimeout
         monkeypatch.setitem(sys.modules, "openai", fake)
-        assert not llm_provider._probe_timeout_dict_support()
 
-    def test_probe_timeout_dict_support_accepts_new_sdk(self, monkeypatch):
-        """新 SDK：dict 被接受、请求走到发请求阶段（网络错误）→ 判支持。"""
+        kw = llm_provider._request_timeout_kwargs(10.0, 120.0)
+        t = kw["timeout"]
+        assert isinstance(t, _FakeTimeout)
+        assert t.connect == 10.0
+        assert t.read == 120.0
+
+    def test_request_timeout_kwargs_falls_back_to_scalar_without_openai(self, monkeypatch):
+        """openai 不可用（CI 无 openai / fake 缺 Timeout）→ 退回标量 read，不炸。"""
         import sys
         import types
-
-        class _NewCompletions:
-            def create(self, **kwargs):
-                raise ConnectionError("unreachable (dict was accepted)")
-
-        class _NewClient:
-            chat = types.SimpleNamespace(completions=_NewCompletions())
-
-        def fake_openai(**kwargs):
-            return _NewClient()
-
-        fake = types.ModuleType("openai")
-        fake.OpenAI = fake_openai
+        fake = types.ModuleType("openai")  # 无 Timeout 属性
         monkeypatch.setitem(sys.modules, "openai", fake)
-        assert llm_provider._probe_timeout_dict_support()
+        kw = llm_provider._request_timeout_kwargs(10.0, 120.0)
+        assert kw == {"timeout": 120.0}
+        assert isinstance(kw["timeout"], float)
 
     def test_generate_optional_times_out_fast(self, monkeypatch):
         """可选增强短耐心：generate 挂死时到点即抛 OptionalLLMUnavailable，
@@ -275,7 +255,6 @@ class TestTextChannelRetry:
         _C.chat.completions = type("completions", (), {
             "create": staticmethod(_Completions().create)})()
         p._client = _C()
-        p._supports_timeout_dict = True
         p._read_timeout_s = llm_provider.LLM_ATTEMPT_TIMEOUT_S
         monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
 
@@ -287,10 +266,14 @@ class TestTextChannelRetry:
 
         # 第 1 发是流式（read=120s）；从第 2 发起是空流兜底的非流式，read 必须被压到 45s
         assert seen_timeouts, seen_timeouts
-        fallback_reads = [
-            t["read"] if isinstance(t, dict) else t
-            for t in seen_timeouts[1:]
-        ]
+
+        def _read_of(t):
+            # openai.Timeout 对象有 .read；标量/None 退回自身
+            if isinstance(t, (int, float)):
+                return t
+            return getattr(t, "read", t)
+
+        fallback_reads = [_read_of(t) for t in seen_timeouts[1:]]
         assert fallback_reads, seen_timeouts
         for r in fallback_reads:
             assert r == llm_provider.EMPTY_STREAM_FALLBACK_TIMEOUT_S == 45.0, seen_timeouts
