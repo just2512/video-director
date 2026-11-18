@@ -79,11 +79,16 @@ def synth_scene_audio(
 ) -> List[dict]:
     """单场景 edge-tts 合成，返回该场景内词级时间戳 [{text,start,end}]（场景内相对秒）。
 
-    WordBoundary chunk 的 offset 单位为 100 纳秒（1e7/s）。
+    带 429/网络错误的重试：edge-tts 是微软免费公共端点，连续合成易触发 429
+    限流（生产实录 2026-11-18：narration 节点因 429 直接 FAILED）。429 是
+    瞬时故障，指数退避重试；403/400 等确定性拒绝不重试（重试无意义）。
     """
     import edge_tts
 
-    async def _run():
+    EDGE_TTS_RETRIES = 3
+    EDGE_TTS_RETRY_BASE_S = 2.0
+
+    async def _run_once():
         communicate = edge_tts.Communicate(text, voice, rate=rate, boundary="WordBoundary")
         words = []
         chunks = []
@@ -108,20 +113,39 @@ def synth_scene_audio(
                 f.write(c)
         return words
 
-    try:
-        return asyncio.run(_run())
-    except NarrationError:
-        raise
-    except Exception as exc:
-        # 403 = 微软封禁旧端点（2026-10，上游 #490）；本包 __init__ 的
-        # 端点补丁正常时不应出现。带真实原因上抛，别让 Director 只见
-        # "narration 节点失败"却查不到为什么。
-        hint = ""
+    def _retryable(exc: Exception) -> bool:
         msg = str(exc)
-        if "403" in msg:
-            hint = ("（微软 TTS 接口 403 拒绝：端点补丁未生效或上游再变更，"
-                    "见 video_director/__init__.py _patch_edge_tts_endpoint）")
-        raise NarrationError(f"edge-tts 合成失败: {exc}{hint}") from exc
+        # 429 = 限流（可恢复）；连接/超时 = 网络抖动（可恢复）。
+        return ("429" in msg or "Invalid response status" in msg
+                or any(k in type(exc).__name__.lower()
+                       for k in ("connection", "timeout", "websocket", "clock")))
+
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, EDGE_TTS_RETRIES + 1):
+        try:
+            return asyncio.run(_run_once())
+        except NarrationError:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if not _retryable(exc) or attempt == EDGE_TTS_RETRIES:
+                break
+            import time as _t
+            delay = EDGE_TTS_RETRY_BASE_S * (2 ** (attempt - 1))
+            logger.warning(
+                f"edge-tts 合成第 {attempt}/{EDGE_TTS_RETRIES} 次失败"
+                f"（{delay:.0f}s 后重试）: {str(exc)[:160]}")
+            _t.sleep(delay)
+
+    # 403 = 微软封禁旧端点（2026-10，上游 #490）；本包 __init__ 的
+    # 端点补丁正常时不应出现。带真实原因上抛，别让 Director 只见
+    # "narration 节点失败"却查不到为什么。
+    hint = ""
+    msg = str(last_exc)
+    if "403" in msg:
+        hint = ("（微软 TTS 接口 403 拒绝：端点补丁未生效或上游再变更，"
+                "见 video_director/__init__.py _patch_edge_tts_endpoint）")
+    raise NarrationError(f"edge-tts 合成失败: {last_exc}{hint}") from last_exc
 
 
 def _synth_scene_with_pauses(

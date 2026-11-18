@@ -39,3 +39,38 @@ def test_narration_403_error_carries_root_cause():
     import video_director.narration as narr
     src = inspect.getsource(narr.synth_scene_audio)
     assert "403" in src, "narration 未对 403 提供根因提示"
+
+
+def test_synth_scene_audio_retries_on_429(tmp_path, monkeypatch):
+    """429 限流是瞬时故障，必须重试而不是直接炸掉 narration 节点（生产实录
+    2026-11-18：edge-tts 429 让整个 narration 节点 FAILED）。"""
+    import sys
+    import time
+    import types
+    import video_director.narration as narr
+
+    class _Calls:
+        n = 0
+
+    class _FakeCommunicate:
+        def __init__(self, *a, **kw):
+            _Calls.n += 1
+
+        def stream(self):
+            async def gen():
+                raise Exception("429, message='Invalid response status'")
+                yield  # pragma: no cover - 让函数成为 async generator
+            return gen()
+
+    fake_edge_tts = types.ModuleType("edge_tts")
+    fake_edge_tts.Communicate = _FakeCommunicate
+    monkeypatch.setitem(sys.modules, "edge_tts", fake_edge_tts)
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+
+    out = tmp_path / "scene.mp3"
+    # 每次都 429 → 重试 3 次后抛出；关键是构造了 3 次（= 重试了 3 次）
+    try:
+        narr.synth_scene_audio("测试文案", "zh-CN-XiaoxiaoNeural", str(out), "+0%")
+    except narr.NarrationError as exc:
+        assert "429" in str(exc) or "Invalid response status" in str(exc)
+    assert _Calls.n == 3, _Calls.n
