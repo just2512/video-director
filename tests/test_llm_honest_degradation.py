@@ -188,8 +188,9 @@ def test_openai_compatible_provider_applies_explicit_request_bounds(monkeypatch,
     provider._ensure_client()
 
     # connect 恒短（10s），env 只覆盖 read——网关挂死时连接失败快速暴露。
-    assert captured["timeout"]["read"] == float(timeout_seconds)
-    assert captured["timeout"]["connect"] == 10.0
+    # client 层只传标量（旧版 openai 3.29.0 下 dict 会炸）；connect 拆分通过
+    # per-call timeout 实现（仅新版 SDK 支持 dict 时启用）。
+    assert captured["timeout"] == float(timeout_seconds)
     assert captured["max_retries"] == 0
     assert captured["api_key"] == "test-key"
     assert captured["base_url"] == "https://example.invalid/v1"
