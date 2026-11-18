@@ -5,6 +5,7 @@
 视觉（vision.FrameVisionProvider）、视觉QA（visual_qa.frame_vision_visual_qa）。
 """
 import json
+import time
 from pathlib import Path
 
 from video_director import llm_provider
@@ -139,6 +140,59 @@ class TestTextChannelRetry:
         assert isinstance(timeout, dict)
         assert timeout["connect"] == llm_provider.LLM_CONNECT_TIMEOUT_S == 10.0
         assert timeout["read"] == llm_provider.LLM_ATTEMPT_TIMEOUT_S == 120.0
+
+    def test_generate_optional_times_out_fast(self, monkeypatch):
+        """可选增强短耐心：generate 挂死时到点即抛 OptionalLLMUnavailable，
+        不把主链 3×120s 重试拖进可选步骤（生产：匹配画面卡 6 分钟）。"""
+        p = self._provider()
+
+        class _Hung:
+            def chat_completions_create(self, **kwargs):
+                import time as _t
+                _t.sleep(30)
+                raise AssertionError("不应被消化为返回值")
+        p._client = self._fake_client(_Hung())
+        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
+
+        t0 = time.time()
+        try:
+            p.generate_optional("hi", timeout_s=1.0)
+            raise AssertionError("应抛 OptionalLLMUnavailable")
+        except llm_provider.OptionalLLMUnavailable:
+            pass
+        elapsed = time.time() - t0
+        assert elapsed < 10, f"短耐心应在 10s 内返回，实际 {elapsed:.1f}s"
+
+    def test_generate_optional_passes_success_through(self, monkeypatch):
+        p = self._provider()
+        flaky = _Flaky(fail_times=0, exc_factory=lambda: TimeoutError("t"))
+        p._client = self._fake_client(flaky)
+        monkeypatch.setattr(llm_provider.time, "sleep", lambda s: None)
+        assert p.generate_optional("hi", timeout_s=30.0) == "好的"
+
+    def test_generate_streaming_collects_reasoning_content(self, monkeypatch):
+        """思考型模型：content 空但 reasoning_content 有值 → 不当空流丢掉。"""
+
+        class _Delta:
+            def __init__(self, content=None, reasoning=None):
+                self.content = content
+                self.reasoning_content = reasoning
+
+        class _Chunk:
+            def __init__(self, delta):
+                self.choices = [type("c", (), {"delta": delta})()]
+
+        def fake_create(**kwargs):
+            assert kwargs.get("stream") is True
+            return iter([_Chunk(_Delta(reasoning='{"duration": 30}'))])
+
+        class _C:
+            chat = type("chat", (), {})()
+        _C.chat.completions = type("completions", (), {
+            "create": staticmethod(fake_create)})()
+        p = self._provider()
+        p._client = _C()
+        assert p.generate("hi") == '{"duration": 30}'
 
     def test_retry_drops_dead_client_connection(self, monkeypatch):
         """2026-10-25 生产事故回归锁：网关挂死时 httpx 连接池里的死连接
