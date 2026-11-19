@@ -418,3 +418,44 @@ def test_reference_graph_is_archived_without_implicitly_inserting_reference_asse
     assert result["document"]["fps"] == 25
     assert result["document"]["stage"]["width"] == 640
     assert result["document"]["stage"]["height"] == 360
+
+
+def test_migration_skips_layer_with_empty_asset_id_instead_of_failing(tmp_path, monkeypatch):
+    """历史脏数据（修复前素材池幽灵引用）：图层 asset_id 为空时，迁移必须跳过
+    该图层并如实 warning，不得一条坏数据炸掉整个 initialize（生产实录 2026-11-18
+    报「片段缺少 asset_id，无法生成素材引用」）。"""
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "migration-empty-asset-id"
+    root = config.project_dir(project_id)
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "ok.mp4").write_bytes(b"not-needed-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-ok", "file": "assets/ok.mp4"},
+    ]), encoding="utf-8")
+
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 24, "duration": 2},
+        "scenes": [{
+            "id": "scene-a", "start": 0, "duration": 2, "text": "场景A",
+            "layers": [
+                {"id": "ok-layer", "track_id": "t", "type": "video",
+                 "asset_id": "asset-ok", "start": 0, "duration": 1, "source_out": 1.0},
+                {"id": "ghost-layer", "track_id": "t", "type": "video",
+                 "asset_id": "", "start": 1, "duration": 1, "source_out": 1.0},
+            ],
+        }],
+    })
+
+    result = fd.build_film_from_composition(project_id, ir)
+    warnings_text = "\n".join(result["warnings"])
+    assert "缺少 asset_id" in warnings_text, warnings_text
+    # ghost 图层被跳过：document 里只有 ok-layer 生成的 clip，无 ghost-layer
+    clip_source_ids = {
+        clip["attrs"].get("data-source-id")
+        for track in result["document"]["tracks"]
+        for clip in track.get("clips", [])
+    }
+    assert "ok-layer" in clip_source_ids
+    assert "ghost-layer" not in clip_source_ids

@@ -5411,6 +5411,12 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
             if kind not in {"video", "image"}:
                 warnings.append(f"场景 {scene.get('id')} 图层 {idx + 1} 类型 {kind} 尚不能无损迁移")
                 continue
+            if not str(layer.get("asset_id") or "").strip():
+                # 历史脏数据（修复前的素材池幽灵引用）：该图层素材 id 为空，无法
+                # 生成素材引用。跳过该图层并如实告知，不再一条坏数据炸掉整个迁移。
+                warnings.append(
+                    f"场景 {scene.get('id')} 图层 {idx + 1} 缺少 asset_id，已跳过（素材引用缺失）")
+                continue
             uri = asset_uri(layer.get("asset_id"))
             d = _number(layer.get("duration"), "layer duration", 0.001)
             speed = _number(layer.get("speed", 1), "layer speed", 0.25, 4) if kind == "video" else 1.0
@@ -5744,6 +5750,9 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
         if kind not in {"video", "image"}:
             warnings.append(f"叠加层 {overlay.get('id')} 类型 {kind} 尚不能无损迁移")
             continue
+        if not str(overlay.get("asset_id") or "").strip():
+            warnings.append(f"叠加层 {overlay.get('id')} 缺少 asset_id，已跳过（素材引用缺失）")
+            continue
         uri = asset_uri(overlay.get("asset_id"))
         at, d = _number(overlay.get("start", 0), "overlay start", 0), _number(overlay.get("duration"), "overlay duration", 0.001)
         camera_channels, camera_warnings = _film_camera_channels(raw_ir.get("camera_tracks") or [], at, d)
@@ -5848,6 +5857,9 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
     ))
     for idx, audio_entry in enumerate(audio_items):
         audio = audio_entry["audio"]
+        if not str(audio.get("asset_id") or "").strip():
+            warnings.append(f"音频 {audio.get('id')} 缺少 asset_id，已跳过（素材引用缺失）")
+            continue
         uri = asset_uri(audio.get("asset_id"))
         start, d = _number(audio.get("start", 0), "audio start", 0), _number(audio.get("duration"), "audio duration", 0.001)
         src_in = _number(audio.get("source_in", 0), "audio source_in", 0)
