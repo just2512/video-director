@@ -198,8 +198,18 @@ function cfResetProjectPrefillState(projectId){
     }
   }
 
+  // 素材是已入库的客观资产（asset_id 指向素材库真实文件），不是表单草稿——
+  // 表单重置/项目切换不得丢弃。生产实录 2026-11-25：用户上传 8 个素材后表单
+  // 被重开（项目回填/历史恢复），context 被换成全新空对象 → asset_refs 提交
+  // 为空 → 素材池空 → stock 全量补足，「本地素材优先」完全失效。
+  // 已上传配音同理保留；参考视频/文章/软件项目是「回填会覆盖」的输入源，仍清空。
+  const _preservedAssetRefs=Array.isArray(window.CF_DRAFT_CONTEXT?.assetRefs)
+    ?window.CF_DRAFT_CONTEXT.assetRefs.slice():[];
+  const _preservedNarrationUpload=String(window.CF_DRAFT_CONTEXT?.narrationUpload||window._cfNarrationUpload||'');
   window.CF_DRAFT_CONTEXT={
-    assetRefs:[],reference:null,article:null,repo:null,narrationUpload:'',
+    assetRefs:_preservedAssetRefs,
+    reference:null,article:null,repo:null,
+    narrationUpload:_preservedNarrationUpload,
     projectId:String(projectId||''),projectPrefillBaseline:null
   };
   window._cfReference=null;
