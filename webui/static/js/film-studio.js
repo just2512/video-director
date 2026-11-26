@@ -452,7 +452,13 @@
     panel.addEventListener('pointerup',function(){dragging=null;});
     panel.addEventListener('pointercancel',function(){dragging=null;});
   }
-  function showStatus(message, kind) { var el=$('film-studio-alert'); if(!el)return; el.className='fs-alert fs-visible'+(kind==='error'?' fs-error':kind==='success'?' fs-success':''); el.textContent=message||''; }
+  function showStatus(message, kind) {
+    var el=$('film-studio-alert'); if(!el)return;
+    el.className='fs-alert fs-visible'+(kind==='error'?' fs-error':kind==='success'?' fs-success':'');
+    var textEl=$('film-studio-alert-text');
+    if(textEl)textEl.textContent=message||'';
+    else el.textContent=message||'';
+  }
   function currentFilmProposalRevision(proposal){
     var pending=String(S.pendingExternalRevision||'');
     if(pending&&pending!=='__reload__')return pending;
@@ -2088,7 +2094,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     var filmWarnings=S.data.warnings||[];
     if(migrationWarnings.length)showStatus('迁移警告：'+migrationWarnings.join('；'),'');
     else if(filmWarnings.length)showStatus('影片格式提示：'+filmWarnings.join('；'),'');
-    else{var el=$('film-studio-alert');el.className='fs-alert';el.textContent='';}
+    else{var el=$('film-studio-alert');el.className='fs-alert';var textEl=$('film-studio-alert-text');if(textEl)textEl.textContent='';}
     syncDirectorSelection();
   }
   function renderBrokenFilmState(result){
