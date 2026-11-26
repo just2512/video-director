@@ -459,3 +459,43 @@ def test_migration_skips_layer_with_empty_asset_id_instead_of_failing(tmp_path, 
     }
     assert "ok-layer" in clip_source_ids
     assert "ghost-layer" not in clip_source_ids
+
+
+def test_migration_brings_synthesized_narration_into_film(tmp_path, monkeypatch):
+    """配音是导演链合成产物（项目 audio/narration.mp3），本来就不入素材库、
+    没有 asset_id。迁移必须把配音带进 film.html（AI 导演生成后即为成品，
+    进 studio 是编辑已有成品，不是重新生产配音）。"""
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "migration-narration-synth"
+    root = config.project_dir(project_id)
+    audio_dir = root / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    (audio_dir / "narration.mp3").write_bytes(b"synthesized-narration")
+    assets = root / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "ok.mp4").write_bytes(b"not-needed-by-migration")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-ok", "file": "assets/ok.mp4"},
+    ]), encoding="utf-8")
+
+    ir = CompositionIR.model_validate({
+        "project": {"width": 320, "height": 180, "fps": 24, "duration": 1},
+        "scenes": [{
+            "id": "scene-a", "start": 0, "duration": 1, "text": "场景A",
+            "layers": [{"id": "ok-layer", "track_id": "t", "type": "video",
+                        "asset_id": "asset-ok", "start": 0, "duration": 1, "source_out": 1.0}],
+        }],
+        "audio": [{"id": "narration-track", "type": "narration",
+                   "asset_id": None, "start": 0, "duration": 1, "volume": 1.0}],
+    })
+
+    result = fd.build_film_from_composition(project_id, ir)
+    narration_clips = [
+        clip for track in result["document"]["tracks"]
+        for clip in track.get("clips", [])
+        if clip["attrs"].get("data-role") == "narration"
+    ]
+    assert len(narration_clips) == 1, result["document"]["tracks"]
+    assert narration_clips[0]["attrs"]["src"].startswith("audio/narration.mp3")
+    assert narration_clips[0]["attrs"]["data-asset-id"] == "narration"

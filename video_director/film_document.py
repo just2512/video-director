@@ -5857,10 +5857,24 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
     ))
     for idx, audio_entry in enumerate(audio_items):
         audio = audio_entry["audio"]
-        if not str(audio.get("asset_id") or "").strip():
+        _audio_type = str(audio.get("type") or "").lower()
+        # 配音是导演链合成产物（项目 audio/narration.mp3），本来就不入素材库、
+        # 没有 asset_id。此前被空 asset_id 跳过逻辑挡掉，导致「AI 导演生成后
+        # 进 studio 没配音」——配音应随项目一起迁移，不在 studio 重新生成。
+        _narration_uri = None
+        if _audio_type == "narration" and not str(audio.get("asset_id") or "").strip():
+            for _cand_name in ("narration.mp3", "narration.wav"):
+                _cand = root / "audio" / _cand_name
+                if _cand.is_file():
+                    _narration_uri = _safe_storage_uri(pid, _cand)
+                    break
+            if _narration_uri is None:
+                warnings.append("配音轨的 narration.mp3 不存在，配音未迁移")
+                continue
+        elif not str(audio.get("asset_id") or "").strip():
             warnings.append(f"音频 {audio.get('id')} 缺少 asset_id，已跳过（素材引用缺失）")
             continue
-        uri = asset_uri(audio.get("asset_id"))
+        uri = _narration_uri or asset_uri(audio.get("asset_id"))
         start, d = _number(audio.get("start", 0), "audio start", 0), _number(audio.get("duration"), "audio duration", 0.001)
         src_in = _number(audio.get("source_in", 0), "audio source_in", 0)
         speed = _number(audio.get("speed", 1), "audio speed", 0.25, 4)
@@ -5875,7 +5889,7 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
         ):
             volume_value = _number(migrated_style["bgm_volume"], "style bgm_volume", 0, 2)
         attrs = {"id": cid, "src": f"{uri}#t={_fmt(src_in)},{_fmt(src_out)}", "at": _fmt(start),
-                 "volume": _fmt(volume_value), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ""), "data-source-id": str(audio_entry.get("source_id") or ""), "data-source-track-id": str(audio.get("track_id") or "")}
+                 "volume": _fmt(volume_value), "data-role": str(audio.get("type") or "audio"), "data-asset-id": str(audio.get("asset_id") or ("narration" if _narration_uri else "")), "data-source-id": str(audio_entry.get("source_id") or ""), "data-source-track-id": str(audio.get("track_id") or "")}
         asset_metadata = _source_asset_metadata(str(audio.get("asset_id") or ""))
         if asset_metadata:
             attrs["data-source-asset-metadata"] = asset_metadata
