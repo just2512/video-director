@@ -198,14 +198,16 @@ function cfResetProjectPrefillState(projectId){
     }
   }
 
-  // 素材是已入库的客观资产（asset_id 指向素材库真实文件），不是表单草稿——
-  // 表单重置/项目切换不得丢弃。生产实录 2026-11-25：用户上传 8 个素材后表单
-  // 被重开（项目回填/历史恢复），context 被换成全新空对象 → asset_refs 提交
-  // 为空 → 素材池空 → stock 全量补足，「本地素材优先」完全失效。
-  // 已上传配音同理保留；参考视频/文章/软件项目是「回填会覆盖」的输入源，仍清空。
-  const _preservedAssetRefs=Array.isArray(window.CF_DRAFT_CONTEXT?.assetRefs)
-    ?window.CF_DRAFT_CONTEXT.assetRefs.slice():[];
-  const _preservedNarrationUpload=String(window.CF_DRAFT_CONTEXT?.narrationUpload||window._cfNarrationUpload||'');
+  // 素材分两类：用户主动上传的（uploadAssets 写入，无 fromProject 标记）是
+  // 已入库的客观资产，表单重置/项目切换不得丢弃——生产实录 2026-11-25：用户
+  // 上传 8 个素材后表单被重开，context 被换成全新空对象 → asset_refs 提交为
+  // 空 → 素材池空 → stock 全量补足，「本地素材优先」完全失效。
+  // 项目回填/草稿恢复带来的素材（fromProject 标记）属于那个项目，切到全新
+  // 创作时清掉（完成项目后新创作不得继承旧项目素材——persistence 测试契约）。
+  const _prevCtx=window.CF_DRAFT_CONTEXT;
+  const _preservedAssetRefs=Array.isArray(_prevCtx?.assetRefs)
+    ?_prevCtx.assetRefs.filter(ref=>ref&&typeof ref==='object'&&!ref.fromProject):[];
+  const _preservedNarrationUpload=String(_prevCtx?.narrationUpload||window._cfNarrationUpload||'');
   window.CF_DRAFT_CONTEXT={
     assetRefs:_preservedAssetRefs,
     reference:null,article:null,repo:null,
@@ -291,6 +293,9 @@ async function cfPrefillFromProject(pid){
     // 项目恢复必须沿用同一份素材池与结构化参考输入，不能只显示一个文件名摘要。
     const refs = (bundle.assets && bundle.assets.asset_refs) || [];
     window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[]};
+    // 标记来源：项目回填的素材属于该项目，切换到全新创作时要清掉
+    // （用户主动上传的素材不标记，表单重置时保留——见 cfResetProjectPrefillState）。
+    for(const r of refs)if(r&&typeof r==='object')r.fromProject=true;
     window.CF_DRAFT_CONTEXT.assetRefs = refs;
     window.CF_DRAFT_CONTEXT.projectId = pid;
     window._cfReference = (bundle.references || [])[0] || null;
@@ -1804,6 +1809,9 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
     });
     const contextIsDirty=id=>preserveDirty&&dirtyFields.has(id);
     const assetKey=item=>String(item?.asset_id||item?.file||JSON.stringify(item));
+    // 草稿恢复的素材视为「随草稿而来」，与用户主动上传区分（fromProject 标记）：
+    // 表单重置时随草稿/项目来的清掉，用户上传的保留。
+    const markRestored=item=>{if(item&&typeof item==='object')item.fromProject=true;return item;};
     if(contextIsDirty('cf-assets')){
       const merged=new Map();
       for(const item of [...(Array.isArray(c.asset_refs)?c.asset_refs:[]),...(Array.isArray(liveContext.assetRefs)?liveContext.assetRefs:[])]){
@@ -1812,7 +1820,7 @@ window.CF_DRAFT_CONTEXT = window.CF_DRAFT_CONTEXT || {assetRefs:[],reference:nul
       }
       liveContext.assetRefs=Array.from(merged.values());
     }else{
-      liveContext.assetRefs=Array.isArray(c.asset_refs)?c.asset_refs:[];
+      liveContext.assetRefs=(Array.isArray(c.asset_refs)?c.asset_refs:[]).map(markRestored);
     }
     if(!contextIsDirty('cf-reference')){
       liveContext.reference=c.reference||null;
