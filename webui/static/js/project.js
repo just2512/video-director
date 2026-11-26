@@ -229,6 +229,11 @@ async function continueProject(pid){
     if (typeof taskRefresh === 'function') taskRefresh();
   } else if (r && /没有可继续的 AI Director 检查点/.test(r.error || '')) {
     editorToast('项目已准备好，可直接进入工作台检查并渲染');
+  } else if (r && r.code === 'FILM_DOCUMENT_AUTHORITATIVE') {
+    // 项目已由 film.html 接管（AI 导演生成后即为影片事实源）——「检查草稿」应
+    // 直接打开 studio 编辑器，而不是弹「继续创作未开始」的误导错误。用户场景：
+    // AI 导演生成项目 → 检查草稿 → 进 studio 编辑，是同一系统的延续，不是重跑。
+    // 无需任何提示，直接落到 workspaceOpen。
   } else if (r && r.error) {
     editorToast('继续创作未开始：' + r.error, true);
     return;
