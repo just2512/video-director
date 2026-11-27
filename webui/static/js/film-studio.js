@@ -455,7 +455,8 @@
   function showStatus(message, kind) {
     var el=$('film-studio-alert'); if(!el)return;
     el.className='fs-alert fs-visible'+(kind==='error'?' fs-error':kind==='success'?' fs-success':'');
-    S.bannerDismissed=false;
+    // 注意：不重置 bannerDismissed。用户关闭迁移警告后，普通操作消息
+    // （保存成功等）不应让迁移警告在下一次 render 重弹。
     var textEl=$('film-studio-alert-text');
     if(textEl)textEl.textContent=message||'';
     else el.textContent=message||'';
@@ -1617,7 +1618,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
           lane+='<div class="fs-clip '+(clipLocked?'fs-clip-locked ':'')+((S.selectedIds||[]).indexOf(clip.id)>=0?'fs-clip-selected ':'')+'" data-clip="'+esc(clip.id)+'" data-track="'+esc(track.id)+'" data-kind="'+esc(clip.tag)+'" style="left:'+left+'px;width:'+width+'px" title="'+esc(title)+'">'+thumbHtml+waveformHtml+envelopeHtml+keyframeHtml+handles+'<span class="fs-clip-title">'+esc(title)+'</span><span class="fs-clip-subtitle">'+esc(fmtTime(clip.at))+(clip.duration==null?'':' · '+clip.duration.toFixed(2)+'s')+'</span></div>';
         });
         lane+='</div>';
-        return '<div class="fs-track '+(locked?'fs-track-locked ':'')+(syncLocked?'fs-sync-locked ':'')+(hidden?'fs-hidden-track ':'')+(muted?'fs-muted-track':'')+'" data-track="'+esc(track.id)+'"><div class="fs-track-head"><span class="fs-track-label" title="'+esc(label)+'">'+esc(label)+'</span><span class="fs-track-controls"><button type="button" class="fs-btn" data-track-lock="'+esc(track.id)+'" title="'+(locked?'解锁轨道':'锁定轨道')+'">'+(locked?'🔒':'锁')+'</button><button type="button" class="fs-btn" data-track-flag="sync-lock" data-track-key="'+esc(track.id)+'" aria-pressed="'+(syncLocked?'true':'false')+'" title="'+(syncLocked?'取消同步锁定':'启用同步锁定')+'">'+(syncLocked?'⇄':'同步')+'</button><button type="button" class="fs-btn" data-track-flag="hidden" data-track-key="'+esc(track.id)+'" title="'+(hidden?'显示轨道':'隐藏轨道')+'">'+(hidden?'显':'隐')+'</button><button type="button" class="fs-btn" data-track-flag="muted" data-track-key="'+esc(track.id)+'" title="'+(muted?'取消静音':'静音轨道')+'">'+(muted?'🔊':'🔇')+'</button></span></div>'+lane+'</div>';
+        return '<div class="fs-track '+(locked?'fs-track-locked ':'')+(syncLocked?'fs-sync-locked ':'')+(hidden?'fs-hidden-track ':'')+(muted?'fs-muted-track':'')+'" data-track="'+esc(track.id)+'"><div class="fs-track-head"><span class="fs-track-label" title="'+esc(label)+'">'+esc(label)+'</span><span class="fs-track-controls"><button type="button" class="fs-btn" data-track-lock="'+esc(track.id)+'" title="'+(locked?'解锁轨道':'锁定轨道')+'">'+(locked?'🔒':'锁')+'</button><button type="button" class="fs-btn" data-track-flag="sync-lock" data-track-key="'+esc(track.id)+'" aria-pressed="'+(syncLocked?'true':'false')+'" title="'+(syncLocked?'取消同步锁定':'启用同步锁定')+'">'+(syncLocked?'⇄':'同步')+'</button><button type="button" class="fs-btn" data-track-flag="hidden" data-track-key="'+esc(track.id)+'" title="'+(hidden?'显示轨道':'隐藏轨道')+'">'+(hidden?'显':'隐')+'</button><button type="button" class="fs-btn" data-track-flag="muted" data-track-key="'+esc(track.id)+'" title="'+(muted?'取消静音':'静音轨道')+'">'+(muted?'🔇':'🔊')+'</button></span></div>'+lane+'</div>';
       }).join('');
       $('fs-timeline').innerHTML=ruler+body+'<div class="fs-playhead" id="fs-playhead-line"></div>';
     }
@@ -3382,11 +3383,22 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
   };
   window.filmStudioLoad=filmStudioLoad;window.filmStudioInitialize=filmStudioInitialize;
   window.filmStudioSelectClip=function(id){S.selectedId=id;S.selectedIds=id?[id]:[];S.selectionAnchor=id;var c=findClip(id);if(c)S.playhead=c.at;render();};
+  // 播放头拖动会在一帧内触发多次 range oninput；逐次 seek 会让视频解码器
+  // 来不及呈现任何帧，表现为拖动时白屏。用 rAF 合并同帧内的连续 seek，
+  // 离散调用（点击刻度/前后帧）仍是每帧一次，不受影响。
+  var seekRafPending=false,seekRafValue=null;
   window.filmStudioSeek=function(value){
-    var wasPlaying=!!window.filmStudioPlaying;
-    S.seekGeneration=Math.max(0,num(S.seekGeneration,0))+1;
-    S.playhead=Math.max(0,Math.min(S.duration,num(value,0)));setPlaybackState(false);setPlayheadVisual();
-    syncRuntime(wasPlaying?'seek-pause':undefined);
+    seekRafValue=value;
+    if(seekRafPending)return;
+    seekRafPending=true;
+    requestAnimationFrame(function(){
+      seekRafPending=false;
+      var v=seekRafValue;seekRafValue=null;
+      var wasPlaying=!!window.filmStudioPlaying;
+      S.seekGeneration=Math.max(0,num(S.seekGeneration,0))+1;
+      S.playhead=Math.max(0,Math.min(S.duration,num(v,0)));setPlaybackState(false);setPlayheadVisual();
+      syncRuntime(wasPlaying?'seek-pause':undefined);
+    });
   };
   window.filmStudioJumpToKeyframe=function(clipId,at){
     var clip=findClip(String(clipId||''));

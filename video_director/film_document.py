@@ -5282,11 +5282,8 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
                 "状态比较、carry/morph 等连续性动作尚未编译为播放行为"
             )
         scene_text = str(scene.get("text") or "").strip()
-        if scene_text:
-            warnings.append(
-                f"场景 {scene_id} 的 text/旁白文案没有自动生成字幕或配音；"
-                "原文仅保存在 migration/source-composition.json"
-            )
+        # scene.text 现在会在下方自动合成为字幕 cue（见 cues 合成逻辑），
+        # 不再产生「字幕未生成」警告。
         if scene.get("human_locked"):
             warnings.append(
                 f"场景 {scene_id} 的 human_locked 是 AI 规划锁，不等同于 Film 图层编辑锁；"
@@ -5843,6 +5840,26 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
 
     subtitle = subtitle_track
     cues = subtitle.get("cues") or []
+    # 旁白文案在 scenes 里（text + start + duration），即使上游没有生成显式
+    # subtitle_track.cues，也应合成字幕轨——否则生成的视频没有字幕。
+    # 这是基本功能，不是可选增强。
+    if not cues:
+        synthesized = []
+        for scene in source_scenes:
+            scene_text = str(scene.get("text") or "").strip()
+            if not scene_text:
+                continue
+            start = _number(scene.get("start", 0), "scene start", 0)
+            scene_duration = _number(scene.get("duration", 0), "scene duration", 0)
+            if scene_duration <= 0:
+                continue
+            synthesized.append({
+                "start": start,
+                "end": start + scene_duration,
+                "text": scene_text,
+            })
+        if synthesized:
+            cues = synthesized
     if cues:
         pages["scenes/subtitles.html"] = _subtitle_page(stage["width"], stage["height"], duration, cues, subtitle_style)
         cid = "subtitle-page"

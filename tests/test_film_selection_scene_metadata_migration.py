@@ -119,14 +119,50 @@ def test_scene_text_planning_lock_and_transition_are_not_silently_executed(tmp_p
     assert attrs["src"].endswith("#t=0,1.2")
     assert "data-clip-locked" not in attrs
     assert "transition" not in attrs
-    assert "这段旁白不得自动变成字幕" not in json.dumps(attrs, ensure_ascii=False)
 
     snapshot = json.loads(result["pages"]["migration/source-composition.json"])
     scene = snapshot["scenes"][0]
     assert scene["text"] == raw["scenes"][0]["text"]
     assert scene["human_locked"] is True
     assert scene["transition_out"] == {"type": "fade", "duration": 0.4}
+    # scene.text 现在自动合成为字幕轨（基本功能），不再产生「字幕未生成」警告。
+    subtitle_tracks = [t for t in result["document"]["tracks"] if t["id"] == "track-subtitles"]
+    assert len(subtitle_tracks) == 1
+    assert "scenes/subtitles.html" in result["pages"]
     warnings = "\\n".join(result["warnings"])
-    assert "没有自动生成字幕或配音" in warnings
+    assert "没有自动生成字幕或配音" not in warnings
     assert "不等同于 Film 图层编辑锁" in warnings
     assert "尚未编译为 Film 转场" in warnings
+
+
+def test_scene_text_synthesizes_subtitle_cues_with_aligned_timing(tmp_path, monkeypatch):
+    """字幕是基本功能：scenes 的 text+start+duration 必须合成对齐的字幕 cue。"""
+    import re
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(storage))
+    project_id = "subtitle-synth-timing"
+    assets = config.project_dir(project_id) / "assets"
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / "still.png").write_bytes(b"not-decoded")
+    (assets / "manifest.json").write_text(json.dumps([
+        {"id": "asset-still", "file": "assets/still.png", "type": "image"},
+    ]), encoding="utf-8")
+    raw = {
+        "project": {"width": 320, "height": 180, "fps": 30, "duration": 9},
+        "scenes": [
+            {"id": "s1", "start": 0, "duration": 4, "text": "第一句旁白",
+             "layers": [{"type": "image", "asset_id": "asset-still", "start": 0, "duration": 4}]},
+            {"id": "s2", "start": 4, "duration": 5, "text": "第二句旁白",
+             "layers": [{"type": "image", "asset_id": "asset-still", "start": 0, "duration": 5}]},
+        ],
+    }
+    ir = CompositionIR.model_validate(raw)
+    result = fd.build_film_from_composition(project_id, ir)
+    page = result["pages"]["scenes/subtitles.html"]
+    match = re.search(r"const cues=(\[.*?\]);", page)
+    assert match, "字幕页必须内嵌 cues 数据"
+    cues = json.loads(match.group(1))
+    assert len(cues) == 2
+    assert cues[0]["start"] == 0 and cues[0]["end"] == 4 and cues[0]["text"] == "第一句旁白"
+    assert cues[1]["start"] == 4 and cues[1]["end"] == 9 and cues[1]["text"] == "第二句旁白"
+    assert any(t["id"] == "track-subtitles" for t in result["document"]["tracks"])
