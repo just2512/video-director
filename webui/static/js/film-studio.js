@@ -3383,21 +3383,27 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
   };
   window.filmStudioLoad=filmStudioLoad;window.filmStudioInitialize=filmStudioInitialize;
   window.filmStudioSelectClip=function(id){S.selectedId=id;S.selectedIds=id?[id]:[];S.selectionAnchor=id;var c=findClip(id);if(c)S.playhead=c.at;render();};
-  // 播放头拖动会在一帧内触发多次 range oninput；逐次 seek 会让视频解码器
-  // 来不及呈现任何帧，表现为拖动时白屏。用 rAF 合并同帧内的连续 seek，
-  // 离散调用（点击刻度/前后帧）仍是每帧一次，不受影响。
-  var seekRafPending=false,seekRafValue=null;
+  // filmStudioSeek 保持同步精确 seek——程序化调用（测试 evaluate、点击刻度、
+  // 步进、关键帧跳转）依赖调用返回后 S.playhead 已更新，不能异步化。
   window.filmStudioSeek=function(value){
-    seekRafValue=value;
-    if(seekRafPending)return;
-    seekRafPending=true;
+    var wasPlaying=!!window.filmStudioPlaying;
+    S.seekGeneration=Math.max(0,num(S.seekGeneration,0))+1;
+    S.playhead=Math.max(0,Math.min(S.duration,num(value,0)));setPlaybackState(false);setPlayheadVisual();
+    syncRuntime(wasPlaying?'seek-pause':undefined);
+  };
+  // 拖动 range 时 oninput 每像素都触发，逐次 seek 让视频解码器来不及呈现帧
+  // 而白屏。filmStudioScrub 用 rAF 合并同帧内连续拖动，松手（onchange）仍走
+  // filmStudioSeek 精确落点。只有 range 的 oninput 用这个节流版。
+  var scrubRafPending=false,scrubRafValue=null;
+  window.filmStudioScrub=function(value){
+    scrubRafValue=value;
+    if(scrubRafPending)return;
+    scrubRafPending=true;
     requestAnimationFrame(function(){
-      seekRafPending=false;
-      var v=seekRafValue;seekRafValue=null;
-      var wasPlaying=!!window.filmStudioPlaying;
-      S.seekGeneration=Math.max(0,num(S.seekGeneration,0))+1;
-      S.playhead=Math.max(0,Math.min(S.duration,num(v,0)));setPlaybackState(false);setPlayheadVisual();
-      syncRuntime(wasPlaying?'seek-pause':undefined);
+      scrubRafPending=false;
+      var v=scrubRafValue;scrubRafValue=null;
+      if(v===null)return;
+      window.filmStudioSeek(v);
     });
   };
   window.filmStudioJumpToKeyframe=function(clipId,at){
