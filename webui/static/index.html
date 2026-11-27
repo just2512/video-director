@@ -128,12 +128,12 @@
         </div>
       </header>
       <div id="film-studio-alert" class="fs-alert" role="status" aria-live="polite">
+        <button type="button" class="fs-btn fs-alert-close" title="关闭此提示" onclick="window.filmStudioDismissBanner()" style="flex:0 0 auto;align-self:flex-start;padding:0 6px;font-size:11px;line-height:1.2;opacity:.7">×</button>
         <span id="film-studio-alert-text">载入项目后显示影片文档。</span>
-        <button type="button" class="fs-btn fs-alert-close" title="关闭此提示" onclick="this.closest('#film-studio-alert').className='fs-alert'" style="margin-left:8px;padding:0 6px;font-size:11px;line-height:1.2;opacity:.7">×</button>
       </div>
       <div class="fs-alert fs-visible" id="fs-render-warning" style="border-left:3px solid #b08b4b">
+        <button type="button" class="fs-btn fs-alert-close" title="关闭此提示" onclick="this.closest('#fs-render-warning').style.display='none'" style="flex:0 0 auto;align-self:flex-start;padding:0 6px;font-size:11px;line-height:1.2;opacity:.7">×</button>
         <span>中央监视器和 MP4 导出都读取同一 film.html revision；导出期间如时间线发生变化，成片会标明对应版本。</span>
-        <button type="button" class="fs-btn fs-alert-close" title="关闭此提示" onclick="this.closest('#fs-render-warning').style.display='none'" style="margin-left:8px;padding:0 6px;font-size:11px;line-height:1.2;opacity:.7">×</button>
       </div>
       <div class="fs-render-result" id="fs-render-result" hidden>
         <span id="fs-render-result-text"></span>

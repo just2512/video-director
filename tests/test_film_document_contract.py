@@ -1748,6 +1748,36 @@ def test_empty_track_removal_is_safe_and_nonempty_track_cannot_be_removed():
     assert all(track["id"] != "empty-extra" for track in edited["tracks"])
 
 
+def test_remove_clip_auto_cleans_emptied_non_last_track():
+    """remove 删空非唯一轨道时自动附带 track_remove（素材轨不留残留空轨道）。"""
+    doc = fd.parse_film(SAMPLE)
+    # 模拟 studio 素材插入：新轨道 + 单片段
+    edited, _ = fd.apply_ops(doc, [
+        {"op": "track_add", "track_id": "track-added-1", "label": "新增画面", "kind": "video", "index": 0},
+        {"op": "insert", "track_id": "track-added-1",
+         "clip": {"id": "clip-new", "tag": "video",
+                  "attrs": {"id": "clip-new", "src": "../assets/c.mp4#t=0,5", "at": "0"}}},
+    ])
+    assert any(t["id"] == "track-added-1" for t in edited["tracks"])
+    # 删除该片段 → 轨道应被自动清理
+    after_remove, normalized = fd.apply_ops(edited, [{"op": "remove", "clip": "clip-new"}])
+    assert all(t["id"] != "track-added-1" for t in after_remove["tracks"])
+    assert {"op": "track_remove", "track_id": "track-added-1", "reason": "auto_empty"} in normalized
+    # 其他轨道不受影响
+    assert {t["id"] for t in after_remove["tracks"]} == {"video-main", "audio-bed"}
+
+
+def test_remove_clip_keeps_emptied_last_track():
+    """删空的是唯一剩余轨道时不清理（影片必须保留至少一条轨道）。"""
+    doc = fd.parse_film(SAMPLE)
+    # 先删掉 video-main 全部片段（轨道会被清理），audio-bed 也删空后应保留
+    step1, _ = fd.apply_ops(doc, [{"op": "remove", "clip": "clip-a"}, {"op": "remove", "clip": "clip-b"}])
+    assert {t["id"] for t in step1["tracks"]} == {"audio-bed"}
+    step2, normalized = fd.apply_ops(step1, [{"op": "remove", "clip": "audio-1"}])
+    assert [t["id"] for t in step2["tracks"]] == ["audio-bed"]
+    assert normalized == [{"op": "remove", "clip": "audio-1"}]
+
+
 def test_media_endpoint_cannot_read_another_project_but_can_read_shared_libraries(tmp_path, monkeypatch):
     monkeypatch.setenv("VIDEO_DIRECTOR_STORAGE_ROOT", str(tmp_path / "storage" / "composer"))
     composer = tmp_path / "storage" / "composer"

@@ -1,7 +1,7 @@
 /* File-backed Studio UI. Each edit commits by stable clip ID and authoritative film revision. */
 (function () {
   'use strict';
-  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', seekGeneration:0, data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, initializingRequests:Object.create(null), poll:null, messages:[], aiController:null, aiRequestId:'', aiRequestGeneration:0, aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null};
+  var S = {open:false, projectId:'', rev:'', runtimeRev:'', runtimeReady:false, runtimeDocument:null, runtimeCommand:'', seekGeneration:0, data:null, migration:null, selectedId:'', selectedIds:[], selectionAnchor:'', skipNextClipClick:false, proposal:null, previewProposalActive:false, events:null, broken:false, waveformPending:Object.create(null), envelopeMode:false, slideMode:false, slipMode:false, playhead:0, duration:10, pxPerSec:36, busy:false, pendingTransaction:null, rendering:false, drag:null, envelopeDrag:null, pendingExternalRevision:'', loadGeneration:0, initializingRequests:Object.create(null), poll:null, messages:[], aiController:null, aiRequestId:'', aiRequestGeneration:0, aiActiveMessage:'', aiPendingSteer:'', aiStreamText:'', aiLiveMessageIndex:-1, snapEnabled:true, assetMode:'clips', libraryAssets:[], directorNodes:[], insertMode:false, overwriteMode:false, clipClipboard:null, elementInspect:false, selectedElement:null, bannerDismissed:false};
   var gestureDomRefs = null;
   var envelopeDomCanvas = null;
   var skipClipClickGeneration = 0;
@@ -455,6 +455,7 @@
   function showStatus(message, kind) {
     var el=$('film-studio-alert'); if(!el)return;
     el.className='fs-alert fs-visible'+(kind==='error'?' fs-error':kind==='success'?' fs-success':'');
+    S.bannerDismissed=false;
     var textEl=$('film-studio-alert-text');
     if(textEl)textEl.textContent=message||'';
     else el.textContent=message||'';
@@ -1541,6 +1542,12 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     var locked=Object.prototype.hasOwnProperty.call(track.attrs||{},'locked');
     return filmStudioCommitExactRevision([{op:'track',track_id:track.id,field:'locked',value:!locked}]);
   };
+  // 关闭当前提示横幅；同项目内 render() 不再重弹迁移/格式提示（新消息仍会显示）。
+  window.filmStudioDismissBanner = function(){
+    S.bannerDismissed=true;
+    var el=$('film-studio-alert');
+    if(el)el.className='fs-alert';
+  };
   window.filmStudioToggleTrackFlag = function(trackId,field){
     if(['sync-lock','hidden','muted'].indexOf(field)<0){
       showStatus('不支持的轨道标志：'+String(field),'error');
@@ -2092,7 +2099,8 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     renderAssets();renderTimeline();renderInspector();setPlayheadVisual();previewCurrent();
     var migrationWarnings=S.data.migration&&S.data.migration.warnings||[];
     var filmWarnings=S.data.warnings||[];
-    if(migrationWarnings.length)showStatus('迁移警告：'+migrationWarnings.join('；'),'');
+    if(S.bannerDismissed){/* 用户已关闭本横幅：同项目内不重弹，直到新 showStatus 消息 */}
+    else if(migrationWarnings.length)showStatus('迁移警告：'+migrationWarnings.join('；'),'');
     else if(filmWarnings.length)showStatus('影片格式提示：'+filmWarnings.join('；'),'');
     else{var el=$('film-studio-alert');el.className='fs-alert';var textEl=$('film-studio-alert-text');if(textEl)textEl.textContent='';}
     syncDirectorSelection();
@@ -2243,7 +2251,7 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
         S.selectedElement=null;
         var elementBox=$('fs-element-selection');if(elementBox)elementBox.hidden=true;
       }
-      S.data=r;S.rev=r.rev;S.broken=false;S.migration=null;
+      S.data=r;S.rev=r.rev;S.broken=false;S.migration=null;S.bannerDismissed=false;
       $('film-studio-panel').setAttribute('data-project-id',S.projectId);render();renderAiDirector();
       // Read the legacy director sidecars as references only once FilmDocument becomes active.
       // These requests must never load or mutate the old CompositionIR timeline.

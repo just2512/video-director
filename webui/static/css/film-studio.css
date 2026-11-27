@@ -19,7 +19,9 @@
 .fs-btn:disabled{opacity:.35;cursor:not-allowed}
 .fs-btn.fs-primary{background:#246c67;border-color:#348b83;color:#fff}
 .fs-alert{display:none;border-radius:5px;background:#222;padding:8px 10px;margin:0;font-size:12px;line-height:1.5;color:#ddd;white-space:normal}
-.fs-alert.fs-visible{display:block;margin:6px 0}
+.fs-alert.fs-visible{display:flex;align-items:flex-start;gap:8px;margin:6px 0}
+.fs-alert.fs-visible>span{flex:1 1 auto;min-width:0}
+.fs-alert.fs-visible>.fs-alert-close{flex:0 0 auto;position:sticky;top:0}
 .fs-alert.fs-error{border-left:3px solid #cf6a5b}
 .fs-alert.fs-success{border-left:3px solid #48a69a}
 .fs-alert ul{margin:5px 0 2px;padding-left:20px}
