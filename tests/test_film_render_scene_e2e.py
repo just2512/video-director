@@ -1120,8 +1120,10 @@ def test_migrated_project_external_revision_reopen_look_and_mp4_qc_share_one_rev
 
     initial = fd.read_project_film(project_id)
     assert initial["rev"] == initialized["rev"]
+    # scene.text 现在自动合成字幕轨，故 clip 总数含字幕 iframe；本测试针对画面片段。
     clip_ids = [
         clip["id"] for track in initial["doc"]["tracks"] for clip in track["clips"]
+        if clip["tag"] != "iframe"
     ]
     assert len(clip_ids) == 1
     clip_id = clip_ids[0]

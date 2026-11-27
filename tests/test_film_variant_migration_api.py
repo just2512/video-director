@@ -85,7 +85,9 @@ def test_film_migration_api_requires_and_persists_explicit_variant_selection(tmp
         assert candidate["exists"] is True
         assert candidate["rev"].startswith("migration-preview:")
         assert candidate["duration"] == 2
-        assert sum(len(track["clips"]) for track in candidate["tracks"]) == 1
+        # 1 画面 clip + 1 字幕 clip（scene.text="B" 现在自动合成为字幕轨）
+        assert sum(len(track["clips"]) for track in candidate["tracks"]) == 2
+        assert any(track["id"] == "track-subtitles" for track in candidate["tracks"])
         assert fd.read_project_film(project_id)["exists"] is False, "preview must not create film.html"
 
         payload = {

@@ -745,6 +745,7 @@ declare global {
     filmStudioCommitInspectorOperations?: (ops: FilmOperation[]) => Promise<void> | void;
     filmStudioSetClipLock?: (clipId: string, locked: boolean) => Promise<void> | void;
     filmStudioSeek?: (value: string | number) => void;
+    filmStudioScrub?: (value: string | number) => void;
     filmStudioJumpToKeyframe?: (clipId: string, at: number) => void;
     filmStudioAddTimelineMarker?: () => Promise<unknown> | unknown;
     filmStudioEditTimelineMarker?: (markerId: string) => Promise<unknown> | unknown;
@@ -2651,7 +2652,8 @@ const StudioScrubRow: React.FC = () => {
       max={Math.max(0.001,duration)}
       step={0.033333}
       value={Math.max(0,Math.min(duration,playhead))}
-      onChange={(event) => window.filmStudioSeek?.(event.currentTarget.value)}
+      onChange={(event) => window.filmStudioScrub?.(event.currentTarget.value)}
+      onPointerUp={(event) => window.filmStudioSeek?.(event.currentTarget.value)}
       aria-label="播放头"
     />
     <button className="fs-btn" type="button" data-film-action="frame-next">下一帧</button>
