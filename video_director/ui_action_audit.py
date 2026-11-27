@@ -67,6 +67,8 @@ UI_ONLY_PREFIXES = (
     "createSeriesAndBatch(", "createProject(", "saveModelConfig(",
     "document.getElementById(",  # 纯 DOM 操作（关闭行内区）
     "this.closest(",  # 纯 DOM 操作（关闭提示横幅：把父容器 className 设回隐藏态）
+    "window.filmStudioDismissBanner(",  # 纯 DOM 操作（标记横幅已关闭，render 不重弹）
+    "filmStudioDismissBanner(",  # 同上（audit 匹配前会剥 window. 前缀）
     # Asset Picker 收集器（采用/收藏：读 tab 上下文 → 内部走 executeAction/editorReplaceSource）
     "_apApplyAsset(", "apToggleFav(",
     # 项目域（project_action API——方案 §49：项目操作不进 Composition Command Bus）

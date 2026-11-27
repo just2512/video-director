@@ -2412,6 +2412,11 @@ def apply_ops(
             _ensure_unlocked(track, clip)
             track["clips"].remove(clip)
             normalized.append({"op": "remove", "clip": clip["id"]})
+            # 自动清理删空的非唯一轨道（如「新增画面」素材轨），避免空轨道残留。
+            # undo 是全文快照式，撤销 remove 会连带恢复被清理的轨道。
+            if not track["clips"] and len(out["tracks"]) > 1:
+                out["tracks"].remove(track)
+                normalized.append({"op": "track_remove", "track_id": track["id"], "reason": "auto_empty"})
         elif kind == "insert_ripple":
             result = _insert_ripple(out, str(op.get("track_id") or ""), op.get("clip"), op.get("at"))
             normalized.append({"op": "insert_ripple", "track_id": result["track_id"], "at": result["at"],
