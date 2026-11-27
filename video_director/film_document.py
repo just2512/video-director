@@ -3800,9 +3800,13 @@ window.addEventListener('message',function(event){{
   if(!Number.isFinite(t))return;
   const current=Math.max(0,Math.min(window.film.duration,t));
   window.film.frame(current);
-  requestAnimationFrame(function(){{requestAnimationFrame(function(){{
+  // 离线渲染会给本页注入受控 RAF（film-frame 桥），但字幕页走 legacy film-time
+  // 协议，受控 RAF 队列无人 flush——若用 requestAnimationFrame 延迟回 ready，
+  // 回调永不触发，渲染报「字幕页未确认指定帧」。改用 setTimeout 宏任务：
+  // 不被受控 RAF 拦截，正常触发，且给浏览器一个宏任务周期完成 DOM 绘制。
+  setTimeout(function(){{
     parent.postMessage({{type:'film-time:ready',time:current}},'*');
-  }});}});
+  }},0);
 }});
 </script></body></html>'''
 
