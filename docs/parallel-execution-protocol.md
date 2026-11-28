@@ -13,21 +13,21 @@ Use two independent execution lanes and one controlled integration lane:
 
 1. **Local lane:** reproduce and characterize issues that depend on the user's Windows environment, actual media, installed codecs, browser behavior, local storage, credentials, or production project data. The local owner supplies evidence and performs acceptance that hosted Linux cannot establish.
 2. **Remote lane:** an independent cloud workspace/agent owns only the assigned files and contracts, implements isolated fixes, adds or updates focused tests, and runs the relevant GitHub-hosted checks.
-3. **Integration lane:** one coordinator freezes the baseline, assigns exclusive file ownership, checks dependencies, obtains independent review, controls the PR merge, and ensures final-SHA acceptance.
+3. **Integration lane:** the repository maintainer freezes the baseline, assigns exclusive file ownership, checks dependencies, reviews the diff and evidence, controls PR integration, and ensures final-SHA acceptance. The same maintainer may own and coordinate a task in this single-maintainer repository.
 
 GitHub Actions is the automated test and evidence lane, not a substitute for local Windows or production-media acceptance.
 
-## 2. Roles and separation of duties
+## 2. Roles and lightweight controls
 
 | Role | Responsibilities | Must not |
 |---|---|---|
 | Local issue owner | Reproduce real-environment behavior; collect sanitized logs, request/response headers, media profile and exact local commit; run required Windows/browser/media acceptance | Push uncommitted local changes into another owner's branch; upload production media or secrets without explicit authorization |
 | Remote implementation owner | Work in an isolated cloud clone/workspace; implement only assigned paths; add focused regressions; report exact commit and CI runs | Touch files owned by the local lane or another remote task; change acceptance thresholds; merge its own PR |
-| Integration coordinator | Freeze the current main SHA; maintain task register and file locks; resolve dependencies; check diffs and acceptance; manage PR integration | Act as the sole independent reviewer of code it authored; merge without required gates |
-| Independent reviewer | Review the actual diff, business contract, failure mode, and test adequacy; must be different from the implementation owner | Approve based only on the author's summary or green CI badge |
+| Repository maintainer / integration coordinator | Freeze the current main SHA; maintain task register and file ownership; resolve dependencies; inspect the complete diff and evidence; manage PR integration | Merge while required CI or local acceptance is failing or missing |
+| Optional read-only reviewer | When risk warrants, inspect the diff, business contract, failure mode, and test adequacy; report findings without editing owned files | Become a mandatory external approval dependency for routine work |
 | GitHub Actions | Run hosted tests against an exact commit SHA and retain test logs/artifacts | Read local files, local storage, local model configuration, or developer credentials |
 
-The remote implementation owner and integration coordinator must be different people or agent sessions; one AI agent must not both implement a remote task and coordinate/integrate that same task. The implementation owner and independent reviewer must also be different people or agents. The PR author cannot approve or self-certify their own patch. The coordinator may review operational metadata, but code approval requires an independent reviewer. If no independent reviewer is available, the PR remains unmerged.
+This is a single-maintainer personal repository. The repository owner may be both task owner and integration coordinator; no third-party collaborator or GitHub approval is required. When a remote agent implements a task, the repository owner remains responsible for inspecting the final diff, checking evidence, and deciding whether to merge. A separate read-only review by another agent/session is optional for high-risk changes, not a merge gate.
 
 ## 3. Baseline and task creation
 
@@ -59,7 +59,7 @@ The observed baseline in the header is the main SHA used to prepare this protoco
   - `work/w8-<issue-or-topic>` — Shotcraft browser UX
 - Open a Draft PR while implementation is active. Mark it ready for review only when the task owner has supplied its exact commit SHA, focused test results, and remaining limitations.
 - Every task PR targets `main`, describes its exclusive file scope, and links its Issue/task card.
-- Merge only after independent review, required owner-lane CI, and required integration gates pass on the exact PR head SHA. Use a small, task-scoped PR; do not combine unrelated fixes.
+- Merge after the maintainer has inspected the complete diff and evidence, and required owner-lane CI, local acceptance, and integration gates pass on the exact PR head SHA. Use a small, task-scoped PR; do not combine unrelated fixes.
 - Do not directly push completed feature branches into `main`, create ad-hoc path-scoped synthetic main trees, or use a second integration mechanism.
 - Delete a short-lived branch only after the PR is merged and its final evidence is recorded.
 
@@ -98,9 +98,9 @@ Use these operational states in the task register:
 | READY | Baseline, owner, file locks, dependencies and acceptance are explicit | Task branch created from recorded SHA |
 | ACTIVE_LOCAL | Local reproduction or fix is in progress | Local evidence and changed paths recorded |
 | ACTIVE_REMOTE | Remote implementation or focused tests are in progress | Commit pushed and focused CI started |
-| REVIEW | Implementation is complete; independent review pending | Review decision and requested corrections recorded |
+| REVIEW | Implementation is complete; maintainer diff/evidence check pending | Findings and required corrections recorded |
 | CI_PENDING | Required hosted jobs are queued/running | Exact-head results available |
-| INTEGRATION_READY | Review, owner CI and local requirements are satisfied | Coordinator approves merge |
+| INTEGRATION_READY | Maintainer check, owner CI and local requirements are satisfied | Maintainer approves merge |
 | BLOCKED | A named external input, product decision, or evidence is missing | Blocker is resolved and documented |
 | ACCEPTED | Required business behavior and all applicable gates pass on final integrated SHA | Evidence ledger updated |
 | CLOSED | Issue and PR are closed after acceptance | No unresolved required acceptance remains |
@@ -200,8 +200,7 @@ LOCAL_STATUS_PATHS:
 TASK_BRANCH:
 OWNER: LOCAL / REMOTE
 OWNER_IDENTITY: (human login or distinct agent/session identifier)
-INTEGRATION_COORDINATOR: (different human/login or agent/session from OWNER_IDENTITY)
-INDEPENDENT_REVIEWER:
+INTEGRATION_COORDINATOR: (repository maintainer; may be the same person as OWNER_IDENTITY)
 
 PROBLEM:
 REPRODUCTION_EVIDENCE:
@@ -232,15 +231,15 @@ DELIVERABLES:
 - Focused test output
 - Hosted CI Run IDs and artifact links
 - Local environment evidence, where required
-- Independent review result
+- Maintainer self-review result; optional second-agent review findings if used
 - Known limitations and remaining blockers
 ```
 
 ## 10. Integration and closure
 
 1. The task owner opens or updates its task PR against `main`.
-2. The independent reviewer reviews the complete final diff and evidence.
-3. The coordinator confirms all file ownership, dependencies, and acceptance gates.
+2. The repository maintainer inspects the complete final diff, test evidence, local acceptance, and unresolved items. A second-agent read-only review may be requested for high-risk changes but is optional.
+3. The maintainer confirms file ownership, dependencies, and acceptance gates.
 4. If main advanced after the task's base SHA, update the task branch deliberately; inspect the new full diff and rerun every affected gate on the new exact SHA.
 5. Merge the small PR to main only after required gates pass. Do not enable automatic merge for a task whose required local acceptance is still missing.
 6. After merge, record the merge SHA and rerun/confirm the main-branch gates required by the workflow policy. Update `execution-ledger.md` with the final SHA, Run IDs, PASS/FAIL/MISSING state and local acceptance status.
@@ -257,8 +256,8 @@ This protocol is wired into the repository's normal agent and PR entry points:
 | `AGENTS.md` | Coding agents that support repository agent instructions, including OpenCode/Codex-style agents | Mandatory read of this protocol before code changes, tests, reviews or delegation |
 | `CLAUDE.md` | Claude Code | Imports `AGENTS.md` and repeats the mandatory protocol gate |
 | `.github/copilot-instructions.md` | GitHub Copilot coding/review agents | Requires this protocol and the same ownership/acceptance rules |
-| `.github/pull_request_template.md` | Every new PR | Captures baseline SHA, owner, independent reviewer, owned/no-touch paths, tests and local acceptance |
-| `.github/workflows/parallel-governance.yml` | Pull requests targeting `main` | Checks lane branch naming, target branch, task-card fields, full baseline SHA, task-branch identity, and reviewer separation before a draft can become merge-ready |
+| `.github/pull_request_template.md` | Every new PR | Captures baseline SHA, owner, maintainer, owned/no-touch paths, tests and local acceptance |
+| `.github/workflows/parallel-governance.yml` | Pull requests targeting `main` | Checks lane branch naming, target branch, task-card fields, full baseline SHA, task-branch identity, and required acceptance metadata |
 
 These files are intentionally concise entry points; the full contract remains this document. Any coding agent that does not automatically load the repository instructions must be given an explicit instruction to read this document before acting. Local developers must update their checkout after this policy PR is merged so their local agents see the same `AGENTS.md` and `CLAUDE.md` instructions as remote agents.
 
@@ -266,12 +265,12 @@ These files are intentionally concise entry points; the full contract remains th
 
 A workflow status check is only advisory until repository rules require it. The repository owner must verify/configure the `main` branch protection or repository ruleset with at least:
 
-1. Require a pull request before merging; prohibit direct pushes to `main`.
+1. Require a pull request before merging; use PRs as the change log and acceptance record.
 2. Require the `Parallel governance` status check.
-3. Require at least one approval from someone other than the PR author; dismiss stale approvals after new commits.
+3. Do not require human approval counts; the repository owner performs the final self-review.
 4. Require all review conversations to be resolved.
 5. Block force pushes and branch deletion.
-6. Do not permit routine administrator bypass of the above rules.
+6. Allow repository-owner/admin bypass as a recovery path so the sole maintainer cannot permanently lock the repository. Normal changes should still use PRs and required checks.
 
 The `Parallel governance` check must first complete on a PR so GitHub can offer it as a required status check. Before enabling the rules, confirm the exact check name shown by GitHub Actions.
 
@@ -280,5 +279,5 @@ The `Parallel governance` check must first complete on a PR so GitHub can offer 
 ### Limits of enforcement
 
 - Agent instruction files guide compliant local and remote agents; they cannot technically prevent a person or an agent that ignores repository instructions from editing files.
-- The governance workflow validates PR metadata and reviewer separation; it does not replace code review, product tests, local Windows acceptance, or the required GitHub branch rule.
+- The governance workflow validates PR metadata and task acceptance fields; it does not replace the maintainer's diff review, product tests, local Windows acceptance, or the required GitHub branch rule.
 - If branch protection is unavailable or disabled, keep the governance check visible and treat any merge that bypasses the stated review/gates as a policy violation.
