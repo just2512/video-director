@@ -19,6 +19,41 @@ class TestDirectorIntent:
         assert resolve_director_intents("要横屏 16:9 的")["resolution"] == "1920x1080"
         assert resolve_director_intents("竖屏 9:16")["resolution"] == "1080x1920"
 
+    def test_rule_resolution_quality_and_explicit_dimensions_precede_aspect_ratio(self):
+        resolve = director_intent.resolve_rule_intents
+        assert resolve("4K画质，16:9")["resolution"] == "3840x2160"
+        assert resolve("输出 3840x2160，16:9")["resolution"] == "3840x2160"
+        assert resolve("横屏 16:9")["resolution"] == "1920x1080"
+
+    def test_rule_duration_accepts_english_seconds_units(self):
+        resolve = director_intent.resolve_rule_intents
+        assert resolve("成片时长至少 40s 以上")["duration"] == "40+"
+        assert resolve("成片时长至少 40 sec 以上")["duration"] == "40+"
+        assert resolve("成片时长至少 40 秒以上")["duration"] == "40+"
+
+    def test_rule_watermark_accepts_label_text_colon_expression(self):
+        resolve = director_intent.resolve_rule_intents
+        brief = "右下角增加一行水印文字：'历史演绎，仅供娱乐'"
+        assert resolve(brief)["watermark"] == "历史演绎，仅供娱乐"
+
+    def test_rule_transition_extracts_explicit_add_and_cut_requests(self):
+        resolve = director_intent.resolve_rule_intents
+        assert resolve("素材衔接加转场")["transition_mode"] == "fade"
+        assert resolve("不要转场，直接硬切")["transition_mode"] == "cut"
+
+    def test_original_compound_brief_is_fully_extracted_by_rule_path(self):
+        resolve = director_intent.resolve_rule_intents
+        brief = (
+            "按顺序匹配视频素材，保留素材原声，素材衔接加转场，"
+            "右下角增加一行水印文字：'历史演绎，仅供娱乐'，"
+            "4K画质，16:9，字幕与配音匹配，男声沉稳语速放缓，时长40s以上"
+        )
+        parsed = resolve(brief)
+        assert parsed["resolution"] == "3840x2160"
+        assert parsed["duration"] == "40+"
+        assert parsed["watermark"] == "历史演绎，仅供娱乐"
+        assert parsed["transition_mode"] == "fade"
+
     def test_duration_seconds_and_minutes(self):
         """方向语义：「N+」=不少于、「N-」=不超过、无方向词=目标值。"""
         assert resolve_director_intents("时长控制在 40 秒以上")["duration"] == "40+"

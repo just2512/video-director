@@ -105,15 +105,22 @@ _COMMON_WIDTHS = {1080, 720, 1920, 1280, 3840, 2560, 1440, 2160}
 
 
 def _resolve_resolution(text: str) -> Optional[str]:
-    t = text.lower()
-    for alias, dims in _RESOLUTION_ALIAS.items():
-        if alias.lower() in t:
-            return f"{dims[0]}x{dims[1]}"
+    # 显式像素尺寸优先于比例别名：3840x2160 + 16:9 不能被比例别名降级。
     m = re.search(r"(\d{2,5})\s*[x×*]\s*(\d{2,5})", text)
     if m:
         w, h = int(m.group(1)), int(m.group(2))
         if w in _COMMON_WIDTHS or h in _COMMON_WIDTHS:
             return f"{w}x{h}"
+
+    # 先识别画质等级，再识别画幅比例；4K 默认 UHD 16:9 尺寸。
+    for alias, dims in (("8k", (7680, 4320)), ("4k", (3840, 2160))):
+        if re.search(rf"(?<![0-9a-z]){alias}(?![0-9a-z])", text, re.IGNORECASE):
+            return f"{dims[0]}x{dims[1]}"
+
+    t = text.lower()
+    for alias, dims in _RESOLUTION_ALIAS.items():
+        if alias.lower() in t:
+            return f"{dims[0]}x{dims[1]}"
     return None
 
 
@@ -122,7 +129,12 @@ def _resolve_duration(text: str) -> Optional[str]:
     if m:
         secs = int(float(m.group(1)) * 60)
     else:
-        m = re.search(r"(\d+(?:\.\d+)?)\s*秒", text)
+        # 接受中文“秒”以及常见英文 s/sec/second 单位；避免把 40s 当成未识别。
+        m = re.search(
+            r"(\d+(?:\.\d+)?)\s*(?:秒|s(?:ec(?:ond)?s?)?)(?![A-Za-z])",
+            text,
+            re.IGNORECASE,
+        )
         if not m:
             return None
         secs = int(round(float(m.group(1))))
@@ -158,13 +170,46 @@ def _resolve_subtitle(text: str) -> Optional[str]:
     return None
 
 
+def _resolve_transition(text: str) -> Optional[str]:
+    """解析用户明确的转场要求；自动提案预算不应吞掉显式指令。"""
+    lowered = text.lower()
+    if any(w in lowered for w in (
+        "不要转场", "不要加转场", "不要添加转场", "不加转场",
+        "不需要转场", "无需转场", "无转场", "没有转场", "取消转场",
+        "关闭转场", "不要淡入淡出", "不需要淡入淡出",
+        "不要 crossfade", "不要 fade",
+    )) or any(w in text for w in ("硬切", "直接切")):
+        return "cut"
+    if any(w in lowered for w in ("crossfade", "fade")) or any(
+        w in text for w in ("淡入淡出", "交叉淡化", "溶解转场")
+    ):
+        return "fade"
+    if any(w in text for w in ("转场", "过渡")) and any(
+        w in text for w in ("加", "添加", "增加", "加入", "加上", "需要", "使用", "安排", "应用")
+    ):
+        return "fade"
+    return None
+
+
 def _resolve_text_field(text: str, field: str, aliases: List[str]) -> Optional[str]:
     for alias in aliases:
         if alias in text:
-            m = re.search(alias + r"\s*(?:叫|是|为|叫做|名为|设成|设为)?\s*[「『\"\']([^」「』\"\']+)", text)
+            alias_pattern = re.escape(alias)
+            # 允许“水印文字：‘内容’”“标题文本为‘内容’”等自然表达，
+            # 不再要求字段别名后立刻出现引号。
+            m = re.search(
+                alias_pattern
+                + r"\s*(?:(?:文字|文本|内容|文案)\s*)?(?:[:：]\s*)?"
+                + r"(?:叫|是|为|叫做|名为|设成|设为|写成|写为)?\s*"
+                + r"[「『\"\']([^」「』\"\']+)",
+                text,
+            )
             if m:
                 return m.group(1).strip()
-            m = re.search(r"[「『\"\']([^」「』\"\']+)[」』\"\']\s*" + re.escape(alias), text)
+            m = re.search(
+                r"[「『\"\']([^」「』\"\']+)[」』\"\']\s*" + alias_pattern,
+                text,
+            )
             if m:
                 return m.group(1).strip()
     return None
@@ -207,6 +252,9 @@ def _rule_resolve(brief: str) -> Tuple[Dict[str, str], List[str]]:
     sub = _resolve_subtitle(text)
     if sub:
         out["subtitle_mode"] = sub
+    transition = _resolve_transition(text)
+    if transition:
+        out["transition_mode"] = transition
     for item in INTENT_FIELDS:
         if item["field"] in ("watermark", "title", "lower_third_name"):
             val = _resolve_text_field(text, item["field"], item["aliases"])
