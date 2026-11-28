@@ -35,7 +35,7 @@ jobs:
           head = os.environ.get("PR_HEAD_REF", "")
           base = os.environ.get("PR_BASE_REF", "")
           base_sha = os.environ.get("PR_BASE_SHA", "")
-head_sha = os.environ.get("PR_HEAD_SHA", "")
+          head_sha = os.environ.get("PR_HEAD_SHA", "")
           draft = os.environ.get("PR_DRAFT", "").lower() == "true"
           author = os.environ.get("PR_AUTHOR", "").lower()
           reviewers = json.loads(os.environ.get("PR_REQUESTED_REVIEWERS") or "[]")
