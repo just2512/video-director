@@ -27,7 +27,7 @@ GitHub Actions is the automated test and evidence lane, not a substitute for loc
 | Independent reviewer | Review the actual diff, business contract, failure mode, and test adequacy; must be different from the implementation owner | Approve based only on the author's summary or green CI badge |
 | GitHub Actions | Run hosted tests against an exact commit SHA and retain test logs/artifacts | Read local files, local storage, local model configuration, or developer credentials |
 
-The implementation owner and independent reviewer must be different people or agents. The coordinator may also review operational metadata, but must not self-certify a patch it implemented. If no independent reviewer is available, the PR remains unmerged.
+The remote implementation owner and integration coordinator must be different people or agent sessions; one AI agent must not both implement a remote task and coordinate/integrate that same task. The implementation owner and independent reviewer must also be different people or agents. The PR author cannot approve or self-certify their own patch. The coordinator may review operational metadata, but code approval requires an independent reviewer. If no independent reviewer is available, the PR remains unmerged.
 
 ## 3. Baseline and task creation
 
