@@ -2,14 +2,17 @@
 
 **Repository:** `just2512/video-director`  
 **Audit starting main SHA:** `99142d0887fa771bea7c3bd3e5bafd27ee435a1b`  
-**Updated:** 2026-11-12  
+**Historical delivery entries last reconciled:** 2026-11-12  
+**Current execution policy:** [parallel-execution-protocol.md](parallel-execution-protocol.md)  
+**Protocol prepared against observed main SHA:** `d8de748219be28b81c1ac68bbb5766f9160bbdd8` (2026-11-27)  
 **Purpose:** operational status and dependency ledger only. This file does not replace, merge, or rewrite either source plan.
 
 ## 0. Non-negotiable execution rules
 
 1. The 2026-10-19 OpenFilm/Film Studio work and the 2026-11-07 Product IA work remain separate delivery lines.
-2. `main` is the only integration branch. No long-lived work branches or PR workflow is introduced.
-3. Parallelism requires independent short-lived task branches frozen from one exact main SHA, disjoint file ownership, and independent GitHub-hosted CI for each owner lane. `main` is integration-only; completed branches are integrated directly in dependency order with path-scoped trees. No long-lived work branches or PR/manual-review handoff.
+2. `main` is the only integration/release branch. Every new task uses a short-lived `work/wN-*` branch and a lightweight PR to `main`; direct feature-branch integration and synthetic path-scoped main trees are not permitted.
+3. Parallelism requires one frozen current-main SHA per batch, explicit disjoint file ownership, a named local/remote owner, an independent reviewer distinct from the implementation owner, and exact-SHA GitHub-hosted CI. The integration coordinator controls PR merge and final acceptance.
+4. A task involving Windows file locks/paths, FFmpeg, Chromium/Edge media, real MP4 playback, local storage or production data is not accepted on hosted Linux evidence alone; required local acceptance must be PASS, otherwise overall status remains MISSING/BLOCKED.
 4. **No self-hosted/local runner, WSL runner, developer checkout, or local model-config file may be used by repository CI.** GitHub Actions jobs must use GitHub-hosted runners (Ubuntu or Windows).
 5. Real-provider acceptance may only run as an explicit opt-in on a GitHub-hosted runner with GitHub Actions Secrets. No local runner credentials or local storage are read.
 6. A test added is not a feature delivered. A green scoped job is not an integrated PASS. Every PASS must identify the code SHA, business behavior, and test evidence.
@@ -32,7 +35,9 @@
 
 A constraint may be shared (for example, one FilmDocument authority), but a task may not be moved from one plan to the other or counted as delivery for both without separate acceptance evidence.
 
-## 2. Current delivery ledger
+## 2. Historical delivery ledger — not a current-main status claim
+
+The rows below preserve the prior 2026-11-12 reconciliation and its exact-SHA evidence. They are historical records, not a claim that the current main branch still has those results. For current task state and new acceptance, append a dated update and bind all new PASS/FAIL records to the final tested SHA.
 
 At the start of this reconciliation, `main` was `99142d0887fa771bea7c3bd3e5bafd27ee435a1b`. The exact executable/workflow tree verified here is `9d7208cc9818839ea2c9cc5965298e0998c28b68`; GitHub compare confirms the two intervening commits changed only these two documentation files. All acceptance evidence below is tied to that exact executable/workflow SHA. Subsequent edits to this ledger and the parallel-workflow document are documentation-only and do not require rerunning the product suite.
 
@@ -68,11 +73,11 @@ At the start of this reconciliation, `main` was `99142d0887fa771bea7c3bd3e5bafd2
 
 ## 3. Workstream partition — what can genuinely run in parallel
 
-Workstreams are logical ownership lanes implemented by independent short-lived Git branches. Freeze one exact `main` SHA, create one branch per disjoint task, run each scoped hosted-CI lane on that branch's exact SHA, then integrate directly to `main` in dependency order with path-scoped trees. `main` remains integration-only; no long-lived branches or PR/manual-review handoff.
+Workstreams are logical ownership lanes implemented by independent short-lived task branches created from one frozen current `main` SHA. Each branch has disjoint file ownership and runs the relevant GitHub-hosted lane CI against its exact SHA. Integration occurs only through a small PR to `main`, after independent review and required gates. See [parallel-execution-protocol.md](parallel-execution-protocol.md) for the authoritative roles, task lifecycle, local acceptance, branch naming, and PR rules.
 
 | Lane | Plan | Owns | Can run concurrently with | Must wait for / must not touch |
 |---|---|---|---|---|
-| W0 Coordinator / contracts | Both | Baseline SHA, dependency ledger, shared contracts, integration order | Read-only audits and independent test design | Serial owner of shared files and main integration; no parallel edits to shared shell |
+| W0 Coordinator / contracts | Both | Freeze baseline, task/file ownership register, shared contracts, independent review routing, PR integration and final acceptance | Read-only audits and independent test design | Serial owner of shared contracts and integration decisions; must not self-approve implementation it authored |
 | W1 Generation durability | 19D | Generation reservation/state machine, job persistence, provider submission identity, Manifest/Registry recovery and focused tests | W2, W3, W4 test preparation, W5 CI migration | Must coordinate before changing shared project-manifest/storage contracts; avoid timeline UI and settings |
 | W2 Timeline transaction state | 19D | Multi-select, cross-track drag, Undo/Redo, gesture/revision invalidation and timeline-specific tests | W1, W3, W4 test preparation, W5 CI migration | FilmDocument/revision contract changes require W0 review; avoid generation persistence |
 | W3 Project lifecycle / export acceptance | 19D | Existing lifecycle fixtures, migration preview, reopen, actual render/QC assertions; tests first | W1/W2 test authoring and W5 CI migration | Final integrated run waits for W1 and W2 contracts; do not duplicate existing full lifecycle fixture |
