@@ -168,7 +168,11 @@ def _compile_scene_transition(
 
     做法同 test_visual_crossfade_overlap 的既有合法形态：下一场景首个视觉
     片段提前 duration 秒开始（at -= duration）并设置 fade="duration,0"。
-    前一片段不动（视觉重叠要求前段 fade_out=0）。返回是否成功编译。
+    前一片段不动（视觉重叠要求前段 fade_out=0）。
+
+    音画同步：跟随场景的 original 原声（tracks 里 data-role=original 且 at
+    与场景 start 对齐）同步提前 duration 秒并淡入——否则重叠区间画面已切
+    到下一场景而原声还是上一场景的。返回是否成功编译。
     """
     if transition not in {"crossfade", "fade", "dissolve"}:
         return False
@@ -183,6 +187,7 @@ def _compile_scene_transition(
     if next_scene is None:
         return False
     next_scene_id = str(next_scene.get("id") or "")
+    next_scene_start = _number(next_scene.get("start", 0), "scene start", 0)
     # 在主画面片段列表（clips + 各 track）中找该场景的首个视觉片段
     all_visual = [
         clip for clip in clips
@@ -207,6 +212,26 @@ def _compile_scene_transition(
     fade_in, fade_out = _parse_fade(target["attrs"].get("fade"))
     # 后段 fade_in 设为重叠时长（视觉重叠合法性要求）；已有淡出保留
     target["attrs"]["fade"] = f"{_fmt(duration)},{_fmt(fade_out)}"
+    # 音画同步：跟随下一场景的原声已在 tracks 里（data-role=original，at 与
+    # 场景对齐）。把它们同步提前 duration 秒并设置淡入——否则重叠区间画面
+    # 已切到下一场景而原声还是上一场景的。音频重叠合法性要求本段淡入 ≤
+    # 重叠时长即可（前段原声保持不变，重叠期双方叠加自然交叉淡化）。
+    shifted_audio = 0
+    for track in tracks:
+        for clip in track.get("clips", []):
+            if clip.get("tag") != "audio":
+                continue
+            attrs = clip["attrs"]
+            if str(attrs.get("data-role") or "").lower() != "original":
+                continue
+            audio_at = _number(attrs.get("at", 0), "audio at", 0)
+            # 跟随下一场景的原声：at 与场景原 start 对齐（容差 0.05s）
+            if abs(audio_at - next_scene_start) > 0.05:
+                continue
+            attrs["at"] = _fmt(audio_at - duration)
+            a_fade_in, a_fade_out = _parse_fade(attrs.get("fade"))
+            attrs["fade"] = f"{_fmt(duration)},{_fmt(a_fade_out)}"
+            shifted_audio += 1
     return True
 
 
