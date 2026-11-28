@@ -156,6 +156,60 @@ def _store_fade(attrs: dict, value: str | None) -> None:
         attrs["fade"] = value
 
 
+def _compile_scene_transition(
+    scene: dict,
+    source_scenes: list,
+    clips: list,
+    tracks: list,
+    transition: str,
+    duration: float,
+) -> bool:
+    """把场景 transition_out (crossfade/fade) 编译为 Film 视觉重叠转场。
+
+    做法同 test_visual_crossfade_overlap 的既有合法形态：下一场景首个视觉
+    片段提前 duration 秒开始（at -= duration）并设置 fade="duration,0"。
+    前一片段不动（视觉重叠要求前段 fade_out=0）。返回是否成功编译。
+    """
+    if transition not in {"crossfade", "fade", "dissolve"}:
+        return False
+    scene_id = str(scene.get("id") or "")
+    # 找下一个场景（按 start 排序，transition_out 属于"本场景结束后"）
+    ordered = sorted(source_scenes, key=lambda s: _number(s.get("start", 0), "scene start", 0))
+    next_scene = None
+    for idx, s in enumerate(ordered):
+        if str(s.get("id") or "") == scene_id and idx + 1 < len(ordered):
+            next_scene = ordered[idx + 1]
+            break
+    if next_scene is None:
+        return False
+    next_scene_id = str(next_scene.get("id") or "")
+    # 在主画面片段列表（clips + 各 track）中找该场景的首个视觉片段
+    all_visual = [
+        clip for clip in clips
+        if clip.get("tag") in {"video", "img", "iframe"}
+        and str(clip["attrs"].get("data-source-scene-id") or "") == next_scene_id
+    ]
+    for track in tracks:
+        all_visual.extend(
+            clip for clip in track.get("clips", [])
+            if clip.get("tag") in {"video", "img", "iframe"}
+            and str(clip["attrs"].get("data-source-scene-id") or "") == next_scene_id
+        )
+    if not all_visual:
+        return False
+    target = min(all_visual, key=lambda c: _number(c["attrs"].get("at", 0), "clip at", 0))
+    at = _number(target["attrs"].get("at", 0), "clip at", 0)
+    # 提前开始并淡入；不得把片段挪到负时间
+    new_at = at - duration
+    if new_at < -0.001:
+        return False
+    target["attrs"]["at"] = _fmt(new_at)
+    fade_in, fade_out = _parse_fade(target["attrs"].get("fade"))
+    # 后段 fade_in 设为重叠时长（视觉重叠合法性要求）；已有淡出保留
+    target["attrs"]["fade"] = f"{_fmt(duration)},{_fmt(fade_out)}"
+    return True
+
+
 def _split_fade(value: Any, duration: float, offset: float) -> tuple[str | None, str | None]:
     """Partition one linear fade pair across a cut without changing the retained outer fades."""
     fade_in, fade_out = _parse_fade(value)
@@ -6060,11 +6114,25 @@ def build_film_from_composition(project_id: str, ir, selected_variant_id: str | 
                 "原值保留于迁移源副本"
             )
             continue
-        if transition not in {"cut", "none", ""} or transition_duration > 0.001:
+        if transition in {"cut", "none", ""} or transition_duration <= 0.001:
+            continue
+        # 编译 crossfade/fade 为 Film 转场：下一场景首个视觉片段提前 transition_duration
+        # 秒开始并淡入该时长（视觉重叠要求前段 fade_out=0，后段 fade_in=重叠时长，
+        # 与 _clip_overlap_is_valid 的视觉规则一致）。音频轨不位移——只编译画面转场。
+        compiled = _compile_scene_transition(
+            scene, source_scenes, clips, tracks, transition, transition_duration
+        )
+        if compiled:
             warnings.append(
                 f"场景 {scene.get('id')} 的 transition_out ({transition}, "
-                f"{transition_duration:.3f}s) 尚未编译为 Film 转场；"
-                "原始设置保留于迁移源副本"
+                f"{transition_duration:.3f}s) 已编译为 Film 转场："
+                "下一场景画面提前重叠并交叉淡化"
+            )
+        else:
+            warnings.append(
+                f"场景 {scene.get('id')} 的 transition_out ({transition}, "
+                f"{transition_duration:.3f}s) 无法编译为 Film 转场"
+                "（下一场景无可迁移画面片段）；原值保留于迁移源副本"
             )
     if clips:
         tracks.append({"id": "track-main",

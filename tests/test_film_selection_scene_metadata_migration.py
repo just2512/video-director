@@ -132,7 +132,9 @@ def test_scene_text_planning_lock_and_transition_are_not_silently_executed(tmp_p
     warnings = "\\n".join(result["warnings"])
     assert "没有自动生成字幕或配音" not in warnings
     assert "不等同于 Film 图层编辑锁" in warnings
-    assert "尚未编译为 Film 转场" in warnings
+    # transition_out 现在被编译（本 fixture 是唯一场景，无下一场景可重叠：
+    # 如实报「无法编译」而不是旧的静默「尚未编译」）。
+    assert "无法编译为 Film 转场" in warnings
 
 
 def test_scene_text_synthesizes_subtitle_cues_with_aligned_timing(tmp_path, monkeypatch):
