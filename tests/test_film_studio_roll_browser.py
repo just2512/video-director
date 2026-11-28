@@ -932,12 +932,12 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 before_count = sum(len(track["clips"]) for track in before_paste["doc"]["tracks"])
                 page.keyboard.press("Control+C")
                 page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已复制 1 个片段')",
+                    "() => document.querySelector('#fs-toast-stack')?.textContent.includes('已复制 1 个片段')",
                     timeout=5000,
                 )
                 page.keyboard.press("Control+V")
                 page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已粘贴 1 个片段')",
+                    "() => document.querySelector('#fs-toast-stack')?.textContent.includes('已粘贴 1 个片段')",
                     timeout=15000,
                 )
                 pasted = fd.read_project_film(project_id)
@@ -965,7 +965,7 @@ def test_film_studio_ctrl_drag_roll_trim_updates_persisted_timeline(tmp_path, mo
                 page.locator('.fs-context-menu [data-context-action="duplicate"]').wait_for(state="visible", timeout=5000)
                 page.locator('.fs-context-menu [data-context-action="duplicate"]').click()
                 page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已粘贴 1 个片段')",
+                    "() => document.querySelector('#fs-toast-stack')?.textContent.includes('已粘贴 1 个片段')",
                     timeout=15000,
                 )
                 duplicated_again = fd.read_project_film(project_id)

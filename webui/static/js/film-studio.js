@@ -2440,7 +2440,9 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
           undo:'撤销',
           redo:'重做'
         };
-        showStatus('已载入影片新 revision。修改来源：'+(sourceLabels[pendingSource]||pendingSource)+'。','success');
+        // 外部修订提醒必须常驻横幅（用户需知道时间线被外部改写并核对），
+        // 不能走 3 秒 toast 一闪而过。
+        showStatus('已载入影片新 revision。修改来源：'+(sourceLabels[pendingSource]||pendingSource)+'。','');
       });
       return true;
     }

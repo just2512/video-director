@@ -53,6 +53,22 @@ def _open_studio(page, port: int, project_id: str) -> None:
     page.locator('#fs-timeline .fs-clip[data-clip="scene-clip"]').wait_for(state="visible")
 
 
+def _wait_film_saved(page, project_id: str, previous_rev: str, timeout: float = 15.0) -> None:
+    """等保存完成：轮询磁盘 revision 变化（保存成功的确定信号，不依赖 toast
+    文本时序——toast 3 秒自动消失，等待文本会引入竞态）。"""
+    import time as _time
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        if fd.read_project_film(project_id)["rev"] != previous_rev:
+            page.wait_for_function(
+                "() => window.filmStudioStore?.getSnapshot?.().busy === false",
+                timeout=10000,
+            )
+            return
+        _time.sleep(0.1)
+    raise AssertionError(f"film.html revision 未在 {timeout}s 内从 {previous_rev[:8]} 前进")
+
+
 def _clip(project_id: str) -> dict:
     state = fd.read_project_film(project_id)
     track = next(track for track in state["doc"]["tracks"] if track["id"] == "scene-track")
@@ -212,11 +228,9 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                         state="attached", timeout=10000
                     )
                     page.locator("#fs-field-title").fill("React inspector persisted")
+                    _prev_rev = fd.read_project_film(project_id)["rev"]
                     page.locator("#fs-apply-clip-inspector").click()
-                    page.wait_for_function(
-                        "() => document.querySelector('#film-studio-alert')?.textContent.includes('已保存 1 项编辑')",
-                        timeout=15000,
-                    )
+                    _wait_film_saved(page, project_id, _prev_rev)
                     assert _clip(project_id)["attrs"].get("title") == "React inspector persisted"
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").wait_for(
                     state="attached", timeout=15000
@@ -229,12 +243,12 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 # Wait for the nested HTML scene to acknowledge Inspect mode before
                 # clicking it; otherwise this click can race the two postMessage hops.
                 page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('预览中的 HTML 镜头已进入元素选取模式')",
+                    "() => document.querySelector('#fs-toast-stack')?.textContent.includes('预览中的 HTML 镜头已进入元素选取模式')",
                     timeout=10000,
                 )
                 page.locator("#fs-preview-composition").wait_for(state="visible", timeout=10000)
                 page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('预览中的 HTML 镜头已进入元素选取模式')",
+                    "() => document.querySelector('#fs-toast-stack')?.textContent.includes('预览中的 HTML 镜头已进入元素选取模式')",
                     timeout=10000,
                 )
                 assert page.locator("#fs-preview-composition").evaluate("(frame) => getComputedStyle(frame).display") != "none"
@@ -245,7 +259,7 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").click()
                 try:
                     page.wait_for_function(
-                        "() => document.querySelector('#film-studio-alert')?.textContent.includes('已选中')",
+                        "() => document.querySelector('#fs-toast-stack')?.textContent.includes('已选中')",
                         timeout=15000,
                     )
                 except Exception as exc:
@@ -256,7 +270,7 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                       const computed=element&&getComputedStyle(element);
                       return {
                         trace:window.__vdCanvasTrace||[],
-                        alert:document.querySelector('#film-studio-alert')?.textContent,
+                        alert:document.querySelector('#fs-toast-stack')?.textContent,
                         iframePointerEvents:frame&&getComputedStyle(frame).pointerEvents,
                         inlineStyle:element&&element.getAttribute('style'),
                         inlineLeft:element&&element.style.left,
@@ -310,11 +324,9 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
 
                 page.locator("#fs-element-line-height").fill("1.25")
                 page.locator("#fs-element-letter-spacing").fill("1.5px")
+                _prev_rev = fd.read_project_film(project_id)["rev"]
                 page.locator("#fs-apply-element").click()
-                page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('画布修改已保存到 film.html')",
-                    timeout=15000,
-                )
+                _wait_film_saved(page, project_id, _prev_rev)
                 style_only = next(item for item in _overrides(project_id) if item.get("selector") == "#title")
                 assert style_only["style"] == {"lineHeight": "1.25", "letterSpacing": "1.5px"}, style_only
                 assert "text" not in style_only, style_only
@@ -335,7 +347,7 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 )
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").click()
                 page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已选中')",
+                    "() => document.querySelector('#fs-toast-stack')?.textContent.includes('已选中')",
                     timeout=15000,
                 )
                 page.locator("#fs-element-text").wait_for(state="visible")
@@ -352,11 +364,9 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 page.locator("#fs-element-text-align").select_option("center")
                 page.locator("#fs-element-font-size").fill("36")
                 page.locator("#fs-element-rotate").fill("12")
+                _prev_rev = fd.read_project_film(project_id)["rev"]
                 page.locator("#fs-apply-element").click()
-                page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('画布修改已保存到 film.html')",
-                    timeout=15000,
-                )
+                _wait_film_saved(page, project_id, _prev_rev)
 
                 changed = _overrides(project_id)
                 target = next(item for item in changed if item.get("selector") == "#title")
@@ -383,21 +393,16 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     timeout=10000,
                 )
                 page.locator(undo_selector).click()
-                page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已撤销')",
-                    timeout=15000,
-                )
+                _wait_film_saved(page, project_id, saved_revision)
                 remaining = next(item for item in _overrides(project_id) if item.get("selector") == "#title")
                 assert remaining["style"] == {"lineHeight": "1.25", "letterSpacing": "1.5px"}, remaining
                 assert "text" not in remaining, remaining
                 assert fd.read_project_film(project_id)["rev"] != saved_revision
 
                 redo_selector = '#fs-react-toolbar [data-film-action="redo"]' if has_react_toolbar else '#fs-static-toolbar [data-film-action="redo"]'
+                _undo_rev = fd.read_project_film(project_id)["rev"]
                 page.locator(redo_selector).click()
-                page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已重做')",
-                    timeout=15000,
-                )
+                _wait_film_saved(page, project_id, _undo_rev)
                 redone = next(item for item in _overrides(project_id) if item.get("selector") == "#title")
                 assert redone["text"] == "Saved title"
                 assert redone["style"]["lineHeight"] == "1.25"
@@ -485,7 +490,7 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                     timeout=5000,
                 )
                 page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('预览中的 HTML 镜头已进入元素选取模式')",
+                    "() => document.querySelector('#fs-toast-stack')?.textContent.includes('预览中的 HTML 镜头已进入元素选取模式')",
                     timeout=15000,
                 )
                 page.frame_locator("#fs-preview-composition").frame_locator("#scene-clip").locator("#title").evaluate(
@@ -507,11 +512,11 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 scene_title.click()
                 try:
                     page.wait_for_function(
-                        "() => document.querySelector('#film-studio-alert')?.textContent.includes('已选中')",
+                        "() => document.querySelector('#fs-toast-stack')?.textContent.includes('已选中')",
                         timeout=15000,
                     )
                 except Exception as exc:
-                    trace = page.evaluate("() => ({trace:window.__vdCanvasTrace||[], alert:document.querySelector('#film-studio-alert')?.textContent, iframePointerEvents:getComputedStyle(document.querySelector('#fs-preview-composition')?.contentDocument?.querySelector('#scene-clip')).pointerEvents})")
+                    trace = page.evaluate("() => ({trace:window.__vdCanvasTrace||[], alert:document.querySelector('#fs-toast-stack')?.textContent, iframePointerEvents:getComputedStyle(document.querySelector('#fs-preview-composition')?.contentDocument?.querySelector('#scene-clip')).pointerEvents})")
                     raise AssertionError("Canvas picker after reload did not reach Studio: " + json.dumps(trace, ensure_ascii=False)) from exc
                 page.locator("#fs-element-text").wait_for(state="visible")
                 assert page.locator("#fs-element-text").input_value() == "Saved title"
@@ -524,17 +529,15 @@ def test_studio_canvas_edit_undo_redo_and_persistence_after_reload(tmp_path, mon
                 # Clearing a previously applied fill must persist explicit transparency;
                 # undo restores the filled background through the same revisioned history.
                 page.locator("#fs-element-background-enabled").uncheck()
+                _prev_rev = fd.read_project_film(project_id)["rev"]
                 page.locator("#fs-apply-element").click()
-                page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('画布修改已保存到 film.html')",
-                    timeout=15000,
-                )
+                _wait_film_saved(page, project_id, _prev_rev)
                 cleared = next(item for item in _overrides(project_id) if item.get("selector") == "#title")
                 assert cleared["style"]["backgroundColor"] == "transparent"
                 undo_selector = '#fs-react-toolbar [data-film-action="undo"]' if has_react_toolbar else '#fs-static-toolbar [data-film-action="undo"]'
                 page.locator(undo_selector).click()
                 page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已撤销')",
+                    "() => document.querySelector('#fs-toast-stack')?.textContent.includes('已撤销')",
                     timeout=15000,
                 )
                 restored = next(item for item in _overrides(project_id) if item.get("selector") == "#title")

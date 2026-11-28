@@ -323,7 +323,7 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 title_input.fill(saved_title)
                 page.locator("#fs-apply-clip-inspector").click()
                 page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已保存 1 项编辑')",
+                    "() => document.querySelector('#fs-toast-stack')?.textContent.includes('已保存 1 项编辑')",
                     timeout=15000,
                 )
                 manual_state = fd.read_project_film(project_id)
@@ -459,7 +459,7 @@ def test_workspace_open_previews_migration_in_studio_before_creating_film_html(t
                 )
                 page.locator('[data-film-action="reject-proposal"]:visible').click()
                 page.wait_for_function(
-                    "() => document.querySelector('#film-studio-alert')?.textContent.includes('已拒绝提案')",
+                    "() => document.querySelector('#fs-toast-stack')?.textContent.includes('已拒绝提案')",
                     timeout=10000,
                 )
 
