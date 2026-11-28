@@ -127,7 +127,7 @@ jobs:
 
           def field_value(name):
               match = re.search(
-                  rf"(?im)^\\s*(?:[-*]\\s*)?{re.escape(name)}\\s*:\\s*([^\\n]+)",
+                  rf"(?im)^\s*(?:[-*]\s*)?{re.escape(name)}\s*:\s*([^\n]+)",
                   body,
               )
               return match.group(1).strip().strip("`") if match else ""
