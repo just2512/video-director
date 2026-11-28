@@ -43,7 +43,7 @@ At the start of this reconciliation, `main` was `99142d0887fa771bea7c3bd3e5bafd2
 
 ### 2.1 19D — Film Studio / OpenFilm delivery
 
-| ID | Deliverable | Implementation status | Current exact-main acceptance | Evidence / next action |
+| ID | Deliverable | Recorded implementation state | Recorded acceptance (historical) | Historical evidence / next action |
 |---|---|---|---|---|
 | 19D-01 | `film.html` is the sole timeline authority once present; legacy CompositionIR writes/exports fail closed | PASS | PASS — exact tree `9d7208cc`; full hosted regression run `42821701972` (1,952 passed, 2 skipped) and Studio gate (346 passed) | `test_project_manager_film_authority.py`, `test_film_document_contract.py` and Studio release-gate coverage passed on the same executable/workflow SHA |
 | 19D-02 | Revision-pinned project context, stale-response rejection, project-switch isolation | PASS | PASS — W2 355 passed and full hosted regression 1,952 passed on exact tree `9d7208cc` | External-watch, pending-revision, project-switch and project-context regressions ran in hosted lanes; preserve stale-response and project-isolation assertions |
@@ -123,7 +123,9 @@ Execution order:
 6. **Integrated lifecycle:** W3 runs create/open/migrate/edit/reopen/export/QC after W1/W2 and shell contracts stabilize.
 7. **Final acceptance:** all relevant hosted jobs and browser E2E run against the exact same main SHA. Historical evidence is not carried forward after code changes.
 
-## 5. CI and runner policy — current verified state
+## 5. CI and runner policy — historical configuration record (last reconciled 2026-11-12)
+
+The workflow inventory and run IDs in this section are historical snapshots, not a live status check of the 2026-11-28 main branch. The active workflow definitions were separately inspected while preparing the parallel execution protocol; always re-read the current YAML before assigning a lane.
 
 | Workflow | Current configuration | Decision |
 |---|---|---|
@@ -138,7 +140,9 @@ Execution order:
 
 All active workflow files use GitHub-hosted runners. W6 has upgraded checkout/setup/upload actions to the v7 majors using the Node.js 24 action runtime; the exact-SHA logs contain no Node.js 20 forced-runtime warning. Never read developer-local model configuration, secrets or storage from CI.
 
-## 6. Current executable queue
+## 6. Historical executable queue — snapshot last reconciled 2026-11-12
+
+The queue and states below are historical. Do not treat them as currently active work without revalidating the Issue, branch, owner, and current-main diff.
 
 | Order | Task | Lane | Exit condition | State |
 |---:|---|---|---|---|
