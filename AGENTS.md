@@ -25,5 +25,6 @@ Required behavior for every agent and developer:
 7. Linux-hosted CI does not prove Windows, FFmpeg, Chromium/Edge, actual MP4, local-storage, or production-media behavior. Required local acceptance must be recorded; otherwise the task remains MISSING/BLOCKED and the Issue stays open.
 8. Do not read, upload, or commit local secrets, model configuration, user storage, or production media. Hosted CI uses GitHub-hosted runners only.
 9. Never declare a task ACCEPTED or close its Issue based only on a commit, merged PR, green scoped job, or stale SHA. Follow the final-SHA and local-acceptance gates in the protocol.
+10. During active work, Claude Code must monitor local state and remote GitHub PR/Actions state as two concurrent lanes. Start one `/loop 5m /parallel-watch` using `.claude/skills/parallel-watch/SKILL.md`, advance the next unblocked action while another lane waits, and update the shared task record on state changes. Do not wait for repeated user prompts or create duplicate scheduled jobs.
 
 For code changes, reviewers, and remote coding agents: if the required task card or ownership boundary is missing, stop implementation and return the missing fields instead of guessing.
