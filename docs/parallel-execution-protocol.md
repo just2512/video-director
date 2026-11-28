@@ -245,3 +245,38 @@ DELIVERABLES:
 7. Close the Issue only when every required acceptance item is PASS. Otherwise leave it OPEN and record the exact missing evidence or blocker.
 
 **No false closure:** a code commit, a PR merge, a green Linux job, or a test-only change alone does not prove the user-visible defect is fixed in the user's Windows/production environment.
+
+## 11. Repository-level enforcement and agent entry points
+
+This protocol is wired into the repository's normal agent and PR entry points:
+
+| Entry point | Consumer | Required behavior |
+|---|---|---|
+| `AGENTS.md` | Coding agents that support repository agent instructions, including OpenCode/Codex-style agents | Mandatory read of this protocol before code changes, tests, reviews or delegation |
+| `CLAUDE.md` | Claude Code | Imports `AGENTS.md` and repeats the mandatory protocol gate |
+| `.github/copilot-instructions.md` | GitHub Copilot coding/review agents | Requires this protocol and the same ownership/acceptance rules |
+| `.github/pull_request_template.md` | Every new PR | Captures baseline SHA, owner, independent reviewer, owned/no-touch paths, tests and local acceptance |
+| `.github/workflows/parallel-governance.yml` | Pull requests targeting `main` | Checks lane branch naming, target branch, task-card fields, full baseline SHA, task-branch identity, and reviewer separation before a draft can become merge-ready |
+
+These files are intentionally concise entry points; the full contract remains this document. Any coding agent that does not automatically load the repository instructions must be given an explicit instruction to read this document before acting. Local developers must update their checkout after this policy PR is merged so their local agents see the same `AGENTS.md` and `CLAUDE.md` instructions as remote agents.
+
+### Required `main` branch rules
+
+A workflow status check is only advisory until repository rules require it. The repository owner must verify/configure the `main` branch protection or repository ruleset with at least:
+
+1. Require a pull request before merging; prohibit direct pushes to `main`.
+2. Require the `Parallel governance` status check.
+3. Require at least one approval from someone other than the PR author; dismiss stale approvals after new commits.
+4. Require all review conversations to be resolved.
+5. Block force pushes and branch deletion.
+6. Do not permit routine administrator bypass of the above rules.
+
+The `Parallel governance` check must first complete on a PR so GitHub can offer it as a required status check. Before enabling the rules, confirm the exact check name shown by GitHub Actions.
+
+**Configuration evidence must be recorded.** Do not claim branch protection is active until the repository Settings page or an authorized GitHub API read confirms the saved rule. During preparation of this protocol, the rulesets read returned an empty list, while the branch-protection endpoint was not accessible to the connected integration (403). Therefore the actual `main` protection state is `UNKNOWN`, not PASS or FAIL. This is an explicit repository-owner activation item; do not confuse agent instructions and CI validation with GitHub server-side merge enforcement.
+
+### Limits of enforcement
+
+- Agent instruction files guide compliant local and remote agents; they cannot technically prevent a person or an agent that ignores repository instructions from editing files.
+- The governance workflow validates PR metadata and reviewer separation; it does not replace code review, product tests, local Windows acceptance, or the required GitHub branch rule.
+- If branch protection is unavailable or disabled, keep the governance check visible and treat any merge that bypasses the stated review/gates as a policy violation.
