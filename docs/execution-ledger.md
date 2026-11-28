@@ -2,18 +2,27 @@
 
 **Repository:** `just2512/video-director`  
 **Audit starting main SHA:** `99142d0887fa771bea7c3bd3e5bafd27ee435a1b`  
-**Updated:** 2026-11-12  
+**Historical delivery entries last reconciled:** 2026-11-12  
+**Current execution policy:** [parallel-execution-protocol.md](parallel-execution-protocol.md)  
+**Protocol prepared against observed main SHA:** `d8de748219be28b81c1ac68bbb5766f9160bbdd8` (2026-11-27)  
 **Purpose:** operational status and dependency ledger only. This file does not replace, merge, or rewrite either source plan.
 
 ## 0. Non-negotiable execution rules
 
 1. The 2026-10-19 OpenFilm/Film Studio work and the 2026-11-07 Product IA work remain separate delivery lines.
-2. `main` is the only integration branch. No long-lived work branches or PR workflow is introduced.
-3. Parallelism requires independent short-lived task branches frozen from one exact main SHA, disjoint file ownership, and independent GitHub-hosted CI for each owner lane. `main` is integration-only; completed branches are integrated directly in dependency order with path-scoped trees. No long-lived work branches or PR/manual-review handoff.
-4. **No self-hosted/local runner, WSL runner, developer checkout, or local model-config file may be used by repository CI.** GitHub Actions jobs must use GitHub-hosted runners (Ubuntu or Windows).
-5. Real-provider acceptance may only run as an explicit opt-in on a GitHub-hosted runner with GitHub Actions Secrets. No local runner credentials or local storage are read.
-6. A test added is not a feature delivered. A green scoped job is not an integrated PASS. Every PASS must identify the code SHA, business behavior, and test evidence.
-7. Missing evidence remains `UNKNOWN` or `MISSING`; it is never inferred from an older commit or documentation prose.
+2. `main` is the only integration/release branch. Every new task uses a short-lived `work/wN-*` branch and a lightweight PR to `main`; direct feature-branch integration and synthetic path-scoped main trees are not permitted.
+3. Parallelism requires one frozen current-main SHA per batch, explicit disjoint file ownership, a named local/remote owner, and exact-SHA GitHub-hosted CI. In this single-maintainer repository, the owner may also coordinate integration and perform the final self-review; a second-agent read-only review is optional for high-risk changes.
+4. A task involving Windows file locks/paths, FFmpeg, Chromium/Edge media, real MP4 playback, local storage or production data is not accepted on hosted Linux evidence alone; required local acceptance must be PASS, otherwise overall status remains MISSING/BLOCKED.
+5. **No self-hosted/local runner, WSL runner, developer checkout, or local model-config file may be used by repository CI.** GitHub Actions jobs must use GitHub-hosted runners (Ubuntu or Windows).
+6. Real-provider acceptance may only run as an explicit opt-in on a GitHub-hosted runner with GitHub Actions Secrets. No local runner credentials or local storage are read.
+7. A test added is not a feature delivered. A green scoped job is not an integrated PASS. Every PASS must identify the code SHA, business behavior, and test evidence.
+8. Missing evidence remains `UNKNOWN` or `MISSING`; it is never inferred from an older commit or documentation prose.
+
+### Active dual-line execution
+
+Claude Code is the local executor and cross-lane monitor. GitHub is the shared code/state channel. GitHub Actions is the hosted acceptance lane. For every active task, keep local and remote lane statuses, exact candidate SHA, latest evidence, and one next action in its PR/task card. While one lane waits, advance the next unblocked task with disjoint file ownership. Do not wait for repeated user prompts, and do not create duplicate scheduled reminders.
+
+Use `.claude/skills/parallel-watch/SKILL.md` for the active monitor procedure. The monitor runs inside the local Claude Code session; it is not a background service when that session is closed.
 
 ### Status vocabulary
 
@@ -32,13 +41,15 @@
 
 A constraint may be shared (for example, one FilmDocument authority), but a task may not be moved from one plan to the other or counted as delivery for both without separate acceptance evidence.
 
-## 2. Current delivery ledger
+## 2. Historical delivery ledger — not a current-main status claim
+
+The rows below preserve the prior 2026-11-12 reconciliation and its exact-SHA evidence. They are historical records, not a claim that the current main branch still has those results. For current task state and new acceptance, append a dated update and bind all new PASS/FAIL records to the final tested SHA.
 
 At the start of this reconciliation, `main` was `99142d0887fa771bea7c3bd3e5bafd27ee435a1b`. The exact executable/workflow tree verified here is `9d7208cc9818839ea2c9cc5965298e0998c28b68`; GitHub compare confirms the two intervening commits changed only these two documentation files. All acceptance evidence below is tied to that exact executable/workflow SHA. Subsequent edits to this ledger and the parallel-workflow document are documentation-only and do not require rerunning the product suite.
 
 ### 2.1 19D — Film Studio / OpenFilm delivery
 
-| ID | Deliverable | Implementation status | Current exact-main acceptance | Evidence / next action |
+| ID | Deliverable | Recorded implementation state | Recorded acceptance (historical) | Historical evidence / next action |
 |---|---|---|---|---|
 | 19D-01 | `film.html` is the sole timeline authority once present; legacy CompositionIR writes/exports fail closed | PASS | PASS — exact tree `9d7208cc`; full hosted regression run `42821701972` (1,952 passed, 2 skipped) and Studio gate (346 passed) | `test_project_manager_film_authority.py`, `test_film_document_contract.py` and Studio release-gate coverage passed on the same executable/workflow SHA |
 | 19D-02 | Revision-pinned project context, stale-response rejection, project-switch isolation | PASS | PASS — W2 355 passed and full hosted regression 1,952 passed on exact tree `9d7208cc` | External-watch, pending-revision, project-switch and project-context regressions ran in hosted lanes; preserve stale-response and project-isolation assertions |
@@ -68,11 +79,11 @@ At the start of this reconciliation, `main` was `99142d0887fa771bea7c3bd3e5bafd2
 
 ## 3. Workstream partition — what can genuinely run in parallel
 
-Workstreams are logical ownership lanes implemented by independent short-lived Git branches. Freeze one exact `main` SHA, create one branch per disjoint task, run each scoped hosted-CI lane on that branch's exact SHA, then integrate directly to `main` in dependency order with path-scoped trees. `main` remains integration-only; no long-lived branches or PR/manual-review handoff.
+Workstreams are logical ownership lanes implemented by independent short-lived task branches created from one frozen current `main` SHA. Each branch has disjoint file ownership and runs the relevant GitHub-hosted lane CI against its exact SHA. Integration occurs only through a small PR to `main`, after maintainer diff/evidence review and required gates. See [parallel-execution-protocol.md](parallel-execution-protocol.md) for the authoritative roles, task lifecycle, local acceptance, branch naming, and PR rules.
 
 | Lane | Plan | Owns | Can run concurrently with | Must wait for / must not touch |
 |---|---|---|---|---|
-| W0 Coordinator / contracts | Both | Baseline SHA, dependency ledger, shared contracts, integration order | Read-only audits and independent test design | Serial owner of shared files and main integration; no parallel edits to shared shell |
+| W0 Coordinator / contracts | Both | Freeze baseline, task/file ownership register, shared contracts, optional second-agent review routing, PR integration and final acceptance | Read-only audits and optional independent test design | Serial owner of shared contracts and integration decisions; sole maintainer may self-review but cannot skip required CI or local acceptance |
 | W1 Generation durability | 19D | Generation reservation/state machine, job persistence, provider submission identity, Manifest/Registry recovery and focused tests | W2, W3, W4 test preparation, W5 CI migration | Must coordinate before changing shared project-manifest/storage contracts; avoid timeline UI and settings |
 | W2 Timeline transaction state | 19D | Multi-select, cross-track drag, Undo/Redo, gesture/revision invalidation and timeline-specific tests | W1, W3, W4 test preparation, W5 CI migration | FilmDocument/revision contract changes require W0 review; avoid generation persistence |
 | W3 Project lifecycle / export acceptance | 19D | Existing lifecycle fixtures, migration preview, reopen, actual render/QC assertions; tests first | W1/W2 test authoring and W5 CI migration | Final integrated run waits for W1 and W2 contracts; do not duplicate existing full lifecycle fixture |
@@ -118,7 +129,9 @@ Execution order:
 6. **Integrated lifecycle:** W3 runs create/open/migrate/edit/reopen/export/QC after W1/W2 and shell contracts stabilize.
 7. **Final acceptance:** all relevant hosted jobs and browser E2E run against the exact same main SHA. Historical evidence is not carried forward after code changes.
 
-## 5. CI and runner policy — current verified state
+## 5. CI and runner policy — historical configuration record (last reconciled 2026-11-12)
+
+The workflow inventory and run IDs in this section are historical snapshots, not a live status check of the 2026-11-28 main branch. The active workflow definitions were separately inspected while preparing the parallel execution protocol; always re-read the current YAML before assigning a lane.
 
 | Workflow | Current configuration | Decision |
 |---|---|---|
@@ -133,7 +146,9 @@ Execution order:
 
 All active workflow files use GitHub-hosted runners. W6 has upgraded checkout/setup/upload actions to the v7 majors using the Node.js 24 action runtime; the exact-SHA logs contain no Node.js 20 forced-runtime warning. Never read developer-local model configuration, secrets or storage from CI.
 
-## 6. Current executable queue
+## 6. Historical executable queue — snapshot last reconciled 2026-11-12
+
+The queue and states below are historical. Do not treat them as currently active work without revalidating the Issue, branch, owner, and current-main diff.
 
 | Order | Task | Lane | Exit condition | State |
 |---:|---|---|---|---|

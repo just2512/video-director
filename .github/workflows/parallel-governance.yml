@@ -1,0 +1,161 @@
+name: Parallel execution governance
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review, review_requested]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  governance:
+    name: Parallel governance
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Validate task card, branch, and acceptance evidence
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import sys
+          import subprocess
+
+          body = os.environ.get("PR_BODY", "")
+          head = os.environ.get("PR_HEAD_REF", "")
+          base = os.environ.get("PR_BASE_REF", "")
+          base_sha = os.environ.get("PR_BASE_SHA", "")
+          head_sha = os.environ.get("PR_HEAD_SHA", "")
+          draft = os.environ.get("PR_DRAFT", "").lower() == "true"
+          errors = []
+          if base != "main":
+              errors.append(f"PR base must be main, got {base!r}")
+          if not re.fullmatch(r"work/w[0-8]-[a-z0-9][a-z0-9-]*", head):
+              errors.append(
+                  "PR head must use a lane branch: work/w0-* through work/w8-*"
+              )
+
+          required = [
+              "TASK_ID",
+              "ISSUE",
+              "BASE_SHA",
+              "TASK_BRANCH",
+              "OWNER",
+              "OWNER_IDENTITY",
+              "INTEGRATION_COORDINATOR",
+              "LOCAL_LANE_STATUS",
+              "REMOTE_LANE_STATUS",
+              "NEXT_ACTION",
+              "PROBLEM / EXPECTED_BEHAVIOR",
+              "OWNED_FILES",
+              "NO_TOUCH",
+              "DEPENDENCIES",
+              "FOCUSED_TESTS",
+              "LOCAL_ACCEPTANCE",
+              "FINAL_CANDIDATE_SHA",
+              "UNRESOLVED_ITEMS",
+          ]
+          for field in required:
+              if not re.search(
+                  rf"(?im)^\s*(?:[-*]\s*)?{re.escape(field)}\s*:",
+                  body,
+              ):
+                  errors.append(f"PR body is missing task-card field: {field}")
+
+          sha_match = re.search(r"(?im)^\s*(?:[-*]\s*)?BASE_SHA\s*:\s*([0-9a-f]{40})\s*$", body)
+          if not sha_match:
+              errors.append("BASE_SHA must be a full 40-character Git SHA")
+          else:
+              ancestry = subprocess.run(
+                  ["git", "merge-base", "--is-ancestor", sha_match.group(1), head_sha],
+                  check=False,
+              )
+              if ancestry.returncode != 0:
+                  errors.append(
+                      "BASE_SHA must be an ancestor of the final PR head; "
+                      "recreate or update the branch from the recorded baseline"
+                  )
+
+          branch_field = re.search(r"(?im)^\s*(?:[-*]\s*)?TASK_BRANCH\s*:\s*(\S+)\s*$", body)
+          if branch_field and branch_field.group(1) != head:
+              errors.append("TASK_BRANCH in the task card must match the actual PR head branch")
+
+          candidate_match = re.search(
+              r"(?im)^\s*(?:[-*]\s*)?FINAL_CANDIDATE_SHA\s*:\s*([0-9a-f]{40})\s*$",
+              body,
+          )
+          if not candidate_match:
+              errors.append("FINAL_CANDIDATE_SHA must be a full 40-character Git SHA")
+          elif head_sha and candidate_match.group(1).lower() != head_sha.lower():
+              errors.append("FINAL_CANDIDATE_SHA must match the exact current PR head SHA")
+
+          local_match = re.search(
+              r"(?im)^\s*(?:[-*]\s*)?LOCAL_ACCEPTANCE\s*:\s*([A-Z_]+)",
+              body,
+          )
+          local_status = local_match.group(1) if local_match else ""
+          allowed_local_status = {"PASS", "FAIL", "MISSING", "BLOCKED", "NOT_APPLICABLE"}
+          if local_status not in allowed_local_status:
+              errors.append(
+                  "LOCAL_ACCEPTANCE must be PASS, FAIL, MISSING, BLOCKED, or NOT_APPLICABLE"
+              )
+          if not draft and local_status in {"MISSING", "BLOCKED", "FAIL"}:
+              errors.append(
+                  "Required local acceptance is not PASS; keep the PR draft or resolve the blocker"
+              )
+
+          def field_value(name):
+              match = re.search(
+                  rf"(?im)^\s*(?:[-*]\s*)?{re.escape(name)}\s*:\s*([^\n]+)",
+                  body,
+              )
+              return match.group(1).strip().strip("`") if match else ""
+
+          owner_identity = field_value("OWNER_IDENTITY")
+          coordinator_identity = field_value("INTEGRATION_COORDINATOR")
+          placeholders = {"", "pending", "tbd", "none", "unknown", "待指定", "待填写"}
+          if not draft:
+              if owner_identity.lower() in placeholders:
+                  errors.append("OWNER_IDENTITY must identify the implementation person or agent session")
+              if coordinator_identity.lower() in placeholders:
+                  errors.append("INTEGRATION_COORDINATOR must identify the repository maintainer")
+
+          local_status = field_value("LOCAL_LANE_STATUS").upper()
+          remote_status = field_value("REMOTE_LANE_STATUS").upper()
+          next_action = field_value("NEXT_ACTION")
+          allowed_local = {"NOT_STARTED", "ACTIVE", "BLOCKED", "PASS", "FAIL", "MISSING", "NOT_APPLICABLE"}
+          allowed_remote = {"NOT_STARTED", "ACTIVE", "CI_PENDING", "BLOCKED", "PASS", "FAIL", "NOT_APPLICABLE"}
+          if local_status not in allowed_local:
+              errors.append("LOCAL_LANE_STATUS must use a documented state")
+          if remote_status not in allowed_remote:
+              errors.append("REMOTE_LANE_STATUS must use a documented state")
+          if next_action.lower() in placeholders:
+              errors.append("NEXT_ACTION must name one concrete action or external blocker")
+
+          if errors:
+              print("PARALLEL_GOVERNANCE=FAIL")
+              for error in errors:
+                  print(f"::error::{error}")
+              sys.exit(1)
+
+          print("PARALLEL_GOVERNANCE=PASS")
+          print(f"Branch: {head}")
+          print(f"Base SHA: {base_sha}")
+          print(f"Draft: {draft}")
+          if draft:
+              print("Draft PR: implementation and acceptance evidence are still in progress.")
+          else:
+              print("Maintainer self-review is expected before merge; no external reviewer is required.")
+          PY
