@@ -452,7 +452,24 @@
     panel.addEventListener('pointerup',function(){dragging=null;});
     panel.addEventListener('pointercancel',function(){dragging=null;});
   }
+  function showToast(message, kind) {
+    // 操作成功类反馈：右下角气泡，3 秒自动消失，不打断编辑（用户裁决：
+    // 「已复制 N 个片段」这类提示不需要常驻横幅还要人去关）。
+    var stack=$('fs-toast-stack'); if(!stack)return;
+    var toast=document.createElement('div');
+    toast.className='fs-toast'+(kind==='error'?' fs-toast-error':'');
+    toast.textContent=message||'';
+    stack.appendChild(toast);
+    requestAnimationFrame(function(){toast.classList.add('fs-toast-show');});
+    setTimeout(function(){
+      toast.classList.remove('fs-toast-show');
+      setTimeout(function(){toast.remove();},250);
+    },3000);
+  }
   function showStatus(message, kind) {
+    // success 类短操作反馈走 toast 气泡自动消失；error 与需要用户决策的
+    // 提示（迁移警告等）保留横幅。bannerDismissed 语义不变。
+    if(kind==='success'){showToast(message,'success');return;}
     var el=$('film-studio-alert'); if(!el)return;
     el.className='fs-alert fs-visible'+(kind==='error'?' fs-error':kind==='success'?' fs-success':'');
     // 注意：不重置 bannerDismissed。用户关闭迁移警告后，普通操作消息
@@ -2423,7 +2440,9 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
           undo:'撤销',
           redo:'重做'
         };
-        showStatus('已载入影片新 revision。修改来源：'+(sourceLabels[pendingSource]||pendingSource)+'。','success');
+        // 外部修订提醒必须常驻横幅（用户需知道时间线被外部改写并核对），
+        // 不能走 3 秒 toast 一闪而过。
+        showStatus('已载入影片新 revision。修改来源：'+(sourceLabels[pendingSource]||pendingSource)+'。','');
       });
       return true;
     }
@@ -3419,6 +3438,32 @@ var trimEdge=context.trimEdge==='start'||context.trimEdge==='end'?context.trimEd
     if(!S.data||!S.data.exists){showStatus('请先初始化影片文档。','error');return;}
     setPlaybackState(!window.filmStudioPlaying);
     syncRuntime(window.filmStudioPlaying?'play':'pause');
+  };
+  // 节目监视器全屏：优先整个监视器面板（含播放控制）全屏，浏览器原生
+  // requestFullscreen；Esc 退出。退出全屏时按钮文案还原。
+  window.filmStudioToggleMonitorFullscreen=function(){
+    var pane=document.querySelector('.fs-monitor-pane');
+    var button=document.querySelector('[data-film-action="monitor-fullscreen"]');
+    if(!pane)return;
+    try{
+      if(document.fullscreenElement){
+        document.exitFullscreen().catch(function(){});
+        return;
+      }
+      var request=pane.requestFullscreen||pane.webkitRequestFullscreen;
+      if(!request){showStatus('当前浏览器不支持全屏 API。','error');return;}
+      var result=request.call(pane);
+      if(result&&result.catch)result.catch(function(){showStatus('进入全屏失败：浏览器拒绝了请求。','error');});
+      if(button)button.textContent='退出全屏';
+      document.addEventListener('fullscreenchange',function onFs(){
+        if(!document.fullscreenElement){
+          if(button)button.textContent='全屏';
+          document.removeEventListener('fullscreenchange',onFs);
+        }
+      });
+    }catch(error){
+      showStatus('进入全屏失败：'+String(error&&error.message||error),'error');
+    }
   };
   window.filmStudioToggleElementInspect=function(){
     if(S.busy){showStatus('当前影片正在保存或生成提案，请完成后再操作画布。','error');return;}
@@ -5219,6 +5264,7 @@ window.filmStudioCopyClips=function(){
     'play-toggle': () => window.filmStudioTogglePlayback(),
     'frame-next': () => window.filmStudioNudge(1),
     'canvas-inspect': () => window.filmStudioToggleElementInspect(),
+    'monitor-fullscreen': () => window.filmStudioToggleMonitorFullscreen(),
     split: () => window.filmStudioSplit(),
     'copy-clips': () => window.filmStudioCopyClips(),
     'paste-clips': () => window.filmStudioPasteClips(),

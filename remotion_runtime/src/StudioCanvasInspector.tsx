@@ -1433,10 +1433,9 @@ const ClipInspector: React.FC<{clip: FilmClipInspectorModel | null; emptyMessage
 };
 
 const StudioAiDirector: React.FC<{model: FilmStudioAiDirectorModel}> = ({model}) => {
-  const messages = model.messages.length ? model.messages : [{
-    role: "assistant",
-    text: "可以直接指挥当前影片，例如：“第二镜节奏太慢，缩短一秒，音乐不变，字幕继续跟着旁白走”。AI 修改会先验证目标、时间和音画依赖，再反馈操作结果。"
-  }];
+  // 欢迎提示不再作为假消息常驻聊天记录（用户裁决：帮助文字气泡式显示
+  // 一下即自动消失）。真正的对话历史从用户第一条指令开始累积。
+  const messages = model.messages;
   const proposal = model.proposal;
   const proposalIsStale = !!proposal &&
     (!model.currentRevision || proposal.baseRevision !== model.currentRevision);

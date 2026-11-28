@@ -177,7 +177,7 @@
         </aside>
         <div class="fs-pane-divider" data-divider="left" role="separator" aria-orientation="vertical" tabindex="0" title="拖动调整素材栏宽度"></div>
         <section class="fs-pane fs-monitor-pane">
-          <div class="fs-pane-title">节目监视器 <span id="fs-monitor-time">00:00.000</span></div>
+          <div class="fs-pane-title">节目监视器 <span id="fs-monitor-time">00:00.000</span><button type="button" class="fs-btn fs-monitor-fullscreen" data-film-action="monitor-fullscreen" title="全屏显示节目监视器（Esc 退出）">全屏</button></div>
           <div class="fs-monitor-stage" id="fs-monitor-stage">
             <div class="fs-monitor-placeholder">选择项目并初始化影片文档</div>
             <iframe id="fs-preview-composition" title="多轨影片预览" src="/static/film-runtime.html" style="display:none" aria-label="多轨影片预览"></iframe>
@@ -260,6 +260,7 @@
       </section>
 
     </section>
+    <div id="fs-toast-stack" class="fs-toast-stack" aria-live="polite" aria-label="操作提示气泡"></div>
     <!-- 无项目态 -->
     <div id="editor-empty" class="panel empty-state">
       <div>还没有打开的项目</div>
