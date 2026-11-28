@@ -6,6 +6,7 @@ from the same stable clip IDs / source ranges.
 """
 from __future__ import annotations
 
+import base64
 import errno
 import hashlib
 import json
@@ -30,6 +31,14 @@ from video_director import film_document as fd
 from video_director.http_byte_range import UnsatisfiableByteRange, parse_byte_range
 from video_director.film_resource_snapshot import ResourceSnapshotError, SceneResourceSnapshot
 from video_director.storage_durability import fsync_directory, posix_atomic_replace, windows_atomic_replace
+
+def _chromium_render_args() -> list[str]:
+    """Return isolated Chromium flags; GPU disabling is opt-in for compositor A/B."""
+    args = ["--no-sandbox", "--disable-dev-shm-usage"]
+    if os.environ.get("VIDEO_DIRECTOR_DISABLE_GPU") == "1":
+        args.append("--disable-gpu")
+    return args
+
 
 def _is_windows_platform() -> bool:
     return os.name == "nt"
@@ -1406,7 +1415,7 @@ def render_project_film(project_id: str, expected_revision: str, fps: int | None
         payload["render_css"] = style_css
         from playwright.sync_api import sync_playwright
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+            browser = playwright.chromium.launch(headless=True, args=_chromium_render_args())
             page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=1)
             blocked_external = _install_offline_network_policy(page, base_url)
             failed_project_resources = _install_scene_resource_failure_monitor(page, base_url)
@@ -1677,6 +1686,11 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
     temp_output = None
     snapshot_temp = tempfile.TemporaryDirectory(prefix="film-look-resources-")
     resource_snapshot = None
+    diagnostic_dir_value = os.environ.get("VIDEO_DIRECTOR_FRAME_DIAGNOSTIC_DIR", "")
+    video_diagnostics_enabled = os.environ.get("VIDEO_DIRECTOR_FRAME_DIAGNOSTICS") == "1"
+    video_diagnostic_dir = Path(diagnostic_dir_value) if video_diagnostics_enabled and diagnostic_dir_value else None
+    if video_diagnostic_dir is not None:
+        video_diagnostic_dir.mkdir(parents=True, exist_ok=True)
     try:
         resource_snapshot = _snapshot_project_resources(pid, doc, Path(snapshot_temp.name) / "resources")
         _validate_source_ranges(pid, doc, resource_snapshot)
@@ -1694,6 +1708,92 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
             failed_project_resources = _install_scene_resource_failure_monitor(page, base_url)
             page.goto(base_url + "/host", wait_until="load", timeout=30000)
             page.wait_for_function("window.__runtimeReady === true", timeout=30000)
+            runtime_frame = None
+            if video_diagnostics_enabled:
+                runtime_frame = next(
+                    (frame for frame in page.frames if frame.url.endswith("/static/film-runtime.html")),
+                    None,
+                )
+                if runtime_frame is None:
+                    raise RuntimeError("real-media diagnostic could not locate the Film Runtime iframe")
+                runtime_frame.evaluate(r"""
+                () => {
+                  const eventNames = ["loadedmetadata", "loadeddata", "seeking", "seeked",
+                    "timeupdate", "waiting", "stalled", "error", "emptied", "canplay"];
+                  function record(video, type, extra) {
+                    const rows = video.__filmFrameTrace || (video.__filmFrameTrace = []);
+                    rows.push(Object.assign({
+                      type, perfNow: performance.now(), currentTime: video.currentTime,
+                      seeking: video.seeking, readyState: video.readyState,
+                      networkState: video.networkState, paused: video.paused
+                    }, extra || {}));
+                    if (rows.length > 500) rows.splice(0, rows.length - 500);
+                  }
+                  function attach(video) {
+                    if (video.__filmFrameTraceAttached) return;
+                    video.__filmFrameTraceAttached = true;
+                    eventNames.forEach(type => video.addEventListener(type, () => record(video, type)));
+                  }
+                  const descriptor = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "currentTime");
+                  if (descriptor && descriptor.configurable && descriptor.get && descriptor.set) {
+                    Object.defineProperty(HTMLMediaElement.prototype, "currentTime", {
+                      configurable: true, enumerable: descriptor.enumerable,
+                      get() { return descriptor.get.call(this); },
+                      set(value) {
+                        if (this instanceof HTMLVideoElement) {
+                          record(this, "currentTime-set", { requestedTime: Number(value) });
+                        }
+                        return descriptor.set.call(this, value);
+                      }
+                    });
+                  }
+                  const prototype = HTMLVideoElement.prototype;
+                  const originalRequestFrame = prototype.requestVideoFrameCallback;
+                  if (typeof originalRequestFrame === "function") {
+                    prototype.requestVideoFrameCallback = function(callback) {
+                      return originalRequestFrame.call(this, (now, metadata) => {
+                        const detail = {
+                          callbackNow: Number(now),
+                          mediaTime: metadata ? Number(metadata.mediaTime) : null,
+                          presentedFrames: metadata ? Number(metadata.presentedFrames) : null,
+                          expectedDisplayTime: metadata ? Number(metadata.expectedDisplayTime) : null,
+                          presentationTime: metadata ? Number(metadata.presentationTime) : null,
+                          width: metadata ? Number(metadata.width) : null,
+                          height: metadata ? Number(metadata.height) : null
+                        };
+                        this.__filmFrameLastPresented = detail;
+                        record(this, "requestVideoFrameCallback", detail);
+                        return callback.call(this, now, metadata);
+                      });
+                    };
+                  }
+                  function scan(root) {
+                    if (root && root.querySelectorAll) root.querySelectorAll("video").forEach(attach);
+                  }
+                  scan(document);
+                  new MutationObserver(records => records.forEach(recordItem =>
+                    recordItem.addedNodes.forEach(node => {
+                      if (node.nodeType === 1) {
+                        if (node.tagName === "VIDEO") attach(node);
+                        scan(node);
+                      }
+                    })
+                  )).observe(document, {childList:true, subtree:true});
+                  window.__filmFrameDiagnosticsSnapshot = () => ({
+                    href: location.href,
+                    perfNow: performance.now(),
+                    videos: Array.from(document.querySelectorAll("video")).map(video => ({
+                      id: video.id, src: video.currentSrc || video.src || "",
+                      currentTime: video.currentTime, seeking: video.seeking,
+                      readyState: video.readyState, networkState: video.networkState,
+                      paused: video.paused, duration: video.duration,
+                      videoWidth: video.videoWidth, videoHeight: video.videoHeight,
+                      lastPresented: video.__filmFrameLastPresented || null,
+                      trace: (video.__filmFrameTrace || []).slice()
+                    }))
+                  });
+                }
+                """)
             page.evaluate(
                 "(arg) => document.getElementById('runtime').contentWindow.postMessage("
                 "{type:'film-runtime:load',data:arg.data,rev:arg.rev},location.origin)",
@@ -1701,6 +1801,79 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
             )
             page.wait_for_function("arg => window.__runtimeRev === arg", arg=revision, timeout=30000)
             frame_pngs = {}
+            forward_video_diagnostics = {}
+            forward_parent_clip_pngs = {}
+            forward_parent_clip_errors = {}
+
+            def capture_video_diagnostic(pass_name, sample_time, screenshot_png):
+                if not video_diagnostics_enabled:
+                    return None
+                try:
+                    browser_state = runtime_frame.evaluate("""() => {
+                      const snapshot = window.__filmFrameDiagnosticsSnapshot
+                        ? window.__filmFrameDiagnosticsSnapshot()
+                        : {snapshot_missing:true, href:location.href};
+                      const video = document.querySelector("video");
+                      if (!video) return Object.assign(snapshot, {videoElementMissing:true});
+                      const style = getComputedStyle(video);
+                      const rect = video.getBoundingClientRect();
+                      const element = {
+                        rect: {x:rect.x,y:rect.y,width:rect.width,height:rect.height},
+                        display: style.display, visibility: style.visibility,
+                        opacity: style.opacity, zIndex: style.zIndex,
+                        transform: style.transform, filter: style.filter,
+                        objectFit: style.objectFit,
+                        totalVideoFrames: null, droppedVideoFrames: null,
+                        corruptedVideoFrames: null
+                      };
+                      try {
+                        if (typeof video.getVideoPlaybackQuality === "function") {
+                          const quality = video.getVideoPlaybackQuality();
+                          element.totalVideoFrames = quality.totalVideoFrames;
+                          element.droppedVideoFrames = quality.droppedVideoFrames;
+                          element.corruptedVideoFrames = quality.corruptedVideoFrames;
+                        }
+                      } catch (_) {}
+                      const result = Object.assign(snapshot, {videoElement:element});
+                      try {
+                        const width = video.videoWidth || 320;
+                        const height = video.videoHeight || 180;
+                        const canvas = document.createElement("canvas");
+                        canvas.width = width;
+                        canvas.height = height;
+                        const context = canvas.getContext("2d", {willReadFrequently:true});
+                        context.drawImage(video, 0, 0, width, height);
+                        const pixels = context.getImageData(0, 0, width, height).data;
+                        let sum = 0, nonBlack = 0, min = 255, max = 0;
+                        for (let i=0; i<pixels.length; i+=4) {
+                          const luma = (pixels[i]*0.2126)+(pixels[i+1]*0.7152)+(pixels[i+2]*0.0722);
+                          sum += luma;
+                          if (luma > 12) nonBlack += 1;
+                          if (luma < min) min = luma;
+                          if (luma > max) max = luma;
+                        }
+                        result.videoCanvas = {
+                          width, height,
+                          meanLuma: sum / Math.max(1, width*height),
+                          nonBlackPixels: nonBlack,
+                          minLuma: min, maxLuma: max
+                        };
+                        result.videoCanvasPngDataUrl = canvas.toDataURL("image/png");
+                      } catch (error) {
+                        result.videoCanvasError = String(error && error.message || error).slice(0,500);
+                      }
+                      return result;
+                    }""")
+                except Exception as exc:
+                    browser_state = {"capture_error": type(exc).__name__ + ": " + str(exc)[:500]}
+                canvas_data_url = browser_state.pop("videoCanvasPngDataUrl", None)
+                return {
+                    "pass": pass_name,
+                    "requested_time": sample_time,
+                    "capture_sha256": hashlib.sha256(screenshot_png).hexdigest(),
+                    "browser": browser_state,
+                    "video_canvas_png_data_url": canvas_data_url,
+                }
             for frame_number, timestamp in enumerate(samples):
                 page.evaluate(
                     "(arg) => {window.__lastFrameReady=null;window.__frameError=null;"
@@ -1718,6 +1891,19 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                 frame_pngs[timestamp] = page.locator("#runtime").screenshot(
                     animations="disabled", timeout=20000
                 )
+                if video_diagnostics_enabled:
+                    forward_video_diagnostics[timestamp] = capture_video_diagnostic(
+                        "forward", timestamp, frame_pngs[timestamp]
+                    )
+                    try:
+                        runtime_box = page.locator("#runtime").bounding_box()
+                        if runtime_box is None:
+                            raise FilmRenderError("FRAME_CAPTURE_FAILED", "runtime iframe bounding box is unavailable", 500)
+                        forward_parent_clip_pngs[timestamp] = page.screenshot(
+                            clip=runtime_box, animations="disabled", timeout=20000
+                        )
+                    except Exception as exc:
+                        forward_parent_clip_errors[timestamp] = type(exc).__name__ + ": " + str(exc)[:500]
 
             # A contact sheet is not accepted as deterministic evidence until the
             # same timestamps are visited in a different order and compared.
@@ -1739,6 +1925,85 @@ def look_project_film(project_id: str, expected_revision: str | None = None,
                 repeated = page.locator("#runtime").screenshot(animations="disabled", timeout=20000)
                 changed, total, frame_width, frame_height = _frame_diff_stats(frame_pngs[timestamp], repeated)
                 allowed = max(16, int(total * 0.0005))
+                parent_clip_repeated = None
+                parent_clip_error = None
+                if video_diagnostics_enabled:
+                    try:
+                        runtime_box = page.locator("#runtime").bounding_box()
+                        if runtime_box is None:
+                            raise FilmRenderError("FRAME_CAPTURE_FAILED", "runtime iframe bounding box is unavailable", 500)
+                        parent_clip_repeated = page.screenshot(
+                            clip=runtime_box, animations="disabled", timeout=20000
+                        )
+                    except Exception as exc:
+                        parent_clip_error = type(exc).__name__ + ": " + str(exc)[:500]
+                if video_diagnostics_enabled:
+                    reverse_video_diagnostics = capture_video_diagnostic(
+                        "reverse", timestamp, repeated
+                    )
+                    parent_clip_forward = forward_parent_clip_pngs.get(timestamp)
+                    parent_clip_comparison = {
+                        "forward_sha256": hashlib.sha256(parent_clip_forward).hexdigest()
+                            if parent_clip_forward is not None else None,
+                        "reverse_sha256": hashlib.sha256(parent_clip_repeated).hexdigest()
+                            if parent_clip_repeated is not None else None,
+                        "forward_error": forward_parent_clip_errors.get(timestamp),
+                        "reverse_error": parent_clip_error,
+                    }
+                    if parent_clip_forward is not None and parent_clip_repeated is not None:
+                        parent_changed, parent_total, _parent_width, _parent_height = _frame_diff_stats(
+                            parent_clip_forward, parent_clip_repeated
+                        )
+                        parent_clip_comparison.update({
+                            "changed_pixels": parent_changed,
+                            "total_pixels": parent_total,
+                            "allowed_pixels": max(16, int(parent_total * 0.0005)),
+                        })
+                    diagnostic_record = {
+                        "timestamp": timestamp,
+                        "changed_pixels": changed,
+                        "total_pixels": total,
+                        "allowed_pixels": allowed,
+                        "channel_tolerance": 32,
+                        "parent_page_clip": parent_clip_comparison,
+                        "forward": forward_video_diagnostics.get(timestamp),
+                        "reverse": reverse_video_diagnostics,
+                    }
+                    if video_diagnostic_dir is not None:
+                        # Save independent decoded-frame captures for the known 4s sample.
+                        # A canvas draw from <video> bypasses iframe/compositor screenshot capture.
+                        for phase, phase_data in (
+                            ("forward", diagnostic_record.get("forward")),
+                            ("reverse", diagnostic_record.get("reverse")),
+                        ):
+                            data_url = (phase_data or {}).pop("video_canvas_png_data_url", None)
+                            if timestamp == 4.0 and isinstance(data_url, str) and data_url.startswith("data:image/png;base64,"):
+                                canvas_png = base64.b64decode(data_url.split(",", 1)[1])
+                                (video_diagnostic_dir / f"look-{timestamp:.3f}-{phase}-video-canvas.png").write_bytes(
+                                    canvas_png
+                                )
+                        trace_path = video_diagnostic_dir / f"look-{timestamp:.3f}.json"
+                        trace_path.write_text(
+                            json.dumps(diagnostic_record, ensure_ascii=False, indent=2, sort_keys=True) + "\\n",
+                            encoding="utf-8",
+                        )
+                        if changed > allowed or parent_clip_comparison.get("changed_pixels", 0) > parent_clip_comparison.get("allowed_pixels", 0):
+                            (video_diagnostic_dir / f"look-{timestamp:.3f}-forward.png").write_bytes(
+                                frame_pngs[timestamp]
+                            )
+                            (video_diagnostic_dir / f"look-{timestamp:.3f}-reverse.png").write_bytes(repeated)
+                            if parent_clip_forward is not None:
+                                (video_diagnostic_dir / f"look-{timestamp:.3f}-forward-parent-clip.png").write_bytes(parent_clip_forward)
+                            if parent_clip_repeated is not None:
+                                (video_diagnostic_dir / f"look-{timestamp:.3f}-reverse-parent-clip.png").write_bytes(parent_clip_repeated)
+                            with Image.open(BytesIO(frame_pngs[timestamp])) as first_image:
+                                with Image.open(BytesIO(repeated)) as second_image:
+                                    ImageChops.difference(
+                                        first_image.convert("RGB"), second_image.convert("RGB")
+                                    ).save(video_diagnostic_dir / f"look-{timestamp:.3f}-diff.png")
+                    print("FILM_VIDEO_FRAME_DIAGNOSTIC=" + json.dumps(
+                        diagnostic_record, ensure_ascii=False, sort_keys=True
+                    ))
                 if changed > allowed:
                     raise FilmRenderError(
                         "NON_DETERMINISTIC_FRAME",
