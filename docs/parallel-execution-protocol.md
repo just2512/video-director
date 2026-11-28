@@ -270,7 +270,7 @@ A workflow status check is only advisory until repository rules require it. The 
 3. Do not require human approval counts; the repository owner performs the final self-review.
 4. Require all review conversations to be resolved.
 5. Block force pushes and branch deletion.
-6. Allow repository-owner/admin bypass as a recovery path so the sole maintainer cannot permanently lock the repository. Normal changes should still use PRs and required checks.
+6. Keep `Do not allow bypassing the above settings` enabled so the sole maintainer also follows the PR and required-check gates. If a broken check requires recovery, the owner can explicitly edit the branch rule in Settings; do not make bypass the normal merge path.
 
 The `Parallel governance` check must first complete on a PR so GitHub can offer it as a required status check. Before enabling the rules, confirm the exact check name shown by GitHub Actions.
 
