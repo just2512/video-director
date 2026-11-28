@@ -18,6 +18,12 @@
 7. A test added is not a feature delivered. A green scoped job is not an integrated PASS. Every PASS must identify the code SHA, business behavior, and test evidence.
 8. Missing evidence remains `UNKNOWN` or `MISSING`; it is never inferred from an older commit or documentation prose.
 
+### Active dual-line execution
+
+Claude Code is the local executor and cross-lane monitor. GitHub is the shared code/state channel. GitHub Actions is the hosted acceptance lane. For every active task, keep local and remote lane statuses, exact candidate SHA, latest evidence, and one next action in its PR/task card. While one lane waits, advance the next unblocked task with disjoint file ownership. Do not wait for repeated user prompts, and do not create duplicate scheduled reminders.
+
+Use `.claude/skills/parallel-watch/SKILL.md` for the active monitor procedure. The monitor runs inside the local Claude Code session; it is not a background service when that session is closed.
+
 ### Status vocabulary
 
 - `PASS`: implementation and the stated behavior have direct evidence.
