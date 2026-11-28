@@ -14,6 +14,10 @@ jobs:
     name: Parallel governance
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
       - name: Validate task card, branch, and reviewer separation
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
@@ -30,6 +34,7 @@ jobs:
           import os
           import re
           import sys
+          import subprocess
 
           body = os.environ.get("PR_BODY", "")
           head = os.environ.get("PR_HEAD_REF", "")
@@ -79,11 +84,16 @@ jobs:
           sha_match = re.search(r"(?im)^\s*(?:[-*]\s*)?BASE_SHA\s*:\s*([0-9a-f]{40})\s*$", body)
           if not sha_match:
               errors.append("BASE_SHA must be a full 40-character Git SHA")
-          elif base_sha and sha_match.group(1).lower() != base_sha.lower():
-              errors.append(
-                  "BASE_SHA does not match the main SHA recorded in the PR base event; "
-                  "refresh the task baseline and inspect the diff"
+          else:
+              ancestry = subprocess.run(
+                  ["git", "merge-base", "--is-ancestor", sha_match.group(1), head_sha],
+                  check=False,
               )
+              if ancestry.returncode != 0:
+                  errors.append(
+                      "BASE_SHA must be an ancestor of the final PR head; "
+                      "recreate or update the branch from the recorded baseline"
+                  )
 
           branch_field = re.search(r"(?im)^\s*(?:[-*]\s*)?TASK_BRANCH\s*:\s*(\S+)\s*$", body)
           if branch_field and branch_field.group(1) != head:
