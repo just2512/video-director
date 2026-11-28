@@ -3,7 +3,7 @@ name: Parallel execution governance
 on:
   pull_request:
     branches: [main]
-    types: [opened, edited, synchronize, reopened, ready_for_review]
+    types: [opened, edited, synchronize, reopened, ready_for_review, review_requested]
 
 permissions:
   contents: read
@@ -20,6 +20,7 @@ jobs:
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_REQUESTED_REVIEWERS: ${{ toJson(github.event.pull_request.requested_reviewers) }}
@@ -34,6 +35,7 @@ jobs:
           head = os.environ.get("PR_HEAD_REF", "")
           base = os.environ.get("PR_BASE_REF", "")
           base_sha = os.environ.get("PR_BASE_SHA", "")
+head_sha = os.environ.get("PR_HEAD_SHA", "")
           draft = os.environ.get("PR_DRAFT", "").lower() == "true"
           author = os.environ.get("PR_AUTHOR", "").lower()
           reviewers = json.loads(os.environ.get("PR_REQUESTED_REVIEWERS") or "[]")
@@ -86,6 +88,30 @@ jobs:
           branch_field = re.search(r"(?im)^\s*(?:[-*]\s*)?TASK_BRANCH\s*:\s*(\S+)\s*$", body)
           if branch_field and branch_field.group(1) != head:
               errors.append("TASK_BRANCH in the task card must match the actual PR head branch")
+
+          candidate_match = re.search(
+              r"(?im)^\s*(?:[-*]\s*)?FINAL_CANDIDATE_SHA\s*:\s*([0-9a-f]{40})\s*$",
+              body,
+          )
+          if not candidate_match:
+              errors.append("FINAL_CANDIDATE_SHA must be a full 40-character Git SHA")
+          elif head_sha and candidate_match.group(1).lower() != head_sha.lower():
+              errors.append("FINAL_CANDIDATE_SHA must match the exact current PR head SHA")
+
+          local_match = re.search(
+              r"(?im)^\s*(?:[-*]\s*)?LOCAL_ACCEPTANCE\s*:\s*([A-Z_]+)",
+              body,
+          )
+          local_status = local_match.group(1) if local_match else ""
+          allowed_local_status = {"PASS", "FAIL", "MISSING", "BLOCKED", "NOT_APPLICABLE"}
+          if local_status not in allowed_local_status:
+              errors.append(
+                  "LOCAL_ACCEPTANCE must be PASS, FAIL, MISSING, BLOCKED, or NOT_APPLICABLE"
+              )
+          if not draft and local_status in {"MISSING", "BLOCKED", "FAIL"}:
+              errors.append(
+                  "Required local acceptance is not PASS; keep the PR draft or resolve the blocker"
+              )
 
           reviewer_field = re.search(
               r"(?im)^\s*(?:[-*]\s*)?INDEPENDENT_REVIEWER\s*:\s*([^\n]+)",
