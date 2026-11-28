@@ -1,0 +1,120 @@
+name: Parallel execution governance
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  governance:
+    name: Parallel governance
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate task card, branch, and reviewer separation
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_REQUESTED_REVIEWERS: ${{ toJson(github.event.pull_request.requested_reviewers) }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+
+          body = os.environ.get("PR_BODY", "")
+          head = os.environ.get("PR_HEAD_REF", "")
+          base = os.environ.get("PR_BASE_REF", "")
+          base_sha = os.environ.get("PR_BASE_SHA", "")
+          draft = os.environ.get("PR_DRAFT", "").lower() == "true"
+          author = os.environ.get("PR_AUTHOR", "").lower()
+          reviewers = json.loads(os.environ.get("PR_REQUESTED_REVIEWERS") or "[]")
+          requested = {
+              item.get("login", "").lower()
+              for item in reviewers
+              if isinstance(item, dict) and item.get("login")
+          }
+
+          errors = []
+          if base != "main":
+              errors.append(f"PR base must be main, got {base!r}")
+          if not re.fullmatch(r"work/w[0-8]-[a-z0-9][a-z0-9-]*", head):
+              errors.append(
+                  "PR head must use a lane branch: work/w0-* through work/w8-*"
+              )
+
+          required = [
+              "TASK_ID",
+              "ISSUE",
+              "BASE_SHA",
+              "TASK_BRANCH",
+              "OWNER",
+              "INDEPENDENT_REVIEWER",
+              "PROBLEM / EXPECTED_BEHAVIOR",
+              "OWNED_FILES",
+              "NO_TOUCH",
+              "DEPENDENCIES",
+              "FOCUSED_TESTS",
+              "LOCAL_ACCEPTANCE",
+              "FINAL_CANDIDATE_SHA",
+              "UNRESOLVED_ITEMS",
+          ]
+          for field in required:
+              if not re.search(
+                  rf"(?im)^\s*(?:[-*]\s*)?{re.escape(field)}\s*:",
+                  body,
+              ):
+                  errors.append(f"PR body is missing task-card field: {field}")
+
+          sha_match = re.search(r"(?im)^\s*(?:[-*]\s*)?BASE_SHA\s*:\s*([0-9a-f]{40})\s*$", body)
+          if not sha_match:
+              errors.append("BASE_SHA must be a full 40-character Git SHA")
+          elif base_sha and sha_match.group(1).lower() != base_sha.lower():
+              errors.append(
+                  "BASE_SHA does not match the main SHA recorded in the PR base event; "
+                  "refresh the task baseline and inspect the diff"
+              )
+
+          branch_field = re.search(r"(?im)^\s*(?:[-*]\s*)?TASK_BRANCH\s*:\s*(\S+)\s*$", body)
+          if branch_field and branch_field.group(1) != head:
+              errors.append("TASK_BRANCH in the task card must match the actual PR head branch")
+
+          reviewer_field = re.search(
+              r"(?im)^\s*(?:[-*]\s*)?INDEPENDENT_REVIEWER\s*:\s*([^\n]+)",
+              body,
+          )
+          reviewer_value = reviewer_field.group(1).strip().strip("`") if reviewer_field else ""
+          placeholder = not reviewer_value or reviewer_value.lower() in {
+              "pending", "tbd", "none", "unknown", "待指定", "待填写"
+          }
+          reviewer_login = reviewer_value.lstrip("@").split()[0].lower() if not placeholder else ""
+
+          if not draft:
+              if placeholder:
+                  errors.append("A named independent reviewer is required before the PR is marked ready")
+              elif reviewer_login == author:
+                  errors.append("The independent reviewer cannot be the PR author")
+              elif reviewer_login not in requested:
+                  errors.append("The named independent reviewer must be requested on the PR")
+
+          if errors:
+              print("PARALLEL_GOVERNANCE=FAIL")
+              for error in errors:
+                  print(f"::error::{error}")
+              sys.exit(1)
+
+          print("PARALLEL_GOVERNANCE=PASS")
+          print(f"Branch: {head}")
+          print(f"Base SHA: {base_sha}")
+          print(f"Draft: {draft}")
+          if draft:
+              print("Reviewer assignment is required before marking this PR ready.")
+          PY
