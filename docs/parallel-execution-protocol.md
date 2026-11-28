@@ -199,6 +199,8 @@ LOCAL_BRANCH:
 LOCAL_STATUS_PATHS:
 TASK_BRANCH:
 OWNER: LOCAL / REMOTE
+OWNER_IDENTITY: (human login or distinct agent/session identifier)
+INTEGRATION_COORDINATOR: (different human/login or agent/session from OWNER_IDENTITY)
 INDEPENDENT_REVIEWER:
 
 PROBLEM:
