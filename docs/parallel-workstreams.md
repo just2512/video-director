@@ -8,13 +8,13 @@
 
 Parallelize independent ownership lanes and GitHub-hosted CI jobs, not competing writes to shared files. Every new task must have:
 - one frozen current-main SHA recorded in its task card;
-- a named local or remote implementation owner and an independent reviewer;
+- a named local or remote implementation owner;
 - exact `OWNED_FILES` and `NO_TOUCH` path lists, including tests and generated outputs;
 - a user-visible business acceptance condition, focused tests and exact-SHA evidence;
 - explicit dependencies and local-environment acceptance requirements;
 - one short-lived task branch and one small PR to `main`.
 
-The local lane owns real Windows, real-media and user-environment reproduction/acceptance. The remote lane owns only assigned paths, isolated implementation and hosted regression. The integration coordinator freezes baselines, prevents path collisions, ensures independent review and controls PR integration. The implementation owner must not be its own independent reviewer. A Linux-hosted PASS does not replace required local Windows/production-media acceptance.
+The local lane owns real Windows, real-media and user-environment reproduction/acceptance. The remote lane owns only assigned paths, isolated implementation and hosted regression. The repository maintainer freezes baselines, prevents path collisions, checks the complete diff and acceptance evidence, and controls PR integration. A second-agent read-only review is optional for high-risk changes, not a required collaborator approval. A Linux-hosted PASS does not replace required local Windows/production-media acceptance.
 
 Older dated notes in this file may describe historical direct or path-scoped integration. They document what happened at that time and do not authorize that procedure for new work. For new batches, [parallel-execution-protocol.md](parallel-execution-protocol.md) takes precedence.
 
