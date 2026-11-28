@@ -23,6 +23,10 @@ class TestResolutionQualityAndAspectSplit:
     def test_4k_16_9_combines_to_3840x2160(self):
         assert dint._resolve_resolution("4K画质，尺寸16:9") == "3840x2160"
 
+    def test_explicit_pixels_beat_ratio_alias(self):
+        # 显式像素尺寸优先于画幅别名：3840x2160 不能被同句的 16:9 降级（远端 PR #152 指出的缺陷）
+        assert dint._resolve_resolution("尺寸3840x2160，画幅16:9") == "3840x2160"
+
     def test_4k_alone_defaults_16_9(self):
         assert dint._resolve_resolution("4K画质") == "3840x2160"
 

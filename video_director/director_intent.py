@@ -135,10 +135,17 @@ def _match_quality_short_side(text: str) -> Optional[int]:
 def _resolve_resolution(text: str) -> Optional[str]:
     """画质等级（4K/1080p 等）与画幅比例（16:9/9:16 等）分开解析后组合成像。
 
-    4K + 16:9 → 3840×2160；不能因识别到 16:9 就把 4K 降级成 1920×1080。
-    只给画幅 → 默认 1080p（短边 1080）；只给画质 → 默认 16:9。
-    显式「3840x2160」数字写法仍直接通过。
+    优先级：显式像素尺寸 > 画质+画幅组合 > 画质/画幅单独（互配默认）。
+    - 显式「3840x2160」直接通过，不被同句的 16:9 降级成 1920×1080。
+    - 4K + 16:9 → 3840×2160；不能因识别到 16:9 就把 4K 降级成 1920×1080。
+    - 只给画幅 → 默认 1080p（短边 1080）；只给画质 → 默认 16:9。
     """
+    # 显式像素尺寸最高优先（用户写了确切数字就是确切数字）
+    m = re.search(r"(\d{2,5})\s*[x×*]\s*(\d{2,5})", text)
+    if m:
+        w, h = int(m.group(1)), int(m.group(2))
+        if w in _COMMON_WIDTHS or h in _COMMON_WIDTHS:
+            return f"{w}x{h}"
     aspect = _match_aspect_units(text)
     quality_short = _match_quality_short_side(text)
     if aspect or quality_short:
@@ -149,11 +156,6 @@ def _resolve_resolution(text: str) -> Optional[str]:
         w = int(round(w_u * scale))
         h = int(round(h_u * scale))
         return f"{w}x{h}"
-    m = re.search(r"(\d{2,5})\s*[x×*]\s*(\d{2,5})", text)
-    if m:
-        w, h = int(m.group(1)), int(m.group(2))
-        if w in _COMMON_WIDTHS or h in _COMMON_WIDTHS:
-            return f"{w}x{h}"
     return None
 
 
