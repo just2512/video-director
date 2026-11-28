@@ -1,18 +1,22 @@
 # Parallel delivery workstreams
 
-**Integration target:** `main` only. Use short-lived, task-scoped work branches from one frozen main SHA; integrate directly to `main` without PR-based handoff. Delete branches after exact-SHA acceptance and integration.  
-**Operational status:** see [execution-ledger.md](execution-ledger.md) for the live task/dependency ledger and evidence.
+**Integration target:** `main` only. All new work uses short-lived `work/wN-*` task branches and a lightweight PR to `main`. Direct feature-branch integration is not permitted.  
+**Authoritative procedure:** [parallel-execution-protocol.md](parallel-execution-protocol.md).  
+**Operational evidence:** see [execution-ledger.md](execution-ledger.md). Dated batch entries below are historical records unless explicitly marked current.
 
 ## Operating model
 
-Parallelize independent ownership lanes and GitHub-hosted CI jobs, not competing writes to shared files. Each workstream must have:
-- an explicit file/contract boundary;
-- a business-level acceptance condition;
-- scoped tests and exact-SHA evidence;
-- a no-touch list;
-- a named dependency before integration.
+Parallelize independent ownership lanes and GitHub-hosted CI jobs, not competing writes to shared files. Every new task must have:
+- one frozen current-main SHA recorded in its task card;
+- a named local or remote implementation owner and an independent reviewer;
+- exact `OWNED_FILES` and `NO_TOUCH` path lists, including tests and generated outputs;
+- a user-visible business acceptance condition, focused tests and exact-SHA evidence;
+- explicit dependencies and local-environment acceptance requirements;
+- one short-lived task branch and one small PR to `main`.
 
-Create independent short-lived branches from one frozen `main` SHA for workstreams with disjoint file ownership. Each branch runs scoped GitHub-hosted CI against its own exact SHA. No PR/manual-review handoff is required: the coordinator integrates completed branches directly into `main` in dependency order, preserving intervening main fixes and resolving conflicts explicitly. Branches are temporary execution units, not long-lived release lines. The single coordinator owns shared contracts and final integration. Never allow two branches to write the same protected/shared file concurrently.
+The local lane owns real Windows, real-media and user-environment reproduction/acceptance. The remote lane owns only assigned paths, isolated implementation and hosted regression. The integration coordinator freezes baselines, prevents path collisions, ensures independent review and controls PR integration. The implementation owner must not be its own independent reviewer. A Linux-hosted PASS does not replace required local Windows/production-media acceptance.
+
+Older dated notes in this file may describe historical direct or path-scoped integration. They document what happened at that time and do not authorize that procedure for new work. For new batches, [parallel-execution-protocol.md](parallel-execution-protocol.md) takes precedence.
 
 ## Workstream lanes
 
@@ -41,7 +45,7 @@ Create independent short-lived branches from one frozen `main` SHA for workstrea
 
 **GitHub-hosted runners only.** Use `ubuntu-24.04` for Linux/browser/media suites and `windows-latest` for Windows-native publication tests. No workflow may target `self-hosted`, local WSL, developer workspaces, or local model configuration. The obsolete self-hosted AI Director workflow has been removed; `full-hosted-regression.yml` is the canonical release gate. Live NVIDIA acceptance is a separately gated, explicit opt-in using only the dedicated GitHub Actions secret on a hosted runner.
 
-Documentation-only commits do not rerun the expensive full test suite. Every code/workflow change does; the ledger records the exact tested code SHA. Each short-lived branch has independent concurrency and exact-SHA scoped CI; superseded runs on that branch may be cancelled, but runs on other branches must not cancel one another. After direct integration, rerun affected lanes and the integrated full gates on the resulting exact `main` SHA.
+Documentation-only commits do not rerun the expensive full test suite. Every code/workflow change does; the ledger records the exact tested code SHA. Each short-lived branch has independent concurrency and exact-SHA scoped CI; superseded runs on that branch may be cancelled, but runs on other branches must not cancel one another. After the PR is merged, rerun or confirm affected lanes and the integrated full gates on the resulting exact `main` SHA.
 
 ## Acceptance rule
 
