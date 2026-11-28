@@ -17,6 +17,22 @@ Use two independent execution lanes and one controlled integration lane:
 
 GitHub Actions is the automated test and evidence lane, not a substitute for local Windows or production-media acceptance.
 
+### 1.1 Active dual-lane monitoring
+
+This is an active execution model, not a queue that waits for the maintainer to repeat instructions.
+
+- **Claude Code local session is the local executor and cross-lane coordinator.** It owns local Windows reproduction and real-environment acceptance, and it continuously reconciles remote GitHub branch, PR, and Actions state while work is active.
+- **GitHub is the shared state and code channel.** Branches and commits carry code; PR task cards carry ownership, exact SHAs, local/remote lane status, evidence, blockers, and the next action. Both sides must update the same task record when a state changes.
+- **GitHub Actions is the hosted acceptance lane.** Push/PR events trigger the relevant checks automatically. Results are accepted only for the exact commit SHA being considered.
+- Local and remote work proceed concurrently when their file ownership is disjoint. If one lane is waiting on CI or environment access, the coordinator advances the next unblocked action in the other lane instead of idling.
+- The local Claude Code session checks local dirty state, active test/build processes, Windows/browser/media acceptance, open Issues/PRs, remote branches, and Actions runs. It routes failures to the owner of the failing paths and continues with other unblocked tasks.
+- The monitor updates GitHub task state only on meaningful transitions; it must not spam comments or manufacture work to keep itself busy.
+
+During an active delivery session, Claude Code starts one in-session `/loop 5m /parallel-watch` monitor and keeps it active while actionable work or relevant CI remains. Do not create duplicate loops, cron jobs, or scheduled reminders. If the local session is closed, GitHub Actions continues, but local state cannot be inspected until Claude Code reconnects.
+
+Use the repository skill [`.claude/skills/parallel-watch/SKILL.md`](../.claude/skills/parallel-watch/SKILL.md) as the operational checklist. Its monitor is bounded by Claude Code's local loop/session limits; it is not a permanently running daemon.
+
+
 ## 2. Roles and lightweight controls
 
 | Role | Responsibilities | Must not |
@@ -201,6 +217,9 @@ TASK_BRANCH:
 OWNER: LOCAL / REMOTE
 OWNER_IDENTITY: (human login or distinct agent/session identifier)
 INTEGRATION_COORDINATOR: (repository maintainer; may be the same person as OWNER_IDENTITY)
+LOCAL_LANE_STATUS: NOT_STARTED / ACTIVE / BLOCKED / PASS / FAIL / MISSING / NOT_APPLICABLE
+REMOTE_LANE_STATUS: NOT_STARTED / ACTIVE / CI_PENDING / BLOCKED / PASS / FAIL / NOT_APPLICABLE
+NEXT_ACTION: (one executable next action or exact external blocker)
 
 PROBLEM:
 REPRODUCTION_EVIDENCE:
