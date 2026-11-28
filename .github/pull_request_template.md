@@ -5,6 +5,8 @@
 - BASE_SHA: (full 40-character SHA used to create this task branch)
 - TASK_BRANCH: (must be `work/wN-*`)
 - OWNER: LOCAL / REMOTE
+- OWNER_IDENTITY: (human GitHub login or distinct agent/session identifier)
+- INTEGRATION_COORDINATOR: (different person/agent session from OWNER_IDENTITY)
 - INDEPENDENT_REVIEWER: (GitHub username other than PR author; assign before marking ready)
 
 ## Scope and ownership
