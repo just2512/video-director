@@ -91,24 +91,64 @@ INTENT_FIELDS: List[Dict[str, Any]] = [
      "kind": "text"},
 ]
 
-# 分辨率别名 → 宽x高（精确覆盖显式画幅提示）
-_RESOLUTION_ALIAS = {
-    "16:9": (1920, 1080), "16比9": (1920, 1080), "十六比九": (1920, 1080),
-    "9:16": (1080, 1920), "9比16": (1080, 1920), "九比十六": (1080, 1920),
-    "横屏": (1920, 1080), "横版": (1920, 1080), "宽屏": (1920, 1080),
-    "竖屏": (1080, 1920), "竖版": (1080, 1920),
-    "3:4": (1080, 1440), "4:3": (1440, 1080),
-    "1:1": (1080, 1080), "正方": (1080, 1080), "方形": (1080, 1080),
+# 画质等级 → 短边像素（「p」/「K」约定：1080p=1080 短边、2K=1440、4K=2160、8K=4320）。
+# 短边是画质等级的物理量；画幅比例决定长边。这样 4K + 16:9 → 2160 * 16/9 = 3840×2160，
+# 不会因为同时识别到 16:9 就把 4K 降级成 1080p。
+_QUALITY_SHORT_SIDE = {
+    "4320p": 4320, "8k": 4320,
+    "2160p": 2160, "4k": 2160,
+    "2k": 1440, "qhd": 1440, "1440p": 1440,
+    "1080p": 1080, "fullhd": 1080, "fhd": 1080,
+    "720p": 720,
+    "480p": 480, "360p": 360,
 }
 
-_COMMON_WIDTHS = {1080, 720, 1920, 1280, 3840, 2560, 1440, 2160}
+# 画幅比例 → (宽单位, 高单位)。16:9 横屏、9:16 竖屏。
+_ASPECT_UNITS = {
+    "16:9": (16, 9), "16比9": (16, 9), "十六比九": (16, 9),
+    "9:16": (9, 16), "9比16": (9, 16), "九比十六": (9, 16),
+    "横屏": (16, 9), "横版": (16, 9), "宽屏": (16, 9),
+    "竖屏": (9, 16), "竖版": (9, 16),
+    "3:4": (3, 4), "4:3": (4, 3),
+    "1:1": (1, 1), "正方": (1, 1), "方形": (1, 1),
+}
+
+_COMMON_WIDTHS = {1080, 720, 1920, 1280, 3840, 2560, 1440, 2160, 4320}
+
+
+def _match_aspect_units(text: str) -> Optional[Tuple[int, int]]:
+    t = text.lower()
+    for alias in sorted(_ASPECT_UNITS, key=len, reverse=True):
+        if alias.lower() in t:
+            return _ASPECT_UNITS[alias]
+    return None
+
+
+def _match_quality_short_side(text: str) -> Optional[int]:
+    t = text.lower()
+    for key in sorted(_QUALITY_SHORT_SIDE, key=len, reverse=True):
+        if re.search(r"(?<![0-9a-z])" + re.escape(key) + r"(?![0-9a-z])", t):
+            return _QUALITY_SHORT_SIDE[key]
+    return None
 
 
 def _resolve_resolution(text: str) -> Optional[str]:
-    t = text.lower()
-    for alias, dims in _RESOLUTION_ALIAS.items():
-        if alias.lower() in t:
-            return f"{dims[0]}x{dims[1]}"
+    """画质等级（4K/1080p 等）与画幅比例（16:9/9:16 等）分开解析后组合成像。
+
+    4K + 16:9 → 3840×2160；不能因识别到 16:9 就把 4K 降级成 1920×1080。
+    只给画幅 → 默认 1080p（短边 1080）；只给画质 → 默认 16:9。
+    显式「3840x2160」数字写法仍直接通过。
+    """
+    aspect = _match_aspect_units(text)
+    quality_short = _match_quality_short_side(text)
+    if aspect or quality_short:
+        w_u, h_u = aspect if aspect else (16, 9)
+        short = quality_short if quality_short else 1080
+        unit = min(w_u, h_u)
+        scale = short / unit
+        w = int(round(w_u * scale))
+        h = int(round(h_u * scale))
+        return f"{w}x{h}"
     m = re.search(r"(\d{2,5})\s*[x×*]\s*(\d{2,5})", text)
     if m:
         w, h = int(m.group(1)), int(m.group(2))
@@ -122,7 +162,8 @@ def _resolve_duration(text: str) -> Optional[str]:
     if m:
         secs = int(float(m.group(1)) * 60)
     else:
-        m = re.search(r"(\d+(?:\.\d+)?)\s*秒", text)
+        # 支持中文「秒」与英文 s / sec / seconds；后缀 lookahead 防「16:9」等误匹配
+        m = re.search(r"(\d+(?:\.\d+)?)\s*(?:秒|秒钟|seconds?|secs?|s)(?![a-zA-Z])", text)
         if not m:
             return None
         secs = int(round(float(m.group(1))))
@@ -158,15 +199,40 @@ def _resolve_subtitle(text: str) -> Optional[str]:
     return None
 
 
+def _resolve_transition_mode(text: str) -> Optional[str]:
+    """明确转场意图 → fade（默认交叉淡化）；硬切/不要转场 → cut。
+
+    规则层此前只定义字段、从不提取——导致「素材衔接增加转场」被静默丢弃，
+    成片用了默认硬切。显式「加转场/自然衔接/过渡」归一化为 fade。
+    """
+    if any(w in text for w in ("不要转场", "无转场", "不要过渡", "硬切", "直接切", "硬接")):
+        return "cut"
+    if any(w in text for w in ("淡入淡出", "淡出", "淡入", "溶解", "交叉淡化", "crossfade",
+                               "转场", "过渡", "衔接")):
+        return "fade"
+    return None
+
+
 def _resolve_text_field(text: str, field: str, aliases: List[str]) -> Optional[str]:
     for alias in aliases:
-        if alias in text:
-            m = re.search(alias + r"\s*(?:叫|是|为|叫做|名为|设成|设为)?\s*[「『\"\']([^」「』\"\']+)", text)
-            if m:
-                return m.group(1).strip()
-            m = re.search(r"[「『\"\']([^」「』\"\']+)[」』\"\']\s*" + re.escape(alias), text)
-            if m:
-                return m.group(1).strip()
+        if alias not in text:
+            continue
+        # 「水印文字：'xxx'」「水印内容：xxx」：别名后可跟 文字/文本/内容/字样 + 冒号 + 引号文本
+        m = re.search(
+            alias + r"\s*(?:文字|文本|内容|字样)?\s*[：:]\s*[「『\"\']([^」「』\"\']+)[」』\"\']", text)
+        if m:
+            return m.group(1).strip()
+        # 冒号后无引号：「水印文字：历史演绎」→ 取到句内标点为止
+        m = re.search(alias + r"\s*(?:文字|文本|内容|字样)?\s*[：:]\s*([^，。；;\\n「『\"\']+)", text)
+        if m:
+            return m.group(1).strip()
+        # 原逻辑：别名后直接跟引号，或「引号文本 + 别名」
+        m = re.search(alias + r"\s*(?:叫|是|为|叫做|名为|设成|设为)?\s*[「『\"\']([^」「』\"\']+)", text)
+        if m:
+            return m.group(1).strip()
+        m = re.search(r"[「『\"\']([^」「』\"\']+)[」』\"\']\s*" + re.escape(alias), text)
+        if m:
+            return m.group(1).strip()
     return None
 
 
@@ -207,6 +273,9 @@ def _rule_resolve(brief: str) -> Tuple[Dict[str, str], List[str]]:
     sub = _resolve_subtitle(text)
     if sub:
         out["subtitle_mode"] = sub
+    tm = _resolve_transition_mode(text)
+    if tm:
+        out["transition_mode"] = tm
     for item in INTENT_FIELDS:
         if item["field"] in ("watermark", "title", "lower_third_name"):
             val = _resolve_text_field(text, item["field"], item["aliases"])
