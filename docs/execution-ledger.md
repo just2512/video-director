@@ -11,7 +11,7 @@
 
 1. The 2026-10-19 OpenFilm/Film Studio work and the 2026-11-07 Product IA work remain separate delivery lines.
 2. `main` is the only integration/release branch. Every new task uses a short-lived `work/wN-*` branch and a lightweight PR to `main`; direct feature-branch integration and synthetic path-scoped main trees are not permitted.
-3. Parallelism requires one frozen current-main SHA per batch, explicit disjoint file ownership, a named local/remote owner, an independent reviewer distinct from the implementation owner, and exact-SHA GitHub-hosted CI. The integration coordinator controls PR merge and final acceptance.
+3. Parallelism requires one frozen current-main SHA per batch, explicit disjoint file ownership, a named local/remote owner, and exact-SHA GitHub-hosted CI. In this single-maintainer repository, the owner may also coordinate integration and perform the final self-review; a second-agent read-only review is optional for high-risk changes.
 4. A task involving Windows file locks/paths, FFmpeg, Chromium/Edge media, real MP4 playback, local storage or production data is not accepted on hosted Linux evidence alone; required local acceptance must be PASS, otherwise overall status remains MISSING/BLOCKED.
 5. **No self-hosted/local runner, WSL runner, developer checkout, or local model-config file may be used by repository CI.** GitHub Actions jobs must use GitHub-hosted runners (Ubuntu or Windows).
 6. Real-provider acceptance may only run as an explicit opt-in on a GitHub-hosted runner with GitHub Actions Secrets. No local runner credentials or local storage are read.
