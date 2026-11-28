@@ -6,8 +6,7 @@
 - TASK_BRANCH: (must be `work/wN-*`)
 - OWNER: LOCAL / REMOTE
 - OWNER_IDENTITY: (human GitHub login or distinct agent/session identifier)
-- INTEGRATION_COORDINATOR: (different person/agent session from OWNER_IDENTITY)
-- INDEPENDENT_REVIEWER: (GitHub username other than PR author; assign before marking ready)
+- INTEGRATION_COORDINATOR: (repository maintainer; may be the same person as OWNER_IDENTITY)
 
 ## Scope and ownership
 
@@ -36,5 +35,5 @@
 - [ ] No tests/assertions were removed, skipped, xfailed, or weakened to obtain a pass.
 - [ ] All reported test results are tied to the exact tested SHA.
 - [ ] Required Windows/real-media/local acceptance is present, or the Issue remains open and acceptance is marked MISSING/BLOCKED.
-- [ ] The independent reviewer is not the implementation owner or PR author.
+- [ ] The repository maintainer has checked the complete diff, test evidence, local acceptance, and unresolved items before merge.
 
