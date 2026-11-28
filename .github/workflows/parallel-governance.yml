@@ -64,6 +64,8 @@ jobs:
               "BASE_SHA",
               "TASK_BRANCH",
               "OWNER",
+              "OWNER_IDENTITY",
+              "INTEGRATION_COORDINATOR",
               "INDEPENDENT_REVIEWER",
               "PROBLEM / EXPECTED_BEHAVIOR",
               "OWNED_FILES",
@@ -122,6 +124,24 @@ jobs:
               errors.append(
                   "Required local acceptance is not PASS; keep the PR draft or resolve the blocker"
               )
+
+          def field_value(name):
+              match = re.search(
+                  rf"(?im)^\\s*(?:[-*]\\s*)?{re.escape(name)}\\s*:\\s*([^\\n]+)",
+                  body,
+              )
+              return match.group(1).strip().strip("`") if match else ""
+
+          owner_identity = field_value("OWNER_IDENTITY")
+          coordinator_identity = field_value("INTEGRATION_COORDINATOR")
+          placeholders = {"", "pending", "tbd", "none", "unknown", "待指定", "待填写"}
+          if not draft:
+              if owner_identity.lower() in placeholders:
+                  errors.append("OWNER_IDENTITY must identify the implementation person or agent session")
+              if coordinator_identity.lower() in placeholders:
+                  errors.append("A named integration coordinator is required before the PR is ready")
+              elif coordinator_identity.lower() == owner_identity.lower():
+                  errors.append("The integration coordinator must be different from the implementation owner/session")
 
           reviewer_field = re.search(
               r"(?im)^\s*(?:[-*]\s*)?INDEPENDENT_REVIEWER\s*:\s*([^\n]+)",
