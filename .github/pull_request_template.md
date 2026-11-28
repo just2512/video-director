@@ -7,6 +7,9 @@
 - OWNER: LOCAL / REMOTE
 - OWNER_IDENTITY: (human GitHub login or distinct agent/session identifier)
 - INTEGRATION_COORDINATOR: (repository maintainer; may be the same person as OWNER_IDENTITY)
+- LOCAL_LANE_STATUS: NOT_STARTED / ACTIVE / BLOCKED / PASS / FAIL / MISSING / NOT_APPLICABLE
+- REMOTE_LANE_STATUS: NOT_STARTED / ACTIVE / CI_PENDING / BLOCKED / PASS / FAIL / NOT_APPLICABLE
+- NEXT_ACTION: (one executable next action or exact external blocker)
 
 ## Scope and ownership
 
