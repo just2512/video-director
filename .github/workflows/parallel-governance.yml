@@ -55,6 +55,9 @@ jobs:
               "OWNER",
               "OWNER_IDENTITY",
               "INTEGRATION_COORDINATOR",
+              "LOCAL_LANE_STATUS",
+              "REMOTE_LANE_STATUS",
+              "NEXT_ACTION",
               "PROBLEM / EXPECTED_BEHAVIOR",
               "OWNED_FILES",
               "NO_TOUCH",
@@ -127,7 +130,19 @@ jobs:
               if owner_identity.lower() in placeholders:
                   errors.append("OWNER_IDENTITY must identify the implementation person or agent session")
               if coordinator_identity.lower() in placeholders:
-                  errors.append("A named integration coordinator is required before the PR is ready")
+                  errors.append("INTEGRATION_COORDINATOR must identify the repository maintainer")
+
+          local_status = field_value("LOCAL_LANE_STATUS").upper()
+          remote_status = field_value("REMOTE_LANE_STATUS").upper()
+          next_action = field_value("NEXT_ACTION")
+          allowed_local = {"NOT_STARTED", "ACTIVE", "BLOCKED", "PASS", "FAIL", "MISSING", "NOT_APPLICABLE"}
+          allowed_remote = {"NOT_STARTED", "ACTIVE", "CI_PENDING", "BLOCKED", "PASS", "FAIL", "NOT_APPLICABLE"}
+          if local_status not in allowed_local:
+              errors.append("LOCAL_LANE_STATUS must use a documented state")
+          if remote_status not in allowed_remote:
+              errors.append("REMOTE_LANE_STATUS must use a documented state")
+          if next_action.lower() in placeholders:
+              errors.append("NEXT_ACTION must name one concrete action or external blocker")
 
           if errors:
               print("PARALLEL_GOVERNANCE=FAIL")
