@@ -26738,10 +26738,7 @@
     ] });
   };
   var StudioAiDirector = ({ model }) => {
-    const messages = model.messages.length ? model.messages : [{
-      role: "assistant",
-      text: "\u53EF\u4EE5\u76F4\u63A5\u6307\u6325\u5F53\u524D\u5F71\u7247\uFF0C\u4F8B\u5982\uFF1A\u201C\u7B2C\u4E8C\u955C\u8282\u594F\u592A\u6162\uFF0C\u7F29\u77ED\u4E00\u79D2\uFF0C\u97F3\u4E50\u4E0D\u53D8\uFF0C\u5B57\u5E55\u7EE7\u7EED\u8DDF\u7740\u65C1\u767D\u8D70\u201D\u3002AI \u4FEE\u6539\u4F1A\u5148\u9A8C\u8BC1\u76EE\u6807\u3001\u65F6\u95F4\u548C\u97F3\u753B\u4F9D\u8D56\uFF0C\u518D\u53CD\u9988\u64CD\u4F5C\u7ED3\u679C\u3002"
-    }];
+    const messages = model.messages;
     const proposal = model.proposal;
     const proposalIsStale = !!proposal && (!model.currentRevision || proposal.baseRevision !== model.currentRevision);
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
