@@ -13,10 +13,10 @@
 2. `main` is the only integration/release branch. Every new task uses a short-lived `work/wN-*` branch and a lightweight PR to `main`; direct feature-branch integration and synthetic path-scoped main trees are not permitted.
 3. Parallelism requires one frozen current-main SHA per batch, explicit disjoint file ownership, a named local/remote owner, an independent reviewer distinct from the implementation owner, and exact-SHA GitHub-hosted CI. The integration coordinator controls PR merge and final acceptance.
 4. A task involving Windows file locks/paths, FFmpeg, Chromium/Edge media, real MP4 playback, local storage or production data is not accepted on hosted Linux evidence alone; required local acceptance must be PASS, otherwise overall status remains MISSING/BLOCKED.
-4. **No self-hosted/local runner, WSL runner, developer checkout, or local model-config file may be used by repository CI.** GitHub Actions jobs must use GitHub-hosted runners (Ubuntu or Windows).
-5. Real-provider acceptance may only run as an explicit opt-in on a GitHub-hosted runner with GitHub Actions Secrets. No local runner credentials or local storage are read.
-6. A test added is not a feature delivered. A green scoped job is not an integrated PASS. Every PASS must identify the code SHA, business behavior, and test evidence.
-7. Missing evidence remains `UNKNOWN` or `MISSING`; it is never inferred from an older commit or documentation prose.
+5. **No self-hosted/local runner, WSL runner, developer checkout, or local model-config file may be used by repository CI.** GitHub Actions jobs must use GitHub-hosted runners (Ubuntu or Windows).
+6. Real-provider acceptance may only run as an explicit opt-in on a GitHub-hosted runner with GitHub Actions Secrets. No local runner credentials or local storage are read.
+7. A test added is not a feature delivered. A green scoped job is not an integrated PASS. Every PASS must identify the code SHA, business behavior, and test evidence.
+8. Missing evidence remains `UNKNOWN` or `MISSING`; it is never inferred from an older commit or documentation prose.
 
 ### Status vocabulary
 
